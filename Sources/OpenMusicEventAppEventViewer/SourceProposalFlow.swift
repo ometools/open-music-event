@@ -9,9 +9,32 @@ import SourceEditing
 
 public typealias SourceProposalTarget = OpenMusicEventSourceTarget
 
+public enum SourceProposalCreated: FeatureEventKey {
+    public typealias Value = SourcePatchPublication
+}
+
+public enum SourceProposalDismissed: FeatureEventKey {
+    public typealias Value = Void
+}
+
 @Feature
 public struct SourceProposalFlow {
     public init() {}
+
+    public struct Failure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
+    public enum Status: Equatable, Sendable {
+        case composing
+        case created(SourcePatchPublication)
+        case failed(Failure)
+        case proposing
+    }
 
     public struct FormValue: Equatable, Sendable {
         var description = ""
@@ -61,7 +84,7 @@ public struct SourceProposalFlow {
         public var sourceChangeGroups: [SourceChangeGroup]
         public var sourceFileAttributions: [SourceFileAttribution]
         public var sourceRecordComparisons: SourceRecordComparisons
-        public var status: EventWorkspace.SourceProposalStatus = .composing
+        public var status: Status = .composing
         public let target: SourceProposalTarget
 
         public var description: String {
@@ -78,15 +101,9 @@ public struct SourceProposalFlow {
     @CasePathable
     public enum Action {
         case createProposalButtonTapped
-        case delegate(Delegate)
         case doneButtonTapped
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
-    }
-
-    public enum Delegate: Equatable, Sendable {
-        case created(SourcePatchPublication)
-        case dismissed
     }
 
     @Dependency(\.openMusicEventSourcePatchLocationResolver) var sourcePatchLocationResolver
@@ -160,7 +177,7 @@ public struct SourceProposalFlow {
                         do {
                             try store.modify {
                                 $0.status = .failed(
-                                    EventWorkspace.SourceProposalFailure(
+                                    Failure(
                                         SourceProposalPublishFailed()
                                     )
                                 )
@@ -196,7 +213,7 @@ public struct SourceProposalFlow {
                         try store.modify {
                             $0.status = .created(publication)
                         }
-                        try store.send(.delegate(.created(publication)))
+                        try store.post(key: SourceProposalCreated.self, value: publication)
                     } catch {
                         if Task.isCancelled {
                             try store.modify {
@@ -224,7 +241,7 @@ public struct SourceProposalFlow {
                             do {
                                 try store.modify {
                                     $0.status = .failed(
-                                        EventWorkspace.SourceProposalFailure(
+                                        Failure(
                                             SourceProposalPublishFailed()
                                         )
                                     )
@@ -241,12 +258,9 @@ public struct SourceProposalFlow {
                     }
                 }
 
-            case .delegate:
-                break
-
             case .doneButtonTapped:
                 store.addTask {
-                    try store.send(.delegate(.dismissed))
+                    try store.post(key: SourceProposalDismissed.self, value: ())
                 }
 
             case .form:
@@ -283,6 +297,21 @@ public struct SourceProposalFlow {
         }
     }
 
+}
+
+public extension SourceProposalFlow.Status {
+    var canCreateProposal: Bool {
+        switch self {
+        case .composing, .failed:
+            true
+        case .created, .proposing:
+            false
+        }
+    }
+
+    var isProposing: Bool {
+        self == .proposing
+    }
 }
 
 enum SourceProposalFormFieldID {

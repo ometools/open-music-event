@@ -1219,12 +1219,13 @@ struct NavigationTests {
         let teamWorkspaceEditor = try #require(store.state.teamWorkspaceEditor)
         #expect(teamWorkspaceEditor.sourceBaselineID == sourceBaselineID)
         #expect(teamWorkspaceEditor.calendarID == calendarID)
-        #expect(teamWorkspaceEditor.sourceBaseline?.id == sourceBaselineID)
+        #expect(teamWorkspaceEditor.changes.sourceBaseline?.id == sourceBaselineID)
         await waitUntil {
-            store.state.teamWorkspaceEditor?.sourceWorkspaceSummary.availability == .available
+            store.state.teamWorkspaceEditor?.changes.sourceWorkspaceSummary.availability
+                == .available
         }
         expectNoDifference(
-            store.state.teamWorkspaceEditor?.sourceWorkspaceSummary.totalCount,
+            store.state.teamWorkspaceEditor?.changes.sourceWorkspaceSummary.totalCount,
             0
         )
     }
@@ -1334,20 +1335,11 @@ struct NavigationTests {
         }
 
         await withIssueReporters([reporter]) {
-            let task = store.send(.teamWorkspaceEditor(.generateSourcePatchButtonTapped)) {
-                $0.teamWorkspaceEditor?.sourcePatchStatus = .generating
-            }
-            await store.receive(
-                \.teamWorkspaceEditor,
-                .matching { action in
-                    if case .sourcePatchGenerationResponse(.success) = action {
-                        return true
-                    }
-                    return false
-                },
-                timeout: .seconds(1)
+            let task = store.send(
+                .teamWorkspaceEditor(.changes(.checkChangesButtonTapped))
             ) {
-                $0.teamWorkspaceEditor?.sourcePatchStatus = .generated(patch)
+                $0.teamWorkspaceEditor?.changes.sourcePatchStatus =
+                    .generating(.checkChanges)
             }
             await task?.value
         }
@@ -1667,18 +1659,18 @@ struct NavigationTests {
             }
         }
 
-        let refreshTask = store.send(.refreshSourceButtonTapped) {
-            $0.isRefreshingSource = true
+        let refreshTask = store.send(.reviews(.refreshSourceButtonTapped)) {
+            $0.reviews.sourceRefreshStatus = .refreshing
         }
         await gate.waitForStart()
-        #expect(store.state.isRefreshingSource)
+        #expect(store.state.reviews.sourceRefreshStatus == .refreshing)
 
-        store.send(.refreshSourceButtonTapped)
+        store.send(.reviews(.refreshSourceButtonTapped))
 
         await gate.open()
         await refreshTask?.value
 
-        #expect(store.state.isRefreshingSource == false)
+        #expect(store.state.reviews.sourceRefreshStatus == .idle)
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
     }
@@ -1871,12 +1863,12 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
             1
         )
         await store.send(
             to: \EventViewerHarness.State.eventWorkspace,
-            EventWorkspace.Action.refreshSourceButtonTapped
+            EventWorkspace.Action.reviews(.refreshSourceButtonTapped)
         )?.value
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
@@ -1889,10 +1881,11 @@ struct NavigationTests {
             EventViewer.EventFeature.workspace
         )
         await waitUntil {
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
+            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount
+                == 0
         }
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
             0
         )
     }
@@ -1979,10 +1972,10 @@ struct NavigationTests {
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
             initialState.eventViewer.selectedFeature = .workspace
-            initialState.eventViewer.eventWorkspace?.state.tangledPullReviewStatus = .loaded([
+            initialState.eventViewer.eventWorkspace?.state.reviews.reviewsStatus = .loaded([
                 review,
             ])
-            initialState.eventViewer.eventWorkspace?.state.selectedTangledPullReview = .loaded(review)
+            initialState.eventViewer.eventWorkspace?.state.reviews.selectedReview = .loaded(review)
             return TestStore(initialState: initialState) {
                 EventViewerHarness()
             }
@@ -2001,7 +1994,7 @@ struct NavigationTests {
         )
         await store.send(
             to: \EventViewerHarness.State.eventWorkspace,
-            EventWorkspace.Action.mergeTangledPullReviewButtonTapped(review)
+            EventWorkspace.Action.reviews(.approveButtonTapped(review))
         )?.value
 
         await waitUntil {
@@ -2018,12 +2011,13 @@ struct NavigationTests {
             ]
         )
         expectNoDifference(store.state.eventViewer.selectedFeature, EventViewer.EventFeature.workspace)
-        #expect(store.state.eventViewer.eventWorkspace?.state.selectedTangledPullReview == nil)
+        #expect(store.state.eventViewer.eventWorkspace?.state.reviews.selectedReview == nil)
         await waitUntil {
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
+            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount
+                == 0
         }
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
             0
         )
     }
@@ -2874,7 +2868,7 @@ struct NavigationTests {
             return (
                 scheduleTitles,
                 performanceTitles,
-                eventViewer.eventWorkspace?.state.sourceBaseline?.id,
+                eventViewer.eventWorkspace?.state.changes.sourceBaseline?.id,
                 workspaceSummary.totalCount
             )
         }

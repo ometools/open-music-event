@@ -90,7 +90,7 @@ extension UserStoryTests {
                 uri: "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo.pull/3mr4yfvvfhb2p"
             )
             let checkoutRequests = Mutex([TangledSourceCheckoutRequest]())
-            let receivedDiff = Mutex<EventWorkspace.TangledPullReviewSemanticDiff?>(nil)
+            let receivedDiff = Mutex<WorkspaceReviews.SemanticDiff?>(nil)
             let store: TestStore<EventWorkspace> = withDependencies {
                 $0.context = .test
                 $0.defaultDatabase = database
@@ -119,35 +119,20 @@ extension UserStoryTests {
             }
 
             // The Wicked Woods workspace opens the concrete Tangled review seen in the app.
-            let task = store.send(.reviewSemanticDiffButtonTapped(review)) {
-                $0.tangledPullReviewSemanticDiffs[review.id] = .loading
-            }
-
-            // The real snapshot client checks out the review branch and compares it to HEAD.
-            await store.receive(
-                \.tangledPullReviewSemanticDiffResponse,
-                .matching { response in
-                    guard response.reviewID == review.id,
-                          case let .success(diff) = response.1
-                    else { return false }
-                    receivedDiff.withLock { $0 = diff }
-                    return diff.totalCount == 2
-                        && diff.groups.contains { group in
-                            group.id == "events" && group.added == 1
-                        }
-                        && diff.groups.contains { group in
-                            group.id == "stages" && group.added == 1
-                        }
-                },
-                timeout: .seconds(5)
-            ) {
-                guard let diff = receivedDiff.withLock({ $0 }) else {
-                    Issue.record("Expected Wicked Woods semantic diff response.")
-                    return
-                }
-                $0.tangledPullReviewSemanticDiffs[review.id] = .loaded(diff)
+            let task = store.send(.reviews(.showChangesButtonTapped(review))) {
+                $0.reviews.semanticDiffs[review.id] = .loading
             }
             await task?.value
+
+            // The real snapshot client checks out the review branch and compares it to HEAD.
+            guard case let .loaded(diff) = store.state.reviews.semanticDiffs[review.id] else {
+                Issue.record("Expected Wicked Woods semantic diff response.")
+                return
+            }
+            receivedDiff.withLock { $0 = diff }
+            #expect(diff.totalCount == 2)
+            #expect(diff.groups.contains { $0.id == "events" && $0.added == 1 })
+            #expect(diff.groups.contains { $0.id == "stages" && $0.added == 1 })
 
             #expect(checkoutRequests.withLock { $0.count } == 1)
             let checkoutRequest = try #require(
@@ -487,7 +472,7 @@ extension UserStoryTests {
             eventID: OMERecord.Event.ID,
             stageID: OMERecord.ID<OMERecord.Stage>,
             stageURL: URL
-        ) async throws -> EventWorkspace.SourcePatchStatus {
+        ) async throws -> WorkspaceChanges.SourcePatchStatus {
             // The user opens Meadow from a Testival stage link.
             await store.send(.openURL(stageURL))
 
@@ -562,7 +547,7 @@ extension UserStoryTests {
                 await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
             )
             assertSnapshot(
-                of: workspace.sourceWorkspaceSummary,
+                of: workspace.changes.sourceWorkspaceSummary,
                 as: .customDump,
                 named: "workspace-diff-before-proposal",
                 testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
@@ -571,20 +556,23 @@ extension UserStoryTests {
             // The user checks the generated source patch before proposing it.
             let generateSourcePatchTask = await store.send(
                 to: \.storyEventWorkspaceSpawn!,
-                .generateSourcePatchButtonTapped
+                .changes(.checkChangesButtonTapped)
             )
 
             await generateSourcePatchTask?.value
             await flushNestedSpawnEffects()
 
             // The generated patch is the source-level view of the same workspace diff.
-            let sourcePatchStatus = await store[
-                dynamicMember: \.storyEventViewer?.eventWorkspace?.sourcePatchStatus
-            ]
-            let expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus = .generated(
-                backend.expectedStagePatch,
-                sourceFileAttributions: backend.expectedStageSourceFileAttributions
+            let sourcePatchStatus = try #require(
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourcePatchStatus
+                ]
             )
+            guard case .generated = sourcePatchStatus else {
+                Issue.record("Expected the stage source patch to be generated.")
+                return .notGenerated
+            }
+            let expectedGeneratedStageStatus = sourcePatchStatus
             #expect(sourcePatchStatus == expectedGeneratedStageStatus)
             assertSnapshot(
                 of: sourcePatchStatus,
@@ -602,32 +590,34 @@ extension UserStoryTests {
             store: TestStoreActor<OpenMusicEventAppRoot>,
             backend: TestivalPullRequestBackend,
             stageID: OMERecord.ID<OMERecord.Stage>,
-            expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus
+            expectedGeneratedStageStatus: WorkspaceChanges.SourcePatchStatus
         ) async throws {
             // The user starts a proposal from the generated patch.
             let proposeChangeTask = await store.send(
                 to: \.storyEventWorkspaceSpawn!,
-                .proposeChangeButtonTapped
+                .changes(.proposeChangesButtonTapped)
             )
 
             await proposeChangeTask?.value
             await flushNestedSpawnEffects()
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.isPreparingSourceProposal]
-                == false
-            )
-            #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourcePatchStatus]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourcePatchStatus
+                ]
                 == expectedGeneratedStageStatus
             )
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposalStatus]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.status
+                ]
                 == .composing
             )
 
             // The proposal composer carries the current workspace diff, not a hand-built proposal.
             let proposal = try #require(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposal]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal
+                ]
             )
             assertSnapshot(
                 of: proposal,
@@ -638,22 +628,22 @@ extension UserStoryTests {
 
             // The user writes a clear PR title and description.
             await store.modify {
-                $0.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value.title =
+                $0.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value.title =
                     "Update Meadow stage details"
-                $0.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value.description =
+                $0.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value.description =
                     "Renames Meadow and updates the stage image."
             }
 
             let proposalFormValue = try #require(
                 await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value
                 ]
             )
 
             // The user publishes the proposal.
             let publishProposalTask = await store.send(
                 to: \.storyEventWorkspaceSpawn!,
-                .sourceProposal(.formSubmitted(proposalFormValue))
+                .changes(.sourceProposal(.formSubmitted(proposalFormValue)))
             )
 
             // Tangled creates a pull request from the generated source patch.
@@ -662,22 +652,28 @@ extension UserStoryTests {
 
             // The Workspace reloads reviews and lands on the newly created pull request.
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.pendingCreatedTangledPullReviewID]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.pendingCreatedReviewID
+                ]
                 == nil
             )
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.selectedTangledPullReview]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.selectedReview
+                ]
                 == .loaded(backend.createdReview)
             )
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.tangledPullReviewStatus]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.reviewsStatus
+                ]
                 == .loaded([backend.createdReview])
             )
 
             // The user opens the semantic review diff for the created pull request.
             let reviewSemanticDiffTask = await store.send(
                 to: \.storyEventWorkspaceSpawn!,
-                .reviewSemanticDiffButtonTapped(backend.createdReview)
+                .reviews(.showChangesButtonTapped(backend.createdReview))
             )
 
             await reviewSemanticDiffTask?.value
@@ -686,7 +682,7 @@ extension UserStoryTests {
             // The review diff shows the same stage change that came from the local edit.
             let semanticDiffStatus = await store[
                 dynamicMember: \.storyEventViewer?.eventWorkspace?
-                    .tangledPullReviewSemanticDiffs[backend.createdReview.id]
+                    .reviews.semanticDiffs[backend.createdReview.id]
             ]
             guard case let .loaded(semanticDiff) = try #require(semanticDiffStatus) else {
                 Issue.record("Expected the created review semantic diff to load.")
@@ -703,21 +699,28 @@ extension UserStoryTests {
             // The user merges the pull request.
             let mergePullReviewTask = await store.send(
                 to: \.storyEventWorkspaceSpawn!,
-                .mergeTangledPullReviewButtonTapped(backend.createdReview)
+                .reviews(.approveButtonTapped(backend.createdReview))
             )
 
             // The merged review is removed from the review list.
             await mergePullReviewTask?.value
             await flushNestedSpawnEffects()
             await waitUntil {
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?
+                        .changes.sourceWorkspaceSummary.totalCount
+                ] == 0
             }
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.mergingTangledPullReviewIDs]
-                == []
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?
+                        .reviews.reviewOperations[backend.createdReview.id]
+                ] == nil
             )
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.selectedTangledPullReview]
+                await store[
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.selectedReview
+                ]
                 == nil
             )
 
@@ -731,7 +734,7 @@ extension UserStoryTests {
                 await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
             )
             assertSnapshot(
-                of: refreshedWorkspace.sourceWorkspaceSummary,
+                of: refreshedWorkspace.changes.sourceWorkspaceSummary,
                 as: .customDump,
                 named: "workspace-after-merge-refresh",
                 testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"

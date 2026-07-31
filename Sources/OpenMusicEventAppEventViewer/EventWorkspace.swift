@@ -201,210 +201,6 @@ extension SourceWorkspaceSummary {
 public struct EventWorkspace {
     public init() {}
 
-    public enum SourcePatchStatus: Equatable, Sendable {
-        case failed(SourcePatchGenerationFailure)
-        case generated(SourcePatch, sourceFileAttributions: [SourceFileAttribution] = [])
-        case generating
-        case needsGeneration
-        case notGenerated
-    }
-
-    public enum SourceProposalStatus: Equatable, Sendable {
-        case composing
-        case created(SourcePatchPublication)
-        case failed(SourceProposalFailure)
-        case idle
-        case proposing
-    }
-
-    public enum TangledPullReviewStatus: Equatable, Sendable {
-        case failed(TangledPullReviewFailure)
-        case loaded([TangledPullReview])
-        case loading
-        case notLoaded
-    }
-
-    public enum TangledPullReviewSemanticDiffStatus: Equatable, Sendable {
-        case failed(TangledPullReviewSemanticDiffFailure)
-        case loaded(TangledPullReviewSemanticDiff)
-        case loading
-        case notLoaded
-    }
-
-    public struct SourcePatchGenerationFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-
-        public init(message: String) {
-            self.message = message
-        }
-    }
-
-    public struct SourceProposalPreparation: Equatable, Sendable {
-        public var patch: SourcePatch
-        public var sourceFileAttributions: [SourceFileAttribution]
-        public var sourceWorkspaceSummary: SourceWorkspaceSummary
-
-        public init(
-            patch: SourcePatch,
-            sourceFileAttributions: [SourceFileAttribution] = [],
-            sourceWorkspaceSummary: SourceWorkspaceSummary
-        ) {
-            self.patch = patch
-            self.sourceFileAttributions = sourceFileAttributions
-            self.sourceWorkspaceSummary = sourceWorkspaceSummary
-        }
-    }
-
-    public struct SourceProposalFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct ResetEditsFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct TangledPullReviewFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct TangledPullReviewCloseFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct TangledPullReviewDeleteFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct TangledPullReviewMergeFailure: Equatable, UserFacingErrorConvertible, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = Self.message(for: error)
-        }
-
-        public func userFacingError(in context: ErrorHandlingContext) -> ParsedError {
-            ParsedError(
-                message: context.fallbackMessage,
-                kind: .unhandled,
-                debugDescription: message
-            )
-        }
-
-        private static func message(for error: any Error) -> String {
-            guard case let HTTPError.httpError(status, body, _) = error else {
-                return String(describing: error)
-            }
-
-            guard let bodyMessage = body.flatMap(httpResponseBodyMessage) else {
-                return "HTTP \(status.code)"
-            }
-            return "HTTP \(status.code): \(bodyMessage)"
-        }
-
-        private static func httpResponseBodyMessage(_ data: Data) -> String? {
-            if let object = try? JSONSerialization.jsonObject(with: data),
-               let json = object as? [String: Any] {
-                let error = json["error"] as? String
-                let message = json["message"] as? String
-
-                switch (error?.isEmpty == false ? error : nil, message?.isEmpty == false ? message : nil) {
-                case let (error?, message?):
-                    return "\(error): \(message)"
-                case let (error?, nil):
-                    return error
-                case let (nil, message?):
-                    return message
-                case (nil, nil):
-                    break
-                }
-            }
-
-            if let string = String(data: data, encoding: .utf8),
-               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return string
-            }
-
-            return nil
-        }
-    }
-
-    public struct TangledPullReviewSemanticDiffFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
-    public struct TangledPullReviewSemanticDiff: Equatable, Sendable {
-        public var groups: [SourceChangeGroup]
-        public var recordComparisons: SourceRecordComparisons
-        public var sourceFileAttributions: [SourceFileAttribution]
-
-        public init(
-            groups: [SourceChangeGroup],
-            recordComparisons: SourceRecordComparisons,
-            sourceFileAttributions: [SourceFileAttribution] = []
-        ) {
-            self.groups = groups
-            self.recordComparisons = recordComparisons
-            self.sourceFileAttributions = sourceFileAttributions
-        }
-
-        public var totalCount: Int {
-            groups.reduce(0) { $0 + $1.totalCount }
-        }
-    }
-
-    public struct PendingDeletedTangledPullReview: Equatable, Sendable {
-        public var review: TangledPullReview
-        public var index: Int
-
-        public init(review: TangledPullReview, index: Int) {
-            self.review = review
-            self.index = index
-        }
-    }
-
-    public enum SelectedTangledPullReview: Equatable, Sendable {
-        case loaded(TangledPullReview)
-
-        public var id: String {
-            switch self {
-            case let .loaded(review):
-                review.id
-            }
-        }
-    }
-
-    public struct ResetEditsSuccess: Equatable, Sendable {
-        public init() {}
-    }
-
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
             self.init(target: .event(eventID))
@@ -419,85 +215,31 @@ public struct EventWorkspace {
 
         public init(target: SourceProposalTarget) {
             self._authoringGrant = Self.authoringGrant()
-            self._cachedActorIdentities = Fetch(
-                wrappedValue: CachedActorIdentities(),
-                CachedActorIdentitiesRequest()
-            )
             self.target = target
-            self._sourceWorkspaceSummary = Fetch(
-                wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
-                SourceWorkspaceSummary.query(target: target)
-            )
-            self._sourceProvenance = FetchOne(
-                Self.sourceProvenanceQuery(target: target)
-            )
-            self._sourceBaseline = FetchOne(
-                Self.sourceBaselineQuery(target: target)
-            )
+            self.changes = WorkspaceChanges.State(target: target)
+            self.reviews = WorkspaceReviews.State(target: target)
         }
 
         public let target: SourceProposalTarget
         public var id: String { target.id }
-        @DebugSnapshotIgnored
-        @Fetch public var cachedActorIdentities: CachedActorIdentities
-        @DebugSnapshotIgnored
-        @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         @SharedReader public var authoringGrant: AuthoringGrant?
-        public var isPreparingSourceProposal = false
-        public var isRefreshingSource = false
-        public var isResettingEdits = false
-        public var resetEditsFailure: ResetEditsFailure?
-        public var sourcePatchStatus: SourcePatchStatus = .notGenerated
-        public var sourceProposalStatus: SourceProposalStatus = .idle
-        @DebugSnapshotIgnored
-        public var sourceProposal: SourceProposalFlow.State?
+        public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
-        public var selectedTangledPullReview: SelectedTangledPullReview?
-        public var pendingCreatedTangledPullReviewID: String?
-        public var tangledPullReviewStatus: TangledPullReviewStatus = .notLoaded
-        public var locallyRemovedTangledPullReviewIDs: Set<String> = []
-        public var closingTangledPullReviewIDs: Set<String> = []
-        public var deletingTangledPullReviewIDs: Set<String> = []
-        public var mergingTangledPullReviewIDs: Set<String> = []
-        public var pendingDeletedTangledPullReviews:
-            [String: PendingDeletedTangledPullReview] = [:]
-        public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
-        public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
-        public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
-        public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
+        public var reviews: WorkspaceReviews.State
+        public var selectedPage: Page = .changes
         public var account = Spawn(Account.State())
-        @FetchOne public var sourceBaseline: SourceBaselineRecord?
-        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
-
-        public var workspaceOwnerIdentity: WorkspaceActorIdentity {
-            guard let actor = sourceContext?.ownerActorReference,
-                  let identity = cachedActorIdentities[actor]
-            else { return .unavailable }
-            return .loaded(identity)
-        }
-
-        public var tangledPullReviewAuthorIdentities: [String: WorkspaceActorIdentity] {
-            guard case let .loaded(reviews) = tangledPullReviewStatus else { return [:] }
-            return Dictionary(
-                uniqueKeysWithValues: Set(reviews.map(\.author).filter { !$0.isEmpty })
-                    .map { author in
-                        (
-                            author,
-                            cachedActorIdentities[author].map(WorkspaceActorIdentity.loaded)
-                                ?? .unavailable
-                        )
-                    }
-            )
-        }
 
         public var changeCount: Int? {
-            sourceWorkspaceSummary.badgeCount
+            changes.sourceWorkspaceSummary.badgeCount
         }
 
-        public var eventID: OMERecord.Event.ID {
-            guard case let .event(eventID) = target else {
-                preconditionFailure("Calendar source workspaces do not have one event ID.")
-            }
+        public var calendarID: OMERecord.Calendar.ID? {
+            guard case let .calendar(calendarID, _) = target else { return nil }
+            return calendarID
+        }
+
+        public var eventID: OMERecord.Event.ID? {
+            guard case let .event(eventID) = target else { return nil }
             return eventID
         }
 
@@ -506,91 +248,80 @@ public struct EventWorkspace {
             case let .calendar(_, sourceBaselineID):
                 sourceBaselineID
             case .event:
-                sourceProvenance?.sourceBaselineID
+                changes.sourceProvenance?.sourceBaselineID
             }
         }
 
-        public var calendarID: OMERecord.Calendar.ID? {
-            switch target {
-            case let .calendar(calendarID, _):
-                calendarID
-            case .event:
-                nil
-            }
+        public var canCreateEvent: Bool {
+            guard case .calendar = target else { return false }
+            return true
         }
 
-        public var sourceChangesScope: SourceChangesScope {
-            switch target {
-            case let .calendar(calendarID, sourceBaselineID):
-                .source(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
-            case let .event(eventID):
-                if let sourceBaselineID {
-                    .source(
-                        sourceBaselineID: sourceBaselineID,
-                        calendarID: OMERecord.Calendar.ID(
-                            ownerID: eventID.organizerID,
-                            calendarID: OMERecord.Calendar.defaultID
-                        )
-                    )
-                } else {
-                    .event(eventID)
+        public var availablePages: [Page] {
+            var pages: [Page] = [.changes]
+            if collaborators != nil {
+                pages.append(.collaborators)
+            }
+            if reviews.canReview {
+                pages.append(.reviews)
+            }
+            return pages
+        }
+
+        mutating func reloadCollaboratorsForAuthoringAccess() {
+            guard let grant = authoringGrant,
+                  case .actor = grant.principal,
+                  grant.role.canManageCollaborators
+            else {
+                collaborators = nil
+                if selectedPage == .collaborators {
+                    selectedPage = .changes
                 }
+                return
             }
-        }
-
-        public var workspaceSummary: EventWorkspaceSummary {
-            EventWorkspaceSummary(
-                eventID: eventID,
-                availability: sourceWorkspaceSummary.availability.eventWorkspaceAvailability,
-                groups: sourceWorkspaceSummary.groups,
-                recordComparisons: sourceWorkspaceSummary.recordComparisons
+            guard collaborators?.workspaceID != grant.workspaceID else { return }
+            collaborators = WorkspaceCollaborators.State(
+                workspaceID: grant.workspaceID,
+                role: grant.role
             )
         }
 
-        private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
+        static func authoringGrant() -> SharedReader<AuthoringGrant?> {
             @Dependency(\.authoringGrant) var authoringGrant
             return authoringGrant
         }
     }
 
+    public enum Page: String, CaseIterable, Identifiable {
+        case changes
+        case collaborators
+        case reviews
+
+        public var id: Self { self }
+
+        public func title(for target: SourceProposalTarget) -> String {
+            switch self {
+            case .changes:
+                switch target {
+                case .calendar:
+                    "Changes"
+                case .event:
+                    "Draft"
+                }
+            case .collaborators:
+                "Collaborators"
+            case .reviews:
+                "Reviews"
+            }
+        }
+    }
+
     public enum Action {
-        case closeTangledPullReviewButtonTapped(TangledPullReview)
+        case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
         case createEventButtonTapped
         case delegate(Delegate)
-        case deleteTangledPullReviewForeverButtonTapped(TangledPullReview)
-        case generateSourcePatchButtonTapped
-        case mergeTangledPullReviewButtonTapped(TangledPullReview)
-        case onAppear
-        case proposeChangeButtonTapped
-        case reviewSemanticDiffButtonTapped(TangledPullReview)
-        case refreshTangledPullReviewsButtonTapped
-        case refreshSourceButtonTapped
-        case resetEditsButtonTapped
-        case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
-        case sourcePatchGenerationResponse(Result<SourceProposalPreparation, SourcePatchGenerationFailure>)
-        case sourceProposalPreparationResponse(
-            Result<SourceProposalPreparation, SourcePatchGenerationFailure>
-        )
-        case sourceProposal(SourceProposalFlow.Action)
-        case tangledPullReviewTapped(TangledPullReview)
-        case tangledPullReviewSemanticDiffResponse(
-            reviewID: String,
-            Result<TangledPullReviewSemanticDiff, TangledPullReviewSemanticDiffFailure>
-        )
-        case tangledPullReviewCloseResponse(
-            review: TangledPullReview,
-            Result<Void, TangledPullReviewCloseFailure>
-        )
-        case tangledPullReviewDeleteResponse(
-            review: TangledPullReview,
-            Result<Void, TangledPullReviewDeleteFailure>
-        )
-        case tangledPullReviewMergeResponse(
-            review: TangledPullReview,
-            Result<Void, TangledPullReviewMergeFailure>
-        )
-        case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
+        case reviews(WorkspaceReviews.Action)
     }
 
     public enum Delegate: Equatable, Sendable {
@@ -600,684 +331,67 @@ public struct EventWorkspace {
         )
     }
 
-    @Dependency(\.eventWorkspaceResetter) var workspaceResetter
-    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-    @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
-    var calendarSourcePatchGenerator
-    @Dependency(\.defaultDatabase) var database
-    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-    @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
-    @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
-
-    private func refreshTangledPullReviews(
-        target: SourceProposalTarget,
-        state: inout State
-    ) {
-        guard state.sourceKind == .tangled else {
-            state.tangledPullReviewStatus = .notLoaded
-            return
-        }
-
-        let tangledPullReviewClient = tangledPullReviewClient
-        state.tangledPullReviewStatus = .loading
-        store.addTask {
-            do {
-                let reviews = try await tangledPullReviewClient.list(
-                    OpenMusicEventTangledPullReviewRequest(target: target)
-                )
-                try store.send(.tangledPullReviewsResponse(.success(reviews)))
-            } catch {
-                await store.reportError(
-                    error,
-                    fallbackMessage: .tangledPullReviewLoadFailed,
-                    operation: .tangledPullReviewLoad
-                )
-                try store.send(
-                    .tangledPullReviewsResponse(
-                        .failure(TangledPullReviewFailure(error))
-                    )
-                )
-            }
-        }
-    }
-
     public var body: some Feature {
-        let _ = Self._logChanges()
-        ComposableArchitecture2.Update { state, action in
-            let calendarSourcePatchGenerator = calendarSourcePatchGenerator
-            let database = database
-
-            func prepareSourcePatch(
-                sourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest,
-                sourceWorkspaceSummary: SourceWorkspaceSummary
-            ) async throws -> SourceProposalPreparation {
-                let patch = try await calendarSourcePatchGenerator.generate(sourcePatchRequest)
-                let sourceFileAttributions = try await database.read { db in
-                    try openMusicEventSourceFileAttributions(
-                        patch: patch,
-                        groups: sourceWorkspaceSummary.groups,
-                        recordComparisons: sourceWorkspaceSummary.recordComparisons,
-                        in: db
-                    )
-                }
-                return SourceProposalPreparation(
-                    patch: patch,
-                    sourceFileAttributions: sourceFileAttributions,
-                    sourceWorkspaceSummary: sourceWorkspaceSummary
-                )
+        Features {
+            Scope(\.changes, action: \.changes) {
+                WorkspaceChanges()
             }
-
-            func generateSourcePatch(
-                state: inout State
-            ) {
-                guard state.canGenerateSourcePatch,
-                      let sourcePatchRequest = state.workspaceSourcePatchRequest
-                else { return }
-                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
-                state.sourcePatchStatus = .generating
-                store.addTask {
-                    do {
-                        try store.send(
-                            .sourcePatchGenerationResponse(
-                                .success(
-                                    try await prepareSourcePatch(
-                                        sourcePatchRequest: sourcePatchRequest,
-                                        sourceWorkspaceSummary: sourceWorkspaceSummary
-                                    )
-                                )
-                            )
-                        )
-                    } catch {
-                        try store.send(
-                            .sourcePatchGenerationResponse(
-                                .failure(SourcePatchGenerationFailure(error))
-                            )
-                        )
-                    }
-                }
+            Scope(\.reviews, action: \.reviews) {
+                WorkspaceReviews()
             }
+            Update { state, action in
+                switch action {
+                case .changes, .collaborators, .reviews:
+                    break
 
-            func prepareSourceProposal(
-                state: inout State
-            ) {
-                guard !state.sourcePatchStatus.isGenerating,
-                      !state.sourceProposalStatus.isProposing,
-                      state.canPublishSourceProposal,
-                      let sourcePatchRequest = state.workspaceSourcePatchRequest
-                else { return }
-                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
-                state.isPreparingSourceProposal = true
-                state.sourcePatchStatus = .generating
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-                store.addTask {
-                    do {
-                        try store.send(
-                            .sourceProposalPreparationResponse(
-                                .success(
-                                    try await prepareSourcePatch(
-                                        sourcePatchRequest: sourcePatchRequest,
-                                        sourceWorkspaceSummary: sourceWorkspaceSummary
-                                    )
-                                )
-                            )
-                        )
-                    } catch {
-                        try store.send(
-                            .sourceProposalPreparationResponse(
-                                .failure(SourcePatchGenerationFailure(error))
-                            )
-                        )
-                    }
-                }
-            }
-
-            func refreshSource(state: inout State) {
-                guard !state.isRefreshingSource else { return }
-                switch state.target {
-                case let .calendar(_, sourceBaselineID):
-                    let sourceDataRefresh = sourceDataRefresh
-                    let sourceWorkspaceSummary = state.$sourceWorkspaceSummary
-                    state.isRefreshingSource = true
-                    store.addTask {
-                        let result: Void? = await store.withErrorHandling(
-                            fallbackMessage: .sourceDataRefreshFailed,
-                            operation: .sourceDataRefresh
-                        ) {
-                            try await sourceDataRefresh.refresh(sourceBaselineID)
-                        } cleanup: {
-                            $0.isRefreshingSource = false
-                        }
-                        guard result != nil else { return }
-                        try await sourceWorkspaceSummary.load()
-                        try store.modify {
-                            $0.isRefreshingSource = false
-                        }
-                    }
-
-                case let .event(eventID):
-                    guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
+                case .createEventButtonTapped:
+                    guard case let .calendar(calendarID, sourceBaselineID) = state.target else {
                         return
                     }
-                    let request = SourceDataRefreshRequest(
-                        eventID: eventID,
-                        sourceBaselineID: sourceBaselineID
-                    )
                     store.addTask {
-                        try store.post(key: SourceDataRefreshRequested.self, value: request)
+                        try store.send(
+                            .delegate(
+                                .createEventRequested(
+                                    sourceBaselineID: sourceBaselineID,
+                                    calendarID: calendarID
+                                )
+                            )
+                        )
                     }
-                }
-            }
 
-            func loadTangledPullReviewSemanticDiff(
-                review: TangledPullReview,
-                state: inout State
-            ) {
-                switch state.tangledPullReviewSemanticDiffs[review.id] {
-                case .loaded, .loading:
-                    return
-                case .failed, .notLoaded, nil:
+                case .delegate:
                     break
                 }
-                guard let sourceProvenance = state.sourceReviewProvenance,
-                      let sourceBaselineID = state.sourceBaselineID
-                else { return }
-                let target = state.target
-                let sourceSnapshot = tangledPullReviewSourceSnapshot
-                state.tangledPullReviewSemanticDiffs[review.id] = .loading
-                store.addTask {
-                    do {
-                        let diff = try await TangledPullReviewSemanticDiff.reviewBranchDiff(
-                            target: target,
-                            sourceBaselineID: sourceBaselineID,
-                            review: review,
-                            sourceProvenance: sourceProvenance,
-                            sourceSnapshot: sourceSnapshot
-                        )
-                        try store.send(
-                            .tangledPullReviewSemanticDiffResponse(
-                                reviewID: review.id,
-                                .success(diff)
-                            )
-                        )
-                    } catch {
-                        try store.send(
-                            .tangledPullReviewSemanticDiffResponse(
-                                reviewID: review.id,
-                                .failure(TangledPullReviewSemanticDiffFailure(error))
-                            )
-                        )
-                    }
-                }
             }
-
-            func closeTangledPullReview(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                guard !state.closingTangledPullReviewIDs.contains(review.id),
-                      !state.deletingTangledPullReviewIDs.contains(review.id),
-                      !state.mergingTangledPullReviewIDs.contains(review.id)
-                else { return }
-
-                let tangledPullReviewClient = tangledPullReviewClient
-                state.closingTangledPullReviewIDs.insert(review.id)
-                state.tangledPullReviewCloseFailures[review.id] = nil
-                store.addTask {
-                    do {
-                        try await tangledPullReviewClient.close(review)
-                        try store.send(
-                            .tangledPullReviewCloseResponse(review: review, .success(()))
-                        )
-                    } catch {
-                        await store.reportError(
-                            error,
-                            fallbackMessage: .tangledPullReviewCloseFailed,
-                            operation: .tangledPullReviewClose
-                        )
-                        try store.send(
-                            .tangledPullReviewCloseResponse(
-                                review: review,
-                                .failure(TangledPullReviewCloseFailure(error))
-                            )
-                        )
-                    }
-                }
-            }
-
-            func deleteTangledPullReviewForever(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                guard !state.deletingTangledPullReviewIDs.contains(review.id),
-                      !state.closingTangledPullReviewIDs.contains(review.id),
-                      !state.mergingTangledPullReviewIDs.contains(review.id)
-                else { return }
-
-                let tangledPullReviewClient = tangledPullReviewClient
-                state.deletingTangledPullReviewIDs.insert(review.id)
-                optimisticallyRemoveDeletedTangledPullReview(review, state: &state)
-                store.addTask {
-                    do {
-                        try await tangledPullReviewClient.delete(review)
-                        try store.send(
-                            .tangledPullReviewDeleteResponse(review: review, .success(()))
-                        )
-                    } catch {
-                        await store.reportError(
-                            error,
-                            fallbackMessage: .tangledPullReviewDeleteFailed,
-                            operation: .tangledPullReviewDelete
-                        )
-                        try store.send(
-                            .tangledPullReviewDeleteResponse(
-                                review: review,
-                                .failure(TangledPullReviewDeleteFailure(error))
-                            )
-                        )
-                    }
-                }
-            }
-
-            func mergeTangledPullReview(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                guard state.authoringGrant?.role.canMerge == true,
-                      !state.mergingTangledPullReviewIDs.contains(review.id),
-                      !state.closingTangledPullReviewIDs.contains(review.id),
-                      !state.deletingTangledPullReviewIDs.contains(review.id)
-                else { return }
-
-                let target = state.target
-                let tangledPullReviewClient = tangledPullReviewClient
-                state.mergingTangledPullReviewIDs.insert(review.id)
-                state.tangledPullReviewMergeFailures[review.id] = nil
-                store.addTask {
-                    do {
-                        try await tangledPullReviewClient.merge(
-                            OpenMusicEventTangledPullReviewMergeRequest(
-                                target: target,
-                                review: review
-                            )
-                        )
-                        try store.send(
-                            .tangledPullReviewMergeResponse(review: review, .success(()))
-                        )
-                    } catch {
-                        let failure = TangledPullReviewMergeFailure(error)
-                        await store.reportError(
-                            failure,
-                            fallbackMessage: .tangledPullReviewMergeFailed,
-                            operation: .tangledPullReviewMerge
-                        )
-                        try store.send(
-                            .tangledPullReviewMergeResponse(
-                                review: review,
-                                .failure(failure)
-                            )
-                        )
-                    }
-                }
-            }
-
-            func optimisticallyRemoveDeletedTangledPullReview(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                state.pendingDeletedTangledPullReviews[review.id] = nil
-                if case let .loaded(reviews) = state.tangledPullReviewStatus,
-                   let index = reviews.firstIndex(where: { $0.id == review.id })
-                {
-                    state.pendingDeletedTangledPullReviews[review.id] =
-                        PendingDeletedTangledPullReview(
-                            review: reviews[index],
-                            index: index
-                        )
-                }
-                removeTangledPullReviewFromLoadedState(review, state: &state)
-            }
-
-            func removeTangledPullReviewFromLoadedState(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                state.locallyRemovedTangledPullReviewIDs.insert(review.id)
-                state.tangledPullReviewCloseFailures[review.id] = nil
-                state.tangledPullReviewDeleteFailures[review.id] = nil
-                state.tangledPullReviewMergeFailures[review.id] = nil
-                state.tangledPullReviewSemanticDiffs[review.id] = nil
-                if state.selectedTangledPullReview?.id == review.id {
-                    state.selectedTangledPullReview = nil
-                }
-                if case let .loaded(reviews) = state.tangledPullReviewStatus {
-                    state.tangledPullReviewStatus = .loaded(
-                        reviews.filter { $0.id != review.id }
-                    )
-                }
-            }
-
-            func restoreTangledPullReviewAfterFailedDelete(
-                _ review: TangledPullReview,
-                state: inout State
-            ) {
-                state.locallyRemovedTangledPullReviewIDs.remove(review.id)
-                let pendingRemoval = state.pendingDeletedTangledPullReviews
-                    .removeValue(forKey: review.id)
-                let restoredReview = pendingRemoval?.review ?? review
-                guard case var .loaded(reviews) = state.tangledPullReviewStatus,
-                      !reviews.contains(where: { $0.id == restoredReview.id })
-                else { return }
-
-                let index = min(pendingRemoval?.index ?? reviews.count, reviews.count)
-                reviews.insert(restoredReview, at: index)
-                state.tangledPullReviewStatus = .loaded(reviews.tangledPullReviewsSortedByDate)
-            }
-
-            switch action {
-            case let .closeTangledPullReviewButtonTapped(review):
-                closeTangledPullReview(review, state: &state)
-
-            case .collaborators:
-                break
-
-            case .createEventButtonTapped:
-                guard case let .calendar(calendarID, sourceBaselineID) = state.target else {
-                    return
-                }
-                store.addTask {
-                    try store.send(
-                        .delegate(
-                            .createEventRequested(
-                                sourceBaselineID: sourceBaselineID,
-                                calendarID: calendarID
-                            )
-                        )
-                    )
-                }
-
-            case .delegate:
-                return
-
-            case let .deleteTangledPullReviewForeverButtonTapped(review):
-                deleteTangledPullReviewForever(review, state: &state)
-
-            case .generateSourcePatchButtonTapped:
-                generateSourcePatch(state: &state)
-
-            case let .mergeTangledPullReviewButtonTapped(review):
-                mergeTangledPullReview(review, state: &state)
-
-            case .onAppear:
-                if let actor = state.sourceContext?.ownerActorReference {
-                    let blueskyActorProfileCache = blueskyActorProfileCache
-                    store.addTask {
-                        do {
-                            _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                                actor,
-                                24 * 60 * 60,
-                                15 * 60
-                            )
-                        } catch is CancellationError {
-                            return
-                        } catch {
-                        }
-                    }
-                }
-                if state.tangledPullReviewStatus == .notLoaded {
-                    refreshTangledPullReviews(target: state.target, state: &state)
-                }
-
-            case .refreshSourceButtonTapped:
-                refreshSource(state: &state)
-
-            case .refreshTangledPullReviewsButtonTapped:
-                refreshTangledPullReviews(target: state.target, state: &state)
-
-            case .resetEditsButtonTapped:
-                guard !state.isResettingEdits else { return }
-                let target = state.target
-                let workspaceResetter = workspaceResetter
-                state.isResettingEdits = true
-                state.resetEditsFailure = nil
-                store.addTask {
-                    do {
-                        try workspaceResetter.resetSourceChanges(target)
-                        try store.send(.resetEditsResponse(.success(ResetEditsSuccess())))
-                    } catch {
-                        try store.send(
-                            .resetEditsResponse(
-                                .failure(ResetEditsFailure(error))
-                            )
-                        )
-                    }
-                }
-
-            case .resetEditsResponse(.success):
-                state.isResettingEdits = false
-                state.isPreparingSourceProposal = false
-                state.resetEditsFailure = nil
-                state.sourcePatchStatus = .generated(SourcePatch())
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-
-            case let .resetEditsResponse(.failure(failure)):
-                state.isResettingEdits = false
-                state.resetEditsFailure = failure
-
-            case let .sourceProposal(.delegate(.created(publication))):
-                state.isPreparingSourceProposal = false
-                state.pendingCreatedTangledPullReviewID = publication.sourceChangeID
-                if publication.sourceChangeID == nil {
-                    state.dismissSourceProposal()
-                } else {
-                    state.sourceProposal?.status = .created(publication)
-                    state.sourceProposalStatus = .created(publication)
-                }
-                refreshTangledPullReviews(target: state.target, state: &state)
-
-            case .sourceProposal(.delegate(.dismissed)):
-                state.isPreparingSourceProposal = false
-                state.pendingCreatedTangledPullReviewID = nil
-                state.dismissSourceProposal()
-
-            case .proposeChangeButtonTapped:
-                guard state.canProposeChanges else { return }
-                prepareSourceProposal(state: &state)
-
-            case let .reviewSemanticDiffButtonTapped(review):
-                loadTangledPullReviewSemanticDiff(review: review, state: &state)
-
-            case let .sourcePatchGenerationResponse(.success(preparation)):
-                guard preparation.sourceWorkspaceSummary == state.sourceWorkspaceSummary else {
-                    state.isPreparingSourceProposal = false
-                    state.sourcePatchStatus = .needsGeneration
-                    state.sourceProposal = nil
-                    state.sourceProposalStatus = .idle
-                    return
-                }
-                state.sourcePatchStatus = .generated(
-                    preparation.patch,
-                    sourceFileAttributions: preparation.sourceFileAttributions
-                )
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-
-            case let .sourcePatchGenerationResponse(.failure(failure)):
-                state.isPreparingSourceProposal = false
-                state.sourcePatchStatus = .failed(failure)
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-
-            case let .sourceProposalPreparationResponse(.success(preparation)):
-                guard preparation.sourceWorkspaceSummary == state.sourceWorkspaceSummary else {
-                    state.isPreparingSourceProposal = false
-                    state.sourcePatchStatus = .needsGeneration
-                    state.sourceProposal = nil
-                    state.sourceProposalStatus = .idle
-                    return
-                }
-                state.isPreparingSourceProposal = false
-                state.sourcePatchStatus = .generated(
-                    preparation.patch,
-                    sourceFileAttributions: preparation.sourceFileAttributions
-                )
-                state.presentSourceProposal(
-                    for: preparation.patch,
-                    sourceFileAttributions: preparation.sourceFileAttributions,
-                    sourceWorkspaceSummary: preparation.sourceWorkspaceSummary
-                )
-
-            case let .sourceProposalPreparationResponse(.failure(failure)):
-                state.isPreparingSourceProposal = false
-                state.sourcePatchStatus = .failed(failure)
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-
-            case .sourceProposal(_):
-                break
-
-            case let .tangledPullReviewTapped(review):
-                state.selectedTangledPullReview = .loaded(review)
-
-            case let .tangledPullReviewSemanticDiffResponse(reviewID, .success(diff)):
-                state.tangledPullReviewSemanticDiffs[reviewID] = .loaded(diff)
-
-            case let .tangledPullReviewSemanticDiffResponse(reviewID, .failure(failure)):
-                state.tangledPullReviewSemanticDiffs[reviewID] = .failed(failure)
-
-            case let .tangledPullReviewCloseResponse(review, .success):
-                state.closingTangledPullReviewIDs.remove(review.id)
-                removeTangledPullReviewFromLoadedState(review, state: &state)
-
-            case let .tangledPullReviewCloseResponse(review, .failure(failure)):
-                state.closingTangledPullReviewIDs.remove(review.id)
-                state.tangledPullReviewCloseFailures[review.id] = failure
-
-            case let .tangledPullReviewDeleteResponse(review, .success):
-                state.deletingTangledPullReviewIDs.remove(review.id)
-                state.pendingDeletedTangledPullReviews[review.id] = nil
-
-            case let .tangledPullReviewDeleteResponse(review, .failure(failure)):
-                state.deletingTangledPullReviewIDs.remove(review.id)
-                restoreTangledPullReviewAfterFailedDelete(review, state: &state)
-                state.tangledPullReviewDeleteFailures[review.id] = failure
-
-            case let .tangledPullReviewMergeResponse(review, .success):
-                state.mergingTangledPullReviewIDs.remove(review.id)
-                removeTangledPullReviewFromLoadedState(review, state: &state)
-                refreshSource(state: &state)
-
-            case let .tangledPullReviewMergeResponse(review, .failure(failure)):
-                state.mergingTangledPullReviewIDs.remove(review.id)
-                state.tangledPullReviewMergeFailures[review.id] = failure
-
-            case let .tangledPullReviewsResponse(.success(reviews)):
-                let loadedReviews = reviews
-                    .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
-                    .tangledPullReviewsSortedByDate
-                state.tangledPullReviewStatus = .loaded(loadedReviews)
-                let authors = Set(loadedReviews.map(\.author).filter { !$0.isEmpty })
-                if !authors.isEmpty {
-                    let blueskyActorProfileCache = blueskyActorProfileCache
-                    store.addTask {
-                        for author in authors {
-                            do {
-                                _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                                    author,
-                                    24 * 60 * 60,
-                                    15 * 60
-                                )
-                            } catch is CancellationError {
-                                return
-                            } catch {
-                            }
-                        }
-                    }
-                }
-                if let pendingReviewID = state.pendingCreatedTangledPullReviewID,
-                   let review = loadedReviews.first(where: { $0.id == pendingReviewID })
-                {
-                    state.dismissSourceProposal()
-                    state.selectedTangledPullReview = .loaded(review)
-                    state.pendingCreatedTangledPullReviewID = nil
-                } else if let selectedReviewID = state.selectedTangledPullReview?.id,
-                          let review = loadedReviews.first(where: { $0.id == selectedReviewID })
-                {
-                    state.selectedTangledPullReview = .loaded(review)
-                }
-
-            case let .tangledPullReviewsResponse(.failure(failure)):
-                state.tangledPullReviewStatus = .failed(failure)
-
-            }
-        }
-        .onMount { state in
-            refreshTangledPullReviews(target: state.target, state: &state)
-        }
-        .ifLet(\.sourceProposal, action: \.sourceProposal) {
-            SourceProposalFlow()
         }
         .ifLet(\.collaborators, action: \.collaborators) {
             WorkspaceCollaborators()
         }
-        .onChange(of: store.sourceProposal?.status) { _, status, state in
-            guard let status else { return }
-            state.sourceProposalStatus = status
-        }
-        .onChange(of: store.sourceWorkspaceSummary) { oldSummary, summary, state in
-            guard oldSummary != summary else { return }
-            switch state.sourcePatchStatus {
-            case .generated, .generating:
-                state.sourcePatchStatus = .needsGeneration
-            case .failed, .needsGeneration, .notGenerated:
-                break
-            }
-            state.isPreparingSourceProposal = false
-            state.sourceProposal = nil
-            state.sourceProposalStatus = .idle
-        }
         .onChange(of: store.authoringGrant) { _, _, state in
             state.reloadCollaboratorsForAuthoringAccess()
-        }
-        .onEvent(AuthoringAccessRevoked.self) { _, state in
-            state.isPreparingSourceProposal = false
-            state.dismissSourceProposal()
+            if !state.availablePages.contains(state.selectedPage) {
+                state.selectedPage = .changes
+            }
         }
         .onMount { state in
             state.reloadCollaboratorsForAuthoringAccess()
+        }
+        .onEvent(SourceProposalCreated.self) { publication, state in
+            let proposalCreated = state.reviews.proposalCreated
+            store.addTask {
+                try proposalCreated(publication)
+            }
+        }
+        .onEvent(CreatedSourceReviewLoaded.self) { _, state in
+            state.changes.sourceProposal = nil
+        }
+        .onEvent(SourceProposalDismissed.self) { _, state in
+            state.reviews.pendingCreatedReviewID = nil
         }
         .spawn(\.account) {
             Account()
         }
     }
-}
-
-private extension UserFacingText {
-    static let tangledPullReviewLoadFailed = Self(
-        "Unable to load Tangled pull reviews.",
-        fallback: "Unable to load Tangled pull reviews."
-    )
-    static let tangledPullReviewCloseFailed = Self(
-        "Unable to close Tangled pull review.",
-        fallback: "Unable to close Tangled pull review."
-    )
-    static let tangledPullReviewDeleteFailed = Self(
-        "Unable to delete Tangled pull review.",
-        fallback: "Unable to delete Tangled pull review."
-    )
-    static let tangledPullReviewMergeFailed = Self(
-        "Unable to merge Tangled pull review.",
-        fallback: "Unable to merge Tangled pull review."
-    )
-}
-
-private extension ErrorOperation {
-    static let sourceChangeComparison = Self("source.change-comparison")
-    static let tangledPullReviewLoad = Self("tangled.pull-review.load")
-    static let tangledPullReviewClose = Self("tangled.pull-review.close")
-    static let tangledPullReviewDelete = Self("tangled.pull-review.delete")
-    static let tangledPullReviewMerge = Self("tangled.pull-review.merge")
 }
 
 public typealias SourceWorkspace = EventWorkspace
@@ -1288,8 +402,6 @@ public struct EventWorkspaceView: View {
     @Bindable var accountStore: StoreOf<Account>
     let presentsAccountPresentation: Bool
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    @State var selectedTab: EventWorkspaceTab
-    @State var isResetConfirmationPresented = false
 
     public init(
         store: StoreOf<EventWorkspace>,
@@ -1303,27 +415,168 @@ public struct EventWorkspaceView: View {
             self.accountStore = store.spawn(\.account)
             self.presentsAccountPresentation = true
         }
-        self._selectedTab = State(initialValue: store.defaultWorkspaceTab)
     }
 
     public var body: some View {
+        let changesStore = store.scope(\.changes, action: \.changes)
+        @Bindable var reviewsStore = store.scope(\.reviews, action: \.reviews)
+
         VStack(spacing: 0) {
-            workspaceTabContent
+            switch changesStore.sourceWorkspaceSummary.availability {
+            case .available:
+                switch store.selectedPage {
+                case .changes:
+                    WorkspaceChangesView(store: changesStore)
+
+                case .collaborators:
+                    if let collaboratorsStore = store.scope(
+                        \.collaborators,
+                        action: \.collaborators
+                    ) {
+                        WorkspaceCollaboratorsView(store: collaboratorsStore)
+                    }
+
+                case .reviews:
+                    WorkspaceReviewsView(store: reviewsStore)
+                }
+
+            case .workspaceNeedsPreparation, .notInWorkspace:
+                WorkspaceUnavailableView(
+                    title: "Workspace couldn't be loaded",
+                    message: "Refresh the event and try opening the workspace again."
+                )
+
+            case let .unavailable(reason):
+                SourceChangeUnavailableView(reason: reason)
+            }
         }
-        .navigationTitle(navigationTitle)
+        .navigationTitle("Shared Workspace")
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .portableSafeAreaTopInset(spacing: 0) {
-            workspaceTopBarExtension
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your changes")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(
+                                changesStore.sourceWorkspaceSummary.totalCount,
+                                format: .number
+                            )
+                            .font(.title3)
+                            .portableMonospacedDigit()
+                        }
+
+                        Spacer()
+
+                        if let sourceContext = reviewsStore.sourceContext {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("Workspace")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(sourceContext.sourceKind.workspaceTitle)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
+                    if showsTechnicalDetails,
+                       let sourceContext = reviewsStore.sourceContext
+                    {
+                        WorkspaceActorIdentityView(
+                            label: "Workspace owner",
+                            identity: reviewsStore.workspaceOwnerIdentity,
+                            avatarSize: 32
+                        )
+
+                        PortableDisclosureGroup("Technical details") {
+                            WorkspaceTechnicalValueView(
+                                label: "Source address",
+                                value: sourceContext.sourceReference
+                            )
+                            WorkspaceTechnicalValueView(
+                                label: "Provider",
+                                value: sourceContext.sourceKind.rawValue
+                            )
+                            WorkspaceTechnicalValueView(
+                                label: "Version",
+                                value: sourceContext.sourceRefTitle
+                            )
+                            if let ownerActorReference = sourceContext.ownerActorReference {
+                                WorkspaceTechnicalValueView(
+                                    label: "Owner actor ID",
+                                    value: ownerActorReference
+                                )
+                            }
+                            if let technicalLocation = sourceContext.technicalLocation {
+                                WorkspaceTechnicalValueView(
+                                    label: "Source path",
+                                    value: technicalLocation
+                                )
+                            }
+                        }
+                        .font(.caption)
+                    }
+
+                    if let description =
+                        changesStore.sourceWorkspaceSummary.outOfTargetInclusionDescription
+                    {
+                        Text(description)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+
+                if store.availablePages.count > 1 {
+                    Picker("Workspace", selection: $store.selectedPage) {
+                        ForEach(store.availablePages) { page in
+                            Text(page.title(for: store.target)).tag(page)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 6)
+                }
+
+                if store.selectedPage == .changes,
+                   changesStore.sourceWorkspaceSummary.totalCount > 0,
+                   changesStore.canPublishSourceProposal
+                {
+                    Button {
+                        changesStore.send(.proposeChangesButtonTapped)
+                    } label: {
+                        Label(
+                            changesStore.sourcePatchStatus.proposeButtonTitle,
+                            systemImage: "paperplane"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .disabled(!changesStore.canProposeChanges)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+            }
+            .background(.background)
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
         }
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
-        .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
-            SourceProposalComposerView(store: proposalStore)
-        }
-        .navigationDestination(isPresented: $store.selectedTangledPullReview.isPresented) {
-            if let selectedReview = store.selectedTangledPullReview {
-                tangledPullReviewDestination(selectedReview)
+        .navigationDestination(isPresented: $reviewsStore.selectedReview.isPresented) {
+            if let selectedReview = reviewsStore.selectedReview {
+                WorkspaceReviewDetailView(
+                    store: reviewsStore,
+                    selectedReview: selectedReview
+                )
             }
         }
         .toolbar {
@@ -1337,10 +590,10 @@ public struct EventWorkspaceView: View {
                     }
                 }
             }
-            if selectedTab == .review, store.sourceBaselineID != nil {
+            if store.selectedPage == .reviews, reviewsStore.sourceBaselineID != nil {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Refresh Source", systemImage: "arrow.clockwise") {
-                        store.send(.refreshSourceButtonTapped)
+                        reviewsStore.send(.refreshSourceButtonTapped)
                     }
                 }
             }
@@ -1354,578 +607,17 @@ public struct EventWorkspaceView: View {
         ) { _ in
             AccountPresentationView(store: accountStore)
         }
-        .onAppear {
-            store.send(.onAppear)
-        }
-        .onChange(of: store.availableWorkspaceTabs) { _, tabs in
-            guard !tabs.contains(selectedTab) else { return }
-            selectedTab = store.defaultWorkspaceTab
-        }
-        .alert(
-            "Reset local changes?",
-            isPresented: $isResetConfirmationPresented
-        ) {
-            Button("Reset changes", role: .destructive) {
-                store.send(.resetEditsButtonTapped)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will discard all local changes in this workspace.")
-        }
-    }
-
-    @ViewBuilder
-    var workspaceTopBarExtension: some View {
-        VStack(spacing: 0) {
-            workspaceHeader
-            workspaceTabPicker
-
-            if selectedTab == .propose,
-               store.sourceWorkspaceSummary.totalCount > 0,
-               store.canPublishSourceProposal
-            {
-                Button {
-                    store.send(.proposeChangeButtonTapped)
-                } label: {
-                    Label(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!store.canProposeChanges)
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            }
-        }
-        .background(.background)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Your changes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(store.sourceWorkspaceSummary.totalCount, format: .number)
-                        .font(.title3)
-                        .portableMonospacedDigit()
-                }
-
-                Spacer()
-
-                if let sourceContext = store.sourceContext {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Workspace")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(sourceContext.sourceKind.workspaceTitle)
-                            .font(.subheadline)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if showsTechnicalDetails, let sourceContext = store.sourceContext {
-                WorkspaceActorIdentityView(
-                    label: "Workspace owner",
-                    identity: store.workspaceOwnerIdentity,
-                    avatarSize: 32
-                )
-
-                PortableDisclosureGroup("Technical details") {
-                    WorkspaceTechnicalValueView(
-                        label: "Source address",
-                        value: sourceContext.sourceReference
-                    )
-                    WorkspaceTechnicalValueView(
-                        label: "Provider",
-                        value: sourceContext.sourceKind.rawValue
-                    )
-                    WorkspaceTechnicalValueView(
-                        label: "Version",
-                        value: sourceContext.sourceRefTitle
-                    )
-                    if let ownerActorReference = sourceContext.ownerActorReference {
-                        WorkspaceTechnicalValueView(
-                            label: "Owner actor ID",
-                            value: ownerActorReference
-                        )
-                    }
-                    if let technicalLocation = sourceContext.technicalLocation {
-                        WorkspaceTechnicalValueView(
-                            label: "Source path",
-                            value: technicalLocation
-                        )
-                    }
-                }
-                .font(.caption)
-            }
-
-            if let description = store.sourceWorkspaceSummary.outOfTargetInclusionDescription {
-                Text(description)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                if showsTechnicalDetails, let sourceContext = store.sourceContext {
-                    PortableDisclosureGroup("Technical details") {
-                        WorkspaceTechnicalValueView(
-                            label: "Source address",
-                            value: sourceContext.sourceReference
-                        )
-                        WorkspaceTechnicalValueView(
-                            label: "Provider",
-                            value: sourceContext.sourceKind.rawValue
-                        )
-                        WorkspaceTechnicalValueView(
-                            label: "Branch or ref",
-                            value: sourceContext.sourceRefTitle
-                        )
-
-                    }
-                    .font(.caption)
-                }
-            }
-        }
-        .padding(.horizontal)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-    }
-
-    private var workspaceTabPicker: some View {
-        Group {
-            if store.availableWorkspaceTabs.count > 1 {
-                Picker("Workspace", selection: $selectedTab) {
-                    ForEach(store.availableWorkspaceTabs) { tab in
-                        Text(tab.title(for: store.target)).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 6)
-            }
-        }
-    }
-
-    private var navigationTitle: Text {
-        switch store.target {
-        case .calendar:
-            Text("Shared Workspace")
-        case .event:
-            Text("Shared Workspace")
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceTabContent: some View {
-        switch store.sourceWorkspaceSummary.availability {
-        case .available:
-            switch selectedTab {
-            case .propose:
-                proposeList
-            case .review:
-                reviewList
-            case .collaborators:
-                if let collaboratorsStore = store.scope(
-                    \.collaborators,
-                    action: \.collaborators
-                ) {
-                    WorkspaceCollaboratorsView(store: collaboratorsStore)
-                }
-            }
-
-        case .workspaceNeedsPreparation, .notInWorkspace:
-            WorkspaceUnavailableView(
-                title: "Workspace couldn't be loaded",
-                message: "Refresh the event and try opening the workspace again."
-            )
-
-        case let .unavailable(reason):
-            SourceChangeUnavailableView(reason: reason)
-        }
-    }
-
-    @ViewBuilder
-    private var proposeList: some View {
-        List {
-            semanticDiffSections
-            changesActionSection
-            resetEditsSection
-        }
-    }
-
-    @ViewBuilder
-    private var reviewList: some View {
-        List {
-            sourceSection
-            reviewSection
-        }
-    }
-
-    @ViewBuilder
-    private var changesActionSection: some View {
-        if store.sourceWorkspaceSummary.totalCount == 0
-            || !store.canPublishSourceProposal
-            || store.isPreparingSourceProposal
-            || store.sourcePatchStatus.requiresAttentionInChanges
-            || store.sourceProposalStatus.isVisibleInWorkspace
-        {
-            Section("Your changes") {
-                if store.isPreparingSourceProposal {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Preparing proposal")
-                    }
-                    .foregroundStyle(.secondary)
-                } else if store.sourcePatchStatus.requiresAttentionInChanges {
-                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
-                } else if store.sourceWorkspaceSummary.totalCount == 0 {
-                    Text("No local changes")
-                        .foregroundStyle(.secondary)
-                } else if store.canPublishSourceProposal {
-                    SourceProposalStatusView(status: store.sourceProposalStatus)
-                } else {
-                    Text("These changes stay on this device and won’t create a proposal.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var semanticDiffSections: some View {
-        SourceChangeSummarySection(
-            groups: store.sourceWorkspaceSummary.groups,
-            recordComparisons: store.sourceWorkspaceSummary.recordComparisons
-        )
-    }
-
-    @ViewBuilder
-    private var sourceSection: some View {
-        Section("Source") {
-            if let sourceContext = store.sourceContext {
-                SourceIndicatorView(sourceContext: sourceContext)
-
-                Button {
-                    store.send(.refreshSourceButtonTapped)
-                } label: {
-                    if store.isRefreshingSource {
-                        HStack {
-                            ProgressView()
-                            Text("Refreshing Source")
-                        }
-                    } else {
-                        Label("Refresh Source", systemImage: "arrow.clockwise")
-                    }
-                }
-                .disabled(store.sourceBaselineID == nil || store.isRefreshingSource)
-            } else {
-                Text("Open a shared workspace to review changes.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sourceDiffSections: some View {
-        Section("Source patch") {
-            if store.canPublishSourceProposal {
-                if store.sourceWorkspaceSummary.totalCount == 0 {
-                    Text("No changes to send")
-                        .foregroundStyle(.secondary)
-                } else {
-                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
-
-                    if case let .generated(patch, _) = store.sourcePatchStatus {
-                        if patch.isEmpty {
-                            Text("No changes to send")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Button(store.sourcePatchStatus.reviewButtonTitle) {
-                            store.send(.generateSourcePatchButtonTapped)
-                        }
-                        .disabled(store.sourcePatchStatus.isGenerating)
-                    }
-                }
-            } else {
-                Text("Open a shared workspace to check changes.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-
-    }
-
-    @ViewBuilder
-    private var reviewSection: some View {
-        if store.sourceKind == .tangled {
-            tangledPullReviewsSection(title: "Reviews")
-        } else {
-            ExistingProposalsSection(
-                title: "Reviews",
-                emptyTitle: "No changes waiting for review",
-                state: .loaded([])
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func tangledPullReviewsSection(title: String) -> some View {
-        if store.sourceKind == .tangled {
-            Section(title) {
-                switch store.tangledPullReviewStatus {
-                case let .failed(failure):
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Reviews could not be loaded", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        if showsTechnicalDetails {
-                            Text(failure.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .selectableText()
-                        }
-                    }
-
-                case let .loaded(reviews):
-                    if reviews.isEmpty {
-                        Label("No open reviews", systemImage: "checkmark.circle")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(reviews) { review in
-                            let isClosing = store.closingTangledPullReviewIDs.contains(review.id)
-                            let isDeleting = store.deletingTangledPullReviewIDs.contains(review.id)
-                            let isMerging = store.mergingTangledPullReviewIDs.contains(review.id)
-                            let closeFailure = store.tangledPullReviewCloseFailures[review.id]
-                            let deleteFailure = store.tangledPullReviewDeleteFailures[review.id]
-                            let mergeFailure = store.tangledPullReviewMergeFailures[review.id]
-                            let isBusy = isClosing || isDeleting || isMerging
-                            NavigationLink {
-                                TangledPullReviewDetailView(
-                                    review: review,
-                                    authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
-                                        ?? .unavailable,
-                                    semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
-                                        ?? .notLoaded,
-                                    isClosing: isClosing,
-                                    isDeleting: isDeleting,
-                                    isMerging: isMerging,
-                                    isBusy: isBusy,
-                                    mergeFailure: mergeFailure,
-                                    onLoadSemanticDiff: {
-                                        store.send(.reviewSemanticDiffButtonTapped(review))
-                                    },
-                                    onMerge: {
-                                        store.send(.mergeTangledPullReviewButtonTapped(review))
-                                    },
-                                    onClose: {
-                                        store.send(.closeTangledPullReviewButtonTapped(review))
-                                    },
-                                    onDelete: {
-                                        store.send(.deleteTangledPullReviewForeverButtonTapped(review))
-                                    }
-                                )
-                            } label: {
-                                TangledPullReviewRow(
-                                    review: review,
-                                    authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
-                                        ?? .unavailable,
-                                    isClosing: isClosing,
-                                    isDeleting: isDeleting,
-                                    isMerging: isMerging,
-                                    closeFailure: closeFailure,
-                                    deleteFailure: deleteFailure,
-                                    mergeFailure: mergeFailure
-                                )
-                            }
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                Button {
-                                    store.send(.mergeTangledPullReviewButtonTapped(review))
-                                } label: {
-                                    Text(isMerging ? "Applying" : "Approve")
-                                }
-                                .disabled(isBusy)
-                                .tint(.green)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    store.send(.deleteTangledPullReviewForeverButtonTapped(review))
-                                } label: {
-                                    Text(isDeleting ? "Deleting" : "Delete")
-                                }
-                                .disabled(isBusy)
-
-                                Button {
-                                    store.send(.closeTangledPullReviewButtonTapped(review))
-                                } label: {
-                                    Text(isClosing ? "Closing" : "Close")
-                                }
-                                .disabled(isBusy)
-                                .tint(.orange)
-                            }
-                            .contextMenu {
-                                Button {
-                                    store.send(.mergeTangledPullReviewButtonTapped(review))
-                                } label: {
-                                    Text("Approve changes")
-                                }
-                                .disabled(isBusy)
-
-                                Button(role: .destructive) {
-                                    store.send(.closeTangledPullReviewButtonTapped(review))
-                                } label: {
-                                    Text("Close review")
-                                }
-                                .disabled(isBusy)
-
-                                Button(role: .destructive) {
-                                    store.send(.deleteTangledPullReviewForeverButtonTapped(review))
-                                } label: {
-                                    Text("Delete review permanently")
-                                }
-                                .disabled(isBusy)
-                            }
-                        }
-                    }
-
-                case .loading:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Loading reviews")
-                    }
-
-                case .notLoaded:
-                    Text("Open reviews have not been loaded")
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    store.send(.refreshTangledPullReviewsButtonTapped)
-                } label: {
-                    Label(
-                        store.tangledPullReviewStatus.refreshButtonTitle,
-                        systemImage: "arrow.triangle.2.circlepath"
-                    )
-                }
-                .disabled(store.tangledPullReviewStatus.isLoading)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var resetEditsSection: some View {
-        if store.canResetEdits || store.isResettingEdits || store.resetEditsFailure != nil {
-            Section {
-                if store.isResettingEdits {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Resetting edits")
-                    }
-                } else {
-                    Button(role: .destructive) {
-                        isResetConfirmationPresented = true
-                    } label: {
-                        Label("Reset changes", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(!store.canResetEdits)
-                }
-
-                if let failure = store.resetEditsFailure {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Edits could not be reset")
-                        if showsTechnicalDetails {
-                            Text(failure.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .selectableText()
-                        }
-                    }
-                }
-            }
-        }
-    }
- 
-
-    @ViewBuilder
-    private func tangledPullReviewDestination(
-        _ selectedReview: EventWorkspace.SelectedTangledPullReview
-    ) -> some View {
-        switch selectedReview {
-        case let .loaded(review):
-            tangledPullReviewDetail(review)
-        }
-    }
-
-    private func tangledPullReviewDetail(_ review: TangledPullReview) -> some View {
-        let isClosing = store.closingTangledPullReviewIDs.contains(review.id)
-        let isDeleting = store.deletingTangledPullReviewIDs.contains(review.id)
-        let isMerging = store.mergingTangledPullReviewIDs.contains(review.id)
-        let isBusy = isClosing || isDeleting || isMerging
-        let mergeFailure = store.tangledPullReviewMergeFailures[review.id]
-
-        return TangledPullReviewDetailView(
-            review: review,
-            authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
-                ?? .unavailable,
-            semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
-                ?? .notLoaded,
-            isClosing: isClosing,
-            isDeleting: isDeleting,
-            isMerging: isMerging,
-            isBusy: isBusy,
-            mergeFailure: mergeFailure,
-            onLoadSemanticDiff: {
-                store.send(.reviewSemanticDiffButtonTapped(review))
-            },
-            onMerge: {
-                store.send(.mergeTangledPullReviewButtonTapped(review))
-            },
-            onClose: {
-                store.send(.closeTangledPullReviewButtonTapped(review))
-            },
-            onDelete: {
-                store.send(.deleteTangledPullReviewForeverButtonTapped(review))
-            }
-        )
     }
 }
-
-enum EventWorkspaceTab: String, CaseIterable, Identifiable {
-    case collaborators
-    case propose
-    case review
-
-    var id: Self { self }
-
-    func title(for target: SourceProposalTarget) -> String {
-        switch self {
-        case .collaborators:
-            "Collaborators"
-        case .propose:
-            switch target {
-            case .calendar:
-                "Changes"
-            case .event:
-                "Draft"
-            }
-        case .review:
-            "Reviews"
-        }
-    }
-}
-
 struct TangledPullReviewRow: View {
     let review: TangledPullReview
     let authorIdentity: WorkspaceActorIdentity
     var isClosing = false
     var isDeleting = false
     var isMerging = false
-    var closeFailure: EventWorkspace.TangledPullReviewCloseFailure?
-    var deleteFailure: EventWorkspace.TangledPullReviewDeleteFailure?
-    var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
+    var closeFailure: WorkspaceReviews.ReviewFailure?
+    var deleteFailure: WorkspaceReviews.ReviewFailure?
+    var mergeFailure: WorkspaceReviews.ReviewFailure?
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
@@ -2050,35 +742,15 @@ private extension TangledPullReview {
     }
 }
 
-private extension Collection where Element == TangledPullReview {
-    var tangledPullReviewsSortedByDate: [TangledPullReview] {
-        sorted { lhs, rhs in
-            switch (
-                lhs.createdAt.tangledPullReviewCreatedAtDate,
-                rhs.createdAt.tangledPullReviewCreatedAtDate
-            ) {
-            case let (.some(lhsDate), .some(rhsDate)):
-                lhsDate > rhsDate
-            case (.some(_), .none):
-                true
-            case (.none, .some(_)):
-                false
-            case (.none, .none):
-                lhs.createdAt > rhs.createdAt
-            }
-        }
-    }
-}
-
 struct TangledPullReviewDetailView: View {
     let review: TangledPullReview
     let authorIdentity: WorkspaceActorIdentity
-    let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
+    let semanticDiffStatus: WorkspaceReviews.SemanticDiffStatus
     var isClosing = false
     var isDeleting = false
     var isMerging = false
     var isBusy = false
-    var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
+    var mergeFailure: WorkspaceReviews.ReviewFailure?
     let onLoadSemanticDiff: () -> Void
     let onMerge: () -> Void
     let onClose: () -> Void
@@ -2420,122 +1092,6 @@ public enum SourceChangesReviewMode: Equatable, Sendable {
     case workspace
 }
 
-public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: View>: View {
-    let availability: SourceChangesAvailability
-    let auxiliarySection: AuxiliarySection
-    let groups: [SourceChangeGroup]
-    let mode: SourceChangesReviewMode
-    let onProposeChange: (() -> Void)?
-    let onReviewChanges: () -> Void
-    let recordComparisons: SourceRecordComparisons
-    let sourcePatchStatus: EventWorkspace.SourcePatchStatus
-    let sourceProposalStatus: EventWorkspace.SourceProposalStatus
-    let sourceSection: SourceSection
-
-    public init(
-        availability: SourceChangesAvailability,
-        groups: [SourceChangeGroup],
-        recordComparisons: SourceRecordComparisons = .empty,
-        mode: SourceChangesReviewMode,
-        sourcePatchStatus: EventWorkspace.SourcePatchStatus,
-        sourceProposalStatus: EventWorkspace.SourceProposalStatus = .idle,
-        onReviewChanges: @escaping () -> Void,
-        onProposeChange: (() -> Void)? = nil,
-        @ViewBuilder sourceSection: () -> SourceSection,
-        @ViewBuilder auxiliarySection: () -> AuxiliarySection
-    ) {
-        self.availability = availability
-        self.auxiliarySection = auxiliarySection()
-        self.groups = groups
-        self.mode = mode
-        self.onProposeChange = onProposeChange
-        self.onReviewChanges = onReviewChanges
-        self.recordComparisons = recordComparisons
-        self.sourcePatchStatus = sourcePatchStatus
-        self.sourceProposalStatus = sourceProposalStatus
-        self.sourceSection = sourceSection()
-    }
-
-    public var body: some View {
-        switch availability {
-        case .available:
-            List {
-                sourceSection
-
-                Section {
-                    HStack {
-                        Label(mode.sectionTitle, systemImage: mode.sectionSystemImage)
-                        if let fileChangeCount = sourcePatchStatus.fileChangeCount {
-                            Spacer()
-                            Text(fileChangeCount, format: .number)
-                                .font(.headline)
-                                .portableMonospacedDigit()
-                        }
-                    }
-                }
-
-                Section {
-                    SourcePatchStatusView(status: sourcePatchStatus, mode: mode)
-
-                    if case let .generated(patch, _) = sourcePatchStatus {
-                        if patch.isEmpty {
-                            Label(mode.noChangesTitle, systemImage: "checkmark.circle")
-                        } else if mode == .proposal, let onProposeChange {
-                            Button {
-                                onProposeChange()
-                            } label: {
-                                Label("Send for review", systemImage: "paperplane")
-                            }
-                            .disabled(sourceProposalStatus.isProposing)
-                        }
-                    } else {
-                        Button {
-                            onReviewChanges()
-                        } label: {
-                            Label(
-                                sourcePatchStatus.reviewButtonTitle,
-                                systemImage: "arrow.triangle.2.circlepath"
-                            )
-                        }
-                        .disabled(sourcePatchStatus.isGenerating)
-                    }
-
-                    if mode == .proposal {
-                        SourceProposalStatusView(status: sourceProposalStatus)
-                    }
-                }
-
-                auxiliarySection
-
-                if case let .generated(patch, sourceFileAttributions) = sourcePatchStatus,
-                   !patch.isEmpty
-                {
-                    SourceProposalSummarySections(
-                        groups: groups,
-                        recordComparisons: recordComparisons
-                    )
-                    SourceFileAttributionSection(attributions: sourceFileAttributions)
-                }
-            }
-
-        case .workspaceNeedsPreparation:
-            ContentUnavailableView(
-                "Workspace couldn't be loaded",
-                systemImage: "externaldrive.badge.questionmark"
-            )
-
-        case .notInWorkspace:
-            ContentUnavailableView(
-                "Workspace unavailable",
-                systemImage: "doc.badge.ellipsis"
-            )
-
-        case let .unavailable(reason):
-            SourceChangeUnavailableView(reason: reason)
-        }
-    }
-}
-
 struct SourceWorkspaceSourceContext: Equatable, Sendable {
     var detailTitle: String
     var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind
@@ -2627,72 +1183,17 @@ struct SourceIndicatorView: View {
     }
 }
 
-public struct SourcePatchStatusView: View {
-    let status: EventWorkspace.SourcePatchStatus
-    let mode: SourceChangesReviewMode
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    public init(
-        status: EventWorkspace.SourcePatchStatus,
-        mode: SourceChangesReviewMode = .proposal
-    ) {
-        self.status = status
-        self.mode = mode
-    }
-
-    public var body: some View {
-        switch status {
-        case let .failed(failure):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(
-                    mode == .proposal
-                        ? "Couldn’t prepare this proposal"
-                        : "Changes could not be checked"
-                )
-                if showsTechnicalDetails {
-                    Text(failure.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .selectableText()
-                }
-            }
-
-        case let .generated(patch, _):
-            HStack {
-                Text(patch.isEmpty ? mode.noChangesTitle : mode.readyTitle)
-                Spacer()
-                Text(patch.fileChanges.count, format: .number)
-                    .font(.headline)
-                    .portableMonospacedDigit()
-            }
-
-        case .generating:
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("Checking changes")
-            }
-
-        case .needsGeneration:
-            Text("Changes need review")
-
-        case .notGenerated:
-            Text(mode.notGeneratedTitle)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
 public struct SourceProposalStatusView: View {
-    let status: EventWorkspace.SourceProposalStatus
+    let status: SourceProposalFlow.Status
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    public init(status: EventWorkspace.SourceProposalStatus) {
+    public init(status: SourceProposalFlow.Status) {
         self.status = status
     }
 
     public var body: some View {
         switch status {
-        case .composing, .idle:
+        case .composing:
             EmptyView()
 
         case let .created(publication):
@@ -3096,244 +1597,7 @@ private extension EventSourceProvenanceRecord {
     }
 }
 
-private extension EventWorkspace.State {
-    static func sourceBaselineQuery(
-        target: SourceProposalTarget
-    ) -> some SelectStatementOf<SourceBaselineRecord> {
-        switch target {
-        case let .calendar(_, sourceBaselineID):
-            SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
-
-        case let .event(eventID):
-            SourceBaselineRecord.where { sourceBaseline in
-                EventSourceProvenanceRecord
-                    .where { $0.id.eq(eventID) }
-                    .where { $0.sourceBaselineID.eq(sourceBaseline.id) }
-                    .exists()
-            }
-        }
-    }
-
-    static func sourceProvenanceQuery(
-        target: SourceProposalTarget
-    ) -> some SelectStatementOf<EventSourceProvenanceRecord> {
-        switch target {
-        case let .calendar(calendarID, sourceBaselineID):
-            EventSourceProvenanceRecord
-                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                .where { $0.id.organizerID.eq(calendarID.ownerID) }
-
-        case let .event(eventID):
-            EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
-        }
-    }
-
-    var defaultWorkspaceTab: EventWorkspaceTab {
-        switch target {
-        case .calendar:
-            .propose
-        case .event:
-            .propose
-        }
-    }
-
-    var sourceContext: SourceWorkspaceSourceContext? {
-        if let sourceBaseline {
-            return SourceWorkspaceSourceContext(
-                detailTitle: "Calendar source",
-                sourceKind: sourceBaseline.sourceKind,
-                sourceReference: sourceBaseline.sourceReference,
-                sourceRefTitle: sourceBaseline.ref ?? "default version",
-                ownerActorReference: sourceBaseline.sourceKind == .tangled
-                    ? sourceBaseline.sourceReference.workspaceOwnerActorReference
-                    : nil
-            )
-        }
-
-        if let sourceProvenance {
-            return SourceWorkspaceSourceContext(
-                detailTitle: "Calendar source",
-                sourceKind: sourceProvenance.sourceKind,
-                sourceReference: sourceProvenance.sourceReference,
-                sourceRefTitle: sourceProvenance.sourceRefTitle,
-                ownerActorReference: sourceProvenance.sourceKind == .tangled
-                    ? sourceProvenance.sourceReference.workspaceOwnerActorReference
-                    : nil,
-                technicalLocation: "events/\(sourceProvenance.sourceEventDirectory)"
-            )
-        }
-
-        return nil
-    }
-
-    var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind? {
-        sourceBaseline?.sourceKind ?? sourceProvenance?.sourceKind
-    }
-
-    var sourceReviewProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance? {
-        sourceBaseline?.sourceProvenance ?? sourceProvenance?.sourceProvenance
-    }
-
-    var workspaceSourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest? {
-        switch target {
-        case let .calendar(calendarID, sourceBaselineID):
-            OpenMusicEventCalendarSourcePatchRequest(
-                calendarID: calendarID,
-                sourceBaselineID: sourceBaselineID
-            )
-
-        case let .event(eventID):
-            sourceBaselineID.map {
-                OpenMusicEventCalendarSourcePatchRequest(
-                    calendarID: OMERecord.Calendar.ID(
-                        ownerID: eventID.organizerID,
-                        calendarID: OMERecord.Calendar.defaultID
-                    ),
-                    sourceBaselineID: $0
-                )
-            }
-        }
-    }
-
-    mutating func dismissSourceProposal() {
-        let status = sourceProposal?.status ?? sourceProposalStatus
-        sourceProposal = nil
-        switch status {
-        case .composing, .failed:
-            sourceProposalStatus = .idle
-        case .created, .idle, .proposing:
-            sourceProposalStatus = status
-        }
-    }
-
-    mutating func presentSourceProposal(
-        for patch: SourcePatch,
-        sourceFileAttributions: [SourceFileAttribution] = [],
-        sourceWorkspaceSummary: SourceWorkspaceSummary
-    ) {
-        guard canPublishSourceProposal,
-              !patch.isEmpty
-        else {
-            sourceProposal = nil
-            sourceProposalStatus = .idle
-            return
-        }
-        guard sourceWorkspaceSummary.totalCount > 0,
-              case .available = sourceWorkspaceSummary.availability
-        else {
-            sourcePatchStatus = .failed(
-                EventWorkspace.SourcePatchGenerationFailure(
-                    message: "The source patch was generated, but the workspace comparison was unavailable."
-                )
-            )
-            sourceProposal = nil
-            sourceProposalStatus = .idle
-            return
-        }
-
-        sourceProposal = SourceProposalFlow.State(
-            target: target,
-            sourceChangeGroups: sourceWorkspaceSummary.groups,
-            sourceRecordComparisons: sourceWorkspaceSummary.recordComparisons,
-            sourceFileAttributions: sourceFileAttributions,
-            patch: patch
-        )
-        sourceProposalStatus = .composing
-    }
-
-    var canResetEdits: Bool {
-        guard !isResettingEdits,
-              sourceWorkspaceSummary.totalCount > 0,
-              case .available = sourceWorkspaceSummary.availability
-        else { return false }
-        return true
-    }
-
-    var canCreateSourceProposal: Bool {
-        guard case let .generated(patch, _) = sourcePatchStatus,
-              !patch.isEmpty,
-              canPublishSourceProposal,
-              authoringGrant?.role.canPropose == true,
-              sourceProposalStatus.canCreateProposal
-        else { return false }
-        return true
-    }
-
-    var canCreateEvent: Bool {
-        guard case .calendar = target else { return false }
-        return true
-    }
-
-}
-
-extension EventWorkspace.State {
-    var availableWorkspaceTabs: [EventWorkspaceTab] {
-        var tabs: [EventWorkspaceTab] = [.propose]
-        if collaborators != nil {
-            tabs.append(.collaborators)
-        }
-        if canReviewTangledPullRequests {
-            tabs.append(.review)
-        }
-        return tabs
-    }
-
-    var canGenerateSourcePatch: Bool {
-        sourceBaselineID != nil
-    }
-
-    var canPublishSourceProposal: Bool {
-        sourceKind == .tangled && sourceBaselineID != nil
-    }
-
-    var canReviewTangledPullRequests: Bool {
-        sourceKind == .tangled && authoringGrant?.role.canMerge == true
-    }
-
-    var canProposeChanges: Bool {
-        guard sourceWorkspaceSummary.totalCount > 0,
-              canPublishSourceProposal,
-              authoringGrant?.role.canPropose == true,
-              !sourcePatchStatus.isGenerating,
-              !sourceProposalStatus.isProposing
-        else { return false }
-        return true
-    }
-
-    mutating func reloadCollaboratorsForAuthoringAccess() {
-        guard let grant = authoringGrant,
-              case .actor = grant.principal,
-              grant.role.canManageCollaborators
-        else {
-            collaborators = nil
-            return
-        }
-        guard collaborators?.workspaceID != grant.workspaceID else { return }
-        collaborators = WorkspaceCollaborators.State(
-            workspaceID: grant.workspaceID,
-            role: grant.role
-        )
-    }
-}
-
-private extension String {
-    var workspaceOwnerActorReference: String? {
-        if hasPrefix("at://") {
-            return String(dropFirst(5))
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .first
-                .map(String.init)
-        }
-
-        guard let repository = try? TangledRepositoryReference(parsing: self) else {
-            return nil
-        }
-        let owner = repository.owner
-        return owner.hasPrefix("@") ? String(owner.dropFirst()) : owner
-    }
-}
-
-private extension EventWorkspace.TangledPullReviewSemanticDiff {
+extension WorkspaceReviews.SemanticDiff {
     static func reviewBranchDiff(
         target: SourceProposalTarget,
         sourceBaselineID: SourceBaselineRecord.ID,
@@ -3496,7 +1760,7 @@ private func scratchReferenceDatabaseURL(
         .appendingPathExtension("sqlite")
 }
 
-private extension String {
+extension String {
     var sourceReviewScratchFileComponent: String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let scalars = unicodeScalars.map { scalar in
@@ -3504,54 +1768,6 @@ private extension String {
         }
         let value = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return value.isEmpty ? UUID().uuidString : value
-    }
-}
-
-private extension EventWorkspace.SourcePatchStatus {
-    var reviewButtonTitle: String {
-        switch self {
-        case .failed:
-            "Try Again"
-        case .generating:
-            "Checking Changes"
-        case .generated:
-            "Check Changes"
-        default:
-            "Check Changes"
-        }
-    }
-
-    var isGenerating: Bool {
-        self == .generating
-    }
-
-    var proposeButtonTitle: String {
-        switch self {
-        case .failed:
-            "Try Again"
-        case .generating:
-            "Preparing"
-        case .generated:
-            "Propose"
-        case .needsGeneration, .notGenerated:
-            "Propose"
-        }
-    }
-
-    var requiresAttentionInChanges: Bool {
-        switch self {
-        case .failed, .generating:
-            true
-        case let .generated(patch, _):
-            patch.isEmpty
-        case .needsGeneration, .notGenerated:
-            false
-        }
-    }
-
-    var fileChangeCount: Int? {
-        guard case let .generated(patch, _) = self else { return nil }
-        return patch.fileChanges.count
     }
 }
 
@@ -3602,48 +1818,7 @@ private extension SourceChangesReviewMode {
     }
 }
 
-public extension EventWorkspace.SourceProposalStatus {
-    var isVisibleInWorkspace: Bool {
-        switch self {
-        case .created, .failed, .proposing:
-            true
-        case .composing, .idle:
-            false
-        }
-    }
-
-    var canCreateProposal: Bool {
-        switch self {
-        case .composing, .failed, .idle:
-            true
-        case .created, .proposing:
-            false
-        }
-    }
-
-    var isProposing: Bool {
-        self == .proposing
-    }
-}
-
-private extension EventWorkspace.TangledPullReviewStatus {
-    var isLoading: Bool {
-        self == .loading
-    }
-
-    var refreshButtonTitle: String {
-        switch self {
-        case .failed:
-            "Try Again"
-        case .loaded, .notLoaded:
-            "Refresh Reviews"
-        case .loading:
-            "Loading Reviews"
-        }
-    }
-}
-
-private extension String {
+extension String {
     var tangledPullReviewCreatedAtDate: Date? {
         ISO8601DateFormatter().date(from: self)
     }

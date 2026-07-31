@@ -814,7 +814,8 @@ public struct EventViewer {
             case let .sourceDataRefreshCompleted(request):
                 guard request.eventID == state.eventID else { return }
                 state.reloadAfterSourceDataRefresh()
-                guard let sourceWorkspaceSummary = state.eventWorkspace?.state.$sourceWorkspaceSummary
+                guard let sourceWorkspaceSummary =
+                    state.eventWorkspace?.state.changes.$sourceWorkspaceSummary
                 else { return }
                 store.addTask {
                     try await sourceWorkspaceSummary.load()

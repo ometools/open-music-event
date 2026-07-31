@@ -342,9 +342,9 @@ struct CreateEventTests {
             }
         }
 
-        store.send(.generateSourcePatchButtonTapped)
+        store.send(.changes(.checkChangesButtonTapped))
 
-        #expect(store.state.sourcePatchStatus == .notGenerated)
+        #expect(store.state.changes.sourcePatchStatus == .notGenerated)
     }
 
     @Test

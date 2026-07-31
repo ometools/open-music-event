@@ -49,8 +49,8 @@ struct TeamWorkspaceEditorTests {
         }
 
         expectNoDifference(
-            store.state.sourceChangesScope,
-            .source(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
+            store.state.target,
+            .calendar(calendarID, sourceBaselineID)
         )
     }
 
@@ -95,8 +95,8 @@ struct TeamWorkspaceEditorTests {
         }
 
         expectNoDifference(
-            state.sourceChangesScope,
-            .source(sourceBaselineID: sourceBaseline.id, calendarID: calendarID)
+            state.target,
+            .event(eventID)
         )
     }
 
@@ -212,7 +212,7 @@ struct TeamWorkspaceEditorTests {
                 in: db
             )
         }
-        let expectedPreparation = EventWorkspace.SourceProposalPreparation(
+        let expectedPreparation = WorkspaceChanges.SourceProposalPreparation(
             patch: patch,
             sourceFileAttributions: expectedSourceFileAttributions,
             sourceWorkspaceSummary: expectedWorkspaceSummary
@@ -241,20 +241,14 @@ struct TeamWorkspaceEditorTests {
             }
         }
 
-        let task = store.send(.generateSourcePatchButtonTapped) {
-            $0.sourcePatchStatus = .generating
-        }
-        await store.receive(
-            \.sourcePatchGenerationResponse,
-            .equals(.success(expectedPreparation)),
-            timeout: .seconds(1)
-        ) {
-            $0.sourcePatchStatus = .generated(
-                patch,
-                sourceFileAttributions: expectedSourceFileAttributions
-            )
+        let task = store.send(.changes(.checkChangesButtonTapped)) {
+            $0.changes.sourcePatchStatus = .generating(.checkChanges)
         }
         await task?.value
+        expectNoDifference(
+            store.state.changes.sourcePatchStatus,
+            .generated(expectedPreparation)
+        )
     }
 
     @Test
@@ -339,7 +333,7 @@ struct TeamWorkspaceEditorTests {
                 in: db
             )
         }
-        let expectedPreparation = EventWorkspace.SourceProposalPreparation(
+        let expectedPreparation = WorkspaceChanges.SourceProposalPreparation(
             patch: patch,
             sourceFileAttributions: expectedSourceFileAttributions,
             sourceWorkspaceSummary: expectedWorkspaceSummary
@@ -372,37 +366,40 @@ struct TeamWorkspaceEditorTests {
                 sourceBaselineID: sourceBaseline.id,
                 calendarID: calendarID
             )
-            state.sourcePatchStatus = .generated(patch)
+            state.changes.$sourceWorkspaceSummary = Fetch(
+                wrappedValue: expectedWorkspaceSummary
+            )
+            state.changes.sourcePatchStatus = .generated(
+                WorkspaceChanges.SourceProposalPreparation(
+                    patch: patch,
+                    sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
+                )
+            )
             return TestStore(initialState: state) {
                 SourceWorkspace()
             }
         }
 
-        let task = store.send(.proposeChangeButtonTapped)
-        await store.receive(
-            \.sourceProposalPreparationResponse,
-            .equals(.success(expectedPreparation)),
-            timeout: .seconds(1)
-        ) {
-            $0.isPreparingSourceProposal = false
-            $0.sourcePatchStatus = .generated(
-                patch,
-                sourceFileAttributions: expectedSourceFileAttributions
-            )
-            $0.sourceProposalStatus = .composing
-        }
+        let task = store.send(.changes(.proposeChangesButtonTapped))
         await task?.value
 
-        #expect(store.state.canGenerateSourcePatch)
-        #expect(store.state.canPublishSourceProposal)
-        expectNoDifference(store.state.availableWorkspaceTabs, [.propose, .review])
-        #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaseline.id))
-        #expect(store.state.sourceProposal?.sourceChangeGroups == expectedWorkspaceSummary.groups)
+        #expect(store.state.changes.canGenerateSourcePatch)
+        #expect(store.state.changes.canPublishSourceProposal)
+        expectNoDifference(store.state.availablePages, [.changes, .reviews])
+        expectNoDifference(store.state.changes.sourcePatchStatus, .generated(expectedPreparation))
         #expect(
-            store.state.sourceProposal?.sourceFileAttributions
+            store.state.changes.sourceProposal?.target
+                == .calendar(calendarID, sourceBaseline.id)
+        )
+        #expect(
+            store.state.changes.sourceProposal?.sourceChangeGroups
+                == expectedWorkspaceSummary.groups
+        )
+        #expect(
+            store.state.changes.sourceProposal?.sourceFileAttributions
                 == expectedSourceFileAttributions
         )
-        #expect(store.state.sourceProposal?.patch == patch)
+        #expect(store.state.changes.sourceProposal?.patch == patch)
         await store.dismount()
     }
 
@@ -446,31 +443,51 @@ struct TeamWorkspaceEditorTests {
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID
             )
-            state.sourcePatchStatus = .generated(patch)
+            state.changes.sourcePatchStatus = .generated(
+                WorkspaceChanges.SourceProposalPreparation(
+                    patch: patch,
+                    sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
+                )
+            )
             return TestStore(initialState: state) {
                 SourceWorkspace()
             }
         }
 
-        #expect(store.state.canGenerateSourcePatch)
-        #expect(!store.state.canPublishSourceProposal)
-        expectNoDifference(store.state.availableWorkspaceTabs, [.propose])
+        #expect(store.state.changes.canGenerateSourcePatch)
+        #expect(!store.state.changes.canPublishSourceProposal)
+        expectNoDifference(store.state.availablePages, [.changes])
 
-        store.send(.proposeChangeButtonTapped)
+        store.send(.changes(.proposeChangesButtonTapped))
 
-        #expect(store.state.sourceProposal == nil)
-        expectNoDifference(store.state.sourceProposalStatus, .idle)
+        #expect(store.state.changes.sourceProposal == nil)
     }
 
     @Test
     func resetsCalendarSourceChangesAndClearsProposalState() async throws {
-        let database = try makePreparedDatabase()
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appending(path: "working.sqlite").path
+        let baselineDatabasePath = directoryURL.appending(path: "baseline.sqlite").path
+        let workingDatabase = try makePreparedDatabase(path: workingDatabasePath)
+        let baselineDatabase = try makePreparedDatabase(path: baselineDatabasePath)
+        let baselineReference = SourceBaselineDatabase(
+            path: baselineDatabasePath,
+            database: baselineDatabase
+        )
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let calendarID = OMERecord.Calendar.ID(
             ownerID: organizerID,
             calendarID: OMERecord.Calendar.defaultID
         )
-        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let sourceBaseline = SourceBaselineRecord(
+            source: makeSourceProvenance(
+                reference: "tangled.org/woody.fm/source-management"
+            ),
+            databaseFileName: "reference.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let sourceBaselineID = sourceBaseline.id
         let resetRequests = Mutex([SourceProposalTarget]())
         let patch = SourcePatch(
             fileChanges: [
@@ -482,11 +499,47 @@ struct TeamWorkspaceEditorTests {
                 )
             ]
         )
-        let proposalFailure = EventWorkspace.SourceProposalFailure(SourceWorkspacePatchFailure())
+        let proposalFailure = SourceProposalFlow.Failure(SourceWorkspacePatchFailure())
+        try await seedOrganizerSourceWorkspaceDefaults(
+            database: workingDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            sourceBaseline: sourceBaseline
+        )
+        try await seedOrganizerSourceWorkspaceDefaults(
+            database: baselineDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            sourceBaseline: sourceBaseline
+        )
+        try await workingDatabase.write { db in
+            try db.execute(
+                sql: """
+                UPDATE "calendars"
+                SET "name" = ?
+                WHERE "ownerID" = ?
+                  AND "calendarID" = ?
+                """,
+                arguments: [
+                    "Wicked Woods 2026",
+                    String(describing: organizerID),
+                    calendarID.calendarID.rawValue.rawValue,
+                ]
+            )
+        }
+        let workspaceSummary = try withDependencies {
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
+        } operation: {
+            try SourceWorkspaceSummary.query(
+                target: .calendar(calendarID, sourceBaselineID),
+                using: workingDatabase
+            )
+        }
 
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = database
+            $0.defaultDatabase = workingDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
             $0.eventWorkspaceResetter = EventWorkspaceResetter(
                 reset: { eventID in
                     Issue.record("Expected source reset request, not event reset for \(eventID).")
@@ -500,24 +553,35 @@ struct TeamWorkspaceEditorTests {
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID
             )
-            state.sourcePatchStatus = .generated(patch)
-            state.sourceProposal = SourceProposalFlow.State(
+            state.changes.$sourceWorkspaceSummary = Fetch(
+                wrappedValue: workspaceSummary
+            )
+            state.changes.sourcePatchStatus = .generated(
+                WorkspaceChanges.SourceProposalPreparation(
+                    patch: patch,
+                    sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
+                )
+            )
+            state.changes.sourceProposal = SourceProposalFlow.State(
                 target: .calendar(calendarID, sourceBaselineID),
                 patch: patch
             )
-            state.sourceProposalStatus = .failed(proposalFailure)
+            state.changes.sourceProposal?.status = .failed(proposalFailure)
             return TestStore(initialState: state) {
                 SourceWorkspace()
             }
         }
 
-        let task = store.send(.resetEditsButtonTapped)
+        let task = store.send(.changes(.resetChangesButtonTapped))
         await task?.value
 
-        #expect(!store.state.isResettingEdits)
-        #expect(store.state.sourceProposal == nil)
-        expectNoDifference(store.state.sourcePatchStatus, .generated(SourcePatch()))
-        expectNoDifference(store.state.sourceProposalStatus, .idle)
+        #expect(store.state.changes.resetStatus == .idle)
+        #expect(store.state.changes.sourceProposal == nil)
+        guard case let .generated(preparation) = store.state.changes.sourcePatchStatus else {
+            Issue.record("Expected an empty generated patch after reset.")
+            return
+        }
+        #expect(preparation.patch.isEmpty)
         expectNoDifference(
             resetRequests.withLock { $0 },
             [.calendar(calendarID, sourceBaselineID)]
@@ -554,10 +618,13 @@ struct TeamWorkspaceEditorTests {
         }
 
         await withIssueReporters([]) {
-            await store.send(to: \.teamWorkspaceEditor, .generateSourcePatchButtonTapped)?.value
+            await store.send(
+                to: \.teamWorkspaceEditor,
+                .changes(.checkChangesButtonTapped)
+            )?.value
         }
 
-        guard case .failed = store.state.teamWorkspaceEditor.state.sourcePatchStatus else {
+        guard case .failed = store.state.teamWorkspaceEditor.state.changes.sourcePatchStatus else {
             Issue.record("Expected source patch status to be failed.")
             return
         }
@@ -632,39 +699,49 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
+        let workspaceSummary = try withDependencies {
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
+        } operation: {
+            try SourceWorkspaceSummary.query(
+                target: .calendar(calendarID, sourceBaseline.id),
+                using: workingDatabase
+            )
+        }
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = workingDatabase
             $0.sourceReferenceDatabase = .test(database: baselineReference)
         } operation: {
-            TestStore(
-                initialState: SourceWorkspace.State(
-                    sourceBaselineID: sourceBaseline.id,
-                    calendarID: calendarID
-                )
-            ) {
+            let state = SourceWorkspace.State(
+                sourceBaselineID: sourceBaseline.id,
+                calendarID: calendarID
+            )
+            state.changes.$sourceWorkspaceSummary = Fetch(
+                wrappedValue: workspaceSummary
+            )
+            return TestStore(initialState: state) {
                 SourceWorkspace()
             }
         }
 
         expectNoDifference(
             [
-                store.state.$sourceBaseline.loadError.map { _ in
+                store.state.changes.$sourceBaseline.loadError.map { _ in
                     "SourceWorkspace.sourceBaseline"
                 },
-                store.state.$sourceProvenance.loadError.map { _ in
+                store.state.changes.$sourceProvenance.loadError.map { _ in
                     "SourceWorkspace.sourceProvenance"
                 },
             ]
             .compactMap { $0 },
             []
         )
-        #expect(store.state.sourceWorkspaceSummary.availability == .available)
-        #expect(store.state.sourceWorkspaceSummary.totalCount == 1)
+        #expect(store.state.changes.sourceWorkspaceSummary.availability == .available)
+        #expect(store.state.changes.sourceWorkspaceSummary.totalCount == 1)
 
         let contributorsGroup = try #require(
-            store.state.sourceWorkspaceSummary.groups.first { $0.id == "contributors" }
+            store.state.changes.sourceWorkspaceSummary.groups.first { $0.id == "contributors" }
         )
         #expect(contributorsGroup.modified == 1)
 
