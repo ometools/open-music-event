@@ -373,7 +373,7 @@ struct SourceWorkspaceDatabaseTests {
     }
 
     @Test
-    func `workspace context keeps app database mounted with its reference attached`() throws {
+    func `mount installs the working database with its reference attached`() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -399,42 +399,34 @@ struct SourceWorkspaceDatabaseTests {
 
         let session = try SourceEditingSession(
             workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: referenceDatabasePath,
-            baselineSchemaName: "mounted_reference"
+            baselineDatabasePath: referenceDatabasePath
         )
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "mounted-reference"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(sourceEditingSession: session)
         )
 
         let mountedValues = try withDependencies {
             $0.defaultDatabase = appDatabase
-            $0.useWorkspaceContext(
-                workspace.mounting(grant: .init(value: nil))
-            )
+            $0.mount(workspace, grant: .init(value: nil))
         } operation: {
             @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceEditingSession) var mountedSourceEditingSession
-            let sourceEditingSession = try #require(mountedSourceEditingSession)
 
             return try database.read { db in
-                let appValue = try #require(
+                let workingValue = try #require(
                     try String.fetchOne(db, sql: "SELECT value FROM marker")
                 )
-                let referenceValue = try sourceEditingSession.withAttachedBaseline(to: db) { schemaName in
-                    #expect(schemaName == "mounted_reference")
-                    return try #require(
-                        try String.fetchOne(
-                            db,
-                            sql: "SELECT value FROM mounted_reference.marker"
-                        )
+                let referenceValue = try #require(
+                    try String.fetchOne(
+                        db,
+                        sql: "SELECT value FROM source_baseline.marker"
                     )
-                }
-                return [appValue, referenceValue]
+                )
+                return [workingValue, referenceValue]
             }
         }
 
-        expectNoDifference(mountedValues, ["app", "reference"])
+        expectNoDifference(mountedValues, ["working", "reference"])
     }
 
     private func marker(in database: any DatabaseReader) throws -> String? {

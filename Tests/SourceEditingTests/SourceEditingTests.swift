@@ -402,7 +402,6 @@ struct SourceEditingTests {
 
         let summary = try withDependencies {
             $0.defaultDatabase = session.database
-            $0.sourceEditingSession = session
         } operation: {
             try SourceEditingComparer().summary(
                 descriptors: [Todo.sourceDescriptor],
@@ -501,7 +500,6 @@ struct SourceEditingTests {
 
         let summary = try withDependencies {
             $0.defaultDatabase = session.database
-            $0.sourceEditingSession = session
         } operation: {
             try SourceEditingComparer().summary(
                 descriptors: [Todo.sourceDescriptor],

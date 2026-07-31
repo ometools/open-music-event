@@ -64,6 +64,7 @@ extension OME {
 
         dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
+        dependencies.sourceWorkspaceDatabasePreparation = .openMusicEvent
         dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
 
         let baseDatabase = dependencies.defaultDatabase
@@ -71,7 +72,6 @@ extension OME {
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
             try await withDependencies {
                 $0.defaultDatabase = baseDatabase
-                $0.sourceEditingSession = nil
             } operation: {
                 @Dependency(\.defaultDatabase) var database
                 @Dependency(\.tangledSourceImport) var tangledSourceImport

@@ -264,7 +264,7 @@ struct OpenMusicEventAuthoringTests {
         let workspace = teamWorkspace("invalidation", ownerID: actorID)
         try await insert(workspace, into: database)
         let storage = testStorage(session: session)
-        let workspaceContext = WorkspaceContext(
+        let editingWorkspace = EditingWorkspace(
             id: workspace.id,
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
@@ -273,7 +273,7 @@ struct OpenMusicEventAuthoringTests {
             value: AuthoringGrant(
                 principal: .actor(actorID),
                 role: .owner,
-                workspace: workspaceContext
+                workspace: editingWorkspace
             )
         )
         let store = withDependencies {

@@ -16,13 +16,13 @@ public struct SourceEditModePreparationClient: Sendable {
 }
 
 public struct WorkspacePreparationClient: Sendable {
-    public var open: @Sendable (EditingWorkspaceRecord.ID) throws -> WorkspaceContext
+    public var open: @Sendable (EditingWorkspaceRecord.ID) throws -> EditingWorkspace
     public var prepareSource: @Sendable (EditingWorkspaceRecord.ID) async throws -> Void
 
     public init(
         open: @escaping @Sendable (
             EditingWorkspaceRecord.ID
-        ) throws -> WorkspaceContext,
+        ) throws -> EditingWorkspace,
         prepareSource: @escaping @Sendable (
             EditingWorkspaceRecord.ID
         ) async throws -> Void
@@ -104,7 +104,7 @@ public extension WorkspacePreparationClient {
         return Self(
             open: { workspaceID in
                 @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
-                return WorkspaceContext(
+                return EditingWorkspace(
                     id: workspaceID,
                     sourceWorkspaceDatabase: try sourceWorkspaceDatabase.workspace(workspaceID)
                 )
@@ -121,7 +121,7 @@ public extension WorkspacePreparationClient {
         Self(
             open: { workspaceID in
                 @Dependency(\.defaultDatabase) var database
-                return WorkspaceContext(
+                return EditingWorkspace(
                     id: workspaceID,
                     sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
                 )

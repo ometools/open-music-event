@@ -216,7 +216,7 @@ struct SettingsFeatureTests {
     func eventSettingsButtonsEnterAndExitAuthoring() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID()
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(localEventID: eventID),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )

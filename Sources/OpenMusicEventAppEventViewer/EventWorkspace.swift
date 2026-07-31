@@ -122,52 +122,40 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 }
 
-private struct SourceWorkspaceSummaryRequestIdentity: Hashable, Sendable {
-    var sourceEditingSession: SourceEditingSessionIdentity?
-
-    init() {
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        self.sourceEditingSession = sourceEditingSession.map(SourceEditingSessionIdentity.init)
-    }
-}
-
-private struct SourceEditingSessionIdentity: Hashable, Sendable {
-    var baselineDatabasePath: String
-    var baselineSchemaName: String
-    var workingDatabasePath: String
-
-    init(_ sourceEditingSession: SourceEditingSession) {
-        self.baselineDatabasePath = sourceEditingSession.baselineDatabasePath
-        self.baselineSchemaName = sourceEditingSession.baselineSchemaName
-        self.workingDatabasePath = sourceEditingSession.workingDatabasePath
-    }
-}
-
-public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
-    private var requestIdentity: SourceWorkspaceSummaryRequestIdentity
-    public var target: SourceProposalTarget
-
-    public init(target: SourceProposalTarget) {
-        self.requestIdentity = SourceWorkspaceSummaryRequestIdentity()
-        self.target = target
+extension SourceWorkspaceSummary {
+    static func query(
+        target: SourceProposalTarget
+    ) -> some FetchKeyRequest<Self> {
+        Query(target: target)
     }
 
-    public func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
+    static func query(
+        target: SourceProposalTarget,
+        in db: Database
+    ) throws -> Self {
         switch target {
         case let .event(eventID):
             return SourceWorkspaceSummary(
                 target: target,
-                eventSummary: try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+                eventSummary: try EventWorkspaceSummary.query(eventID: eventID, in: db)
             )
 
         case let .calendar(_, sourceBaselineID):
             return SourceWorkspaceSummary(
                 target: target,
-                sourceSummary: try SourceEditSummaryRequest(
-                    sourceBaselineID: sourceBaselineID
+                sourceSummary: try SourceEditSummary.query(
+                    sourceBaselineID: sourceBaselineID,
+                    in: db
                 )
-                .fetch(db)
             )
+        }
+    }
+
+    struct Query: FetchKeyRequest {
+        var target: SourceProposalTarget
+
+        func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
+            try SourceWorkspaceSummary.query(target: target, in: db)
         }
     }
 }
@@ -401,7 +389,7 @@ public struct EventWorkspace {
             self.target = target
             self._sourceWorkspaceSummary = Fetch(
                 wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
-                SourceWorkspaceSummaryRequest(target: target)
+                SourceWorkspaceSummary.query(target: target)
             )
             self._sourceProvenance = FetchOne(
                 Self.sourceProvenanceQuery(target: target)
@@ -523,8 +511,8 @@ public struct EventWorkspace {
         }
 
         private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-            @Dependency(\.workspaceContext) var workspaceContext
-            return workspaceContext?.$grant ?? SharedReader(value: nil)
+            @Dependency(\.authoringGrant) var authoringGrant
+            return authoringGrant
         }
     }
 
@@ -629,9 +617,11 @@ public struct EventWorkspace {
                 target: SourceProposalTarget
             ) async throws -> SourceProposalPreparation {
                 let patch = try await calendarSourcePatchGenerator.generate(sourcePatchRequest)
-                let sourceWorkspaceSummaryRequest = SourceWorkspaceSummaryRequest(target: target)
                 let (sourceWorkspaceSummary, sourceFileAttributions) = try await database.read { db in
-                    let sourceWorkspaceSummary = try sourceWorkspaceSummaryRequest.fetch(db)
+                    let sourceWorkspaceSummary = try SourceWorkspaceSummary.query(
+                        target: target,
+                        in: db
+                    )
                     let sourceFileAttributions = try openMusicEventSourceFileAttributions(
                         patch: patch,
                         groups: sourceWorkspaceSummary.groups,
@@ -1344,7 +1334,7 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     var workspaceTopBarExtension: some View {
         VStack(spacing: 0) {
-            workspaceContextHeader
+            workspaceHeader
             workspaceTabPicker
 
             if selectedTab == .propose,
@@ -1371,7 +1361,7 @@ public struct EventWorkspaceView: View {
     }
 
     @ViewBuilder
-    private var workspaceContextHeader: some View {
+    private var workspaceHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {

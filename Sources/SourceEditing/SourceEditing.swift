@@ -716,7 +716,7 @@ public extension SourceEditingSession {
         try database.write { db in
             try SourceEditingResetter().reset(
                 in: db,
-                baselineSchemaName: baselineSchemaName,
+                baselineSchemaName: Self.baselineSchemaName,
                 descriptors: descriptors,
                 scope: scope
             )
@@ -833,13 +833,14 @@ public struct SourceEditingComparer: Sendable {
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         @Dependency(\.defaultDatabase) var database
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
 
         return try database.read { db in
-            if let sourceEditingSession {
+            if let baselineSchemaName = try SourceEditingSession
+                .attachedBaselineSchemaName(in: db)
+            {
                 return try summary(
                     in: db,
-                    baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                    baselineSchemaName: baselineSchemaName,
                     descriptors: descriptors,
                     scope: scope
                 )
@@ -860,13 +861,14 @@ public struct SourceEditingComparer: Sendable {
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         @Dependency(\.defaultDatabase) var database
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
 
         return try database.read { db in
-            if let sourceEditingSession {
+            if let baselineSchemaName = try SourceEditingSession
+                .attachedBaselineSchemaName(in: db)
+            {
                 return try summary(
                     in: db,
-                    baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                    baselineSchemaName: baselineSchemaName,
                     recordTypes: recordTypes,
                     scope: scope
                 )

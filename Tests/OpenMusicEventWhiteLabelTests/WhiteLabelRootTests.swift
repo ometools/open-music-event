@@ -529,7 +529,7 @@ struct WhiteLabelRootTests {
         }
         $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
           open: { requestedWorkspaceID in
-            WorkspaceContext(
+            EditingWorkspace(
               id: requestedWorkspaceID,
               sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
             )

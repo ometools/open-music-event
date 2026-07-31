@@ -18,7 +18,7 @@ struct AuthoringTests {
     func `persisted activation restores authoring before source preparation`() async throws {
         let database = try DatabaseQueue()
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "restored-workspace")
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: workspaceID,
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
@@ -82,7 +82,7 @@ struct AuthoringTests {
 
     @Test
     func `entry eligibility requires a granted admission`() throws {
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "eligibility-workspace"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
@@ -102,7 +102,7 @@ struct AuthoringTests {
     @Test @MainActor
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `eligible attendee sees explicit entry and tapping rechecks admission`() async throws {
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "eligible-workspace"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
@@ -149,7 +149,7 @@ struct AuthoringTests {
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring does not wait for source preparation`() async throws {
         let database = try DatabaseQueue()
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "instant-authoring"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
@@ -230,7 +230,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `entering authoring changes only the selected workspace context`() async throws {
+    func `entering authoring mounts only the selected editing workspace`() async throws {
         let appDatabase = try DatabaseQueue()
         let referenceDatabaseA = try DatabaseQueue()
         let preparedReferenceDatabaseA = try DatabaseQueue()
@@ -239,15 +239,15 @@ struct AuthoringTests {
         try setMarker("A reference", in: referenceDatabaseA)
         try setMarker("A prepared reference", in: preparedReferenceDatabaseA)
         try setMarker("B reference", in: referenceDatabaseB)
-        let workspaceA = WorkspaceContext(
+        let workspaceA = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-a"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabaseA)
         )
-        let preparedWorkspaceA = WorkspaceContext(
+        let preparedWorkspaceA = EditingWorkspace(
             id: workspaceA.id,
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: preparedReferenceDatabaseA)
         )
-        let workspaceB = WorkspaceContext(
+        let workspaceB = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-b"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabaseB)
         )
@@ -320,7 +320,7 @@ struct AuthoringTests {
         await entry?.value
         await sourcePreparation?.value
 
-        // The shared authoring dependency updates workspace A's content only.
+        // The shared authoring grant updates workspace A's content only.
         let authoringContentAccessA = await storeA[dynamicMember: \.content.access]
         let authoringAccessB = await storeB[dynamicMember: \.access]
         let authoringContentAccessB = await storeB[dynamicMember: \.content.access]
@@ -333,19 +333,19 @@ struct AuthoringTests {
         )
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
 
-        // Each wrapped feature reads its own workspace and grant, while both keep the app database.
+        // Each wrapped feature reads its own mounted workspace and grant.
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = true
-            $0.content.observedDatabaseMarker = "app"
+            $0.content.observedDatabaseMarker = "A prepared reference"
             $0.content.observedWorkspaceID = workspaceA.id
         }
         await storeB.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "app"
+            $0.content.observedDatabaseMarker = "B reference"
             $0.content.observedWorkspaceID = workspaceB.id
         }
 
-        // Exiting revokes the same child's grant without changing its app database context.
+        // Exiting revokes the same child's grant and remounts its attendee workspace.
         await TestExhaustivity.$current.withValue(.off) {
             await storeA.send(.exitButtonTapped)?.value
         }
@@ -356,7 +356,7 @@ struct AuthoringTests {
         )
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "app"
+            $0.content.observedDatabaseMarker = "A reference"
         }
 
         await storeA.dismount()
@@ -376,7 +376,7 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `authorization failure reports an ephemeral issue and remains attendee`() async throws {
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-denied"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
@@ -440,7 +440,7 @@ struct AuthoringTests {
                 message: "SSH could not read data: Timed out waiting on socket"
             )
         )
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-preparation-failed"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
@@ -483,7 +483,7 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `source preparation failure reports an ephemeral issue and keeps authoring`() async throws {
-        let workspace = WorkspaceContext(
+        let workspace = EditingWorkspace(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-source-preparation-failed"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
@@ -532,13 +532,13 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `one grant carries access while preserving the app database across mounts`() async throws {
+    func `one grant carries access and its editing database across mounts`() async throws {
         let attendeeDatabase = try DatabaseQueue()
         let authoringDatabase = try DatabaseQueue()
         try setMarker("attendee", in: attendeeDatabase)
         try setMarker("authoring", in: authoringDatabase)
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "shared-workspace")
-        let preparedWorkspace = WorkspaceContext(
+        let preparedWorkspace = EditingWorkspace(
             id: workspaceID,
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: authoringDatabase)
         )
@@ -599,7 +599,7 @@ struct AuthoringTests {
         await TestExhaustivity.$current.withValue(.off) {
             await storeB.send(.content(.inspectButtonTapped)) {
                 $0.content.observedCanAuthor = true
-                $0.content.observedDatabaseMarker = "attendee"
+                $0.content.observedDatabaseMarker = "authoring"
                 $0.content.observedWorkspaceID = workspaceID
             }
         }
@@ -675,7 +675,7 @@ private func waitForAuthoringCondition(
 @Feature
 struct AuthoringErrorHost {
     struct State {
-        init(workspace: WorkspaceContext) {
+        init(workspace: EditingWorkspace) {
             self.authoring = Spawn(
                 Authoring<WorkspaceProbe>.State(workspace: workspace) {
                     WorkspaceProbe.State()
@@ -708,8 +708,8 @@ struct AuthoringErrorHost {
 struct WorkspaceProbe {
     struct State {
         init() {
-            @Dependency(\.workspaceContext) var workspaceContext
-            self._grant = workspaceContext?.$grant ?? SharedReader(value: nil)
+            @Dependency(\.authoringGrant) var authoringGrant
+            self._grant = authoringGrant
         }
 
         @SharedReader var grant: AuthoringGrant?
@@ -728,17 +728,17 @@ struct WorkspaceProbe {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.workspaceContext) var workspaceContext
+    @Dependency(\.editingWorkspaceID) var editingWorkspaceID
 
     var body: some Feature {
         Update { state, action in
             switch action {
             case .inspectButtonTapped:
-                state.observedCanAuthor = workspaceContext?.canEditContent
+                state.observedCanAuthor = state.grant?.access.canEditContent ?? false
                 state.observedDatabaseMarker = try? database.read { db in
                     try String.fetchOne(db, sql: "SELECT value FROM marker")
                 }
-                state.observedWorkspaceID = workspaceContext?.id
+                state.observedWorkspaceID = editingWorkspaceID
 
             case .requestAuthoringButtonTapped:
                 store.addTask {

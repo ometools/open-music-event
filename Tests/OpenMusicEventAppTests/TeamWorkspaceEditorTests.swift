@@ -200,10 +200,10 @@ struct TeamWorkspaceEditorTests {
             ]
         )
         let expectedWorkspaceSummary = try await database.read { db in
-            try SourceWorkspaceSummaryRequest(
-                target: .calendar(calendarID, sourceBaselineID)
+            try SourceWorkspaceSummary.query(
+                target: .calendar(calendarID, sourceBaselineID),
+                in: db
             )
-            .fetch(db)
         }
         let expectedSourceFileAttributions = try await database.read { db in
             try openMusicEventSourceFileAttributions(
@@ -323,15 +323,11 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
-        let expectedWorkspaceSummary = try await withDependencies {
-            $0.sourceEditingSession = sourceEditingSession
-        } operation: {
-            try await sourceEditingSession.database.read { db in
-                try SourceWorkspaceSummaryRequest(
-                    target: .calendar(calendarID, sourceBaseline.id)
-                )
-                .fetch(db)
-            }
+        let expectedWorkspaceSummary = try await sourceEditingSession.database.read { db in
+            try SourceWorkspaceSummary.query(
+                target: .calendar(calendarID, sourceBaseline.id),
+                in: db
+            )
         }
         #expect(expectedWorkspaceSummary.totalCount == 1)
         let expectedSourceFileAttributions = try await sourceEditingSession.database.read { db in
@@ -351,7 +347,6 @@ struct TeamWorkspaceEditorTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                 SourcePatchGenerator { request in
                     #expect(
@@ -645,7 +640,6 @@ struct TeamWorkspaceEditorTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             TestStore(
                 initialState: SourceWorkspace.State(

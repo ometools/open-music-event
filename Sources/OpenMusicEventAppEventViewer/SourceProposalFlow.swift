@@ -4,6 +4,7 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventSourceEditing
+import Sharing
 import SourceEditing
 
 public typealias SourceProposalTarget = OpenMusicEventSourceTarget
@@ -91,7 +92,8 @@ public struct SourceProposalFlow {
     @Dependency(\.openMusicEventSourcePatchLocationResolver) var sourcePatchLocationResolver
     @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver) var calendarSourcePatchLocationResolver
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
-    @Dependency(\.workspaceContext) var workspaceContext
+    @Dependency(\.authoringGrant) var authoringGrant
+    @Dependency(\.editingWorkspaceID) var editingWorkspaceID
     @Dependency(WorkspacePreparationClient.self) var workspacePreparation
     @Dependency(AuthoringPolicyClient.self) var authoringPolicy
 
@@ -126,16 +128,16 @@ public struct SourceProposalFlow {
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
                 let target = state.target
-                let workspaceID = workspaceContext?.id
+                let workspaceID = editingWorkspaceID
                 let workspacePreparation = workspacePreparation
-                let workspaceContext = workspaceContext
+                let authoringGrant = authoringGrant
                 let authoringPolicy = authoringPolicy
                 let store = store
 
                 state.status = .proposing
                 store.addTask {
                     switch await Self.revalidatedAuthoringAccess(
-                        workspaceContext: workspaceContext,
+                        authoringGrant: authoringGrant,
                         authoringPolicy: authoringPolicy
                     ) {
                     case .current, .notMounted:
@@ -203,7 +205,7 @@ public struct SourceProposalFlow {
                             return
                         }
                         if case .revoked = await Self.revalidatedAuthoringAccess(
-                            workspaceContext: workspaceContext,
+                            authoringGrant: authoringGrant,
                             authoringPolicy: authoringPolicy
                         ) {
                             await store.reportError(
@@ -261,10 +263,10 @@ public struct SourceProposalFlow {
     }
 
     static func revalidatedAuthoringAccess(
-        workspaceContext: WorkspaceContext?,
+        authoringGrant: SharedReader<AuthoringGrant?>,
         authoringPolicy: AuthoringPolicyClient
     ) async -> RevalidatedAuthoringAccess {
-        guard let grant = workspaceContext?.grant else {
+        guard let grant = authoringGrant.wrappedValue else {
             return .notMounted
         }
         do {

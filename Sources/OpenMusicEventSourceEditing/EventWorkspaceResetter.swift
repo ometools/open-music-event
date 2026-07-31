@@ -47,14 +47,12 @@ public extension EventWorkspaceResetter {
 private func resetOpenMusicEvent(eventID: OME.Event.ID) throws {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
-    @Dependency(\.sourceEditingSession) var sourceEditingSession
 
     try database.write { db in
         try resetOpenMusicEvent(
             eventID: eventID,
             in: db,
-            workspaceReferenceDatabase: workspaceReferenceDatabase,
-            sourceEditingSession: sourceEditingSession
+            workspaceReferenceDatabase: workspaceReferenceDatabase
         )
     }
 }
@@ -63,7 +61,6 @@ private func resetOpenMusicEventSourceChanges(
     target: OpenMusicEventSourceTarget
 ) throws {
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.sourceEditingSession) var sourceEditingSession
     @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
     @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
@@ -74,7 +71,6 @@ private func resetOpenMusicEventSourceChanges(
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID,
                 in: db,
-                sourceEditingSession: sourceEditingSession,
                 sourceReferenceDatabase: sourceReferenceDatabase
             )
 
@@ -91,15 +87,13 @@ private func resetOpenMusicEventSourceChanges(
                         calendarID: OME.Calendar.defaultID
                     ),
                     in: db,
-                    sourceEditingSession: sourceEditingSession,
                     sourceReferenceDatabase: sourceReferenceDatabase
                 )
             } else {
                 try resetOpenMusicEvent(
                     eventID: eventID,
                     in: db,
-                    workspaceReferenceDatabase: workspaceReferenceDatabase,
-                    sourceEditingSession: sourceEditingSession
+                    workspaceReferenceDatabase: workspaceReferenceDatabase
                 )
             }
         }
@@ -109,8 +103,7 @@ private func resetOpenMusicEventSourceChanges(
 private func resetOpenMusicEvent(
     eventID: OME.Event.ID,
     in db: Database,
-    workspaceReferenceDatabase: WorkspaceReferenceDatabaseClient,
-    sourceEditingSession: SourceEditingSession?
+    workspaceReferenceDatabase: WorkspaceReferenceDatabaseClient
 ) throws {
     guard let eventWorkspace = try (EventEditingWorkspaceRecord
         .where { $0.id.eq(eventID) }
@@ -131,15 +124,15 @@ private func resetOpenMusicEvent(
             .fetchOne(db)
     }
 
-    if let sourceEditingSession {
-        try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try SourceEditingResetter().reset(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                descriptors: OME.sourceTableDescriptors,
-                scope: .openMusicEvent(eventID: eventID)
-            )
-        }
+    if let baselineSchemaName = try SourceEditingSession
+        .attachedBaselineSchemaName(in: db)
+    {
+        try SourceEditingResetter().reset(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            descriptors: OME.sourceTableDescriptors,
+            scope: .openMusicEvent(eventID: eventID)
+        )
     } else {
         let baselineDatabase: SourceBaselineDatabase?
         do {
@@ -167,7 +160,6 @@ private func resetOpenMusicEventSourceChanges(
     sourceBaselineID: SourceBaselineRecord.ID,
     calendarID: OME.Calendar.ID,
     in db: Database,
-    sourceEditingSession: SourceEditingSession?,
     sourceReferenceDatabase: SourceReferenceDatabaseClient
 ) throws {
     guard let sourceBaseline = try (SourceBaselineRecord
@@ -177,15 +169,15 @@ private func resetOpenMusicEventSourceChanges(
         throw EventWorkspaceResetError.sourceBaselineNotFound(sourceBaselineID)
     }
 
-    if let sourceEditingSession {
-        try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try resetOpenMusicEventSourceChanges(
-                sourceBaselineID: sourceBaselineID,
-                calendarID: calendarID,
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        }
+    if let baselineSchemaName = try SourceEditingSession
+        .attachedBaselineSchemaName(in: db)
+    {
+        try resetOpenMusicEventSourceChanges(
+            sourceBaselineID: sourceBaselineID,
+            calendarID: calendarID,
+            in: db,
+            baselineSchemaName: baselineSchemaName
+        )
     } else {
         guard let baselineDatabase = try sourceReferenceDatabase.existing(
             sourceBaseline.sourceProvenance

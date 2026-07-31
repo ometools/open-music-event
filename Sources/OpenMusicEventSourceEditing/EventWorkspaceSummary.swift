@@ -39,14 +39,11 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
     }
 }
 
-public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
-    public var eventID: OME.Event.ID
-
-    public init(eventID: OME.Event.ID) {
-        self.eventID = eventID
-    }
-
-    public func fetch(_ db: Database) throws -> EventWorkspaceSummary {
+public extension EventWorkspaceSummary {
+    static func query(
+        eventID: OME.Event.ID,
+        in db: Database
+    ) throws -> Self {
         let eventWorkspace = try EventEditingWorkspaceRecord
             .where { $0.id.eq(eventID) }
             .fetchOne(db)
@@ -69,8 +66,9 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        guard let sourceEditingSession else {
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
@@ -83,19 +81,15 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             .fetchOne(db)
         let sourceSummary: SourceChangeSummary
         if sourceProvenance?.sourceBaselineID != nil {
-            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-                try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName
-                )
-            }
+            sourceSummary = try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
         } else if workspace.kind == .local {
-            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-                try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName
-                )
-            }
+            sourceSummary = try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
         } else {
             return EventWorkspaceSummary(
                 eventID: eventID,
@@ -157,14 +151,11 @@ public struct SourceEditSummary: Equatable, Sendable {
     }
 }
 
-public struct SourceEditSummaryRequest: FetchKeyRequest {
-    public var sourceBaselineID: SourceBaselineRecord.ID
-
-    public init(sourceBaselineID: SourceBaselineRecord.ID) {
-        self.sourceBaselineID = sourceBaselineID
-    }
-
-    public func fetch(_ db: Database) throws -> SourceEditSummary {
+public extension SourceEditSummary {
+    static func query(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        in db: Database
+    ) throws -> Self {
         let sourceBaselineExists = try SourceBaselineRecord
             .where { $0.id.eq(sourceBaselineID) }
             .fetchOne(db)
@@ -178,20 +169,19 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        guard let sourceEditingSession else {
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .missingBaseline,
                 groups: []
             )
         }
-        let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        }
+        let sourceSummary = try openMusicEventSourceEditSummary(
+            in: db,
+            baselineSchemaName: baselineSchemaName
+        )
 
         switch sourceSummary.availability {
         case .available:

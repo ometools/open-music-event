@@ -1204,7 +1204,7 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
 
         let notInWorkspace = try await database.read { db in
-            try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
+            try EventWorkspaceSummary.query(eventID: openedEventID, in: db)
         }
 
         expectNoDifference(
@@ -1258,7 +1258,7 @@ struct SourceDatabaseInsertionTests {
         }
 
         let workspaceNeedsPreparation = try await database.read { db in
-            try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
+            try EventWorkspaceSummary.query(eventID: openedEventID, in: db)
         }
 
         expectNoDifference(
@@ -1458,10 +1458,10 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try SourceEditSummaryRequest(
-                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
+                try SourceEditSummary.query(
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+                    in: db
                 )
-                .fetch(db)
             }
         }
 
@@ -1614,17 +1614,17 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummary.query(eventID: openedEventID, in: db)
             }
         }
         let sourceSummary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try SourceEditSummaryRequest(
-                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
+                try SourceEditSummary.query(
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+                    in: db
                 )
-                .fetch(db)
             }
         }
 
@@ -1763,7 +1763,7 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummary.query(eventID: openedEventID, in: db)
             }
         }
 
@@ -2022,7 +2022,7 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummary.query(eventID: openedEventID, in: db)
             }
         }
 
@@ -4284,7 +4284,7 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = sourceEditingSession.database
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+                try EventWorkspaceSummary.query(eventID: eventID, in: db)
             }
         }
     }

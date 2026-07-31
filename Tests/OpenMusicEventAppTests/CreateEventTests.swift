@@ -537,10 +537,9 @@ struct CreateEventTests {
         )
         return try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+                try EventWorkspaceSummary.query(eventID: eventID, in: db)
             }
         }
     }

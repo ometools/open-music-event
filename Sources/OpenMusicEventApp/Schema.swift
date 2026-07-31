@@ -55,22 +55,44 @@ extension DependencyValues {
         }
         let database = try SQLiteData.defaultDatabase(path: path, configuration: configuration)
 
-        var migrator = DatabaseMigrator()
-        #if DEBUG
-        migrator.eraseDatabaseOnSchemaChange = true
-        #endif
-        OME.DatabaseMigrations.register(into: &migrator)
-        BlueskyActorCacheMigrations.register(into: &migrator)
-        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
-
-        try migrator.migrate(database)
-        try database.write { db in
-            try EventSearchTextTriggers.install(in: db)
-            try EventSearchSources.installTriggers(in: db)
-            try EventSearchSources.rebuild(in: db)
-            try sourcePatchInvalidations.installTriggers(db)
-        }
+        try prepareOpenMusicEventDatabase(
+            database,
+            sourcePatchInvalidations: sourcePatchInvalidations
+        )
         defaultDatabase = database
+    }
+}
+
+public extension SourceWorkspaceDatabasePreparationClient {
+    static var openMusicEvent: Self {
+        Self { database in
+            @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+            try prepareOpenMusicEventDatabase(
+                database,
+                sourcePatchInvalidations: sourcePatchInvalidations
+            )
+        }
+    }
+}
+
+private func prepareOpenMusicEventDatabase(
+    _ database: any DatabaseWriter,
+    sourcePatchInvalidations: SourcePatchInvalidations
+) throws {
+    var migrator = DatabaseMigrator()
+    #if DEBUG
+    migrator.eraseDatabaseOnSchemaChange = true
+    #endif
+    OME.DatabaseMigrations.register(into: &migrator)
+    BlueskyActorCacheMigrations.register(into: &migrator)
+    OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+
+    try migrator.migrate(database)
+    try database.write { db in
+        try EventSearchTextTriggers.install(in: db)
+        try EventSearchSources.installTriggers(in: db)
+        try EventSearchSources.rebuild(in: db)
+        try sourcePatchInvalidations.installTriggers(db)
     }
 }
 

@@ -25,25 +25,16 @@ public struct SourceWorkspaceDatabase: Sendable {
     }
 }
 
-public struct WorkspaceContext: Sendable {
+public struct EditingWorkspace: Sendable {
     public var id: EditingWorkspaceRecord.ID
     public var sourceWorkspaceDatabase: SourceWorkspaceDatabase
-    @SharedReader public var grant: AuthoringGrant?
 
     public init(
         id: EditingWorkspaceRecord.ID,
-        sourceWorkspaceDatabase: SourceWorkspaceDatabase,
-        grant: SharedReader<AuthoringGrant?> = SharedReader(value: nil)
+        sourceWorkspaceDatabase: SourceWorkspaceDatabase
     ) {
-        if let grantedWorkspaceID = grant.wrappedValue?.workspace.id {
-            precondition(
-                grantedWorkspaceID == id,
-                "An authoring grant cannot be mounted into a different workspace."
-            )
-        }
         self.id = id
         self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
-        self._grant = grant
     }
 
     public var database: any DatabaseWriter {
@@ -53,25 +44,19 @@ public struct WorkspaceContext: Sendable {
     public var sourceEditingSession: SourceEditingSession? {
         sourceWorkspaceDatabase.sourceEditingSession
     }
+}
 
-    public var access: AuthoringAccess {
-        grant?.access ?? .attendee
+public struct SourceWorkspaceDatabasePreparationClient: Sendable {
+    public var prepare: @Sendable (any DatabaseWriter) throws -> Void
+
+    public init(
+        prepare: @escaping @Sendable (any DatabaseWriter) throws -> Void
+    ) {
+        self.prepare = prepare
     }
 
-    public var canEditContent: Bool {
-        access.canEditContent
-    }
-
-    public var canManageWorkspace: Bool {
-        access.canManageWorkspace
-    }
-
-    public func mounting(grant: SharedReader<AuthoringGrant?>) -> Self {
-        Self(
-            id: id,
-            sourceWorkspaceDatabase: sourceWorkspaceDatabase,
-            grant: grant
-        )
+    public static var noop: Self {
+        Self(prepare: { _ in })
     }
 }
 
@@ -124,6 +109,7 @@ public extension SourceWorkspaceDatabaseClient {
         workingDirectory: URL?
     ) throws -> SourceWorkspaceDatabase {
         @Dependency(\.defaultDatabase) var database
+        @Dependency(\.sourceWorkspaceDatabasePreparation) var preparation
         @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
         let (workspace, sourceBaseline) = try database.read { db in
@@ -172,23 +158,25 @@ public extension SourceWorkspaceDatabaseClient {
             try referenceDatabase.database.backup(to: workingDatabase)
         }
 
-        guard let referenceDatabase else {
-            return SourceWorkspaceDatabase(
+        let workspaceDatabase: SourceWorkspaceDatabase
+        if let referenceDatabase {
+            workspaceDatabase = SourceWorkspaceDatabase(
+                sourceEditingSession: try SourceEditingSession(
+                    workingDatabasePath: workingDatabaseURL.path,
+                    baselineDatabasePath: referenceDatabase.path,
+                    configuration: configuration
+                )
+            )
+        } else {
+            workspaceDatabase = SourceWorkspaceDatabase(
                 database: try DatabasePool(
                     path: workingDatabaseURL.path,
                     configuration: configuration
                 )
             )
         }
-
-        return SourceWorkspaceDatabase(
-            sourceEditingSession: try SourceEditingSession(
-                workingDatabasePath: workingDatabaseURL.path,
-                baselineDatabasePath: referenceDatabase.path,
-                baselineSchemaName: sourceBaselineSchemaName(),
-                configuration: configuration
-            )
-        )
+        try preparation.prepare(workspaceDatabase.database)
+        return workspaceDatabase
     }
 
     private static func workingDatabaseURL(
@@ -211,22 +199,32 @@ public extension SourceWorkspaceDatabaseClient {
             .standardizedFileURL
             .appending(path: fileName)
     }
-
-    private static func sourceBaselineSchemaName() -> String {
-        "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-    }
-
 }
 
-private enum WorkspaceContextKey: DependencyKey {
-    static var liveValue: WorkspaceContext? { nil }
-    static var testValue: WorkspaceContext? { nil }
+private enum AuthoringGrantReaderKey: DependencyKey {
+    static var liveValue: SharedReader<AuthoringGrant?> {
+        SharedReader(value: nil)
+    }
+
+    static var testValue: SharedReader<AuthoringGrant?> {
+        SharedReader(value: nil)
+    }
+}
+
+private enum EditingWorkspaceIDKey: DependencyKey {
+    static var liveValue: EditingWorkspaceRecord.ID? { nil }
+    static var testValue: EditingWorkspaceRecord.ID? { nil }
 }
 
 public extension DependencyValues {
-    var workspaceContext: WorkspaceContext? {
-        get { self[WorkspaceContextKey.self] }
-        set { self[WorkspaceContextKey.self] = newValue }
+    var authoringGrant: SharedReader<AuthoringGrant?> {
+        get { self[AuthoringGrantReaderKey.self] }
+        set { self[AuthoringGrantReaderKey.self] = newValue }
+    }
+
+    var editingWorkspaceID: EditingWorkspaceRecord.ID? {
+        get { self[EditingWorkspaceIDKey.self] }
+        set { self[EditingWorkspaceIDKey.self] = newValue }
     }
 
     var sourceWorkspaceDatabase: SourceWorkspaceDatabaseClient {
@@ -234,14 +232,30 @@ public extension DependencyValues {
         set { self[SourceWorkspaceDatabaseClientKey.self] = newValue }
     }
 
-    mutating func useWorkspaceContext(
-        _ workspaceContext: WorkspaceContext
-    ) {
-        // App features keep the app database as their read/write authority. Source summary
-        // requests attach the workspace reference database to their exact connection on demand.
-        self.sourceEditingSession = workspaceContext.sourceEditingSession
-        self.workspaceContext = workspaceContext
+    var sourceWorkspaceDatabasePreparation: SourceWorkspaceDatabasePreparationClient {
+        get { self[SourceWorkspaceDatabasePreparationClientKey.self] }
+        set { self[SourceWorkspaceDatabasePreparationClientKey.self] = newValue }
     }
+
+    mutating func mount(
+        _ workspace: EditingWorkspace,
+        grant: SharedReader<AuthoringGrant?>
+    ) {
+        if let grantedWorkspaceID = grant.wrappedValue?.workspace.id {
+            precondition(
+                grantedWorkspaceID == workspace.id,
+                "An authoring grant cannot be mounted into a different workspace."
+            )
+        }
+        authoringGrant = grant
+        defaultDatabase = workspace.database
+        editingWorkspaceID = workspace.id
+    }
+}
+
+private enum SourceWorkspaceDatabasePreparationClientKey: DependencyKey {
+    static var liveValue: SourceWorkspaceDatabasePreparationClient { .noop }
+    static var testValue: SourceWorkspaceDatabasePreparationClient { .noop }
 }
 
 private enum SourceWorkspaceDatabaseClientKey: DependencyKey {

@@ -72,7 +72,7 @@ struct TangledSourceDownloadFeatureTests {
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { requestedWorkspaceID in
-                    WorkspaceContext(
+                    EditingWorkspace(
                         id: requestedWorkspaceID,
                         sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
                     )
@@ -1088,6 +1088,7 @@ struct TangledSourceDownloadFeatureTests {
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
         let eventID = importedEventID()
         let result = try validationResult()
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let temporaryURL = FileManager.default.temporaryDirectory
             .appending(path: "source-data-refresh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
@@ -1101,23 +1102,32 @@ struct TangledSourceDownloadFeatureTests {
             workingDatabasePath: temporaryURL.appending(path: "working.sqlite").path(),
             baselineDatabasePath: baselineDatabasePath
         )
+        try await sourceEditingSession.database.write { db in
+            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+            try db.execute(sql: "INSERT INTO marker VALUES ('working')")
+        }
 
         try await withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
-            $0.sourceEditingSession = sourceEditingSession
-            $0.tangledSourceImport = TangledSourceImportClient { request in
-                @Dependency(\.sourceEditingSession) var sourceEditingSession
-                await recorder.record(
-                    request,
-                    sourceEditingSessionIsNil: sourceEditingSession == nil
-                )
-                return result
-            }
-        } operation: {
-            @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-            try await database.write { db in
+            let baseDatabase = $0.defaultDatabase
+            try baseDatabase.write { db in
+                try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+                try db.execute(sql: "INSERT INTO marker VALUES ('base')")
+                try OME.Organizer.insert {
+                    OME.Organizer.Draft(id: eventID.organizerID)
+                }
+                .execute(db)
+                try OME.Event.insert {
+                    CreateEvent.makeEventDraft(
+                        id: eventID,
+                        name: "Source refresh event",
+                        startDate: nil,
+                        endDate: nil,
+                        timeZone: timeZone
+                    )
+                }
+                .execute(db)
                 try SourceBaselineRecord.insert {
                     SourceBaselineRecord(
                         source: sourceProvenance,
@@ -1139,12 +1149,25 @@ struct TangledSourceDownloadFeatureTests {
                 }
                 .execute(db)
             }
-
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.tangledSourceImport = TangledSourceImportClient { request in
+                @Dependency(\.defaultDatabase) var database
+                let databaseMarker = try await database.read { db in
+                    try String.fetchOne(db, sql: "SELECT value FROM marker")
+                }
+                await recorder.record(
+                    request,
+                    databaseMarker: databaseMarker
+                )
+                return result
+            }
+        } operation: {
+            @Dependency(\.sourceDataRefresh) var sourceDataRefresh
             try await sourceDataRefresh.refresh(sourceBaselineID)
         }
 
         let requests = await recorder.requests
-        let sourceEditingSessionIsNilValues = await recorder.sourceEditingSessionIsNilValues
+        let databaseMarkers = await recorder.databaseMarkers
         expectNoDifference(
             requests,
             [
@@ -1155,7 +1178,7 @@ struct TangledSourceDownloadFeatureTests {
                 )
             ]
         )
-        expectNoDifference(sourceEditingSessionIsNilValues, [true])
+        expectNoDifference(databaseMarkers, ["base"])
     }
 
     @Test
@@ -2562,22 +2585,22 @@ private func removeStoredRepositoryBackups(for storedURL: URL) {
 
 private actor SourceDataRefreshImportRecorder {
     private var recordedRequests: [OpenMusicEventSourceValidationRequest] = []
-    private var recordedSourceEditingSessionIsNilValues: [Bool] = []
+    private var recordedDatabaseMarkers: [String?] = []
 
     var requests: [OpenMusicEventSourceValidationRequest] {
         recordedRequests
     }
 
-    var sourceEditingSessionIsNilValues: [Bool] {
-        recordedSourceEditingSessionIsNilValues
+    var databaseMarkers: [String?] {
+        recordedDatabaseMarkers
     }
 
     func record(
         _ request: OpenMusicEventSourceValidationRequest,
-        sourceEditingSessionIsNil: Bool
+        databaseMarker: String?
     ) {
         recordedRequests.append(request)
-        recordedSourceEditingSessionIsNilValues.append(sourceEditingSessionIsNil)
+        recordedDatabaseMarkers.append(databaseMarker)
     }
 }
 

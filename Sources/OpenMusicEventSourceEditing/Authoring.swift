@@ -44,12 +44,12 @@ public enum AuthoringAccess: Equatable, Sendable {
 public struct AuthoringGrant: Equatable, Sendable {
     public var principal: AuthoringPrincipal
     public var role: OME.WorkspaceRole
-    public var workspace: WorkspaceContext
+    public var workspace: EditingWorkspace
 
     public init(
         principal: AuthoringPrincipal,
         role: OME.WorkspaceRole,
-        workspace: WorkspaceContext
+        workspace: EditingWorkspace
     ) {
         self.principal = principal
         self.role = role
@@ -137,7 +137,6 @@ public struct AuthoringExitRequested: FeatureEventKey {
 public struct Authoring<Content: FeatureProtocol> {
     public typealias Access = AuthoringAccess
     public typealias Capability = OME.WorkspaceRole.Capability
-    public typealias Context = WorkspaceContext
     public typealias Grant = AuthoringGrant
     public typealias Role = OME.WorkspaceRole
 
@@ -158,7 +157,7 @@ public struct Authoring<Content: FeatureProtocol> {
             @Dependency(\.defaultDatabase) var database
             @Dependency(WorkspaceAuthoringActivationClient.self) var activations
             @Dependency(WorkspacePreparationClient.self) var preparation
-            let attendeeWorkspace = WorkspaceContext(
+            let attendeeWorkspace = EditingWorkspace(
                 id: workspaceID,
                 sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
             )
@@ -189,7 +188,7 @@ public struct Authoring<Content: FeatureProtocol> {
         }
 
         public init(
-            workspace: WorkspaceContext,
+            workspace: EditingWorkspace,
             initiallyRequestsEntry: Bool = false,
             makeContentState: () -> Content.State
         ) {
@@ -209,7 +208,7 @@ public struct Authoring<Content: FeatureProtocol> {
         ) {
             @Dependency(\.defaultDatabase) var database
             self.init(
-                attendeeWorkspace: WorkspaceContext(
+                attendeeWorkspace: EditingWorkspace(
                     id: workspaceID,
                     sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
                 ),
@@ -220,7 +219,7 @@ public struct Authoring<Content: FeatureProtocol> {
         }
 
         private init(
-            attendeeWorkspace: WorkspaceContext,
+            attendeeWorkspace: EditingWorkspace,
             grant: Shared<AuthoringGrant?>,
             initiallyRequestsEntry: Bool,
             makeContentState: () -> Content.State
@@ -233,9 +232,7 @@ public struct Authoring<Content: FeatureProtocol> {
             self.initiallyRequestsEntry = initiallyRequestsEntry
             let workspace = grant.wrappedValue?.workspace ?? attendeeWorkspace
             self.content = withDependencies {
-                $0.useWorkspaceContext(
-                    workspace.mounting(grant: SharedReader(grant))
-                )
+                $0.mount(workspace, grant: SharedReader(grant))
             } operation: {
                 makeContentState()
             }
@@ -249,13 +246,8 @@ public struct Authoring<Content: FeatureProtocol> {
         @StoreTaskID public var entry
         @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored var activationRestorationErrorDescription: String?
-        @DebugSnapshotIgnored public var attendeeWorkspace: WorkspaceContext
+        @DebugSnapshotIgnored public var attendeeWorkspace: EditingWorkspace
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
-
-        var grantReference: Shared<AuthoringGrant?> {
-            get { $grant }
-            set { $grant = newValue }
-        }
 
         public var access: AuthoringAccess {
             grant?.access ?? .attendee
@@ -268,7 +260,7 @@ public struct Authoring<Content: FeatureProtocol> {
             return true
         }
 
-        public var workspace: WorkspaceContext {
+        public var workspace: EditingWorkspace {
             guard let grant else { return attendeeWorkspace }
             precondition(
                 grant.workspace.id == attendeeWorkspace.id,
@@ -294,7 +286,7 @@ public struct Authoring<Content: FeatureProtocol> {
         case enterButtonTapped
         case exitButtonTapped
         case refreshAdmission
-        case sourceWorkspacePrepared(WorkspaceContext)
+        case sourceWorkspacePrepared(EditingWorkspace)
     }
 
     @Dependency(WorkspaceAuthoringActivationClient.self) var activations
@@ -345,10 +337,9 @@ public struct Authoring<Content: FeatureProtocol> {
                         workspace.id == store.attendeeWorkspace.id,
                         "An authoring grant cannot be mounted into a different workspace."
                     )
-                    dependencies.useWorkspaceContext(
-                        workspace.mounting(
-                            grant: SharedReader(store.grantReference)
-                        )
+                    dependencies.mount(
+                        workspace,
+                        grant: SharedReader(store.$grant)
                     )
                 }
         }
