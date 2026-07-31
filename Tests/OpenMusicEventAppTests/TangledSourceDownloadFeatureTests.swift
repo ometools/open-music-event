@@ -5,6 +5,7 @@ import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import ErrorHandling
+import FileTree
 import Foundation
 import HTTPClient
 import HTTPTypes
@@ -1179,6 +1180,391 @@ struct TangledSourceDownloadFeatureTests {
             ]
         )
         expectNoDifference(databaseMarkers, ["base"])
+    }
+
+    @Test
+    func sourceWorkspaceSerializesLaunchRefreshAndAuthoringPreparation() async throws {
+        let sourceProvenance = tangledSourceProvenance(
+            "serialized-source-workspace",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let probe = SourceWorkspaceSerializationProbe()
+        let result = try validationResult()
+
+        try await withDependencies {
+            $0.context = .test
+            $0.tangledSourceImport = TangledSourceImportClient { _ in
+                await probe.refresh()
+                return result
+            }
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { requestedBaselineID in
+                #expect(requestedBaselineID == sourceBaselineID)
+                await probe.prepare()
+            }
+            try OME.prepareDependencies(&$0)
+        } operation: {
+            @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
+            @Dependency(\.sourceWorkspace) var sourceWorkspace
+            @Dependency(\.tangledSourceImport) var tangledSourceImport
+
+            let state = sourceWorkspace.state(workspaceID)
+            let refreshTask = Task {
+                try await tangledSourceImport.importSource(
+                    OpenMusicEventSourceValidationRequest(
+                        source: sourceProvenance.reference,
+                        organizerID: result.organizerID,
+                        ref: "main"
+                    )
+                )
+            }
+            await probe.waitForRefreshToStart()
+
+            let preparationTask = Task {
+                try await sourceEditModePreparation.prepare(sourceBaselineID)
+            }
+            for _ in 0..<100 where state.wrappedValue.queuedOperationCount == 0 {
+                await Task.yield()
+            }
+
+            #expect(
+                state.wrappedValue
+                    == SourceWorkspaceState(
+                        activity: .refreshing,
+                        queuedOperationCount: 1
+                    )
+            )
+
+            await probe.finishRefresh()
+            _ = try await refreshTask.value
+            try await preparationTask.value
+
+            #expect(state.wrappedValue == SourceWorkspaceState())
+        }
+
+        let operations = await probe.recordedOperations()
+        expectNoDifference(
+            operations,
+            [.refreshStarted, .refreshFinished, .preparationStarted]
+        )
+    }
+
+    @Test
+    func sourceWorkspaceRefreshRebasesLocalEditsOntoNewBackendData() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = importedEventID().organizerID
+        let refreshRequest = OpenMusicEventSourceValidationRequest(
+            source: "tangled.org/woody.fm/rebased-source-workspace",
+            organizerID: organizerID,
+            ref: "main"
+        )
+        let requestedSourceProvenance = try refreshRequest.tangledSourceProvenance()
+        let sourceProvenance = try #require(requestedSourceProvenance)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let storageRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-rebased-source-root-\(UUID().uuidString)")
+        let workingRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-rebased-working-root-\(UUID().uuidString)")
+        let refreshUUID = UUID()
+        let sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient.fileBacked(
+            workingDirectory: workingRootURL
+        )
+        defer {
+            try? FileManager.default.removeItem(at: storageRootURL)
+            try? FileManager.default.removeItem(at: workingRootURL)
+        }
+        try FileManager.default.createDirectory(
+            at: workingRootURL,
+            withIntermediateDirectories: true
+        )
+
+        let storedRepositoryURL = SourceRepositoryStorageClient.storedRepositoryURL(
+            for: sourceProvenance,
+            rootURL: storageRootURL
+        )
+        try writeSourceRepository(
+            at: storedRepositoryURL,
+            events: [("existing", "Backend Existing")]
+        )
+        let initialInsertion = try sourceInsertion(
+            repositoryURL: storedRepositoryURL,
+            organizerID: organizerID,
+            sourceProvenance: sourceProvenance
+        )
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+        } operation: {
+            try await initialInsertion.migrateAndInsert(into: database)
+        }
+        let workspace = try withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.sourceWorkspaceDatabasePreparation = .openMusicEvent
+            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+        } operation: {
+            try sourceWorkspaceDatabase.workspace(workspaceID)
+        }
+
+        let existingEventID = try await database.read { db in
+            try #require(
+                try OMERecord.Event
+                    .where { $0.name.eq("Backend Existing") }
+                    .fetchOne(db)?
+                    .id
+            )
+        }
+        try await workspace.database.write { db in
+            try OMERecord.Event
+                .find(existingEventID)
+                .update { $0.name = "Locally Edited" }
+                .execute(db)
+        }
+
+        let result = try await withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+            $0.openMusicEventSourcePatchConversion = .live
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.uuid = .constant(refreshUUID)
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                try writeSourceRepository(
+                    at: request.outputURL,
+                    events: [
+                        ("existing", "Backend Existing"),
+                        ("backend-added", "Backend Added"),
+                    ]
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+            let sourceWorkspace = SourceWorkspaceClient.coordinated(
+                database: database,
+                importSource: .live,
+                prepareForEditing: .noop
+            )
+            $0.sourceWorkspace = sourceWorkspace
+            $0.tangledSourceImport = TangledSourceImportClient(
+                importSource: sourceWorkspace.importSource
+            )
+            $0.sourceEditModePreparation = SourceEditModePreparationClient(
+                prepare: sourceWorkspace.prepareForEditing
+            )
+        } operation: {
+            @Dependency(\.tangledSourceImport) var tangledSourceImport
+            @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+            let resolvedRepositoryURL = try sourceRepositoryStorage
+                .repositoryURL(sourceProvenance)
+            #expect(resolvedRepositoryURL == storedRepositoryURL)
+            #expect(FileManager.default.fileExists(atPath: resolvedRepositoryURL.path))
+            return try await tangledSourceImport.importSource(refreshRequest)
+        }
+
+        #expect(result.repositoryURL == storedRepositoryURL)
+        let attendeeEventNames = try await database.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(
+            attendeeEventNames,
+            ["Backend Added", "Backend Existing"]
+        )
+        let workingEventNames = try await workspace.database.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(
+            workingEventNames,
+            ["Backend Added", "Locally Edited"]
+        )
+
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient
+            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: referenceDatabaseURL.path
+        )
+        let referenceEventNames = try referenceDatabase.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(
+            referenceEventNames,
+            ["Backend Added", "Backend Existing"]
+        )
+
+        let summary = try await workspace.database.read { db in
+            try SourceEditSummary.query(
+                sourceBaselineID: sourceBaselineID,
+                in: db
+            )
+        }
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+    }
+
+    @Test
+    func sourceWorkspaceRefreshRejectsConflictingBackendEditWithoutReplacingState() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = importedEventID().organizerID
+        let refreshRequest = OpenMusicEventSourceValidationRequest(
+            source: "tangled.org/woody.fm/conflicting-source-workspace",
+            organizerID: organizerID,
+            ref: "main"
+        )
+        let requestedSourceProvenance = try refreshRequest.tangledSourceProvenance()
+        let sourceProvenance = try #require(requestedSourceProvenance)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let storageRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-conflicting-source-root-\(UUID().uuidString)")
+        let workingRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-conflicting-working-root-\(UUID().uuidString)")
+        let refreshUUID = UUID()
+        let sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient.fileBacked(
+            workingDirectory: workingRootURL
+        )
+        defer {
+            try? FileManager.default.removeItem(at: storageRootURL)
+            try? FileManager.default.removeItem(at: workingRootURL)
+        }
+        try FileManager.default.createDirectory(
+            at: workingRootURL,
+            withIntermediateDirectories: true
+        )
+
+        let storedRepositoryURL = SourceRepositoryStorageClient.storedRepositoryURL(
+            for: sourceProvenance,
+            rootURL: storageRootURL
+        )
+        try writeSourceRepository(
+            at: storedRepositoryURL,
+            events: [("existing", "Backend Existing")]
+        )
+        let initialInsertion = try sourceInsertion(
+            repositoryURL: storedRepositoryURL,
+            organizerID: organizerID,
+            sourceProvenance: sourceProvenance
+        )
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+        } operation: {
+            try await initialInsertion.migrateAndInsert(into: database)
+        }
+        let workspace = try withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.sourceWorkspaceDatabasePreparation = .openMusicEvent
+            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+        } operation: {
+            try sourceWorkspaceDatabase.workspace(workspaceID)
+        }
+
+        let existingEventID = try await database.read { db in
+            try #require(
+                try OMERecord.Event
+                    .where { $0.name.eq("Backend Existing") }
+                    .fetchOne(db)?
+                    .id
+            )
+        }
+        try await workspace.database.write { db in
+            try OMERecord.Event
+                .find(existingEventID)
+                .update { $0.name = "Locally Edited" }
+                .execute(db)
+        }
+
+        let error = await #expect(throws: SourcePatchApplierError.self) {
+            try await withDependencies {
+                $0.context = .test
+                try OME.prepareDependencies(&$0)
+                $0.defaultDatabase = database
+                $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+                $0.sourceRepositoryStorage = .live
+                $0.sourceReferenceDatabase = .live
+                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+                $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+                $0.openMusicEventSourcePatchConversion = .live
+                $0.openMusicEventCalendarSourcePatchConversion = .live
+                $0.sourceWorkingTreeMaterializer = .live(
+                    temporaryDirectoryURL: workingRootURL
+                )
+                $0.uuid = .constant(refreshUUID)
+                $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                    try writeSourceRepository(
+                        at: request.outputURL,
+                        events: [("existing", "Backend Changed")]
+                    )
+                    return TangledSourceCheckout(repositoryURL: request.outputURL)
+                }
+                let sourceWorkspace = SourceWorkspaceClient.coordinated(
+                    database: database,
+                    importSource: .live,
+                    prepareForEditing: .noop
+                )
+                $0.sourceWorkspace = sourceWorkspace
+                $0.tangledSourceImport = TangledSourceImportClient(
+                    importSource: sourceWorkspace.importSource
+                )
+                $0.sourceEditModePreparation = SourceEditModePreparationClient(
+                    prepare: sourceWorkspace.prepareForEditing
+                )
+            } operation: {
+                @Dependency(\.tangledSourceImport) var tangledSourceImport
+                _ = try await tangledSourceImport.importSource(refreshRequest)
+            }
+        }
+        expectNoDifference(
+            error,
+            .staleFile(path: "events/existing/event.yml")
+        )
+
+        let attendeeEventNames = try await database.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(attendeeEventNames, ["Backend Existing"])
+        let workingEventNames = try await workspace.database.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(workingEventNames, ["Locally Edited"])
+
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient
+            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: referenceDatabaseURL.path
+        )
+        let referenceEventNames = try referenceDatabase.read { db in
+            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
+        }
+        expectNoDifference(referenceEventNames, ["Backend Existing"])
+
+        let storedEvent = try String(
+            contentsOf: storedRepositoryURL
+                .appending(path: "events/existing/event.yml"),
+            encoding: .utf8
+        )
+        #expect(storedEvent.contains("Backend Existing"))
+        #expect(!storedEvent.contains("Backend Changed"))
     }
 
     @Test
@@ -2654,6 +3040,50 @@ private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
     var description: String
 }
 
+private actor SourceWorkspaceSerializationProbe {
+    enum Operation: Equatable, Sendable {
+        case refreshStarted
+        case refreshFinished
+        case preparationStarted
+    }
+
+    private(set) var operations: [Operation] = []
+    private var refreshContinuation: CheckedContinuation<Void, Never>?
+    private var refreshStarted = false
+    private var refreshStartedContinuation: CheckedContinuation<Void, Never>?
+
+    func refresh() async {
+        operations.append(.refreshStarted)
+        refreshStarted = true
+        refreshStartedContinuation?.resume()
+        refreshStartedContinuation = nil
+        await withCheckedContinuation { continuation in
+            refreshContinuation = continuation
+        }
+        operations.append(.refreshFinished)
+    }
+
+    func prepare() {
+        operations.append(.preparationStarted)
+    }
+
+    func waitForRefreshToStart() async {
+        guard !refreshStarted else { return }
+        await withCheckedContinuation { continuation in
+            refreshStartedContinuation = continuation
+        }
+    }
+
+    func finishRefresh() {
+        refreshContinuation?.resume()
+        refreshContinuation = nil
+    }
+
+    func recordedOperations() -> [Operation] {
+        operations
+    }
+}
+
 private struct BootstrapUnexpectedHTTPRequest: CustomStringConvertible, Error {
     var path: String?
 
@@ -2852,17 +3282,49 @@ private extension URL {
 }
 
 private func writeMinimalSourceRepository(at repositoryURL: URL) throws {
-    let eventURL = repositoryURL
-        .appending(path: "events", directoryHint: .isDirectory)
-        .appending(path: "imported-event", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: eventURL, withIntermediateDirectories: true)
-    try """
-    name: Imported Event
-    timeZone: America/Denver
-    """
-    .write(
-        to: eventURL.appending(path: "event.yml"),
-        atomically: true,
-        encoding: .utf8
+    try writeSourceRepository(
+        at: repositoryURL,
+        events: [("imported-event", "Imported Event")]
+    )
+}
+
+private func writeSourceRepository(
+    at repositoryURL: URL,
+    events: [(directory: String, name: String)]
+) throws {
+    for event in events {
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: event.directory, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL,
+            withIntermediateDirectories: true
+        )
+        try """
+        name: \(event.name)
+        timeZone: America/Denver
+        """
+        .write(
+            to: eventURL.appending(path: "event.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+}
+
+private func sourceInsertion(
+    repositoryURL: URL,
+    organizerID: OMERecord.Organizer.ID,
+    sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance
+) throws -> OMERecord.SourceDatabaseInsertion {
+    let sourceResult = try OpenMusicEventSourceRepositoryFileTree()
+        .read(from: repositoryURL)
+    return try OMERecord.SourceDatabaseInsertion(
+        .init(
+            source: try sourceResult.output.requiredValue,
+            organizerID: organizerID,
+            sourceProvenance: sourceProvenance,
+            sourceRootURL: repositoryURL
+        )
     )
 }

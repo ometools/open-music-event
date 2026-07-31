@@ -68,6 +68,18 @@ extension OME {
         dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
 
         let baseDatabase = dependencies.defaultDatabase
+        let sourceWorkspace = SourceWorkspaceClient.coordinated(
+            database: baseDatabase,
+            importSource: dependencies.tangledSourceImport,
+            prepareForEditing: dependencies.sourceEditModePreparation
+        )
+        dependencies.sourceWorkspace = sourceWorkspace
+        dependencies.tangledSourceImport = TangledSourceImportClient(
+            importSource: sourceWorkspace.importSource
+        )
+        dependencies.sourceEditModePreparation = SourceEditModePreparationClient(
+            prepare: sourceWorkspace.prepareForEditing
+        )
 
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
             try await withDependencies {

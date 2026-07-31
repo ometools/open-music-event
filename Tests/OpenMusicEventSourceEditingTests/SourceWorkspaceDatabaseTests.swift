@@ -164,6 +164,81 @@ struct SourceWorkspaceDatabaseTests {
     }
 
     @Test
+    func `existing workspace lookup does not create a working database`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let referenceDirectory = root
+            .appending(path: "references", directoryHint: .isDirectory)
+        let workingDirectory = root
+            .appending(path: "working", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appDatabase = try DatabaseQueue()
+        try appDatabase.write { db in
+            try db.execute(sql: """
+                CREATE TABLE editingWorkspaces (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  kind TEXT NOT NULL,
+                  databaseFileName TEXT NOT NULL,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL,
+                  sourceBaselineID TEXT,
+                  publicRecord TEXT
+                )
+                """)
+        }
+        let workspace = EditingWorkspaceRecord(
+            id: EditingWorkspaceRecord.ID(rawValue: "explicit-authoring-workspace"),
+            kind: .local,
+            databaseFileName: "explicit-authoring-workspace.sqlite",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try appDatabase.write { db in
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+
+        let referenceClient = WorkspaceReferenceDatabaseClient.fileBacked(
+            localReferenceDirectory: referenceDirectory
+        )
+        let reference = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.sourceReferenceDatabaseMigrator = .noop
+        } operation: {
+            try referenceClient.prepare(workspace)
+        }
+        try reference.write { db in
+            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+            try db.execute(sql: "INSERT INTO marker VALUES ('reference')")
+        }
+
+        let databaseClient = SourceWorkspaceDatabaseClient.fileBacked(
+            workingDirectory: workingDirectory
+        )
+        try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.sourceReferenceDatabaseMigrator = .noop
+            $0.workspaceReferenceDatabase = referenceClient
+        } operation: {
+            #expect(try databaseClient.existingWorkspace(workspace.id) == nil)
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: workingDirectory
+                        .appending(path: workspace.databaseFileName)
+                        .path
+                )
+            )
+
+            let createdWorkspace = try databaseClient.workspace(workspace.id)
+            #expect(try marker(in: createdWorkspace.database) == "reference")
+            let existingWorkspace = try #require(
+                try databaseClient.existingWorkspace(workspace.id)
+            )
+            #expect(try marker(in: existingWorkspace.database) == "reference")
+        }
+    }
+
+    @Test
     func `existing workspace database opens without a downloaded reference`() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

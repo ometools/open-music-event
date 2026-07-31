@@ -68,11 +68,18 @@ public enum SourceWorkspaceDatabaseError: Equatable, Error, Sendable {
 }
 
 public struct SourceWorkspaceDatabaseClient: Sendable {
+    public var existingWorkspace: @Sendable (
+        EditingWorkspaceRecord.ID
+    ) throws -> SourceWorkspaceDatabase?
     public var workspace: @Sendable (EditingWorkspaceRecord.ID) throws -> SourceWorkspaceDatabase
 
     public init(
+        existingWorkspace: @escaping @Sendable (
+            EditingWorkspaceRecord.ID
+        ) throws -> SourceWorkspaceDatabase? = { _ in nil },
         workspace: @escaping @Sendable (EditingWorkspaceRecord.ID) throws -> SourceWorkspaceDatabase
     ) {
+        self.existingWorkspace = existingWorkspace
         self.workspace = workspace
     }
 }
@@ -86,17 +93,32 @@ public extension SourceWorkspaceDatabaseClient {
         workingDirectory: URL? = nil
     ) -> Self {
         Self(
-            workspace: { workspaceID in
+            existingWorkspace: { workspaceID in
                 try Self.workspaceDatabase(
                     workspaceID,
-                    workingDirectory: workingDirectory
+                    workingDirectory: workingDirectory,
+                    createIfNeeded: false
                 )
+            },
+            workspace: { workspaceID in
+                guard let workspaceDatabase = try Self.workspaceDatabase(
+                    workspaceID,
+                    workingDirectory: workingDirectory,
+                    createIfNeeded: true
+                ) else {
+                    throw SourceWorkspaceDatabaseError.workspaceNotFound(workspaceID)
+                }
+                return workspaceDatabase
             }
         )
     }
 
     static var passthrough: Self {
         Self(
+            existingWorkspace: { _ in
+                @Dependency(\.defaultDatabase) var database
+                return SourceWorkspaceDatabase(database: database)
+            },
             workspace: { _ in
                 @Dependency(\.defaultDatabase) var database
                 return SourceWorkspaceDatabase(database: database)
@@ -106,8 +128,9 @@ public extension SourceWorkspaceDatabaseClient {
 
     private static func workspaceDatabase(
         _ workspaceID: EditingWorkspaceRecord.ID,
-        workingDirectory: URL?
-    ) throws -> SourceWorkspaceDatabase {
+        workingDirectory: URL?,
+        createIfNeeded: Bool
+    ) throws -> SourceWorkspaceDatabase? {
         @Dependency(\.defaultDatabase) var database
         @Dependency(\.sourceWorkspaceDatabasePreparation) var preparation
         @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
@@ -137,6 +160,9 @@ public extension SourceWorkspaceDatabaseClient {
         let workingDatabaseExists = FileManager.default.fileExists(
             atPath: workingDatabaseURL.path
         )
+        guard workingDatabaseExists || createIfNeeded else {
+            return nil
+        }
         let referenceDatabase = try workspaceReferenceDatabase.existing(
             workspace,
             sourceBaseline: sourceBaseline

@@ -26,6 +26,22 @@ public extension OME.SourceDatabaseInsertion {
         try await insert(into: database)
     }
 
+    func migrateAndInsert(
+        backendInto database: any DatabaseWriter,
+        rebasedWorkingCopy: OME.SourceDatabaseInsertion,
+        into workspaceDatabase: any DatabaseWriter
+    ) async throws {
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        try migrator.migrate(workspaceDatabase)
+        try await insert(
+            backendInto: database,
+            rebasedWorkingCopy: rebasedWorkingCopy,
+            into: workspaceDatabase
+        )
+    }
+
     func insert(into database: any DatabaseWriter) async throws {
         try await database.read { db in
             try validateEventSourceProvenanceConflicts(in: db)
@@ -54,6 +70,60 @@ public extension OME.SourceDatabaseInsertion {
             for stagedDatabase in stagedSourceReferenceDatabases.values {
                 try stagedDatabase.commit()
             }
+        }
+    }
+
+    private func insert(
+        backendInto database: any DatabaseWriter,
+        rebasedWorkingCopy: OME.SourceDatabaseInsertion,
+        into workspaceDatabase: any DatabaseWriter
+    ) async throws {
+        try await database.read { db in
+            try validateEventSourceProvenanceConflicts(in: db)
+        }
+        try await workspaceDatabase.read { db in
+            try rebasedWorkingCopy.validateEventSourceProvenanceConflicts(in: db)
+        }
+
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
+            sourceReferenceDatabase: sourceReferenceDatabase
+        )
+        defer {
+            for stagedDatabase in stagedSourceReferenceDatabases.values {
+                try? stagedDatabase.discard()
+            }
+        }
+
+        let importedAt = Date()
+        let baselineDatabaseFileNamesByID = Dictionary(
+            uniqueKeysWithValues: stagedSourceReferenceDatabases.map { baselineID, database in
+                (baselineID, database.databaseFileName)
+            }
+        )
+        let baseline = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: self,
+            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
+            importedAt: importedAt
+        )
+        let workingCopy = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: rebasedWorkingCopy,
+            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
+            importedAt: importedAt
+        )
+
+        try insert(
+            baseline,
+            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
+        )
+        try await database.write { db in
+            try baseline.insert(into: db)
+            for stagedDatabase in stagedSourceReferenceDatabases.values {
+                try stagedDatabase.commit()
+            }
+        }
+        try await workspaceDatabase.write { db in
+            try workingCopy.insert(into: db)
         }
     }
 
