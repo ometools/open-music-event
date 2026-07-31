@@ -1,5 +1,5 @@
 {
-  "originHash" : "642ca1ee515665ab278f5acaf9f54a78a7531e9bb842c708f5c9345580ae1a53",
+  "originHash" : "155c30126efc60cea9b308a7b63d80c86f735c106eeef95f8d4d1a6ba08cbcab",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -205,7 +205,7 @@
       "location" : "https://github.com/woodymelling/static-libgit2",
       "state" : {
         "branch" : "main",
-        "revision" : "9523b95fa47176ade069a81af4f314ae9e50db61"
+        "revision" : "6dd4c486804e7c1be74ca80e03bb8aa4a4a97cd6"
       }
     },
     {
