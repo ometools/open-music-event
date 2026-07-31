@@ -190,8 +190,11 @@ public struct SchedulePerformanceListView: View {
                         } label: {
                             SchedulePerformanceRow(
                                 row: row,
-                                subtitle: store.state.eventTimePresentation.performanceRowSubtitle(
-                                    for: row.performance,
+                                timeRangeText: store.state.eventTimePresentation.performanceRowTimeRange(
+                                    for: row.performance
+                                ),
+                                daySegmentText: store.state.eventTimePresentation.daySegment(
+                                    for: row.performance.startTime,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 userScheduleOverlay: userScheduleOverlay,

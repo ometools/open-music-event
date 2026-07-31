@@ -107,9 +107,12 @@ struct ContributorScheduleSection: View {
                         TimelineView(.periodic(from: Date.now, by: 1)) { context in
                             ContributorSchedulePerformanceRow(
                                 row: row,
-                                subtitle: eventTimePresentation.performanceRowSubtitle(
+                                timeRangeText: eventTimePresentation.performanceRowTimeRange(
                                     for: row.performance,
-                                    disclosure: .whenDeviceClockDiffers(deviceTimeZone),
+                                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                                ),
+                                daySegmentText: eventTimePresentation.daySegment(
+                                    for: row.performance.startTime,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 now: context.date
@@ -126,7 +129,8 @@ struct ContributorScheduleSection: View {
 struct ContributorSchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
-    let subtitle: String
+    let timeRangeText: String
+    let daySegmentText: String
     var now: Date?
 
     var body: some View {
@@ -146,9 +150,11 @@ struct ContributorSchedulePerformanceRow: View {
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(timeRangeText)
+                        .lineLimit(1)
+                        .portableLayoutPriority(1)
+
+                    Text(daySegmentText)
                         .lineLimit(1)
 
                     if let timingStatus {
@@ -156,6 +162,8 @@ struct ContributorSchedulePerformanceRow: View {
                             .portableLayoutPriority(1)
                     }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

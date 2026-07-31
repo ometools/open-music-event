@@ -22,20 +22,6 @@ struct EventTimePresentation: Equatable, Sendable {
 
     let timeZone: TimeZone
 
-    func performanceRowSubtitle(
-        for performance: OMERecord.Performance,
-        disclosure: Disclosure = .never,
-        policy: DateTimeRangeResolutionPolicy = .default
-    ) -> String {
-        """
-        \(performanceRowTimeRange(
-            for: performance,
-            disclosure: disclosure
-        ))
-        \(daySegment(for: performance.startTime, policy: policy))
-        """
-    }
-
     func performanceRowTimeRange(
         for performance: OMERecord.Performance,
         disclosure: Disclosure = .never

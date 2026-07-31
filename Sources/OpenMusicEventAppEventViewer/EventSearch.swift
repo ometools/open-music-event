@@ -648,9 +648,12 @@ struct EventSearchPerformanceRow: View {
     var body: some View {
         EventSearchRow(
             title: row.title,
-            subtitle: eventTimePresentation.performanceRowSubtitle(
+            subtitle: eventTimePresentation.performanceRowTimeRange(
                 for: row.performance,
-                disclosure: timeZoneDisclosure,
+                disclosure: timeZoneDisclosure
+            ),
+            secondarySubtitle: eventTimePresentation.daySegment(
+                for: row.performance.startTime,
                 policy: dateTimeRangeResolutionPolicy
             ),
             status: PerformanceTimingStatus(
@@ -736,6 +739,7 @@ struct EventSearchPerformanceChrome: View {
 struct EventSearchRow<Chrome: View>: View {
     let title: String
     let subtitle: String
+    var secondarySubtitle: String?
     var status: PerformanceTimingStatus?
     let chrome: Chrome
 
@@ -749,9 +753,13 @@ struct EventSearchRow<Chrome: View>: View {
                     .foregroundStyle(.primary)
                 HStack(spacing: 6) {
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .portableLayoutPriority(1)
+
+                    if let secondarySubtitle {
+                        Text(secondarySubtitle)
+                            .lineLimit(1)
+                    }
 
                     if let status {
                         if case .startsIn = status {
@@ -766,6 +774,8 @@ struct EventSearchRow<Chrome: View>: View {
                             .portableLayoutPriority(1)
                     }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

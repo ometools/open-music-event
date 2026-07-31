@@ -3241,7 +3241,7 @@ struct NavigationTests {
     }
 
     @Test
-    func performanceRowSubtitleUsesEventTimeZoneAndLegacyDaySegment() async throws {
+    func performanceRowTimeLabelsUseEventTimeZoneAndLegacyDaySegment() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
@@ -3291,21 +3291,21 @@ struct NavigationTests {
             ScheduleViewer.State(eventID: eventID)
         }
 
-        #expect(
-            state.eventTimePresentation.performanceRowSubtitle(
-                for: eveningPerformance
-            ) == """
-            6:00 - 7:00 pm
-            Friday Evening
-            """
+        expectNoDifference(
+            state.eventTimePresentation.performanceRowTimeRange(for: eveningPerformance),
+            "6:00 - 7:00 pm"
         )
-        #expect(
-            state.eventTimePresentation.performanceRowSubtitle(
-                for: afterMidnightPerformance
-            ) == """
-            1:30 - 2:30 am
-            Friday Night
-            """
+        expectNoDifference(
+            state.eventTimePresentation.daySegment(for: eveningPerformance.startTime),
+            "Friday Evening"
+        )
+        expectNoDifference(
+            state.eventTimePresentation.performanceRowTimeRange(for: afterMidnightPerformance),
+            "1:30 - 2:30 am"
+        )
+        expectNoDifference(
+            state.eventTimePresentation.daySegment(for: afterMidnightPerformance.startTime),
+            "Friday Night"
         )
         #expect(
             state.eventTimePresentation.formattedTimeRange(

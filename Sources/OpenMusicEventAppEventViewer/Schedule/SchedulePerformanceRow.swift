@@ -5,13 +5,15 @@ import SwiftUI
 public struct SchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
-    let subtitle: String
+    let timeRangeText: String
+    let daySegmentText: String
     let userScheduleOverlay: UserScheduleOverlay
     var now: Date?
 
     public init(
         row: PerformanceRow,
-        subtitle: String,
+        timeRangeText: String,
+        daySegmentText: String,
         userScheduleOverlay: UserScheduleOverlay = UserScheduleOverlay(
             schedules: [],
             memberships: [],
@@ -20,7 +22,8 @@ public struct SchedulePerformanceRow: View {
         now: Date? = nil
     ) {
         self.row = row
-        self.subtitle = subtitle
+        self.timeRangeText = timeRangeText
+        self.daySegmentText = daySegmentText
         self.userScheduleOverlay = userScheduleOverlay
         self.now = now
     }
@@ -42,9 +45,11 @@ public struct SchedulePerformanceRow: View {
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(timeRangeText)
+                        .lineLimit(1)
+                        .portableLayoutPriority(1)
+
+                    Text(daySegmentText)
                         .lineLimit(1)
 
                     if let timingStatus {
@@ -52,6 +57,8 @@ public struct SchedulePerformanceRow: View {
                             .portableLayoutPriority(1)
                     }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -97,11 +104,11 @@ public struct SchedulePerformanceRow: View {
 
     var accessibilityLabel: String {
         guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
-            return "\(row.title), \(subtitle)"
+            return "\(row.title), \(timeRangeText), \(daySegmentText)"
         }
         let membership = userScheduleOverlay.isMember(performanceID: row.performanceID)
             ? "In"
             : "Not in"
-        return "\(row.title), \(membership) \(selectedSchedule.title), \(subtitle)"
+        return "\(row.title), \(membership) \(selectedSchedule.title), \(timeRangeText), \(daySegmentText)"
     }
 }
