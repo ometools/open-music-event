@@ -232,7 +232,7 @@ public struct Authoring<Content: FeatureProtocol> {
             self.initiallyRequestsEntry = initiallyRequestsEntry
             let workspace = grant.wrappedValue?.workspace ?? attendeeWorkspace
             self.content = withDependencies {
-                $0.mount(workspace, grant: SharedReader(grant))
+                $0.useAuthoringContext(workspace, grant: SharedReader(grant))
             } operation: {
                 makeContentState()
             }
@@ -337,7 +337,7 @@ public struct Authoring<Content: FeatureProtocol> {
                         workspace.id == store.attendeeWorkspace.id,
                         "An authoring grant cannot be mounted into a different workspace."
                     )
-                    dependencies.mount(
+                    dependencies.useAuthoringContext(
                         workspace,
                         grant: SharedReader(store.$grant)
                     )

@@ -263,7 +263,7 @@ public extension DependencyValues {
         set { self[SourceWorkspaceDatabasePreparationClientKey.self] = newValue }
     }
 
-    mutating func mount(
+    mutating func useAuthoringContext(
         _ workspace: EditingWorkspace,
         grant: SharedReader<AuthoringGrant?>
     ) {
@@ -274,8 +274,17 @@ public extension DependencyValues {
             )
         }
         authoringGrant = grant
-        defaultDatabase = workspace.database
         editingWorkspaceID = workspace.id
+    }
+
+    /// Mounts the editing database for the workspace feature's dependency subtree.
+    /// App and viewer features must keep the app database as their default database.
+    mutating func mount(
+        _ workspace: EditingWorkspace,
+        grant: SharedReader<AuthoringGrant?>
+    ) {
+        useAuthoringContext(workspace, grant: grant)
+        defaultDatabase = workspace.database
     }
 }
 

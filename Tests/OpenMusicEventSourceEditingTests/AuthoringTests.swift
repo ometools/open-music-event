@@ -230,7 +230,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `entering authoring mounts only the selected editing workspace`() async throws {
+    func `entering authoring changes only the selected authoring context`() async throws {
         let appDatabase = try DatabaseQueue()
         let referenceDatabaseA = try DatabaseQueue()
         let preparedReferenceDatabaseA = try DatabaseQueue()
@@ -333,19 +333,19 @@ struct AuthoringTests {
         )
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
 
-        // Each wrapped feature reads its own mounted workspace and grant.
+        // Each wrapped feature reads the app database and its own authoring grant.
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = true
-            $0.content.observedDatabaseMarker = "A prepared reference"
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceA.id
         }
         await storeB.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "B reference"
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceB.id
         }
 
-        // Exiting revokes the same child's grant and remounts its attendee workspace.
+        // Exiting revokes the same child's grant without changing its app database.
         await TestExhaustivity.$current.withValue(.off) {
             await storeA.send(.exitButtonTapped)?.value
         }
@@ -356,7 +356,7 @@ struct AuthoringTests {
         )
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "A reference"
+            $0.content.observedDatabaseMarker = "app"
         }
 
         await storeA.dismount()
@@ -532,7 +532,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `one grant carries access and its editing database across mounts`() async throws {
+    func `one grant carries access while preserving the app database across mounts`() async throws {
         let attendeeDatabase = try DatabaseQueue()
         let authoringDatabase = try DatabaseQueue()
         try setMarker("attendee", in: attendeeDatabase)
@@ -599,7 +599,7 @@ struct AuthoringTests {
         await TestExhaustivity.$current.withValue(.off) {
             await storeB.send(.content(.inspectButtonTapped)) {
                 $0.content.observedCanAuthor = true
-                $0.content.observedDatabaseMarker = "authoring"
+                $0.content.observedDatabaseMarker = "attendee"
                 $0.content.observedWorkspaceID = workspaceID
             }
         }

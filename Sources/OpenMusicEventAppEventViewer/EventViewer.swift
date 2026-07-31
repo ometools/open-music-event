@@ -734,7 +734,13 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            Spawn(EventWorkspace.State(eventID: eventID))
+            @Dependency(\.authoringGrant) var authoringGrant
+            return withDependencies {
+                guard let workspace = authoringGrant.wrappedValue?.workspace else { return }
+                $0.mount(workspace, grant: authoringGrant)
+            } operation: {
+                Spawn(EventWorkspace.State(eventID: eventID))
+            }
         }
 
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
@@ -939,6 +945,11 @@ public struct EventViewer {
         }
         .ifLet(\.eventWorkspace) {
             EventWorkspace()
+                .transformDependency(\.self) { dependencies in
+                    let grant = dependencies.authoringGrant
+                    guard let workspace = grant.wrappedValue?.workspace else { return }
+                    dependencies.mount(workspace, grant: grant)
+                }
         }
         .spawn(\.account) {
             Account()

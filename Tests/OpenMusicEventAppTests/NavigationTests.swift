@@ -2794,14 +2794,17 @@ struct NavigationTests {
     }
 
     @Test
-    func `authoring reads event contributors from the editing workspace database`() async throws {
+    func `authoring keeps the app database while the workspace feature reads the editing database`() async throws {
         let appDatabase = try makePreparedDatabase()
         let workspaceDatabase = try makePreparedDatabase()
         let eventID = eventID("wicked-woods-2026")
+        let appSource = sourceProvenance("wicked-woods-app-source")
+        let workspaceSource = sourceProvenance("wicked-woods-editing-source")
+        let workspaceSourceBaselineID = SourceBaselineRecord.ID(source: workspaceSource)
 
-        for (database, contributorName) in [
-            (appDatabase, "Stale App Artist"),
-            (workspaceDatabase, "Workspace Artist"),
+        for (database, contributorName, source) in [
+            (appDatabase, "App Artist", appSource),
+            (workspaceDatabase, "Workspace Artist", workspaceSource),
         ] {
             try await database.write { db in
                 try Self.insertOrganizer(db, id: testOrganizerID)
@@ -2812,11 +2815,21 @@ struct NavigationTests {
                     contributorID: "artist",
                     name: contributorName
                 )
+                try Self.insertSourceBaseline(
+                    db,
+                    sourceProvenance: source,
+                    importedAt: Date(timeIntervalSince1970: 2_000)
+                )
+                try Self.insertEventSourceProvenance(
+                    db,
+                    eventID: eventID,
+                    sourceProvenance: source
+                )
             }
         }
 
         let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(localEventID: eventID),
+            id: EditingWorkspaceRecord.ID(sourceBaselineID: workspaceSourceBaselineID),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: workspaceDatabase)
         )
         let grant = Shared<AuthoringGrant?>(
@@ -2827,13 +2840,14 @@ struct NavigationTests {
             )
         )
 
-        // Entering authoring replaces the default database with the prepared workspace database.
-        let contributorNames = try await withDependencies {
+        let (contributorNames, eventWorkspaceSourceBaselineID) = try await withDependencies {
+            $0.context = .test
             $0.defaultDatabase = appDatabase
-            $0.mount(workspace, grant: SharedReader(grant))
+            $0.defaultEventID = eventID
+            $0.useAuthoringContext(workspace, grant: SharedReader(grant))
         } operation: {
             @Dependency(\.defaultDatabase) var database
-            return try await database.read { db in
+            let contributorNames = try await database.read { db in
                 try ContributorsViewer
                     .contributorRowsQuery(
                         eventID: eventID,
@@ -2842,10 +2856,15 @@ struct NavigationTests {
                     .fetchAll(db)
                     .map(\.profile.name)
             }
+            let eventViewer = EventViewer.State(eventID: eventID)
+            return (
+                contributorNames,
+                eventViewer.eventWorkspace?.state.sourceBaseline?.id
+            )
         }
 
-        // The prepared workspace includes actor-cache tables as well as source records.
-        expectNoDifference(contributorNames, ["Workspace Artist"])
+        expectNoDifference(contributorNames, ["App Artist"])
+        #expect(eventWorkspaceSourceBaselineID == workspaceSourceBaselineID)
     }
 
     @Test
