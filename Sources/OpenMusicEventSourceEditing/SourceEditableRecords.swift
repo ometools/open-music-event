@@ -144,7 +144,9 @@ extension WorkspaceRelationshipRecord: SourceEditableTable {}
 extension OME.Event: SourceEditableTable {
     public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
         [
-            \.images: .imageArray
+            \.locations: .json([OME.Event.Location].self),
+            \.images: .imageArray,
+            \.contactNumbers: .json([OME.Event.ContactNumber].self)
         ]
     }
 }
@@ -160,7 +162,8 @@ extension OME.Stage: SourceEditableTable {
 extension OME.Contributor: SourceEditableTable {
     public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
         [
-            \.images: .imageArray
+            \.images: .imageArray,
+            \.links: .json([ExternalPlatform.Link].self)
         ]
     }
 }
@@ -313,6 +316,13 @@ private func sourceComparableImage(
 }
 
 private extension SourceColumnPolicy {
+    static func json<Value>(_ type: Value.Type) -> Self
+    where Value: Decodable & Equatable & Sendable {
+        .comparing { value in
+            decodeJSONValue(type, from: value)
+        }
+    }
+
     static var imageArray: Self {
         .comparing(
             decode: sourceComparableImages

@@ -2017,6 +2017,96 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func eventWorkspaceSummaryComparesJSONObjectKeyOrderSemantically() async throws {
+        let source = try makeSourceRepository(
+            eventLocations: [
+                OME.Event.Location(
+                    address: "Meadow",
+                    coordinates: .init(latitude: 50, longitude: -115)
+                )
+            ],
+            eventContactNumbers: [
+                OME.Event.ContactNumber(
+                    phoneNumber: "555-0100",
+                    title: "Info",
+                    description: "Help"
+                )
+            ],
+            contributorLinks: [
+                ExternalPlatform.Link(
+                    url: try #require(URL(string: "https://instagram.com/artist-one")),
+                    platform: .instagram
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main")
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        // These pairs decode to identical values, but their JSON object keys are ordered differently.
+        try baselineDatabase.write { db in
+            try db.execute(
+                sql: #"UPDATE events SET locations = '[{"address":"Meadow","coordinates":{"latitude":50,"longitude":-115}}]', contactNumbers = '[{"phoneNumber":"555-0100","title":"Info","description":"Help"}]'"#
+            )
+            try db.execute(
+                sql: #"UPDATE contributors SET links = '[{"url":"https://instagram.com/artist-one","platform":"instagram"}]'"#
+            )
+        }
+        try await database.write { db in
+            try db.execute(
+                sql: #"UPDATE events SET locations = '[{"coordinates":{"longitude":-115,"latitude":50},"address":"Meadow"}]', contactNumbers = '[{"description":"Help","title":"Info","phoneNumber":"555-0100"}]'"#
+            )
+            try db.execute(
+                sql: #"UPDATE contributors SET links = '[{"platform":"instagram","url":"https://instagram.com/artist-one"}]'"#
+            )
+        }
+
+        let unchangedSummary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        expectNoDifference(unchangedSummary.totalCount, 0)
+        #expect(unchangedSummary.badgeCount == nil)
+
+        try await database.write { db in
+            try OME.Contributor
+                .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                .update { $0.bio = #bind("A real edit.") }
+                .execute(db)
+        }
+        let changedSummary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        expectNoDifference(changedSummary.totalCount, 1)
+        let contributorGroup = try #require(
+            changedSummary.groups.first { $0.id == OME.Contributor.tableName }
+        )
+        let contributorRecord = try #require(contributorGroup.records.first)
+        #expect(contributorRecord.fieldChanges.contains { $0.columnName == "bio" })
+    }
+
+    @Test
     func eventWorkspaceSummaryIgnoresImageFileURLBaseChangesWhenAssetKeyMatches() async throws {
         let repositoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
@@ -4018,10 +4108,13 @@ struct SourceDatabaseInsertionTests {
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
         eventPolicies: OME.Event.Policies? = nil,
         reportingLinks: [OME.Event.ReportingLink]? = nil,
+        eventLocations: [OME.Event.Location]? = nil,
+        eventContactNumbers: [OME.Event.ContactNumber]? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
         contributorDID: DID? = nil,
         contributorImages: [SourceImageAsset]? = nil,
+        contributorLinks: [ExternalPlatform.Link]? = nil,
         includeDefaultContributor: Bool = true,
         scheduleItems: [String: [ScheduleDTO.ScheduleItem]] = [
             "meadow": [
@@ -4074,11 +4167,11 @@ struct SourceDatabaseInsertionTests {
                             endDate: eventEndDate,
                             status: .known(.scheduled),
                             mode: .known(.inPerson),
-                            locations: nil,
+                            locations: eventLocations,
                             uris: nil,
                             timeZone: timeZone,
                             images: eventImages,
-                            contactNumbers: nil,
+                            contactNumbers: eventContactNumbers,
                             categoryConfigs: nil,
                             policies: eventPolicies,
                             reportingLinks: reportingLinks
@@ -4110,7 +4203,7 @@ struct SourceDatabaseInsertionTests {
                                     did: contributorDID,
                                     bio: nil,
                                     images: contributorImages,
-                                    links: nil
+                                    links: contributorLinks
                                 )
                             )
                         ] : nil,
