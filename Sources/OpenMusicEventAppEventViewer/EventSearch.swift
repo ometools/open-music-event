@@ -119,6 +119,7 @@ public struct EventSearch {
     public enum Action {
         case destination(Destination.Action)
         case openTarget(EventSearchDocument.Target)
+        case queryChanged(String)
         case timelineTick(Date)
     }
 
@@ -198,6 +199,10 @@ public struct EventSearch {
                     }
                 }
 
+            case let .queryChanged(query):
+                guard state.query != query else { return }
+                state.query = query
+
             case let .timelineTick(now):
                 guard EventSearchTerm(rawValue: state.query) == nil else { return }
                 let eventID = state.eventID
@@ -241,12 +246,12 @@ public struct EventSearch {
 public struct EventSearchView: View {
     @Environment(\.timeZone) var deviceTimeZone
     @Bindable var store: StoreOf<EventSearch>
+    @State var searchFieldText: String
 
     public init(store: StoreOf<EventSearch>) {
         self.store = store
+        _searchFieldText = State(initialValue: store.query)
     }
-
-    @FocusState var searchFocus
 
     public var body: some View {
         NavigationStack {
@@ -280,7 +285,10 @@ public struct EventSearchView: View {
                 StageDetailView(store: detailStore)
             }
         }
-        .searchable(text: $store.query, prompt: "Search this event")
+        .searchable(text: $searchFieldText, prompt: "Search this event")
+        .onChange(of: searchFieldText) { _, query in
+            store.send(.queryChanged(query))
+        }
     }
 }
 
@@ -297,44 +305,48 @@ struct EventSearchContentView: View {
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
-        switch content {
-        case let .dashboard(dashboard):
-            EventSearchDashboardView(
-                dashboard: dashboard,
-                now: now,
-                contributors: contributors,
-                event: event,
-                eventTimePresentation: eventTimePresentation,
-                timeZoneDisclosure: timeZoneDisclosure,
-                performanceContributors: performanceContributors,
-                scheduleViewerStates: scheduleViewerStates,
-                openTarget: openTarget
-            )
+        List {
+            switch content {
+            case let .dashboard(dashboard):
+                EventSearchDashboardView(
+                    dashboard: dashboard,
+                    now: now,
+                    contributors: contributors,
+                    event: event,
+                    eventTimePresentation: eventTimePresentation,
+                    timeZoneDisclosure: timeZoneDisclosure,
+                    performanceContributors: performanceContributors,
+                    scheduleViewerStates: scheduleViewerStates,
+                    openTarget: openTarget
+                )
 
-        case .noResults:
-            ContentUnavailableView(
-                "No Results",
-                systemImage: "magnifyingglass"
-            )
+            case .noResults:
+                ContentUnavailableView(
+                    "No Results",
+                    systemImage: "magnifyingglass"
+                )
+                .listRowSeparator(.hidden)
 
-        case let .results(results):
-            List(results) { result in
-                Button {
-                    openTarget(result.document.target)
-                } label: {
-                    EventSearchResultRow(
-                        result: result,
-                        contributor: contributor(for: result),
-                        performanceRow: performanceRow(for: result),
-                        now: now,
-                        eventTimePresentation: eventTimePresentation,
-                        timeZoneDisclosure: timeZoneDisclosure
-                    )
+            case let .results(results):
+                ForEach(results) { result in
+                    Button {
+                        openTarget(result.document.target)
+                    } label: {
+                        EventSearchResultRow(
+                            result: result,
+                            contributor: contributor(for: result),
+                            performanceRow: performanceRow(for: result),
+                            now: now,
+                            eventTimePresentation: eventTimePresentation,
+                            timeZoneDisclosure: timeZoneDisclosure
+                        )
+                    }
+                    .navigationLinkListRowStyle()
                 }
-                .navigationLinkListRowStyle()
             }
-            .listStyle(.plain)
         }
+        .listStyle(.plain)
+        .background(Color.secondary.opacity(0.04))
     }
 
     func contributor(for result: EventSearchResult) -> ContributorProfile? {
@@ -360,58 +372,94 @@ struct EventSearchDashboardView: View {
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if !dashboard.stageRows.isEmpty {
-                    Text("At the stages")
-                        .font(.title2.weight(.bold))
+        VStack(alignment: .leading, spacing: 24) {
+            if !dashboard.stageRows.isEmpty {
+                Text("At the stages")
+                    .font(.title2.weight(.bold))
 
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 16),
-                            GridItem(.flexible(), spacing: 16),
-                        ],
-                        spacing: 16
-                    ) {
-                        ForEach(dashboard.stageRows) { row in
+                VStack(spacing: 16) {
+                    ForEach(twoColumnRowIndices(for: dashboard.stageRows.count), id: \.self) { index in
+                        HStack(alignment: .top, spacing: 16) {
                             EventSearchStageCard(
-                                row: row,
+                                row: dashboard.stageRows[index],
                                 now: now,
                                 leadContributors: leadContributors,
-                                showStageNameLabels: showStageNameLabels(for: row.stage),
+                                showStageNameLabels: showStageNameLabels(
+                                    for: dashboard.stageRows[index].stage
+                                ),
                                 eventTimePresentation: eventTimePresentation,
                                 timeZoneDisclosure: timeZoneDisclosure,
                                 openTarget: openTarget
                             )
-                        }
-                    }
-                }
 
-                if !dashboard.featureRows.isEmpty {
-                    Text("Explore")
-                        .font(.title2.weight(.bold))
-
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12),
-                        ],
-                        spacing: 12
-                    ) {
-                        ForEach(dashboard.featureRows) { row in
-                            Button {
-                                openTarget(.feature(row.feature.id))
-                            } label: {
-                                EventSearchFeatureCard(feature: row.feature)
+                            if index + 1 < dashboard.stageRows.count {
+                                EventSearchStageCard(
+                                    row: dashboard.stageRows[index + 1],
+                                    now: now,
+                                    leadContributors: leadContributors,
+                                    showStageNameLabels: showStageNameLabels(
+                                        for: dashboard.stageRows[index + 1].stage
+                                    ),
+                                    eventTimePresentation: eventTimePresentation,
+                                    timeZoneDisclosure: timeZoneDisclosure,
+                                    openTarget: openTarget
+                                )
+                            } else {
+                                Color.clear
+                                    .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
-            .padding()
+
+            if !dashboard.featureRows.isEmpty {
+                Text("Explore")
+                    .font(.title2.weight(.bold))
+
+                VStack(spacing: 12) {
+                    ForEach(twoColumnRowIndices(for: dashboard.featureRows.count), id: \.self) { index in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                openTarget(.feature(dashboard.featureRows[index].feature.id))
+                            } label: {
+                                EventSearchFeatureCard(
+                                    feature: dashboard.featureRows[index].feature
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            if index + 1 < dashboard.featureRows.count {
+                                Button {
+                                    openTarget(
+                                        .feature(dashboard.featureRows[index + 1].feature.id)
+                                    )
+                                } label: {
+                                    EventSearchFeatureCard(
+                                        feature: dashboard.featureRows[index + 1].feature
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Color.clear
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                }
+            }
         }
-        .background(Color.secondary.opacity(0.04))
+        .padding()
+    }
+
+    func twoColumnRowIndices(for count: Int) -> [Int] {
+        var indices: [Int] = []
+        var index = 0
+        while index < count {
+            indices.append(index)
+            index += 2
+        }
+        return indices
     }
 
     var leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile] {
