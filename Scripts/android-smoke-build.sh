@@ -466,6 +466,33 @@ verify_observation_bridges() {
   echo "Verified $bridge_count observation-aware generated OME bridge(s)"
 }
 
+verify_periodic_timeline_bridges() {
+  local bridge
+  local bridge_count=0
+  local failure_count=0
+
+  while IFS= read -r -d '' bridge; do
+    bridge_count=$((bridge_count + 1))
+    if ! rg -q 'extension PeriodicTimelineView: BridgedToKotlin, SkipUIBridging, SkipUI.View' "$bridge"; then
+      echo "error: generated periodic timeline view does not bridge to SkipUI: $bridge" >&2
+      failure_count=$((failure_count + 1))
+    fi
+    if ! rg -q 'Java_initState_currentDate' "$bridge"; then
+      echo "error: generated periodic timeline view does not bridge its current date state: $bridge" >&2
+      failure_count=$((failure_count + 1))
+    fi
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path '*/SkipBridgeGenerated/PeriodicTimelineView_Bridge.swift' \
+      -print0 2>/dev/null
+  )
+
+  [[ "$bridge_count" -gt 0 ]] || fail "no generated PeriodicTimelineView bridge found under $APP_ROOT/.build/plugins/outputs"
+  [[ "$failure_count" -eq 0 ]] || fail "$failure_count generated periodic timeline bridge check(s) failed"
+  echo "Verified $bridge_count periodic timeline generated bridge(s)"
+}
+
 record_native_build_config() {
   if [[ "$DRY_RUN" -eq 0 ]]; then
     native_build_config > "$NATIVE_BUILD_CONFIG_FILE"
@@ -477,6 +504,7 @@ build_apk() {
   run "$SKIP_COMMAND_OVERRIDE" gradle -p "$APP_ROOT/Android" :app:assembleDebug
   if [[ "$DRY_RUN" -eq 0 ]]; then
     verify_observation_bridges
+    verify_periodic_timeline_bridges
   fi
   record_native_build_config
 }

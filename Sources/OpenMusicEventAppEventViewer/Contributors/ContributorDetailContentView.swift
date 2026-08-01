@@ -104,7 +104,7 @@ struct ContributorScheduleSection: View {
                     Button {
                         performanceButtonTapped(row.performanceID)
                     } label: {
-                        TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                        PeriodicTimelineView(every: 1) { currentDate in
                             ContributorSchedulePerformanceRow(
                                 row: row,
                                 timeRangeText: eventTimePresentation.performanceRowTimeRange(
@@ -115,7 +115,7 @@ struct ContributorScheduleSection: View {
                                     for: row.performance.startTime,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
-                                now: context.date
+                                now: currentDate
                             )
                         }
                     }

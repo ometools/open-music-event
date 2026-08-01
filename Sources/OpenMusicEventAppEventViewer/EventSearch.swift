@@ -3,39 +3,13 @@ import Dependencies
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import ScheduleComponents
 import SQLiteData
 import SwiftUITabFeatures
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
-#endif
-
-#if os(Android) && SKIP_BRIDGE
-struct PeriodicTimelineSchedule {
-    static func periodic(from startDate: Date, by interval: TimeInterval) -> Self {
-        Self()
-    }
-}
-
-struct TimelineView: View {
-    struct Context {
-        let date: Date
-    }
-
-    let content: (Context) -> AnyView
-
-    init<Content: View>(
-        _ schedule: PeriodicTimelineSchedule,
-        @ViewBuilder content: @escaping (Context) -> Content
-    ) {
-        self.content = { context in AnyView(content(context)) }
-    }
-
-    var body: some View {
-        content(Context(date: .now))
-    }
-}
 #endif
 
 public enum EventSearchContent: Equatable, Sendable {
@@ -276,10 +250,10 @@ public struct EventSearchView: View {
 
     public var body: some View {
         NavigationStack {
-            TimelineView(.periodic(from: Date.now, by: 60)) { context in
+            PeriodicTimelineView(every: 60) { currentDate in
                 EventSearchContentView(
                     content: store.content,
-                    now: context.date,
+                    now: currentDate,
                     contributors: store.contributors,
                     event: store.event,
                     eventTimePresentation: store.state.eventTimePresentation,
@@ -289,8 +263,8 @@ public struct EventSearchView: View {
                     scheduleViewerStates: store.scheduleViewerStates,
                     openTarget: { store.send(.openTarget($0)) }
                 )
-                .task(id: context.date) {
-                    store.send(.timelineTick(context.date))
+                .task(id: currentDate) {
+                    store.send(.timelineTick(currentDate))
                 }
             }
             .navigationTitle("Search")

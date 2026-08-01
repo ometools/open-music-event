@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import ScheduleComponents
 import SQLiteData
 import SwiftUI
 
@@ -182,7 +183,7 @@ public struct SchedulePerformanceListView: View {
                     .padding()
                 }
         } else {
-            TimelineView(.periodic(from: Date.now, by: 1)) { context in
+            PeriodicTimelineView(every: 1) { currentDate in
                 ScrollViewReader { proxy in
                     List(rows) { row in
                         Button {
@@ -198,7 +199,7 @@ public struct SchedulePerformanceListView: View {
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 userScheduleOverlay: userScheduleOverlay,
-                                now: context.date
+                                now: currentDate
                             )
                         }
                         .id(row.performanceID)

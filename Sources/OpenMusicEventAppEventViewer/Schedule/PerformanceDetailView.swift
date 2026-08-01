@@ -7,6 +7,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import OpenMusicEventViewers
+import ScheduleComponents
 import Sharing
 import SQLiteData
 import SwiftUI
@@ -631,11 +632,11 @@ struct PerformanceSummaryRow: View {
                     .minimumScaleFactor(0.55)
                     #endif
 
-                    TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                    PeriodicTimelineView(every: 1) { currentDate in
                         PerformanceTimingChip(
                             startTime: performance.startTime,
                             endTime: performance.endTime,
-                            now: context.date
+                            now: currentDate
                         )
                         .portableLayoutPriority(1)
                     }

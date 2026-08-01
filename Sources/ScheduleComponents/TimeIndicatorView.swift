@@ -7,33 +7,6 @@ import SwiftUI
 
 // SKIP INSERT: import skip.ui.*
 
-#if os(Android) && SKIP_BRIDGE
-struct PeriodicTimelineSchedule {
-    static func periodic(from startDate: Date, by interval: TimeInterval) -> Self {
-        Self()
-    }
-}
-
-struct TimelineView: View {
-    struct Context {
-        let date: Date
-    }
-
-    let content: (Context) -> AnyView
-
-    init<Content: View>(
-        _ schedule: PeriodicTimelineSchedule,
-        @ViewBuilder content: @escaping (Context) -> Content
-    ) {
-        self.content = { context in AnyView(content(context)) }
-    }
-
-    var body: some View {
-        content(Context(date: .now))
-    }
-}
-#endif
-
 struct TimeIndicatorView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scheduleHeight) var scheduleHeight
@@ -59,18 +32,18 @@ struct TimeIndicatorView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: Date.now, by: 1)) { context in
+        PeriodicTimelineView(every: 1) { currentDate in
             GeometryReader { geometry in
                 if shouldShowTimeIndicator,
                    let scheduleTimeRange,
-                   scheduleTimeRange.contains(context.date)
+                   scheduleTimeRange.contains(currentDate)
                 {
                     switch scheduleTimelineOrientation {
                     case .verticalTime:
-                        verticalTimeIndicator(at: context.date)
+                        verticalTimeIndicator(at: currentDate)
                             .position(
                                 x: (scheduleWidth > 0 ? scheduleWidth : geometry.size.width) / 2,
-                                y: context.date.toY(
+                                y: currentDate.toY(
                                     containerHeight: scheduleHeight,
                                     in: scheduleTimeRange
                                 )
@@ -78,9 +51,9 @@ struct TimeIndicatorView: View {
                             .id(ScheduleScrollTarget.currentTime)
 
                     case .horizontalTime:
-                        horizontalTimeIndicator(at: context.date, height: geometry.size.height)
+                        horizontalTimeIndicator(at: currentDate, height: geometry.size.height)
                             .position(
-                                x: context.date.toX(
+                                x: currentDate.toX(
                                     containerWidth: scheduleWidth > 0 ? scheduleWidth : geometry.size.width,
                                     in: scheduleTimeRange
                                 ),
