@@ -1319,7 +1319,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func sourceProposalPublishResumesAfterAuthorizationRequestSuccess() async throws {
+    func embeddedSourceProposalActionUsesParentAuthorizationBroker() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let location = SourcePatchLocation(
@@ -1341,6 +1341,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let requirement = OpenMusicEventOAuth.proposalAuthRequirement
         let authorizationCenter = AuthorizationRequestCenter()
+        var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+        proposal.title = "Update the event name"
 
         let store = withDependencies {
             $0.context = .test
@@ -1348,7 +1350,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             $0.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
                 center: authorizationCenter
             )
-            $0.oauthAuthorizationBroker = authorizationCenter.broker
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
             }
@@ -1358,20 +1359,32 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 return publication
             }
         } operation: {
-            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.title = "Update the event name"
-            return Store(initialState: state) {
-                SourceProposalFlow()
+            TestStore(
+                initialState: SourceProposalEmbeddedHost.State(proposal: proposal)
+            ) {
+                SourceProposalEmbeddedHost()
+                    .transformDependency(\.oauthAuthorizationBroker) {
+                        $0 = authorizationCenter.broker
+                    }
             }
         }
 
-        let task = store.send(.formSubmitted(store.form.value))
+        let proposalForm = try #require(
+            store.state.proposal?.form.value
+        )
+        let task = store.send(
+            .proposal(.formSubmitted(proposalForm))
+        )
         await fulfillAuthorizationRequest(
             from: authorizationCenter,
             requirement: requirement
         )
         await task?.value
-        #expect(store.status == .created(publication))
+        #expect(
+            store.state.proposal?.status
+                == .created(publication)
+        )
+        await store.dismount()
     }
 
     @Test
@@ -2728,6 +2741,24 @@ private struct SourceProposalErrorReportingHost {
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
         }
+    }
+}
+
+@Feature
+private struct SourceProposalEmbeddedHost {
+    struct State {
+        var proposal: SourceProposalFlow.State?
+    }
+
+    enum Action {
+        case proposal(SourceProposalFlow.Action)
+    }
+
+    var body: some Feature {
+        Update { _, _ in }
+            .ifLet(\.proposal, action: \.proposal) {
+                SourceProposalFlow()
+            }
     }
 }
 

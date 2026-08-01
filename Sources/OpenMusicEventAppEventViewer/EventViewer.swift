@@ -224,7 +224,7 @@ public struct EventViewer {
                         self.eventWorkspace = (preservingEventWorkspace
                             ? existingEventWorkspace
                             : nil)
-                            ?? eventWorkspaceSpawn(eventID: eventID)
+                            ?? EventWorkspace.State(eventID: eventID)
                     case .search:
                         self.eventSearch = existingEventSearch
                     case .about:
@@ -313,7 +313,7 @@ public struct EventViewer {
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSettings: Spawn<EventSettings>?
-        public var eventWorkspace: Spawn<EventWorkspace>?
+        public var eventWorkspace: EventWorkspace.State?
         public var account = Spawn(Account.State())
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
@@ -430,7 +430,7 @@ public struct EventViewer {
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 if self.eventWorkspace == nil {
-                    self.eventWorkspace = eventWorkspaceSpawn(eventID: self.eventID)
+                    self.eventWorkspace = EventWorkspace.State(eventID: self.eventID)
                 }
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
@@ -514,7 +514,7 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .workspace
                 if self.eventWorkspace == nil {
-                    self.eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
+                    self.eventWorkspace = EventWorkspace.State(eventID: eventID)
                 }
 
             case let .editEventInfo(eventID):
@@ -731,12 +731,6 @@ public struct EventViewer {
             }
         }
 
-        private func eventWorkspaceSpawn(
-            eventID: OMERecord.Event.ID
-        ) -> Spawn<EventWorkspace> {
-            Spawn(EventWorkspace.State(eventID: eventID))
-        }
-
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
             @Dependency(\.defaultDatabase) var database
             return (
@@ -759,6 +753,7 @@ public struct EventViewer {
         case closeButtonTapped
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
+        case eventWorkspace(EventWorkspace.Action)
         case sourceDataRefreshCompleted(SourceDataRefreshRequest)
     }
 
@@ -811,11 +806,14 @@ public struct EventViewer {
             case .eventSearch:
                 break
 
+            case .eventWorkspace:
+                break
+
             case let .sourceDataRefreshCompleted(request):
                 guard request.eventID == state.eventID else { return }
                 state.reloadAfterSourceDataRefresh()
                 guard let sourceWorkspaceSummary =
-                    state.eventWorkspace?.state.changes.$sourceWorkspaceSummary
+                    state.eventWorkspace?.changes.$sourceWorkspaceSummary
                 else { return }
                 store.addTask {
                     try await sourceWorkspaceSummary.load()
@@ -930,7 +928,7 @@ public struct EventViewer {
         .ifLet(\.eventSettings) {
             EventSettings()
         }
-        .ifLet(\.eventWorkspace) {
+        .ifLet(\.eventWorkspace, action: \.eventWorkspace) {
             EventWorkspace()
         }
         .spawn(\.account) {
@@ -1238,7 +1236,7 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.eventWorkspace) {
+                if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
                     TabFeature(
                         .workspace,
                         title: EventViewer.EventFeature.workspace.title,
@@ -1429,7 +1427,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.spawn(\.eventWorkspace) {
+            if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
@@ -1550,7 +1548,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.spawn(\.eventWorkspace) {
+            if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
@@ -1632,7 +1630,7 @@ private extension EventViewer.State {
 
         case .workspace:
             if eventWorkspace == nil {
-                eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
+                eventWorkspace = EventWorkspace.State(eventID: eventID)
             }
 
         case .about,

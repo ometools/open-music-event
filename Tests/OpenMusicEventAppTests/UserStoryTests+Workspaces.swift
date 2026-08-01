@@ -544,7 +544,7 @@ extension UserStoryTests {
 
             // The Workspace query is the seam: it shows exactly what the local edit changed.
             let workspace = try #require(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace]
             )
             assertSnapshot(
                 of: workspace.changes.sourceWorkspaceSummary,
@@ -555,8 +555,15 @@ extension UserStoryTests {
 
             // The user checks the generated source patch before proposing it.
             let generateSourcePatchTask = await store.send(
-                to: \.storyEventWorkspaceSpawn!,
-                .changes(.checkChangesButtonTapped)
+                .destination(
+                    .eventViewer(
+                        .content(
+                            .content(
+                                .eventWorkspace(.changes(.checkChangesButtonTapped))
+                            )
+                        )
+                    )
+                )
             )
 
             await generateSourcePatchTask?.value
@@ -594,8 +601,15 @@ extension UserStoryTests {
         ) async throws {
             // The user starts a proposal from the generated patch.
             let proposeChangeTask = await store.send(
-                to: \.storyEventWorkspaceSpawn!,
-                .changes(.proposeChangesButtonTapped)
+                .destination(
+                    .eventViewer(
+                        .content(
+                            .content(
+                                .eventWorkspace(.changes(.proposeChangesButtonTapped))
+                            )
+                        )
+                    )
+                )
             )
 
             await proposeChangeTask?.value
@@ -642,8 +656,19 @@ extension UserStoryTests {
 
             // The user publishes the proposal.
             let publishProposalTask = await store.send(
-                to: \.storyEventWorkspaceSpawn!,
-                .changes(.sourceProposal(.formSubmitted(proposalFormValue)))
+                .destination(
+                    .eventViewer(
+                        .content(
+                            .content(
+                                .eventWorkspace(
+                                    .changes(
+                                        .sourceProposal(.formSubmitted(proposalFormValue))
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
             )
 
             // Tangled creates a pull request from the generated source patch.
@@ -672,8 +697,17 @@ extension UserStoryTests {
 
             // The user opens the semantic review diff for the created pull request.
             let reviewSemanticDiffTask = await store.send(
-                to: \.storyEventWorkspaceSpawn!,
-                .reviews(.showChangesButtonTapped(backend.createdReview))
+                .destination(
+                    .eventViewer(
+                        .content(
+                            .content(
+                                .eventWorkspace(
+                                    .reviews(.showChangesButtonTapped(backend.createdReview))
+                                )
+                            )
+                        )
+                    )
+                )
             )
 
             await reviewSemanticDiffTask?.value
@@ -698,8 +732,17 @@ extension UserStoryTests {
 
             // The user merges the pull request.
             let mergePullReviewTask = await store.send(
-                to: \.storyEventWorkspaceSpawn!,
-                .reviews(.approveButtonTapped(backend.createdReview))
+                .destination(
+                    .eventViewer(
+                        .content(
+                            .content(
+                                .eventWorkspace(
+                                    .reviews(.approveButtonTapped(backend.createdReview))
+                                )
+                            )
+                        )
+                    )
+                )
             )
 
             // The merged review is removed from the review list.
@@ -731,7 +774,7 @@ extension UserStoryTests {
 
             // The Workspace no longer has unpublished local changes after the source refresh.
             let refreshedWorkspace = try #require(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace]
             )
             assertSnapshot(
                 of: refreshedWorkspace.changes.sourceWorkspaceSummary,
@@ -804,9 +847,6 @@ private extension OpenMusicEventAppRoot.State {
         eventViewer?.content.content.destination?.stageForm
     }
 
-    var storyEventWorkspaceSpawn: Spawn<EventWorkspace>? {
-        eventViewer?.content.content.eventWorkspace
-    }
 }
 
 private func wickedWoodsSourceRepository(

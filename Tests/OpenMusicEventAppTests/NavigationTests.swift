@@ -1863,12 +1863,11 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
             1
         )
         await store.send(
-            to: \EventViewerHarness.State.eventWorkspace,
-            EventWorkspace.Action.reviews(.refreshSourceButtonTapped)
+            .eventViewer(.eventWorkspace(.reviews(.refreshSourceButtonTapped)))
         )?.value
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
@@ -1881,11 +1880,11 @@ struct NavigationTests {
             EventViewer.EventFeature.workspace
         )
         await waitUntil {
-            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount
+            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount
                 == 0
         }
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
             0
         )
     }
@@ -1972,10 +1971,10 @@ struct NavigationTests {
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
             initialState.eventViewer.selectedFeature = .workspace
-            initialState.eventViewer.eventWorkspace?.state.reviews.reviewsStatus = .loaded([
+            initialState.eventViewer.eventWorkspace?.reviews.reviewsStatus = .loaded([
                 review,
             ])
-            initialState.eventViewer.eventWorkspace?.state.reviews.selectedReview = .loaded(review)
+            initialState.eventViewer.eventWorkspace?.reviews.selectedReview = .loaded(review)
             return TestStore(initialState: initialState) {
                 EventViewerHarness()
             }
@@ -1993,8 +1992,7 @@ struct NavigationTests {
             1
         )
         await store.send(
-            to: \EventViewerHarness.State.eventWorkspace,
-            EventWorkspace.Action.reviews(.approveButtonTapped(review))
+            .eventViewer(.eventWorkspace(.reviews(.approveButtonTapped(review))))
         )?.value
 
         await waitUntil {
@@ -2011,13 +2009,13 @@ struct NavigationTests {
             ]
         )
         expectNoDifference(store.state.eventViewer.selectedFeature, EventViewer.EventFeature.workspace)
-        #expect(store.state.eventViewer.eventWorkspace?.state.reviews.selectedReview == nil)
+        #expect(store.state.eventViewer.eventWorkspace?.reviews.selectedReview == nil)
         await waitUntil {
-            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount
+            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount
                 == 0
         }
         expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.state.changes.sourceWorkspaceSummary.totalCount,
+            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
             0
         )
     }
@@ -2868,7 +2866,7 @@ struct NavigationTests {
             return (
                 scheduleTitles,
                 performanceTitles,
-                eventViewer.eventWorkspace?.state.changes.sourceBaseline?.id,
+                eventViewer.eventWorkspace?.changes.sourceBaseline?.id,
                 workspaceSummary.totalCount
             )
         }
@@ -9069,10 +9067,6 @@ private struct EventViewerHarness {
             set { eventViewer.eventInfoViewer = newValue }
         }
 
-        var eventWorkspace: Spawn<EventWorkspace> {
-            get { eventViewer.eventWorkspace! }
-            set { eventViewer.eventWorkspace = newValue }
-        }
     }
 
     enum Action {
