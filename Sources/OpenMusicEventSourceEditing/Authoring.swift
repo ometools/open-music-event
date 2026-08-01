@@ -370,6 +370,7 @@ public struct Authoring<Content: FeatureProtocol> {
         @StoreTaskID public var admissionCheck
         @StoreTaskID public var activationPersistence
         @StoreTaskID public var entry
+        @StoreTaskID public var restoredEntryAuthorization
         @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored var activationRestorationErrorDescription: String?
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
@@ -471,7 +472,25 @@ public struct Authoring<Content: FeatureProtocol> {
         .onMount { state in
             reportActivationRestorationFailure(state: &state)
             reportSourceWorkspaceDatabaseFailure(state: &state)
-            if state.access.canEditContent {
+            if let grant = state.grant {
+                let workspaceID = state.workspaceID
+                let principal = grant.principal
+                store.addTask(id: state.restoredEntryAuthorization) {
+                    do {
+                        try await policy.authorizeEntry(workspaceID, principal)
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: UserFacingText(
+                                "Unable to enter authoring.",
+                                fallback: "Unable to enter authoring."
+                            ),
+                            operation: ErrorOperation(
+                                rawValue: "authoring.entry.authorization"
+                            )
+                        )
+                    }
+                }
                 prepareSource(state: &state, workspaceID: state.workspaceID)
             } else if state.initiallyRequestsEntry {
                 state.initiallyRequestsEntry = false

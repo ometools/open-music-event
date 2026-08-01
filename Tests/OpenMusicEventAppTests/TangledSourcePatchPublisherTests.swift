@@ -396,7 +396,10 @@ struct TangledSourcePatchPublisherTests {
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
         #expect(publication.sourceChangeID == "at://did:plc:placeholder/sh.tangled.repo.pull/3pull")
-        #expect(authorizedRequirements.withLock { $0.isEmpty })
+        expectNoDifference(
+            authorizedRequirements.withLock { $0 },
+            [TangledOAuthRequirements.proposalAuthRequirement]
+        )
         #expect(cloneRequests.withLock { $0.isEmpty })
         #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
@@ -718,6 +721,139 @@ struct TangledSourcePatchPublisherTests {
     }
 
     @Test
+    func publishingAuthorizationFailureHasNoRemoteSideEffects() async throws {
+        let ownerDID = try #require(DID("did:plc:owner123"))
+        let repositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "TangledSourcePatchPublisherAuthorizationFailure-\(UUID().uuidString)")
+        let sourceControlOperations = Mutex<[String]>([])
+        let credentialRequests = Mutex(0)
+
+        let error = await #expect(throws: ProposalAuthorizationTestError.self) {
+            try await withDependencies {
+                $0[Atmosphere.Account.Client.self] = .testClient(
+                    did: ownerDID,
+                    handle: "woody.fm",
+                    pdsHost: "owner.pds.example"
+                )
+                $0[XRPC.Client.self] = .liveValue
+                $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                    expectNoDifference(
+                        requirement,
+                        TangledOAuthRequirements.proposalAuthRequirement
+                    )
+                    throw ProposalAuthorizationTestError.denied
+                }
+                $0.httpClient = HTTPClient { _, _ in
+                    Data(
+                        """
+                        {
+                          "records": [
+                            {
+                              "uri": "at://did:plc:owner123/sh.tangled.repo/3repo",
+                              "cid": "bafyreifakerepo",
+                              "value": {
+                                "$type": "sh.tangled.repo",
+                                "name": "wicked-woods-ome",
+                                "repoDid": "did:plc:targetrepo",
+                                "knot": "knot1.tangled.sh",
+                                "createdAt": "2026-05-26T17:30:42Z"
+                              }
+                            }
+                          ]
+                        }
+                        """
+                        .utf8
+                    )
+                }
+                $0.sourceControl = SourceControlClient(
+                    clone: { request in
+                        sourceControlOperations.withLock { $0.append("clone") }
+                        return Repository(url: request.destinationURL)
+                    },
+                    open: { url in
+                        sourceControlOperations.withLock { $0.append("open") }
+                        return Repository(url: url)
+                    },
+                    fetch: { _ in
+                        sourceControlOperations.withLock { $0.append("fetch") }
+                    },
+                    checkout: { _ in
+                        sourceControlOperations.withLock { $0.append("checkout") }
+                    },
+                    createBranch: { request in
+                        sourceControlOperations.withLock { $0.append("createBranch") }
+                        return Branch(name: request.name)
+                    },
+                    status: { _ in
+                        sourceControlOperations.withLock { $0.append("status") }
+                        return []
+                    },
+                    stage: { _ in
+                        sourceControlOperations.withLock { $0.append("stage") }
+                    },
+                    commit: { _ in
+                        sourceControlOperations.withLock { $0.append("commit") }
+                        return Commit(id: CommitID(rawValue: "unreachable"))
+                    },
+                    formatPatch: { _ in
+                        sourceControlOperations.withLock { $0.append("formatPatch") }
+                        return Data()
+                    },
+                    push: { _ in
+                        sourceControlOperations.withLock { $0.append("push") }
+                    }
+                )
+                $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                    credentialRequests.withLock { $0 += 1 }
+                    return Credentials(
+                        ssh: SSHCredentials(
+                            publicKey: "unreachable-public-key",
+                            privateKey: "unreachable-private-key"
+                        )
+                    )
+                }
+            } operation: {
+                try await TangledSourcePatchPublisher().publish(
+                    PreparedSourcePatch(
+                        request: SourcePatchPublishRequest(
+                            location: SourcePatchLocation(
+                                repositoryURL: repositoryURL,
+                                remote: SourcePatchLocation.Remote(
+                                    kind: "tangled",
+                                    reference: "woody.fm/wicked-woods-ome",
+                                    ref: "main"
+                                )
+                            ),
+                            patch: SourcePatch(
+                                fileChanges: [
+                                    SourcePatchFileChange(
+                                        path: "events/2025/event.yml",
+                                        kind: .modified,
+                                        oldContents: Data("name: Old\n".utf8),
+                                        newContents: Data("name: New\n".utf8)
+                                    )
+                                ]
+                            ),
+                            title: "Update Wicked Woods 2025 source"
+                        ),
+                        workingTree: SourceWorkingTree(
+                            originalRepositoryURL: repositoryURL,
+                            originalURL: repositoryURL,
+                            relativePath: nil,
+                            workingRepositoryURL: repositoryURL,
+                            workingURL: repositoryURL
+                        )
+                    )
+                )
+            }
+        }
+
+        expectNoDifference(error, .denied)
+        expectNoDifference(sourceControlOperations.withLock { $0 }, [])
+        expectNoDifference(credentialRequests.withLock { $0 }, 0)
+    }
+
+    @Test
     func publishingNonGitWorkingTreeClonesWithSSHCredentials() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let repositoryReference = try TangledRepositoryReference(
@@ -759,9 +895,9 @@ struct TangledSourcePatchPublisherTests {
             )
             $0[XRPC.Client.self] = .liveValue
             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
-                #expect(
-                    requirement
-                        == TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+                expectNoDifference(
+                    requirement,
+                    TangledOAuthRequirements.proposalAuthRequirement
                 )
                 publishEvents.withLock { $0.append("authorize") }
             }
@@ -898,7 +1034,7 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
-        #expect(publishEvents.withLock { $0 } == ["credentials"])
+        #expect(publishEvents.withLock { $0 } == ["authorize", "credentials"])
         let cloneRequest = try #require(cloneRequests.withLock { $0.first })
         #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(cloneRequest.checkout == "main")
@@ -943,6 +1079,10 @@ private actor HTTPRequestRecorder {
 
 private enum TangledSourcePatchPublisherDiagnosticTestError: Error {
     case wedged
+}
+
+private enum ProposalAuthorizationTestError: Equatable, Error {
+    case denied
 }
 
 private enum TestAccountClientFailure: Error {

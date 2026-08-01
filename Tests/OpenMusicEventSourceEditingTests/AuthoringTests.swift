@@ -27,6 +27,7 @@ struct AuthoringTests {
         )
         let preparationGate = AuthoringPreparationGate()
         let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let authorizationRequests = Mutex<[(EditingWorkspaceRecord.ID, AuthoringPrincipal)]>([])
 
         let store = withDependencies {
             $0.defaultDatabase = database
@@ -38,10 +39,17 @@ struct AuthoringTests {
                 activate: { _, _, _ in },
                 deactivate: { _ in }
             )
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
-                admissionRequests.withLock { $0.append(requestedWorkspaceID) }
-                return .denied
-            }
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient(
+                admission: { requestedWorkspaceID in
+                    admissionRequests.withLock { $0.append(requestedWorkspaceID) }
+                    return .denied
+                },
+                authorizeEntry: { requestedWorkspaceID, principal in
+                    authorizationRequests.withLock {
+                        $0.append((requestedWorkspaceID, principal))
+                    }
+                }
+            )
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 prepareSource: { requestedWorkspaceID in
                     await preparationGate.prepare(requestedWorkspaceID)
@@ -61,6 +69,16 @@ struct AuthoringTests {
         expectNoDifference(store.grant?.principal, .local)
         expectNoDifference(admissionRequests.withLock { $0 }, [])
 
+        try await waitForAuthoringCondition {
+            authorizationRequests.withLock { !$0.isEmpty }
+                && !store.restoredEntryAuthorization.isRunning
+        }
+        let authorizationRequestSnapshot = authorizationRequests.withLock { $0 }
+        #expect(authorizationRequestSnapshot.count == 1)
+        let authorizationRequest = try #require(authorizationRequestSnapshot.first)
+        expectNoDifference(authorizationRequest.0, workspaceID)
+        expectNoDifference(authorizationRequest.1, .local)
+
         let preparationRequests = await preparationGate.waitForPreparationToStart()
         expectNoDifference(preparationRequests, [workspaceID])
         expectNoDifference(store.access, .authoring(.owner))
@@ -71,6 +89,64 @@ struct AuthoringTests {
                 && store.sourcePreparation.isRunning == false
         }
         expectNoDifference(admissionRequests.withLock { $0 }, [])
+    }
+
+    @Test @MainActor
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `restored activation remains editable when authorization fails`() async throws {
+        let database = try DatabaseQueue()
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "restored-authorization-failure")
+        let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let authorizationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0[WorkspaceAuthoringActivationClient.self] = WorkspaceAuthoringActivationClient(
+                current: { requestedWorkspaceID in
+                    WorkspaceAuthoringActivationRecord(
+                        id: requestedWorkspaceID,
+                        principal: .local,
+                        role: .owner,
+                        activatedAt: Date(timeIntervalSince1970: 1_000)
+                    )
+                },
+                activate: { _, _, _ in },
+                deactivate: { _ in }
+            )
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient(
+                admission: { _ in .denied },
+                authorizeEntry: { requestedWorkspaceID, _ in
+                    authorizationRequests.withLock { $0.append(requestedWorkspaceID) }
+                    throw TestFailure.authorizationDenied
+                }
+            )
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                prepareSource: { requestedWorkspaceID in
+                    preparationRequests.withLock { $0.append(requestedWorkspaceID) }
+                }
+            )
+        } operation: {
+            Store(
+                initialState: Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
+                    WorkspaceProbe.State()
+                }
+            ) {
+                Authoring { WorkspaceProbe() }
+            }
+        }
+
+        try await withIssueReporters([]) {
+            try await waitForAuthoringCondition {
+                authorizationRequests.withLock { !$0.isEmpty }
+                    && preparationRequests.withLock { !$0.isEmpty }
+                    && !store.restoredEntryAuthorization.isRunning
+                    && !store.sourcePreparation.isRunning
+            }
+        }
+
+        expectNoDifference(store.access, .authoring(.owner))
+        expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
+        expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
     }
 
     @Test
