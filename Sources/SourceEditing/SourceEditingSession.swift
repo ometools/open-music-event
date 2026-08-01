@@ -2,6 +2,10 @@ import Foundation
 import GRDB
 import SQLiteData
 
+public enum SourceEditingSessionError: Error, Equatable, Sendable {
+    case baselineDatabaseMismatch(attachedPath: String, requestedPath: String)
+}
+
 public struct SourceEditingSession: Sendable {
     public static let baselineSchemaName = "source_baseline"
 
@@ -14,6 +18,26 @@ public struct SourceEditingSession: Sendable {
         baselineDatabasePath: String
     ) throws {
         let mainDatabasePath = mainDatabase.path
+        let attachedBaselineDatabasePath = try mainDatabase.read { db in
+            try attachedDatabasePath(schemaName: Self.baselineSchemaName, in: db)
+        }
+        if let attachedBaselineDatabasePath {
+            guard databasePathsMatch(
+                attachedBaselineDatabasePath,
+                baselineDatabasePath
+            ) else {
+                throw SourceEditingSessionError.baselineDatabaseMismatch(
+                    attachedPath: attachedBaselineDatabasePath,
+                    requestedPath: baselineDatabasePath
+                )
+            }
+
+            self.mainDatabasePath = mainDatabasePath
+            self.baselineDatabasePath = baselineDatabasePath
+            self.database = mainDatabase
+            return
+        }
+
         var configuration = mainDatabase.configuration
         configuration.label = "OpenMusicEvent.SourceEditingSession"
         let baselineDatabaseURI = readOnlyDatabaseURI(path: baselineDatabasePath)
@@ -38,6 +62,11 @@ public struct SourceEditingSession: Sendable {
         try attachedDatabasePath(schemaName: baselineSchemaName, in: db)
             .map { _ in baselineSchemaName }
     }
+}
+
+private func databasePathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+    URL(fileURLWithPath: lhs).standardizedFileURL
+        == URL(fileURLWithPath: rhs).standardizedFileURL
 }
 
 private func readOnlyDatabaseURI(path: String) -> String {

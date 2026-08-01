@@ -156,6 +156,70 @@ struct DatabaseOwnershipInvariantTests {
     }
 
     @Test
+    func sourceEditingSessionReusesTheExistingReferenceAttachment() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaultDatabase = try DatabasePool(
+            path: directory.appending(path: "application.sqlite").path
+        )
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "reference.sqlite").path
+        )
+        try setMarker("imported baseline", in: referenceDatabase.database)
+        let sourceEditingSession = try SourceEditingSession(
+            mainDatabase: defaultDatabase,
+            baselineDatabasePath: referenceDatabase.path
+        )
+
+        // Opening the same authoring context again reuses its existing reference attachment.
+        let reopenedSession = try SourceEditingSession(
+            mainDatabase: sourceEditingSession.database,
+            baselineDatabasePath: referenceDatabase.path
+        )
+
+        let databaseNames = try reopenedSession.database.read { db in
+            try Row.fetchAll(db, sql: "PRAGMA database_list").map { row in
+                row["name"] as String
+            }
+        }
+        let referenceMarker = try baselineMarker(in: reopenedSession.database)
+        expectNoDifference(databaseNames, ["main", SourceEditingSession.baselineSchemaName])
+        expectNoDifference(referenceMarker, "imported baseline")
+    }
+
+    @Test
+    func sourceEditingSessionRejectsADifferentReferenceAttachment() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaultDatabase = try DatabasePool(
+            path: directory.appending(path: "application.sqlite").path
+        )
+        let firstReferenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "first-reference.sqlite").path
+        )
+        let secondReferenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "second-reference.sqlite").path
+        )
+        let sourceEditingSession = try SourceEditingSession(
+            mainDatabase: defaultDatabase,
+            baselineDatabasePath: firstReferenceDatabase.path
+        )
+
+        #expect(throws: SourceEditingSessionError.self) {
+            try SourceEditingSession(
+                mainDatabase: sourceEditingSession.database,
+                baselineDatabasePath: secondReferenceDatabase.path
+            )
+        }
+    }
+
+    @Test
     func stableReferenceAttachmentObservesAControlledBaselineRefresh() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
