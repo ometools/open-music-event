@@ -339,7 +339,7 @@ public struct WorkspaceProposalDraftView: View {
                             set: { store.send(.titleChanged($0)) }
                         )
                     )
-                    TextField(
+                    PortableTextField(
                         "Description",
                         text: Binding(
                             get: { store.description },

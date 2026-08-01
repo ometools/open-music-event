@@ -465,7 +465,10 @@ public struct ScheduleManyStagesAtOnceView: View {
                     height: pageHeight
                 )
                 .environment(\.scheduleHeight, pageHeight)
-                .environment(\.scheduleWidth, contentWidth(for: availableWidth))
+                .environment(
+                    \.scheduleWidth,
+                    resolvedTimelineWidth(totalWidth: contentWidth(for: availableWidth))
+                )
                 .environment(\.scheduleTimeRange, timeRange)
                 .environment(\.shouldShowTimeIndicator, true)
             }
@@ -694,6 +697,28 @@ public struct ScheduleManyStagesAtOnceView: View {
             compactVisibleStageLaneCount: compactVisibleStageLaneCount,
             compactStageRevealMaxAvailableWidth: compactStageRevealMaxAvailableWidth
         )
+    }
+
+    func timelineContentWidth(totalWidth: CGFloat) -> CGFloat {
+        Self.timelineContentWidth(
+            totalWidth: totalWidth,
+            hourLabelsWidth: HourLabelsWidthPreferenceKey.defaultValue
+        )
+    }
+
+    func resolvedTimelineWidth(totalWidth: CGFloat) -> CGFloat {
+        #if os(Android)
+        timelineContentWidth(totalWidth: totalWidth)
+        #else
+        totalWidth
+        #endif
+    }
+
+    static func timelineContentWidth(
+        totalWidth: CGFloat,
+        hourLabelsWidth: CGFloat
+    ) -> CGFloat {
+        max(totalWidth - hourLabelsWidth, 0)
     }
 
     static func contentWidth(

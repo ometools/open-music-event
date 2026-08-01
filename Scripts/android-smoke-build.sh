@@ -11,6 +11,11 @@ Options:
   --lane apk|module|both   Build lane to run. Default: apk.
                           apk:    installable Android wrapper via skip gradle.
                           module: native OpenMusicEventApp module via skip android build.
+  --configuration NAME    Build configuration: debug or release. Default: debug.
+  --artifact apk|bundle   Android wrapper artifact. Default: apk.
+                          bundle produces an AAB and cannot be installed directly.
+  --architectures LIST    Comma-separated Android Swift architectures.
+                          Release default: aarch64,x86_64. Debug default: Skip automatic.
   --install                Install the APK after an apk/both build.
   --launch                 Launch the app after install. Implies --install.
   --logs                   Dump focused logcat output after launch/install.
@@ -28,11 +33,11 @@ Options:
 
 Environment overrides:
   JAVA_HOME, ANDROID_HOME, ANDROID_SDK_ROOT, ANDROID_USER_HOME, GRADLE_USER_HOME, SKIPLOCAL,
-  SKIP_COMMAND_OVERRIDE, SKIP_SHARING_SWIFT_SHARING,
+  SKIP_COMMAND_OVERRIDE, SKIP_SHARING_SWIFT_SHARING, SKIP_EXPORT_ARCHS,
   CLANG_MODULE_CACHE_PATH, SWIFT_MODULECACHE_PATH, CFFIXED_USER_HOME,
   SWIFT_SDK_HOME, SWIFT_ANDROID_SDK_BUNDLE, SWIFT_TOOLCHAIN_DIR,
   OME_ANDROID_APP_BUILD, OME_ANDROID_COMPILER_LOCK_FILE, OME_ANDROID_SKIPSTONE_BUILD_ROOT,
-  OME_ANDROID_NATIVE_BUILD_CONFIG_FILE,
+  OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_ARCHITECTURES,
   SWIFT_COMPILER_LANE_SCRIPT, ANDROID_SERIAL, ANDROID_APPLICATION_ID, LOGCAT_FILTERS.
 USAGE
 }
@@ -90,6 +95,9 @@ if [[ $# -gt 0 ]]; then
   COMPILER_LANE_COMMAND+=("$@")
 fi
 LANE="apk"
+CONFIGURATION="debug"
+ARTIFACT="apk"
+ARCHITECTURES="${OME_ANDROID_ARCHITECTURES:-${SKIP_EXPORT_ARCHS:-}}"
 INSTALL=0
 LAUNCH=0
 LOGS=0
@@ -111,6 +119,21 @@ while [[ $# -gt 0 ]]; do
     --lane)
       [[ $# -ge 2 ]] || fail "--lane requires apk, module, or both"
       LANE="$2"
+      shift 2
+      ;;
+    --configuration)
+      [[ $# -ge 2 ]] || fail "--configuration requires debug or release"
+      CONFIGURATION="$2"
+      shift 2
+      ;;
+    --artifact)
+      [[ $# -ge 2 ]] || fail "--artifact requires apk or bundle"
+      ARTIFACT="$2"
+      shift 2
+      ;;
+    --architectures)
+      [[ $# -ge 2 ]] || fail "--architectures requires a comma-separated list"
+      ARCHITECTURES="$2"
       shift 2
       ;;
     --install)
@@ -189,6 +212,35 @@ case "$LANE" in
   *) fail "--lane must be apk, module, or both" ;;
 esac
 
+case "$CONFIGURATION" in
+  debug) CONFIGURATION_SUFFIX="Debug" ;;
+  release)
+    CONFIGURATION_SUFFIX="Release"
+    ARCHITECTURES="${ARCHITECTURES:-aarch64,x86_64}"
+    ;;
+  *) fail "--configuration must be debug or release" ;;
+esac
+
+if [[ -n "$ARCHITECTURES" ]]; then
+  IFS=',' read -r -a REQUESTED_ARCHITECTURES <<< "$ARCHITECTURES"
+  [[ "${#REQUESTED_ARCHITECTURES[@]}" -gt 0 ]] || fail "--architectures cannot be empty"
+  for architecture in "${REQUESTED_ARCHITECTURES[@]}"; do
+    case "$architecture" in
+      aarch64|x86_64|armv7) ;;
+      *) fail "unsupported Android Swift architecture: $architecture" ;;
+    esac
+  done
+fi
+
+case "$ARTIFACT" in
+  apk|bundle) ;;
+  *) fail "--artifact must be apk or bundle" ;;
+esac
+
+if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
+  fail "Android app bundles cannot be installed directly; use --artifact apk"
+fi
+
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
 
 if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
@@ -237,6 +289,9 @@ export ANDROID_USER_HOME="${ANDROID_USER_HOME:-${HOME}/.android}"
 export SKIPLOCAL
 export SKIP_COMMAND_OVERRIDE
 export SKIP_SHARING_SWIFT_SHARING
+if [[ -n "$ARCHITECTURES" ]]; then
+  export SKIP_EXPORT_ARCHS="$ARCHITECTURES"
+fi
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$SMOKE_ROOT/gradle-user-home}"
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$SMOKE_ROOT/clang-module-cache}"
 export SWIFT_MODULECACHE_PATH="${SWIFT_MODULECACHE_PATH:-$SMOKE_ROOT/swift-module-cache}"
@@ -324,6 +379,7 @@ configure_nested_skip_command() {
   local quoted_skiplocal
   local quoted_skip_runner
   local quoted_wrapper
+  local quoted_architectures
 
   printf -v quoted_skiplocal '%q' "$SKIPLOCAL"
   printf -v quoted_skip_runner '%q' "$skip_runner_command"
@@ -334,6 +390,10 @@ configure_nested_skip_command() {
       printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
       printf 'export SKIPLOCAL=%s\n' "$quoted_skiplocal"
       printf 'export SKIP_COMMAND_OVERRIDE=%s\n' "$quoted_wrapper"
+      if [[ -n "$ARCHITECTURES" ]]; then
+        printf -v quoted_architectures '%q' "$ARCHITECTURES"
+        printf 'export SKIP_EXPORT_ARCHS=%s\n' "$quoted_architectures"
+      fi
       printf 'exec %s "$@"\n' "$quoted_skip_runner"
     } > "$skip_command_wrapper"
     chmod +x "$skip_command_wrapper"
@@ -354,6 +414,9 @@ echo "Android smoke build"
 echo "  wiring repo: $ROOT"
 echo "  app root:    $APP_ROOT"
 echo "  lane:        $LANE"
+echo "  configuration: $CONFIGURATION"
+echo "  artifact:    $ARTIFACT"
+echo "  architectures: ${ARCHITECTURES:-automatic}"
 echo "  compiler lock: $COMPILER_LOCK_FILE"
 echo "  skip runner: $SKIP_RUNNER_COMMAND"
 echo "  nested skip: $SKIP_COMMAND_OVERRIDE"
@@ -378,7 +441,7 @@ build_module() {
   run "$SKIP_COMMAND_OVERRIDE" android build \
     --package-path "$APP_ROOT" \
     --scratch-path "$MODULE_SCRATCH_PATH" \
-    --configuration debug \
+    --configuration "$CONFIGURATION" \
     --plain \
     --verbose \
     --target "$MODULE_TARGET"
@@ -394,6 +457,8 @@ skip_command=$SKIP_COMMAND_OVERRIDE
 skip_runner=$SKIP_RUNNER_COMMAND
 skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
 ome_android_app_build=$OME_ANDROID_APP_BUILD
+configuration=$CONFIGURATION
+architectures=${ARCHITECTURES:-automatic}
 CONFIG
 }
 
@@ -438,7 +503,7 @@ invalidate_stale_swiftui_modules() {
   done < <(
     find "$APP_ROOT/.build/plugins/outputs" \
       -type f \
-      -path '*/build/swift/*-unknown-linux-android*/debug/Modules/SwiftUI.swiftmodule' \
+      -path "*/build/swift/*-unknown-linux-android*/$CONFIGURATION/Modules/SwiftUI.swiftmodule" \
       -print0 2>/dev/null
   )
 }
@@ -500,8 +565,15 @@ record_native_build_config() {
 }
 
 build_apk() {
+  local gradle_task
+
   invalidate_stale_swiftui_modules
-  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$APP_ROOT/Android" :app:assembleDebug
+  if [[ "$ARTIFACT" == "bundle" ]]; then
+    gradle_task=":app:bundle$CONFIGURATION_SUFFIX"
+  else
+    gradle_task=":app:assemble$CONFIGURATION_SUFFIX"
+  fi
+  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$APP_ROOT/Android" "$gradle_task"
   if [[ "$DRY_RUN" -eq 0 ]]; then
     verify_observation_bridges
     verify_periodic_timeline_bridges
@@ -513,12 +585,32 @@ apk_path() {
   local output_dir
 
   for output_dir in \
-    "$APP_ROOT/.build/Android/app/outputs/apk/debug" \
-    "$APP_ROOT/Android/app/build/outputs/apk/debug"
+    "$APP_ROOT/.build/Android/app/outputs/apk/$CONFIGURATION" \
+    "$APP_ROOT/Android/app/build/outputs/apk/$CONFIGURATION"
   do
     [[ -d "$output_dir" ]] || continue
     find "$output_dir" -type f -name '*.apk' -print
   done | sort | tail -n 1
+}
+
+bundle_path() {
+  local output_dir
+
+  for output_dir in \
+    "$APP_ROOT/.build/Android/app/outputs/bundle/$CONFIGURATION" \
+    "$APP_ROOT/Android/app/build/outputs/bundle/$CONFIGURATION"
+  do
+    [[ -d "$output_dir" ]] || continue
+    find "$output_dir" -type f -name '*.aab' -print
+  done | sort | tail -n 1
+}
+
+artifact_path() {
+  if [[ "$ARTIFACT" == "bundle" ]]; then
+    bundle_path
+  else
+    apk_path
+  fi
 }
 
 case "$LANE" in
@@ -534,16 +626,22 @@ case "$LANE" in
     ;;
 esac
 
+if [[ "$DRY_RUN" -eq 0 && "$LANE" != "module" ]]; then
+  ARTIFACT_PATH="$(artifact_path)"
+  [[ -n "$ARTIFACT_PATH" ]] || fail "no $CONFIGURATION $ARTIFACT artifact found"
+  echo "Android artifact: $ARTIFACT_PATH"
+fi
+
 if [[ "$DRY_RUN" -eq 0 && ( "$INSTALL" -eq 1 || "$LOGS" -eq 1 ) ]]; then
   command -v adb >/dev/null || fail "adb is not on PATH"
 fi
 
 if [[ "$INSTALL" -eq 1 ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    APK_PATH="$APP_ROOT/.build/Android/app/outputs/apk/debug/app-debug.apk"
+    APK_PATH="$APP_ROOT/.build/Android/app/outputs/apk/$CONFIGURATION/app-$CONFIGURATION.apk"
   else
-    APK_PATH="$(apk_path)"
-    [[ -n "$APK_PATH" ]] || fail "no debug APK found under Android/app/build/outputs/apk/debug"
+    APK_PATH="$(artifact_path)"
+    [[ -n "$APK_PATH" ]] || fail "no $CONFIGURATION APK found"
   fi
   run adb -s "$ANDROID_SERIAL" install -r "$APK_PATH"
 fi

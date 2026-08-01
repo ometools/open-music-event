@@ -44,37 +44,59 @@ public struct ScheduleHourLines: View {
     }
 
     var verticalTimeLines: some View {
+        #if os(Android)
+        ZStack(alignment: .topLeading) {
+            if scheduleWidth > 0 {
+                verticalTimeLines(width: scheduleWidth)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        #else
         GeometryReader { proxy in
-            ForEach(lineHeights, id: \.self) { lineHeight in
+            verticalTimeLines(width: scheduleWidth > 0 ? scheduleWidth : proxy.size.width)
+        }
+        .frame(maxWidth: .infinity)
+        #endif
+    }
+
+    var horizontalTimeLines: some View {
+        #if os(Android)
+        ZStack(alignment: .topLeading) {
+            if scheduleWidth > 0 {
+                horizontalTimeLines(width: scheduleWidth)
+            }
+        }
+        .frame(maxHeight: .infinity)
+        #else
+        GeometryReader { proxy in
+            horizontalTimeLines(width: scheduleWidth > 0 ? scheduleWidth : proxy.size.width)
+        }
+        .frame(maxHeight: .infinity)
+        #endif
+    }
+
+    @ViewBuilder
+    func verticalTimeLines(width: ScheduleCGFloat) -> some View {
+        ForEach(lineHeights, id: \.self) { lineHeight in
+            Path { path in
+                path.move(to: ScheduleCGPoint(x: 0, y: lineHeight))
+                path.addLine(to: ScheduleCGPoint(x: width, y: lineHeight))
+            }
+            .stroke(lineColor)
+        }
+    }
+
+    @ViewBuilder
+    func horizontalTimeLines(width: ScheduleCGFloat) -> some View {
+        ForEach(hourDates, id: \.self) { date in
+            if let range = scheduleTimeRange {
+                let lineX = date.toX(containerWidth: width, in: range)
                 Path { path in
-                    path.move(to: ScheduleCGPoint(x: 0, y: lineHeight))
-                    path.addLine(to: ScheduleCGPoint(
-                        x: scheduleWidth > 0 ? scheduleWidth : proxy.size.width,
-                        y: lineHeight
-                    ))
+                    path.move(to: ScheduleCGPoint(x: lineX, y: 0))
+                    path.addLine(to: ScheduleCGPoint(x: lineX, y: scheduleHeight))
                 }
                 .stroke(lineColor)
             }
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    var horizontalTimeLines: some View {
-        GeometryReader { proxy in
-            ForEach(hourDates, id: \.self) { date in
-                if let range = scheduleTimeRange {
-                    let lineX = date.toX(
-                        containerWidth: scheduleWidth > 0 ? scheduleWidth : proxy.size.width,
-                        in: range
-                    )
-                    Path { path in
-                        path.move(to: ScheduleCGPoint(x: lineX, y: 0))
-                        path.addLine(to: ScheduleCGPoint(x: lineX, y: scheduleHeight))
-                    }
-                    .stroke(lineColor)
-                }
-            }
-        }
-        .frame(maxHeight: .infinity)
     }
 }

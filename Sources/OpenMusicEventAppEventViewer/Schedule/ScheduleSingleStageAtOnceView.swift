@@ -584,6 +584,12 @@ struct ScheduleStagePager: View {
         .id(stage.id.stageID)
         .tag(Optional(stage.id.stageID))
         .frame(width: width)
+        #if os(Android)
+        .environment(
+            \.scheduleWidth,
+            max(width - HourLabelsWidthPreferenceKey.defaultValue, 0)
+        )
+        #endif
     }
 
     func scrollToCurrentTime(proxy: ScrollViewProxy, animated: Bool) {

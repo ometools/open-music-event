@@ -59,6 +59,32 @@ public struct SchedulePageView<
             if cards.isEmpty || scheduleTimeRange == nil {
                 emptyContent
             } else {
+                #if os(Android)
+                ZStack(alignment: .topLeading) {
+                    if scheduleWidth > 0, scheduleHeight > 0 {
+                        let layoutSize = ScheduleCGSize(
+                            width: scheduleWidth,
+                            height: scheduleHeight
+                        )
+                        ForEach(cards) { scheduleItem in
+                            let frame = frame(
+                                for: scheduleItem,
+                                in: layoutSize
+                            )
+                            cardContent(scheduleItem)
+                                .id(scheduleItem.id)
+                                .zIndex(0)
+                                .frame(width: frame.width, height: frame.height)
+                                .offset(x: frame.minX, y: frame.minY)
+                        }
+                    }
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+                #else
                 GeometryReader { geometry in
                     ForEach(cards) { scheduleItem in
                         let frame = frame(
@@ -71,6 +97,7 @@ public struct SchedulePageView<
                             .placement(frame)
                     }
                 }
+                #endif
             }
         }
     }

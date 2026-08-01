@@ -2811,6 +2811,16 @@ struct NavigationTests {
     }
 
     @Test
+    func manyStagesTimelineWidthExcludesHourLabelRail() {
+        let width = ScheduleManyStagesAtOnceView.timelineContentWidth(
+            totalWidth: 463,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 420)
+    }
+
+    @Test
     func manyStagesHorizontalLaneHeightUsesAvailableHeight() {
         let laneHeight = ScheduleManyStagesAtOnceView.horizontalStageLaneHeight(
             availableHeight: 700,

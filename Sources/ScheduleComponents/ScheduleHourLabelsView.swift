@@ -66,6 +66,26 @@ public struct ScheduleHourLabelsView: View {
     }
 
     var verticalTimeLabels: some View {
+        #if os(Android)
+        ZStack(alignment: .topLeading) {
+            ForEach(hourDates, id: \.self) { date in
+                if let range = scheduleTimeRange {
+                    Text(label(date))
+                        .id(date)
+                        .lineLimit(1)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: hourLabelsWidth, height: hourLabelsHeight)
+                        .offset(
+                            y: date.toY(containerHeight: scheduleHeight, in: range)
+                                - hourLabelsHeight / 2
+                        )
+                }
+            }
+        }
+        .frame(width: hourLabelsWidth)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        #else
         GeometryReader { _ in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
@@ -85,9 +105,32 @@ public struct ScheduleHourLabelsView: View {
             }
         }
         .frame(width: hourLabelsWidth)
+        #endif
     }
 
     var horizontalTimeLabels: some View {
+        #if os(Android)
+        ZStack(alignment: .topLeading) {
+            if scheduleWidth > 0 {
+                ForEach(hourDates, id: \.self) { date in
+                    if let range = scheduleTimeRange {
+                        Text(label(date))
+                            .id(date)
+                            .lineLimit(1)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: hourLabelsWidth, height: hourLabelsHeight)
+                            .offset(
+                                x: date.toX(containerWidth: scheduleWidth, in: range)
+                                    - hourLabelsWidth / 2
+                            )
+                    }
+                }
+            }
+        }
+        .frame(height: hourLabelsHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        #else
         GeometryReader { geometry in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
@@ -110,5 +153,6 @@ public struct ScheduleHourLabelsView: View {
             }
         }
         .frame(height: hourLabelsHeight)
+        #endif
     }
 }

@@ -32,6 +32,48 @@ struct TimeIndicatorView: View {
     }
 
     var body: some View {
+        #if os(Android)
+        ZStack(alignment: .topLeading) {
+            if scheduleWidth > 0, scheduleHeight > 0 {
+                PeriodicTimelineView(every: 1) { currentDate in
+                    if shouldShowTimeIndicator,
+                       let scheduleTimeRange,
+                       scheduleTimeRange.contains(currentDate)
+                    {
+                        switch scheduleTimelineOrientation {
+                        case .verticalTime:
+                            let indicatorWidth = scheduleWidth + textWidth
+                            verticalTimeIndicator(at: currentDate)
+                                .position(
+                                    x: indicatorWidth / 2,
+                                    y: currentDate.toY(
+                                        containerHeight: scheduleHeight,
+                                        in: scheduleTimeRange
+                                    )
+                                )
+                                .id(ScheduleScrollTarget.currentTime)
+
+                        case .horizontalTime:
+                            let indicatorHeight = scheduleHeight + horizontalLabelHeight
+                            horizontalTimeIndicator(
+                                at: currentDate,
+                                height: indicatorHeight
+                            )
+                            .position(
+                                x: currentDate.toX(
+                                    containerWidth: scheduleWidth,
+                                    in: scheduleTimeRange
+                                ),
+                                y: indicatorHeight / 2
+                            )
+                            .id(ScheduleScrollTarget.currentTime)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #else
         PeriodicTimelineView(every: 1) { currentDate in
             GeometryReader { geometry in
                 if shouldShowTimeIndicator,
@@ -64,6 +106,7 @@ struct TimeIndicatorView: View {
                 }
             }
         }
+        #endif
     }
 
     func verticalTimeIndicator(at date: Date) -> some View {
