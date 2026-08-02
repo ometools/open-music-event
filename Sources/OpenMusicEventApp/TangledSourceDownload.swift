@@ -77,12 +77,8 @@ public extension TangledSourceImportClient {
                     .temporaryDownloadURL(uuid: uuid())
                 request.outputURL = temporaryOutputURL
                 do {
-                    var result = try await withDependencies {
-                        $0.tangledSourceCheckout = .archive
-                    } operation: {
-                        try await OpenMusicEventSourceValidator(request)
-                            .validate()
-                    }
+                    var result = try await OpenMusicEventSourceValidator(request)
+                        .validate()
                     result.repositoryURL = try sourceRepositoryStorage.store(
                         temporaryOutputURL,
                         sourceProvenance

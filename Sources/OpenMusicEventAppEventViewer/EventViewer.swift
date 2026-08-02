@@ -1,4 +1,6 @@
 import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import IssueReporting
@@ -106,9 +108,11 @@ public struct EventViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
+    var workspace
     @StoreTaskID var sourceDataRefreshTask
 
-    public struct State: Identifiable {
+    public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
         public init(eventID: OMERecord.Event.ID) {
             let authoringGrant = Self.authoringGrant()
             self.init(
@@ -147,10 +151,7 @@ public struct EventViewer {
             self.installFeatureStores(features)
         }
 
-        private mutating func installFeatureStores(
-            _ features: [EventFeature],
-            preservingEventWorkspace: Bool = true
-        ) {
+        private mutating func installFeatureStores(_ features: [EventFeature]) {
             let existingCommunicationsViewer = self.communicationsViewer
             let existingContactInfoViewer = self.contactInfoViewer
             let existingContributorsViewer = self.contributorsViewer
@@ -176,7 +177,7 @@ public struct EventViewer {
             self.postersViewer = nil
             self.notificationsViewer = nil
             self.eventSettings = nil
-            self.eventWorkspace = nil
+            self.eventWorkspace = existingEventWorkspace
             self.eventSearch = existingEventSearch
             self.eventInfoViewer = nil
             self.destination = existingDestination
@@ -223,10 +224,7 @@ public struct EventViewer {
                         self.eventSettings = existingEventSettings
                             ?? Spawn(EventSettings.State(eventID: eventID))
                     case .workspace:
-                        self.eventWorkspace = (preservingEventWorkspace
-                            ? existingEventWorkspace
-                            : nil)
-                            ?? EventWorkspace.State(eventID: eventID)
+                        break
                     case .search:
                         self.eventSearch = existingEventSearch
                     case .about:
@@ -256,21 +254,6 @@ public struct EventViewer {
             self.installFeatureStores(features)
         }
 
-        mutating func reloadAfterSourceDataRefresh() {
-            let selectedFeature = self.selectedFeature
-            let features = withEventDependencies {
-                EventFeature.features(
-                    eventID: eventID,
-                    authoringAccess: authoringAccess
-                )
-            }
-            self.installedFeatures = features
-            self.selectedFeature = features.contains(selectedFeature)
-                ? selectedFeature
-                : features.first ?? .schedule(.schedule)
-            self.installFeatureStores(features, preservingEventWorkspace: false)
-        }
-
         public static func route(
             eventID: OMERecord.Event.ID,
             target: EventTarget?,
@@ -296,6 +279,8 @@ public struct EventViewer {
         }
 
         @SharedReader public var authoringGrant: AuthoringGrant?
+        @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
+        @Trigger public var workspaceSourcePrepared
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
         public var eventViewerState: EventViewerState
@@ -438,9 +423,6 @@ public struct EventViewer {
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                if self.eventWorkspace == nil {
-                    self.eventWorkspace = EventWorkspace.State(eventID: self.eventID)
-                }
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
@@ -458,12 +440,12 @@ public struct EventViewer {
                         stageID: stageID
                     )
                 }) else { return }
-                self.destination = .performanceForm(Spawn(editPerformance))
+                self.destination = .performanceForm(editPerformance)
 
             case let .addSchedule(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .scheduleForm(Spawn(editScheduleState()))
+                    .scheduleForm(editScheduleState())
                 }
 
             case let .addPosters(eventID):
@@ -474,19 +456,19 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .stages
                 self.destination = withEventDependencies {
-                    .copyStagesFromEvent(Spawn(CopyStagesFromEvent.State(eventID: eventID)))
+                    .copyStagesFromEvent(CopyStagesFromEvent.State(eventID: eventID))
                 }
 
             case let .createContributor(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .contributorForm(Spawn(EditContributor.State(eventID: eventID)))
+                    .contributorForm(EditContributor.State(eventID: eventID))
                 }
 
             case let .createStage(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .stageForm(Spawn(EditStage.State(eventID: eventID)))
+                    .stageForm(EditStage.State(eventID: eventID))
                 }
 
             case let .deletePerformance(eventID, _):
@@ -503,18 +485,16 @@ public struct EventViewer {
             case let .editContactInfo(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .contactInfoForm(Spawn(EditContactInfo.State(eventID: eventID)))
+                    .contactInfoForm(EditContactInfo.State(eventID: eventID))
                 }
 
             case let .editContributor(eventID, contributorID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
                     .contributorForm(
-                        Spawn(
-                            EditContributor.State(
-                                contributorID: contributorID,
-                                eventID: eventID
-                            )
+                        EditContributor.State(
+                            contributorID: contributorID,
+                            eventID: eventID
                         )
                     )
                 }
@@ -522,26 +502,23 @@ public struct EventViewer {
             case let .eventWorkspace(eventID):
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .workspace
-                if self.eventWorkspace == nil {
-                    self.eventWorkspace = EventWorkspace.State(eventID: eventID)
-                }
 
             case let .editEventInfo(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .eventInfoForm(Spawn(EditEventInfo.State(eventID: eventID)))
+                    .eventInfoForm(EditEventInfo.State(eventID: eventID))
                 }
 
             case let .editEventPolicies(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .eventPoliciesForm(Spawn(EditEventPolicies.State(eventID: eventID)))
+                    .eventPoliciesForm(EditEventPolicies.State(eventID: eventID))
                 }
 
             case let .editLocation(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .locationForm(Spawn(EditLocation.State(eventID: eventID)))
+                    .locationForm(EditLocation.State(eventID: eventID))
                 }
 
             case let .editPerformance(eventID, performanceID):
@@ -549,17 +526,15 @@ public struct EventViewer {
                 guard let editPerformance = withEventDependencies({
                     editPerformanceState(performanceID: performanceID)
                 }) else { return }
-                self.destination = .performanceForm(Spawn(editPerformance))
+                self.destination = .performanceForm(editPerformance)
 
             case let .editStage(eventID, stageID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
                     .stageForm(
-                        Spawn(
-                            EditStage.State(
-                                stageID: stageID,
-                                eventID: eventID
-                            )
+                        EditStage.State(
+                            stageID: stageID,
+                            eventID: eventID
                         )
                     )
                 }
@@ -741,8 +716,9 @@ public struct EventViewer {
         }
 
         private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-            @Dependency(\.authoringGrant) var authoringGrant
-            return authoringGrant
+            @Dependency(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+            var authoring
+            return authoring.grant
         }
     }
 
@@ -751,7 +727,6 @@ public struct EventViewer {
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
         case eventWorkspace(EventWorkspace.Action)
-        case sourceDataRefreshCompleted(SourceDataRefreshRequest)
     }
 
     public enum EditorEntry: Equatable, Sendable {
@@ -762,15 +737,15 @@ public struct EventViewer {
 
     @Feature
     public enum Destination {
-        case contactInfoForm(Spawn<EditContactInfo>)
-        case contributorForm(Spawn<EditContributor>)
-        case copyStagesFromEvent(Spawn<CopyStagesFromEvent>)
-        case eventInfoForm(Spawn<EditEventInfo>)
-        case eventPoliciesForm(Spawn<EditEventPolicies>)
-        case locationForm(Spawn<EditLocation>)
-        case performanceForm(Spawn<EditPerformance>)
-        case scheduleForm(Spawn<EditSchedule>)
-        case stageForm(Spawn<EditStage>)
+        case contactInfoForm(EditContactInfo)
+        case contributorForm(EditContributor)
+        case copyStagesFromEvent(CopyStagesFromEvent)
+        case eventInfoForm(EditEventInfo)
+        case eventPoliciesForm(EditEventPolicies)
+        case locationForm(EditLocation)
+        case performanceForm(EditPerformance)
+        case scheduleForm(EditSchedule)
+        case stageForm(EditStage)
     }
 
     private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
@@ -790,149 +765,198 @@ public struct EventViewer {
 
     public var body: some Feature {
 //        let _ = Self._logChanges()
-        Update { state, action in
-            switch action {
-            case .closeButtonTapped:
-                store.addTask {
-                    try store.dismiss()
-                }
+        Features {
+            AnyFeature(
+                Update { state, action in
+                    switch action {
+                    case .closeButtonTapped:
+                        store.addTask {
+                            try store.dismiss()
+                        }
 
-            case .destination:
-                break
+                    case .destination:
+                        break
 
-            case .eventSearch:
-                break
+                    case .eventSearch:
+                        break
 
-            case .eventWorkspace:
-                break
+                    case .eventWorkspace:
+                        break
 
-            case let .sourceDataRefreshCompleted(request):
-                guard request.eventID == state.eventID else { return }
-                state.reloadAfterSourceDataRefresh()
-                guard let sourceWorkspaceSummary =
-                    state.eventWorkspace?.changes.$sourceWorkspaceSummary
-                else { return }
-                store.addTask {
-                    try await sourceWorkspaceSummary.load()
+                    }
                 }
-            }
-        }
-        .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
-            let oldValue = oldGrant?.access ?? .attendee
-            let newValue = newGrant?.access ?? .attendee
-            guard oldValue != newValue else { return }
-            state.reloadFeaturesForAuthoringAccess()
-            guard newValue.canEditContent,
-                  let pendingAuthoringEntry = state.pendingAuthoringEntry
-            else { return }
-            enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
-        }
-        .onChange(of: store.selectedFeature) { _, feature, state in
-            guard feature.isEditorFeature else { return }
-            enterOrRequestAuthoring(.feature(feature), state: &state)
-        }
-        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
-            guard let persistedState, persistedState != state.eventViewerState else { return }
-            state.eventViewerState = persistedState
-        }
-        .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
-            guard state.persistedEventViewerState != viewerState else { return }
-            do {
-                try database.write { db in
-                    try EventViewerState.persistChanges(
-                        from: oldViewerState,
-                        to: viewerState,
-                        in: db
-                    )
+                .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
+                    let oldValue = oldGrant?.access ?? .attendee
+                    let newValue = newGrant?.access ?? .attendee
+                    guard oldValue != newValue else { return }
+                    state.reloadFeaturesForAuthoringAccess()
+                    guard newValue.canEditContent,
+                          let pendingAuthoringEntry = state.pendingAuthoringEntry
+                    else { return }
+                    enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
                 }
-            } catch {
-                reportIssue(error)
-            }
-        }
-        .onMount { state in
-            state.reloadFeaturesForAuthoringAccess()
-            let eventID = state.eventID
-            let persistedEventViewerState = state.$persistedEventViewerState
-            store.addTask {
-                try await persistedEventViewerState.load(
-                    EventViewerState.where { $0.id.eq(eventID) }
-                )
-                .task
-            }
-        }
-        .onEvent(NavigationRequested.self) { request, state in
-            if case let .event(eventID, target) = request, eventID == state.eventID {
-                if let target, target.eventFeature.isEditorFeature {
-                    enterOrRequestAuthoring(.target(target), state: &state)
-                } else {
-                    state.navigate(to: target)
+                .onChange(of: store.selectedFeature) { _, feature, state in
+                    guard feature.isEditorFeature else { return }
+                    enterOrRequestAuthoring(.feature(feature), state: &state)
                 }
-            }
-        }
-        .onEvent(EventEditingRequested.self) { intent, state in
-            if intent.eventID == state.eventID {
-                enterOrRequestAuthoring(.intent(intent), state: &state)
-            }
-        }
-        .onEvent(ScheduleDivisionRequested.self) { division, state in
-            let feature = EventFeature.schedule(division)
-            guard state.installedFeatures.contains(feature) else { return }
-            state.selectedFeature = feature
-        }
-        .onEvent(SourceDataRefreshRequested.self) { request, state in
-            guard request.eventID == state.eventID else { return }
-            store.addTask(id: sourceDataRefreshTask) {
-                let result: Void? = await store.withErrorHandling(
-                    fallbackMessage: .sourceDataRefreshFailed,
-                    operation: .sourceDataRefresh
-                ) {
-                    try await sourceDataRefresh.refresh(request.sourceBaselineID)
+                .onChange(of: store.stages) { _, _, state in
+                    state.reloadFeaturesForAuthoringAccess()
                 }
-                guard result != nil else { return }
-                try store.send(.sourceDataRefreshCompleted(request))
-            }
-        }
-        .forEach(\.scheduleViewers) {
-            ScheduleViewer()
-        }
-        .ifLet(\.contributorsViewer) {
-            ContributorsViewer()
-        }
-        .ifLet(\.stagesViewer) {
-            StagesViewer()
-        }
-        .spawn(\.eventSearch) {
-            EventSearch()
-        }
-        .ifLet(\.communicationsViewer) {
-            CommunicationsViewer()
-        }
-        .ifLet(\.contactInfoViewer) {
-            ContactInfoViewer()
-        }
-        .ifLet(\.locationViewer) {
-            LocationViewer()
-        }
-        .ifLet(\.siteMapViewer) {
-            SiteMapViewer()
-        }
-        .ifLet(\.postersViewer) {
-            PostersViewer()
-        }
-        .ifLet(\.notificationsViewer) {
-            NotificationsViewer()
-        }
-        .ifLet(\.eventSettings) {
-            EventSettings()
-        }
-        .ifLet(\.eventWorkspace, action: \.eventWorkspace) {
-            EventWorkspace()
-        }
-        .spawn(\.account) {
-            Account()
-        }
-        .ifLet(\.eventInfoViewer) {
-            EventInfoViewer()
+                .onChange(of: store.persistedEventViewerState) {
+                    _, persistedState, state in
+                    guard let persistedState,
+                          persistedState != state.eventViewerState
+                    else { return }
+                    state.eventViewerState = persistedState
+                }
+                .onChange(of: store.eventViewerState) {
+                    oldViewerState, viewerState, state in
+                    guard state.persistedEventViewerState != viewerState else { return }
+                    do {
+                        try database.write { db in
+                            try EventViewerState.persistChanges(
+                                from: oldViewerState,
+                                to: viewerState,
+                                in: db
+                            )
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
+                .onMount { state in
+                    state.reloadFeaturesForAuthoringAccess()
+                    let eventID = state.eventID
+                    let persistedEventViewerState = state.$persistedEventViewerState
+                    store.addTask {
+                        try await persistedEventViewerState.load(
+                            EventViewerState.where { $0.id.eq(eventID) }
+                        )
+                        .task
+                    }
+                }
+                .onTrigger(store.workspaceSourcePrepared) { state in
+                    guard state.showsAuthoringControls,
+                          state.eventWorkspace == nil,
+                          let source = workspace.source.wrappedValue
+                    else { return }
+                    state.eventWorkspace = withDependencies {
+                        $0.defaultDatabase = source.database
+                    } operation: {
+                        EventWorkspace.State(eventID: state.eventID)
+                    }
+                }
+                .onTrigger(store.workspaceProposalRecorded) { proposal, state in
+                    guard state.eventWorkspace != nil else { return }
+                    state.eventWorkspace?.reviews.pendingCreatedReviewID = proposal.id.rawValue
+                    store.addTask {
+                        let refresh = try store.send(
+                            .eventWorkspace(.reviews(.refreshButtonTapped))
+                        )
+                        await refresh?.value
+                    }
+                }
+            )
+
+            AnyFeature(
+                EmptyFeature<State, Action>()
+                    .onEvent(ScheduleDivisionRequested.self) { division, state in
+                        let feature = EventFeature.schedule(division)
+                        guard state.installedFeatures.contains(feature) else { return }
+                        state.selectedFeature = feature
+                    }
+                    .onEvent(SourceDataRefreshRequested.self) { request, state in
+                        guard request.eventID == state.eventID else { return }
+                        if workspace.source.wrappedValue != nil {
+                            store.addTask(id: sourceDataRefreshTask) {
+                                let reconciliation = try store.post(
+                                    key: WorkspaceReconciliationRequested.self,
+                                    value: ()
+                                )
+                                await reconciliation?.value
+                            }
+                            return
+                        }
+                        store.addTask(id: sourceDataRefreshTask) {
+                            let result: Void? = await store.withErrorHandling(
+                                fallbackMessage: .sourceDataRefreshFailed,
+                                operation: .sourceDataRefresh
+                            ) {
+                                try await sourceDataRefresh.refresh(request.sourceBaselineID)
+                            }
+                            _ = result
+                        }
+                    }
+            )
+
+            AnyFeature(
+                Features {
+                    EmptyFeature<State, Action>().forEach(\.scheduleViewers) {
+                        ScheduleViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.contributorsViewer) {
+                        ContributorsViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.stagesViewer) {
+                        StagesViewer()
+                    }
+                    EmptyFeature<State, Action>().spawn(\.eventSearch) {
+                        EventSearch()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.communicationsViewer) {
+                        CommunicationsViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.contactInfoViewer) {
+                        ContactInfoViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.locationViewer) {
+                        LocationViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.siteMapViewer) {
+                        SiteMapViewer()
+                    }
+                }
+            )
+
+            AnyFeature(
+                Features {
+                    EmptyFeature<State, Action>().ifLet(\.postersViewer) {
+                        PostersViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.notificationsViewer) {
+                        NotificationsViewer()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.eventSettings) {
+                        EventSettings()
+                    }
+                    EmptyFeature<State, Action>().ifLet(
+                        \.eventWorkspace,
+                        action: \.eventWorkspace
+                    ) {
+                        EventWorkspace()
+                    }
+                    EmptyFeature<State, Action>().spawn(\.account) {
+                        Account()
+                    }
+                    EmptyFeature<State, Action>().ifLet(\.eventInfoViewer) {
+                        EventInfoViewer()
+                    }
+                }
+                .onEvent(NavigationRequested.self) { request, state in
+                    guard case let .event(eventID, target) = request,
+                          eventID == state.eventID
+                    else { return }
+                    if let target, target.eventFeature.isEditorFeature {
+                        enterOrRequestAuthoring(.target(target), state: &state)
+                    } else {
+                        state.navigate(to: target)
+                    }
+                }
+                .onEvent(EventEditingRequested.self) { intent, state in
+                    guard intent.eventID == state.eventID else { return }
+                    enterOrRequestAuthoring(.intent(intent), state: &state)
+                }
+            )
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
@@ -979,7 +1003,7 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
 public struct EventViewerView: View {
     public init(
         store: StoreOf<EventViewer>,
-        authoringAdmission: AuthoringAdmission? = nil
+        authoringAdmission: ComposableAuthoring.AuthoringAdmission? = nil
     ) {
         self.store = store
         self.authoringAdmission = authoringAdmission
@@ -988,7 +1012,7 @@ public struct EventViewerView: View {
 
     @Bindable var store: StoreOf<EventViewer>
     @Bindable var accountStore: StoreOf<Account>
-    let authoringAdmission: AuthoringAdmission?
+    let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
 
     public var body: some View {
         tabContent
@@ -1070,7 +1094,7 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
-        let authoringAdmission: AuthoringAdmission?
+        let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
@@ -1244,7 +1268,8 @@ public struct EventViewerView: View {
                     ) {
                         EventWorkspaceView(
                             store: featureStore,
-                            accountStore: accountStore
+                            accountStore: accountStore,
+                            authoringAccess: store.authoringAccess
                         )
                     }
                 }
@@ -1428,7 +1453,8 @@ public struct EventViewerView: View {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
-                        accountStore: accountStore
+                        accountStore: accountStore,
+                        authoringAccess: store.authoringAccess
                     )
                 }
                 .tag(EventViewer.EventFeature.workspace)
@@ -1549,7 +1575,8 @@ public struct EventViewerView: View {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
-                        accountStore: accountStore
+                        accountStore: accountStore,
+                        authoringAccess: store.authoringAccess
                     )
                 }
                 .tag(EventViewer.EventFeature.workspace)
@@ -1626,9 +1653,7 @@ private extension EventViewer.State {
             }
 
         case .workspace:
-            if eventWorkspace == nil {
-                eventWorkspace = EventWorkspace.State(eventID: eventID)
-            }
+            break
 
         case .about,
              .communications,

@@ -1,5 +1,4 @@
 import CustomDump
-import Dependencies
 import Foundation
 import GRDB
 import SQLiteData
@@ -713,47 +712,6 @@ public struct SourceEditingResetter: Sendable {
 
     public func reset(
         in db: Database,
-        baselineDatabase: SourceBaselineDatabase,
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws {
-        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-            try db.inTransaction {
-                try reset(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    descriptors: descriptors,
-                    scope: scope
-                )
-                return .commit
-            }
-        }
-    }
-
-    public func reset(
-        in db: Database,
-        baselineDatabasePath: String,
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws {
-        try SourceBaselineDatabase.withAttached(
-            path: baselineDatabasePath,
-            to: db
-        ) { baselineSchemaName in
-            try db.inTransaction {
-                try reset(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    descriptors: descriptors,
-                    scope: scope
-                )
-                return .commit
-            }
-        }
-    }
-
-    public func reset(
-        in db: Database,
         baselineSchemaName: String,
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
@@ -814,110 +772,6 @@ public struct SourceSchemaMismatch: Equatable, Hashable, Sendable, Identifiable 
 
 public struct SourceEditingComparer: Sendable {
     public init() {}
-
-    public func summary(
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        @Dependency(\.defaultDatabase) var database
-
-        return try database.writeWithoutTransaction { db in
-            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
-            return try summary(
-                in: db,
-                baselineDatabase: baselineDatabase,
-                descriptors: descriptors,
-                scope: scope
-            )
-        }
-    }
-
-    public func summary(
-        recordTypes: [AnySourceEditableRecordType],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        @Dependency(\.defaultDatabase) var database
-
-        return try database.writeWithoutTransaction { db in
-            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
-            return try summary(
-                in: db,
-                baselineDatabase: baselineDatabase,
-                recordTypes: recordTypes,
-                scope: scope
-            )
-        }
-    }
-
-    public func summary(
-        in db: Database,
-        baselineDatabase: SourceBaselineDatabase,
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-            try summary(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                descriptors: descriptors,
-                scope: scope
-            )
-        }
-    }
-
-    public func summary(
-        in db: Database,
-        baselineDatabase: SourceBaselineDatabase,
-        recordTypes: [AnySourceEditableRecordType],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-            try summary(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                recordTypes: recordTypes,
-                scope: scope
-            )
-        }
-    }
-
-    public func summary(
-        in db: Database,
-        baselineDatabasePath: String,
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        try SourceBaselineDatabase.withAttached(
-            path: baselineDatabasePath,
-            to: db
-        ) { baselineSchemaName in
-            try summary(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                descriptors: descriptors,
-                scope: scope
-            )
-        }
-    }
-
-    public func summary(
-        in db: Database,
-        baselineDatabasePath: String,
-        recordTypes: [AnySourceEditableRecordType],
-        scope: SourceRecordScope = .all
-    ) throws -> SourceChangeSummary {
-        try SourceBaselineDatabase.withAttached(
-            path: baselineDatabasePath,
-            to: db
-        ) { baselineSchemaName in
-            try summary(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                recordTypes: recordTypes,
-                scope: scope
-            )
-        }
-    }
 
     public func summary(
         in db: Database,

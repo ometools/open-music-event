@@ -13,29 +13,28 @@ struct SourcePatchApplierTests {
         try fixture.writeFile("events/test/deleted.md", contents: "Delete me\n")
         try fixture.writeFile("events/test/unchanged.md", contents: "Same\n")
 
-        try SourcePatchApplier.live.apply(
-            SourcePatch(
-                fileChanges: [
-                    SourcePatchFileChange(
-                        path: "events/test/added.md",
-                        kind: .added,
-                        newContents: data("Added\n")
-                    ),
-                    SourcePatchFileChange(
-                        path: "events/test/deleted.md",
-                        kind: .deleted,
-                        oldContents: data("Delete me\n")
-                    ),
-                    SourcePatchFileChange(
-                        path: "events/test/event.yml",
-                        kind: .modified,
-                        oldContents: data("name: Old\n"),
-                        newContents: data("name: New\n")
-                    ),
-                ]
-            ),
-            fixture.repositoryURL
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/test/added.md",
+                    kind: .added,
+                    newContents: data("Added\n")
+                ),
+                SourcePatchFileChange(
+                    path: "events/test/deleted.md",
+                    kind: .deleted,
+                    oldContents: data("Delete me\n")
+                ),
+                SourcePatchFileChange(
+                    path: "events/test/event.yml",
+                    kind: .modified,
+                    oldContents: data("name: Old\n"),
+                    newContents: data("name: New\n")
+                ),
+            ]
         )
+        try SourcePatchApplier.live.apply(patch, fixture.repositoryURL)
+        try SourcePatchApplier.live.apply(patch, fixture.repositoryURL)
 
         expectNoDifference(
             try fixture.readFile("events/test/added.md"),

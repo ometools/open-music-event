@@ -1,4 +1,3 @@
-import Dependencies
 import GRDB
 import OpenMusicEventLexicon
 import SQLiteData
@@ -40,7 +39,23 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
 }
 
 public extension EventWorkspaceSummary {
-    static func queryAttached(
+    static func query(
+        eventID: OME.Event.ID,
+        using database: any DatabaseWriter
+    ) throws -> Self {
+        try query(eventID: eventID, using: database as any DatabaseReader)
+    }
+
+    static func query(
+        eventID: OME.Event.ID,
+        using database: any DatabaseReader
+    ) throws -> Self {
+        try database.read { db in
+            try query(eventID: eventID, in: db)
+        }
+    }
+
+    static func query(
         eventID: OME.Event.ID,
         in db: Database
     ) throws -> Self {
@@ -90,84 +105,6 @@ public extension EventWorkspaceSummary {
                 baselineSchemaName: baselineSchemaName
             )
         )
-    }
-
-    static func query(
-        eventID: OME.Event.ID,
-        using database: any DatabaseWriter
-    ) throws -> Self {
-        try database.writeWithoutTransaction { db in
-            try query(eventID: eventID, in: db)
-        }
-    }
-
-    static func query(
-        eventID: OME.Event.ID,
-        in db: Database
-    ) throws -> Self {
-        let eventWorkspace = try EventEditingWorkspaceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        guard let eventWorkspace else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .notInWorkspace,
-                groups: []
-            )
-        }
-
-        let workspace = try EditingWorkspaceRecord
-            .where { $0.id.eq(eventWorkspace.workspaceID) }
-            .fetchOne(db)
-        guard let workspace else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .workspaceNeedsPreparation,
-                groups: []
-            )
-        }
-
-        let sourceProvenance = try EventSourceProvenanceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        guard sourceProvenance?.sourceBaselineID != nil || workspace.kind == .local else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .notInWorkspace,
-                groups: []
-            )
-        }
-        let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
-            try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)
-        }
-        @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
-        let baselineDatabase: SourceBaselineDatabase?
-        do {
-            baselineDatabase = try workspaceReferenceDatabase.existing(
-                workspace,
-                sourceBaseline: sourceBaseline
-            )
-        } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
-                WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
-            baselineDatabase = nil
-        }
-        guard let baselineDatabase else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .workspaceNeedsPreparation,
-                groups: []
-            )
-        }
-        let sourceSummary = try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-            try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        }
-
-        return Self(eventID: eventID, sourceSummary: sourceSummary)
     }
 
     private init(
@@ -228,7 +165,26 @@ public struct SourceEditSummary: Equatable, Sendable {
 }
 
 public extension SourceEditSummary {
-    static func queryAttached(
+    static func query(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        using database: any DatabaseWriter
+    ) throws -> Self {
+        try query(
+            sourceBaselineID: sourceBaselineID,
+            using: database as any DatabaseReader
+        )
+    }
+
+    static func query(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        using database: any DatabaseReader
+    ) throws -> Self {
+        try database.read { db in
+            try query(sourceBaselineID: sourceBaselineID, in: db)
+        }
+    }
+
+    static func query(
         sourceBaselineID: SourceBaselineRecord.ID,
         in db: Database
     ) throws -> Self {
@@ -258,51 +214,6 @@ public extension SourceEditSummary {
                 baselineSchemaName: baselineSchemaName
             )
         )
-    }
-
-    static func query(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        using database: any DatabaseWriter
-    ) throws -> Self {
-        try database.writeWithoutTransaction { db in
-            try query(sourceBaselineID: sourceBaselineID, in: db)
-        }
-    }
-
-    static func query(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        in db: Database
-    ) throws -> Self {
-        let sourceBaseline = try SourceBaselineRecord
-            .where { $0.id.eq(sourceBaselineID) }
-            .fetchOne(db)
-
-        guard let sourceBaseline else {
-            return SourceEditSummary(
-                sourceBaselineID: sourceBaselineID,
-                availability: .missingBaseline,
-                groups: []
-            )
-        }
-
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(
-            sourceBaseline.sourceProvenance
-        ) else {
-            return SourceEditSummary(
-                sourceBaselineID: sourceBaselineID,
-                availability: .missingBaseline,
-                groups: []
-            )
-        }
-        let sourceSummary = try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-            try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        }
-
-        return Self(sourceBaselineID: sourceBaselineID, sourceSummary: sourceSummary)
     }
 
     private init(

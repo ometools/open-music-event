@@ -1,6 +1,8 @@
 import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import ErrorHandling
 import Foundation
 import HTTPClient
@@ -11,22 +13,18 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
+import SourceEditing
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
 #endif
 
-enum CreatedSourceReviewLoaded: FeatureEventKey {
-    typealias Value = Void
-}
-
 @Feature
 public struct WorkspaceReviews {
     public init() {}
 
     @Trigger var refreshReviews
-    @Trigger var refreshSource
 
     public struct ReviewFailure: CustomDebugStringConvertible, Equatable, Error, Sendable {
         public var message: String
@@ -93,12 +91,6 @@ public struct WorkspaceReviews {
         case failed(ReviewOperationKind, ReviewFailure)
     }
 
-    public enum SourceRefreshStatus: Equatable, Sendable {
-        case failed(ReviewFailure)
-        case idle
-        case refreshing
-    }
-
     public struct SemanticDiffFailure: Equatable, Error, Sendable {
         public var message: String
 
@@ -163,8 +155,7 @@ public struct WorkspaceReviews {
     }
 
     public struct State {
-        public init(target: SourceProposalTarget) {
-            self._authoringGrant = Self.authoringGrant()
+        public init(target: OpenMusicEventSourceTarget) {
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
@@ -178,14 +169,12 @@ public struct WorkspaceReviews {
             )
         }
 
-        public let target: SourceProposalTarget
-        @SharedReader public var authoringGrant: AuthoringGrant?
+        public let target: OpenMusicEventSourceTarget
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         public var locallyRemovedReviewIDs: Set<String> = []
         public var pendingCreatedReviewID: String?
         public var pendingDeletedReviews: [String: PendingDeletedReview] = [:]
-        @Trigger<SourcePatchPublication> public var proposalCreated
         public var reviewOperations: [String: ReviewOperation] = [:]
         public var reviewsStatus: ReviewsStatus = .notLoaded
         public var selectedReview: SelectedReview?
@@ -194,7 +183,6 @@ public struct WorkspaceReviews {
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @DebugSnapshotIgnored
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
-        public var sourceRefreshStatus: SourceRefreshStatus = .idle
     }
 
     public enum Action {
@@ -208,22 +196,22 @@ public struct WorkspaceReviews {
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
+    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+    var authoring
 
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
             switch action {
             case let .approveButtonTapped(review):
-                guard state.authoringGrant?.role.canMerge == true,
+                guard authoring.grant.wrappedValue?.role.canMerge == true,
                       state.reviewOperations[review.id]?.isRunning != true
                 else { return }
 
                 let target = state.target
                 let tangledPullReviewClient = tangledPullReviewClient
-                let refreshSource = refreshSource
                 state.reviewOperations[review.id] = .approving
                 store.addTask {
                     do {
@@ -237,7 +225,11 @@ public struct WorkspaceReviews {
                             $0.reviewOperations[review.id] = nil
                             $0.remove(review)
                         }
-                        try refreshSource()
+                        let reconciliation = try store.post(
+                            key: WorkspaceProposalMerged.self,
+                            value: WorkspaceProposalID(rawValue: review.id)
+                        )
+                        await reconciliation?.value
                     } catch {
                         let failure = ReviewFailure(error)
                         await store.reportError(
@@ -308,9 +300,12 @@ public struct WorkspaceReviews {
                 }
 
             case .refreshSourceButtonTapped:
-                let refreshSource = refreshSource
                 store.addTask {
-                    try refreshSource()
+                    let reconciliation = try store.post(
+                        key: WorkspaceReconciliationRequested.self,
+                        value: ()
+                    )
+                    await reconciliation?.value
                 }
 
             case let .reviewTapped(review):
@@ -323,9 +318,7 @@ public struct WorkspaceReviews {
                 case .failed, .notLoaded, nil:
                     break
                 }
-                guard let sourceProvenance = state.sourceReviewProvenance,
-                      let sourceBaselineID = state.sourceBaselineID
-                else { return }
+                guard let sourceProvenance = state.sourceReviewProvenance else { return }
 
                 let sourceSnapshot = tangledPullReviewSourceSnapshot
                 let target = state.target
@@ -334,7 +327,6 @@ public struct WorkspaceReviews {
                     do {
                         let diff = try await SemanticDiff.reviewBranchDiff(
                             target: target,
-                            sourceBaselineID: sourceBaselineID,
                             review: review,
                             sourceProvenance: sourceProvenance,
                             sourceSnapshot: sourceSnapshot
@@ -395,9 +387,6 @@ public struct WorkspaceReviews {
                         {
                             $0.selectedReview = .loaded(review)
                             $0.pendingCreatedReviewID = nil
-                            store.addTask {
-                                try store.post(key: CreatedSourceReviewLoaded.self, value: ())
-                            }
                         } else if let selectedReviewID = $0.selectedReview?.id,
                                   let review = loadedReviews.first(where: { $0.id == selectedReviewID })
                         {
@@ -429,60 +418,12 @@ public struct WorkspaceReviews {
                 }
             }
         }
-        .onTrigger(refreshSource) { state in
-            switch state.target {
-            case let .calendar(_, sourceBaselineID):
-                let sourceDataRefresh = sourceDataRefresh
-                state.sourceRefreshStatus = .refreshing
-                store.addTask {
-                    do {
-                        try await sourceDataRefresh.refresh(sourceBaselineID)
-                        try store.modify {
-                            $0.sourceRefreshStatus = .idle
-                        }
-                    } catch {
-                        await store.reportError(
-                            error,
-                            fallbackMessage: .sourceDataRefreshFailed,
-                            operation: .sourceDataRefresh
-                        )
-                        try store.modify {
-                            $0.sourceRefreshStatus = .failed(ReviewFailure(error))
-                        }
-                    }
-                }
-
-            case let .event(eventID):
-                guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
-                    return
-                }
-                let request = SourceDataRefreshRequest(
-                    eventID: eventID,
-                    sourceBaselineID: sourceBaselineID
-                )
-                store.addTask {
-                    try store.post(key: SourceDataRefreshRequested.self, value: request)
-                }
-            }
-        }
-        .onTrigger(store.proposalCreated) { publication, state in
-            state.pendingCreatedReviewID = publication.sourceChangeID
-            let refreshReviews = refreshReviews
-            store.addTask {
-                try refreshReviews()
-            }
-        }
     }
 }
 
 extension WorkspaceReviews.State {
-    static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-        @Dependency(\.authoringGrant) var authoringGrant
-        return authoringGrant
-    }
-
-    public var canReview: Bool {
-        sourceKind == .tangled && authoringGrant?.role.canMerge == true
+    public func canReview(authoringAccess: AuthoringAccess) -> Bool {
+        sourceKind == .tangled && authoringAccess.canMerge
     }
 
     public var sourceBaselineID: SourceBaselineRecord.ID? {
@@ -676,6 +617,7 @@ extension ErrorOperation {
 public struct WorkspaceReviewsView: View {
     @Bindable var store: StoreOf<WorkspaceReviews>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @Environment(\.openMusicEventWorkspacePhase) var workspacePhase
 
     public init(store: StoreOf<WorkspaceReviews>) {
         self.store = store
@@ -690,7 +632,7 @@ public struct WorkspaceReviewsView: View {
                     Button {
                         store.send(.refreshSourceButtonTapped)
                     } label: {
-                        if store.sourceRefreshStatus == .refreshing {
+                        if workspacePhase.isReconciling {
                             HStack {
                                 ProgressView()
                                 Text("Refreshing Source")
@@ -701,10 +643,10 @@ public struct WorkspaceReviewsView: View {
                     }
                     .disabled(
                         store.sourceBaselineID == nil
-                            || store.sourceRefreshStatus == .refreshing
+                            || !workspacePhase.canRequestReconciliation
                     )
 
-                    if case let .failed(failure) = store.sourceRefreshStatus,
+                    if let failure = workspacePhase.reconciliationFailure,
                        showsTechnicalDetails
                     {
                         Text(failure.message)

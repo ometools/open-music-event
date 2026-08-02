@@ -1,5 +1,4 @@
 import CustomDump
-import Dependencies
 import Foundation
 import GRDB
 import SourceEditing
@@ -386,7 +385,7 @@ struct SourceEditingTests {
     }
 
     @Test
-    func defaultDatabaseUsesAttachedReferenceForSummariesAndWrites() throws {
+    func workspaceDatabaseUsesItsAttachedReferenceForSummariesAndWrites() throws {
         let fixture = try SourceEditingFixture()
 
         try fixture.workingDatabase.writeWithoutTransaction { db in
@@ -396,11 +395,10 @@ struct SourceEditingTests {
                 .execute(db)
         }
 
-        let summary = try withDependencies {
-            $0.defaultDatabase = fixture.workingDatabase
-            $0.defaultBaselineDatabase = fixture.baselineDatabase
-        } operation: {
+        let summary = try fixture.workingDatabase.read { db in
             try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 descriptors: [Todo.sourceDescriptor],
                 scope: listScope("list-1")
             )
@@ -440,28 +438,29 @@ struct SourceEditingTests {
     }
 
     @Test
-    func referenceAttachmentIsReadOnlyAndGuaranteedToDetach() throws {
+    func workspaceReferenceIsReadOnlyAndRemainsAttached() throws {
         let fixture = try SourceEditingFixture()
 
         try fixture.workingDatabase.writeWithoutTransaction { db in
             #expect(throws: Error.self) {
-                try fixture.baselineDatabase.withAttached(to: db) { schemaName in
-                    try #sql(
-                        """
-                        UPDATE \(quote: schemaName)."todos"
-                        SET "title" = 'Reference write should fail'
-                        WHERE "id" = 2
-                        """
-                    )
-                    .execute(db)
-                }
+                try #sql(
+                    """
+                    UPDATE \(quote: SourceEditingSession.baselineSchemaName)."todos"
+                    SET "title" = 'Reference write should fail'
+                    WHERE "id" = 2
+                    """
+                )
+                .execute(db)
             }
 
             let attachedDatabaseNames = try String.fetchAll(
                 db,
                 sql: "SELECT name FROM pragma_database_list"
             )
-            expectNoDifference(attachedDatabaseNames, ["main"])
+            expectNoDifference(
+                attachedDatabaseNames,
+                ["main", SourceEditingSession.baselineSchemaName]
+            )
         }
     }
 
@@ -483,20 +482,19 @@ struct SourceEditingTests {
             )
         )
 
-        try fixture.workingDatabase.writeWithoutTransaction { db in
+        try fixture.workingDatabase.write { db in
             try SourceEditingResetter().reset(
                 in: db,
-                baselineDatabase: fixture.baselineDatabase,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 descriptors: [Todo.sourceDescriptor],
                 scope: listScope("list-1")
             )
         }
 
-        let summary = try withDependencies {
-            $0.defaultDatabase = fixture.workingDatabase
-            $0.defaultBaselineDatabase = fixture.baselineDatabase
-        } operation: {
+        let summary = try fixture.workingDatabase.read { db in
             try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 descriptors: [Todo.sourceDescriptor],
                 scope: listScope("list-1")
             )
@@ -555,8 +553,12 @@ private final class SourceEditingFixture {
             .appending(path: "SourceEditingTests-\(UUID().uuidString)")
             .appendingPathExtension("sqlite")
             .path
-        self.workingDatabase = try DatabasePool(path: workingDatabasePath)
         self.baselineDatabase = try defaultBaselineDatabase()
+        let mainDatabase = try DatabasePool(path: workingDatabasePath)
+        self.workingDatabase = try SourceEditingSession(
+            mainDatabase: mainDatabase,
+            baselineDatabasePath: baselineDatabase.path
+        ).database
 
         try workingDatabase.write { db in
             try createTodosTable(in: db)
@@ -711,11 +713,10 @@ private final class SourceEditingFixture {
     }
 
     func summary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
-        try withDependencies {
-            $0.defaultDatabase = workingDatabase
-            $0.defaultBaselineDatabase = baselineDatabase
-        } operation: {
+        try workingDatabase.read { db in
             try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 descriptors: [Todo.sourceDescriptor],
                 scope: scope
             )
@@ -726,11 +727,10 @@ private final class SourceEditingFixture {
         recordTypes: [AnySourceEditableRecordType] = [Todo.sourceRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        try withDependencies {
-            $0.defaultDatabase = workingDatabase
-            $0.defaultBaselineDatabase = baselineDatabase
-        } operation: {
+        try workingDatabase.read { db in
             try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 recordTypes: recordTypes,
                 scope: scope
             )
@@ -738,11 +738,10 @@ private final class SourceEditingFixture {
     }
 
     func typedTodoSummary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
-        try withDependencies {
-            $0.defaultDatabase = workingDatabase
-            $0.defaultBaselineDatabase = baselineDatabase
-        } operation: {
+        try workingDatabase.read { db in
             try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName,
                 recordTypes: [TypedTodo.sourceRecordType],
                 scope: scope
             )

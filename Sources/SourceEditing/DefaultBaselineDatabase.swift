@@ -2,10 +2,10 @@ import Dependencies
 import Foundation
 import SQLiteData
 
-public enum SourceBaselineDatabaseAttachmentError: Error, Equatable, Sendable {
-    case activeTransaction
-}
-
+/// Storage for a reference snapshot during controlled import and refresh operations.
+///
+/// Editable features must use the database owned by `SourceEditingSession`, where this snapshot is
+/// already attached read-only. This database must never become `defaultDatabase`.
 public struct SourceBaselineDatabase: Sendable {
     public var path: String
     public var database: any DatabaseWriter
@@ -29,56 +29,6 @@ public struct SourceBaselineDatabase: Sendable {
     ) throws -> Value {
         try database.write(updates)
     }
-
-    /// Reference databases are snapshots. They may be updated only by controlled import/refresh
-    /// and must be attached read-only for application comparisons. They must never become
-    /// `defaultDatabase`.
-    public func withAttached<Value>(
-        to db: Database,
-        operation: (String) throws -> Value
-    ) throws -> Value {
-        try Self.withAttached(path: path, to: db, operation: operation)
-    }
-
-    public static func withAttached<Value>(
-        path: String,
-        to db: Database,
-        operation: (String) throws -> Value
-    ) throws -> Value {
-        // SQLite cannot detach a database while a transaction is active. Keeping the entire
-        // attachment scope in autocommit also ensures that an inner mutation transaction can
-        // finish before the reference is detached.
-        guard !db.isInsideTransaction else {
-            throw SourceBaselineDatabaseAttachmentError.activeTransaction
-        }
-        let schemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-        let databaseURI = readOnlyDatabaseURI(path: path)
-
-        try #sql(
-            "ATTACH DATABASE \(bind: databaseURI) AS \(quote: schemaName)"
-        )
-        .execute(db)
-        db.clearSchemaCache()
-
-        let result = Result { try operation(schemaName) }
-        // Queries against an attached schema can remain in GRDB's statement cache after their
-        // values have been fetched. Clearing that cache is required before SQLite can detach the
-        // schema, including when the operation itself failed.
-        db.clearSchemaCache()
-        try #sql("DETACH DATABASE \(quote: schemaName)").execute(db)
-        db.clearSchemaCache()
-        return try result.get()
-    }
-}
-
-private func readOnlyDatabaseURI(path: String) -> String {
-    var components = URLComponents()
-    components.scheme = "file"
-    components.path = path
-    components.queryItems = [
-        URLQueryItem(name: "mode", value: "ro")
-    ]
-    return components.string ?? "file:\(path)?mode=ro"
 }
 
 public func defaultBaselineDatabase(

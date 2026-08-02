@@ -48,6 +48,18 @@ extension OME {
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
 
+        prepareDependencies(
+            &dependencies,
+            database: dependencies.defaultDatabase
+        )
+    }
+
+    public static func prepareDependencies(
+        _ dependencies: inout DependencyValues,
+        database: any DatabaseWriter
+    ) {
+        dependencies.defaultDatabase = database
+
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
@@ -59,30 +71,26 @@ extension OME {
 #endif
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
-
-        dependencies.sourcePatchPublisher = .openMusicEventTangled
+        dependencies.openMusicEventSourcePatchConversion = .live
+        dependencies.openMusicEventCalendarSourcePatchConversion = .live
 
         dependencies.tangledPullReviewListSource = .constellationBackfill
+        dependencies.tangledPullReviewSourceSnapshot = .openMusicEvent
+        dependencies.sourceEditModePreparation = .live
+        dependencies.sourceReferenceDatabase = .live
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
+        dependencies.sourceRepositoryStorage = .live
+        dependencies.tangledSourceImport = .live
         dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
-
-        let baseDatabase = dependencies.defaultDatabase
-        let sourceWorkspace = SourceWorkspaceClient.coordinated(
-            database: baseDatabase,
-            importSource: dependencies.tangledSourceImport,
-            prepareForEditing: dependencies.sourceEditModePreparation
-        )
-        dependencies.sourceWorkspace = sourceWorkspace
-        dependencies.tangledSourceImport = TangledSourceImportClient(
-            importSource: sourceWorkspace.importSource
-        )
-        dependencies.sourceEditModePreparation = SourceEditModePreparationClient(
-            prepare: sourceWorkspace.prepareForEditing
-        )
+        dependencies[WorkspaceAuthoringActivationClient.self] = .live
+        dependencies[WorkspacePreparationClient.self] = .live
+        dependencies[WorkspaceReferenceUpdateClient.self] = .openMusicEvent
+        dependencies.whiteLabelSourceImport = .live
 
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+            @Dependency(\.defaultDatabase) var database
             @Dependency(\.tangledSourceImport) var tangledSourceImport
-            let (sourceBaseline, organizerID) = try await baseDatabase.read { db in
+            let (sourceBaseline, organizerID) = try await database.read { db in
                 let fetchedSourceBaseline = try SourceBaselineRecord
                     .where { $0.id.eq(sourceBaselineID) }
                     .fetchOne(db)

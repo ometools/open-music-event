@@ -111,11 +111,29 @@ extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
                         return .denied
                     }
 
+                    if workspaceOwnerID == actorID {
+                        return .granted(
+                            principal: .actor(actorID),
+                            role: .owner
+                        )
+                    }
+
+                    let relationship = try await database.read { db in
+                        try WorkspaceRelationshipRecord
+                            .where { $0.id.workspaceID.eq(workspaceID) }
+                            .where { $0.id.actorID.eq(actorID) }
+                            .fetchOne(db)
+                    }
+                    guard case let .collaborator(capabilities)? = relationship?
+                        .relationship
+                        .workspaceRole
+                    else {
+                        return .denied
+                    }
+
                     return .granted(
                         principal: .actor(actorID),
-                        role: workspaceOwnerID == actorID
-                            ? .owner
-                            : .collaborator([.propose, .merge])
+                        role: .collaborator(capabilities)
                     )
                 }
             },

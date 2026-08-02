@@ -57,23 +57,19 @@ public extension SourceEditModePreparationClient {
                 .repositoryURL(sourceProvenance)
 
             if sourceProvenance.kind == .tangled,
-               !isGitRepository(storedRepositoryURL) {
+               !FileManager.default.fileExists(atPath: storedRepositoryURL.path) {
                 let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
                 do {
-                    _ = try await withDependencies {
-                        $0.tangledSourceCheckout = .git
-                    } operation: {
-                        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
-                        return try await tangledSourceCheckout.checkout(
-                            TangledSourceCheckoutRequest(
-                                repository: try TangledRepositoryReference(
-                                    sourceReference: sourceProvenance.reference
-                                ),
-                                ref: sourceProvenance.ref ?? "HEAD",
-                                outputURL: checkoutURL
-                            )
+                    @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+                    _ = try await tangledSourceCheckout.checkout(
+                        TangledSourceCheckoutRequest(
+                            repository: try TangledRepositoryReference(
+                                sourceReference: sourceProvenance.reference
+                            ),
+                            ref: sourceProvenance.ref ?? "HEAD",
+                            outputURL: checkoutURL
                         )
-                    }
+                    )
                     storedRepositoryURL = try sourceRepositoryStorage.store(
                         checkoutURL,
                         sourceProvenance
@@ -178,15 +174,6 @@ private actor WorkspaceSourcePreparationCoordinator {
         }
         try await preparation.task.value
     }
-}
-
-private func isGitRepository(_ repositoryURL: URL) -> Bool {
-    FileManager.default.fileExists(
-        atPath: repositoryURL
-            .standardizedFileURL
-            .appending(path: ".git")
-            .path(percentEncoded: false)
-    )
 }
 
 public extension DependencyValues {

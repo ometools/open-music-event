@@ -43,14 +43,20 @@ struct MyEventsView: View {
                 OrganizerDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
-                OpenMusicEventAuthorizationView(store: detailStore) { authoringStore in
-                    let contentStore = authoringStore.scope(\.content, action: \.content)
+                OpenMusicEventAuthorizationView(store: detailStore) { workspaceAuthoringStore in
+                    let authoringStore = workspaceAuthoringStore.scope(
+                        \.authoring,
+                        action: \.authoring
+                    )
+                    let workspaceStore = authoringStore.scope(\.content, action: \.content)
+                    let contentStore = workspaceStore.scope(\.content, action: \.content)
                     TeamWorkspaceDetailView(
                         store: contentStore,
-                        showsAuthoringControls: authoringStore.access.canEditContent
+                        showsAuthoringControls: authoringStore.grant?.access.canEditContent == true
                     )
+                    .openMusicEventWorkspacePhase(workspaceStore.phase)
                     .toolbar {
-                        if authoringStore.canEnterAuthoring {
+                        if authoringStore.canEnter {
                             ToolbarItem(placement: .primaryAction) {
                                 Button {
                                     authoringStore.send(.enterButtonTapped)

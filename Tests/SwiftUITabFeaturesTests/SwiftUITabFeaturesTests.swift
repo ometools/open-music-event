@@ -167,7 +167,6 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.metadata.role == .search)
         #expect(feature.metadata.title == "Search")
         #expect(feature.metadata.systemImage == symbol("magnifyingglass"))
-        #expect(feature.metadata.effectiveComposeImage == symbol("magnifyingglass"))
         #expect(feature.metadata.id == id("search"))
         #expect(feature.item.title == "Search")
         #expect(feature.item.systemImage == symbol("magnifyingglass"))

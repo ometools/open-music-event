@@ -7,16 +7,16 @@ import OpenMusicEventSourceClone
 
 public struct TangledPullReviewSourceSnapshotRequest: Equatable, Sendable {
     public var organizerID: OME.Organizer.ID
-    public var review: TangledPullReview
+    public var ref: String
     public var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance
 
     public init(
         organizerID: OME.Organizer.ID,
-        review: TangledPullReview,
+        ref: String,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) {
         self.organizerID = organizerID
-        self.review = review
+        self.ref = ref
         self.sourceProvenance = sourceProvenance
     }
 }
@@ -48,25 +48,21 @@ public extension TangledPullReviewSourceSnapshotClient {
                     request.sourceProvenance.kind
                 )
             }
-            guard let sourceBranch = request.review.sourceBranch?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ), !sourceBranch.isEmpty else {
-                throw TangledPullReviewSourceSnapshotError.missingSourceBranch(
-                    request.review.id
-                )
+            let ref = request.ref.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !ref.isEmpty else {
+                throw TangledPullReviewSourceSnapshotError.missingSourceBranch(request.ref)
             }
 
             let repository = try TangledRepositoryReference(
                 sourceReference: request.sourceProvenance.reference
             )
             @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
-            @Dependency(\.uuid) var uuid
-            let outputURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
+            let outputURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: UUID())
             do {
                 _ = try await tangledSourceCheckout.checkout(
                     TangledSourceCheckoutRequest(
                         repository: repository,
-                        ref: sourceBranch,
+                        ref: ref,
                         outputURL: outputURL
                     )
                 )

@@ -1,5 +1,7 @@
 import ATProto
 import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import ErrorHandling
@@ -315,17 +317,22 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id)
+        let workspaceDatabase = try SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            mainDatabase: workingDatabase,
+            referenceDatabase: baselineReference
+        )
         let expectedWorkspaceSummary = try await withDependencies {
-            $0.defaultDatabase = workingDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
+            $0.defaultDatabase = workspaceDatabase.database
         } operation: {
             try SourceWorkspaceSummary.query(
                 target: .calendar(calendarID, sourceBaseline.id),
-                using: workingDatabase
+                using: workspaceDatabase.database
             )
         }
         #expect(expectedWorkspaceSummary.totalCount == 1)
-        let expectedSourceFileAttributions = try await workingDatabase.read { db in
+        let expectedSourceFileAttributions = try await workspaceDatabase.database.read { db in
             try openMusicEventSourceFileAttributions(
                 patch: patch,
                 groups: expectedWorkspaceSummary.groups,
@@ -338,7 +345,6 @@ struct TeamWorkspaceEditorTests {
             sourceFileAttributions: expectedSourceFileAttributions,
             sourceWorkspaceSummary: expectedWorkspaceSummary
         )
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id)
         let grant = SharedReader<AuthoringGrant?>(
             value: AuthoringGrant(
                 principal: .local,
@@ -346,10 +352,19 @@ struct TeamWorkspaceEditorTests {
                 workspaceID: workspaceID
             )
         )
+        let workspacePhase = Shared<WorkspacePhase<SourcePatch>>(
+            value: .ready(
+                .canonical(
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "main-1")
+                    )
+                )
+            )
+        )
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = workingDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
+            $0.defaultDatabase = workspaceDatabase.database
             $0.useAuthoringContext(workspaceID, grant: grant)
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                 SourcePatchGenerator { request in
@@ -372,11 +387,21 @@ struct TeamWorkspaceEditorTests {
             state.changes.sourcePatchStatus = .generated(
                 WorkspaceChanges.SourceProposalPreparation(
                     patch: patch,
+                    sourceFileAttributions: expectedSourceFileAttributions,
                     sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
                 )
             )
             return TestStore(initialState: state) {
                 SourceWorkspace()
+                    .environment(
+                        ComposableAuthoring.AuthoringContext(grant: grant)
+                    )
+                    .environment(
+                        WorkspaceContext(
+                            phase: SharedReader(workspacePhase),
+                            source: SharedReader(value: workspaceDatabase)
+                        )
+                    )
             }
         }
 
@@ -385,21 +410,16 @@ struct TeamWorkspaceEditorTests {
 
         #expect(store.state.changes.canGenerateSourcePatch)
         #expect(store.state.changes.canPublishSourceProposal)
-        expectNoDifference(store.state.availablePages, [.changes, .reviews])
+        expectNoDifference(
+            store.state.availablePages(authoringAccess: .authoring(.owner)),
+            [.changes, .reviews]
+        )
         expectNoDifference(store.state.changes.sourcePatchStatus, .generated(expectedPreparation))
+        #expect(store.state.changes.proposalDraft?.groups == expectedWorkspaceSummary.groups)
         #expect(
-            store.state.changes.sourceProposal?.target
-                == .calendar(calendarID, sourceBaseline.id)
+            store.state.changes.proposalDraft?.recordComparisons
+                == expectedWorkspaceSummary.recordComparisons
         )
-        #expect(
-            store.state.changes.sourceProposal?.sourceChangeGroups
-                == expectedWorkspaceSummary.groups
-        )
-        #expect(
-            store.state.changes.sourceProposal?.sourceFileAttributions
-                == expectedSourceFileAttributions
-        )
-        #expect(store.state.changes.sourceProposal?.patch == patch)
         await store.dismount()
     }
 
@@ -456,11 +476,14 @@ struct TeamWorkspaceEditorTests {
 
         #expect(store.state.changes.canGenerateSourcePatch)
         #expect(!store.state.changes.canPublishSourceProposal)
-        expectNoDifference(store.state.availablePages, [.changes])
+        expectNoDifference(
+            store.state.availablePages(authoringAccess: .attendee),
+            [.changes]
+        )
 
         store.send(.changes(.proposeChangesButtonTapped))
 
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
     }
 
     @Test
@@ -488,7 +511,7 @@ struct TeamWorkspaceEditorTests {
             importedAt: Date(timeIntervalSince1970: 1)
         )
         let sourceBaselineID = sourceBaseline.id
-        let resetRequests = Mutex([SourceProposalTarget]())
+        let resetRequests = Mutex([OpenMusicEventSourceTarget]())
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -499,7 +522,6 @@ struct TeamWorkspaceEditorTests {
                 )
             ]
         )
-        let proposalFailure = SourceProposalFlow.Failure(SourceWorkspacePatchFailure())
         try await seedOrganizerSourceWorkspaceDefaults(
             database: workingDatabase,
             organizerID: organizerID,
@@ -527,19 +549,19 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
-        let workspaceSummary = try withDependencies {
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
-        } operation: {
-            try SourceWorkspaceSummary.query(
-                target: .calendar(calendarID, sourceBaselineID),
-                using: workingDatabase
-            )
-        }
+        let workspaceDatabase = try SourceWorkspaceDatabase(
+            workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID),
+            mainDatabase: workingDatabase,
+            referenceDatabase: baselineReference
+        )
+        let workspaceSummary = try SourceWorkspaceSummary.query(
+            target: .calendar(calendarID, sourceBaselineID),
+            using: workspaceDatabase.database
+        )
 
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = workingDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
+            $0.defaultDatabase = workspaceDatabase.database
             $0.eventWorkspaceResetter = EventWorkspaceResetter(
                 reset: { eventID in
                     Issue.record("Expected source reset request, not event reset for \(eventID).")
@@ -553,20 +575,17 @@ struct TeamWorkspaceEditorTests {
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID
             )
-            state.changes.$sourceWorkspaceSummary = Fetch(
-                wrappedValue: workspaceSummary
-            )
+            state.changes.$sourceWorkspaceSummary = Fetch(wrappedValue: workspaceSummary)
             state.changes.sourcePatchStatus = .generated(
                 WorkspaceChanges.SourceProposalPreparation(
                     patch: patch,
                     sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
                 )
             )
-            state.changes.sourceProposal = SourceProposalFlow.State(
-                target: .calendar(calendarID, sourceBaselineID),
-                patch: patch
+            state.changes.proposalDraft = WorkspaceProposalDraft.State(
+                groups: state.changes.sourceWorkspaceSummary.groups,
+                recordComparisons: state.changes.sourceWorkspaceSummary.recordComparisons
             )
-            state.changes.sourceProposal?.status = .failed(proposalFailure)
             return TestStore(initialState: state) {
                 SourceWorkspace()
             }
@@ -576,7 +595,7 @@ struct TeamWorkspaceEditorTests {
         await task?.value
 
         #expect(store.state.changes.resetStatus == .idle)
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
         guard case let .generated(preparation) = store.state.changes.sourcePatchStatus else {
             Issue.record("Expected an empty generated patch after reset.")
             return
@@ -699,27 +718,25 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
-        let workspaceSummary = try withDependencies {
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
-        } operation: {
-            try SourceWorkspaceSummary.query(
-                target: .calendar(calendarID, sourceBaseline.id),
-                using: workingDatabase
-            )
-        }
+        let workspaceDatabase = try SourceWorkspaceDatabase(
+            workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id),
+            mainDatabase: workingDatabase,
+            referenceDatabase: baselineReference
+        )
+        let workspaceSummary = try SourceWorkspaceSummary.query(
+            target: .calendar(calendarID, sourceBaseline.id),
+            using: workspaceDatabase.database
+        )
 
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = workingDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineReference)
+            $0.defaultDatabase = workspaceDatabase.database
         } operation: {
             let state = SourceWorkspace.State(
                 sourceBaselineID: sourceBaseline.id,
                 calendarID: calendarID
             )
-            state.changes.$sourceWorkspaceSummary = Fetch(
-                wrappedValue: workspaceSummary
-            )
+            state.changes.$sourceWorkspaceSummary = Fetch(wrappedValue: workspaceSummary)
             return TestStore(initialState: state) {
                 SourceWorkspace()
             }

@@ -35,7 +35,7 @@ struct FetchLoadFailure: Identifiable {
 
 @Feature
 public struct MyEvents {
-    public typealias TeamWorkspace = OpenMusicEventAuthoring<TeamWorkspaceDetail>
+    public typealias TeamWorkspace = OpenMusicEventWorkspaceAuthoring<TeamWorkspaceDetail>
 
     public struct State {
         var deleteCreatedEventIDs: [OMERecord.Event.ID] = []
@@ -139,7 +139,8 @@ public struct MyEvents {
                             $0.errorMessage = nil
                             if let teamWorkspaceDetail = $0.teamWorkspaceDetail,
                                sourceBaselineIDs.contains(
-                                   teamWorkspaceDetail.content.content.sourceBaselineID
+                                   teamWorkspaceDetail.content.authoring.content.content
+                                       .sourceBaselineID
                                ) {
                                 $0.teamWorkspaceDetail = nil
                             }
@@ -219,11 +220,11 @@ public struct MyEvents {
         }
         .ifLet(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail) {
             TeamWorkspace(storage: OpenMusicEventOAuth.storage) {
-                OpenMusicEventSourceEditing.Authoring {
+                OpenMusicEventAuthoringWorkspace {
                     TeamWorkspaceDetail()
                 }
             }
-            .refreshingAuthoringAdmissionWhenAuthorizationChanges()
+            .openMusicEventWorkspaceLifecycle()
         }
         .onEvent(SourceImportCompleted.self) { importedSource, state in
             state.destination = nil
@@ -248,8 +249,11 @@ private extension MyEvents.State {
         teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
             storage: OpenMusicEventOAuth.storage
         ) {
-            OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
-                workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+            let workspaceID = EditingWorkspaceRecord.ID(
+                sourceBaselineID: sourceBaselineID
+            )
+            return OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
+                workspaceID: workspaceID
             ) {
                 TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
             }

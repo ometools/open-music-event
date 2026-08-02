@@ -283,6 +283,7 @@ public extension OME {
             }
 
             OME.SourceEditingMigrations.register(into: &migrator)
+            WorkspacePublicationMigrations.register(into: &migrator)
 
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in
                 try #sql("""

@@ -68,7 +68,8 @@ struct WhiteLabelRootTests {
     let whiteLabelRoot = try #require(appStore.content.whiteLabelRoot)
     #expect(whiteLabelRoot.state.loadingPhase == .importingSource)
     #expect(
-      whiteLabelRoot.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+      whiteLabelRoot.state.teamWorkspaceDetail?.state.content.authoring.content.content
+        .sourceBaselineID
         == sourceBaselineID
     )
 
@@ -122,7 +123,8 @@ struct WhiteLabelRootTests {
       await refreshGate.waitForRefreshToStart()
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+          .sourceBaselineID
           == sourceBaselineID
       )
 
@@ -133,7 +135,8 @@ struct WhiteLabelRootTests {
       }
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+          .sourceBaselineID
           == sourceBaselineID
       )
       #expect(store.state.organizationRoot == nil)
@@ -397,7 +400,8 @@ struct WhiteLabelRootTests {
       await load(store)
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+          .sourceBaselineID
           == sourceBaselineID
       )
       #expect(store.state.organizationRoot == nil)
@@ -450,7 +454,7 @@ struct WhiteLabelRootTests {
       #expect(store.state.errorMessage == nil)
       #expect(provenanceSourceBaselineIDs == [sourceBaselineID])
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.workspaceID
+        store.state.teamWorkspaceDetail?.state.content.authoring.context
           == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
       )
       #expect(accountPermissions == requiredPermissions)
@@ -495,9 +499,12 @@ struct WhiteLabelRootTests {
       await load(store)
       await waitForAuthoringEligibility(in: store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.content.workspaceID == workspaceID)
-      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
-      #expect(store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring == true)
+      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.context == workspaceID)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+          ?? .attendee == .attendee
+      )
+      #expect(store.state.teamWorkspaceDetail?.state.content.canEnter == true)
       #expect(!store.state.showsAuthoringControls)
       let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(workspaceIDs, [workspaceID])
@@ -546,13 +553,16 @@ struct WhiteLabelRootTests {
 
       await load(store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.content.workspaceID == workspaceID)
-      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.context == workspaceID)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+          ?? .attendee == .attendee
+      )
       #expect(!store.state.showsAuthoringControls)
 
       let entryTask = store.send(
         to: \.teamWorkspaceDetail!,
-        .content(.enterButtonTapped)
+        .content(.authoring(.enterButtonTapped))
       )
       let preparedWorkspaceIDs = await preparationGate.waitForPreparationToStart()
       expectNoDifference(
@@ -560,13 +570,14 @@ struct WhiteLabelRootTests {
         [workspaceID]
       )
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.access
+        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee
           == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
+      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.entry.isRunning == false)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.sourcePreparation.isRunning == true
+        store.state.teamWorkspaceDetail?.state.content.authoring.content.phase
+          == .preparingSource
       )
 
       await preparationGate.finish()
@@ -578,13 +589,14 @@ struct WhiteLabelRootTests {
         [workspaceID, workspaceID]
       )
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.access
+        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee
           == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
+      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.entry.isRunning == false)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.sourcePreparation.isRunning == false
+        store.state.teamWorkspaceDetail?.state.content.authoring.content.phase
+          != .preparingSource
       )
     }
   }
@@ -1002,12 +1014,12 @@ struct WhiteLabelRootTests {
   private func waitForAuthoringEligibility(in store: TestStore<WhiteLabelRoot>) async {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(1))
-    while store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring != true,
+    while store.state.teamWorkspaceDetail?.state.content.canEnter != true,
       clock.now < deadline
     {
       try? await Task.sleep(for: .milliseconds(10))
     }
-    #expect(store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring == true)
+    #expect(store.state.teamWorkspaceDetail?.state.content.canEnter == true)
   }
 
   private func loadIsSettled(_ state: WhiteLabelRoot.State) -> Bool {

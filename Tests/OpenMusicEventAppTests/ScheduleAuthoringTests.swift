@@ -1671,7 +1671,7 @@ struct ScheduleAuthoringTests {
         timeZone: TimeZone,
         scheduleID: OMERecord.ID<OMERecord.Schedule>?,
         stageID: OMERecord.ID<OMERecord.Stage>?
-    ) throws -> Spawn<EditPerformance> {
+    ) throws -> EditPerformance.State {
         var state = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database

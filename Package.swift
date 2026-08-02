@@ -127,6 +127,10 @@ var dependencies: [Package.Dependency] = [
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
+    .package(
+        name: "swift-composable-workspace",
+        path: packagePath("../../swift-packages/swift-composable-workspace")
+    ),
     .package(path: "../../swift-packages/swift-dependencies-http-client"),
     isAndroidAppBuild
         ? .package(
@@ -327,8 +331,10 @@ var targets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             "OpenMusicEventSource",
+            "OpenMusicEventSourceClone",
             "OpenMusicEventSourceEditing",
             "OpenMusicEventTimeZones",
+            "SourceEditing",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
@@ -372,6 +378,9 @@ var targets: [Target] = [
             .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
             .product(name: "ComposableAtmosphereConstellation", package: "composable-atmosphere-constellation"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
+            .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
+            .product(name: "ComposableAuthoringWorkspace", package: "swift-composable-workspace"),
+            .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
@@ -594,7 +603,10 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     "OpenMusicEventTimeZones",
     "OpenMusicEventWhiteLabel",
     "SourceEditing",
+    .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
+    .product(name: "ComposableAuthoringWorkspace", package: "swift-composable-workspace"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
+    .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
     .product(name: "FileTree", package: "swift-file-tree"),
@@ -646,6 +658,8 @@ targets.append(contentsOf: [
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
+            .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
+            .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
             .product(name: "ComposableForms", package: "swift-composable-forms"),
             .product(name: "DateRangePicker", package: "DateRangePicker", condition: .when(platforms: [.iOS])),
             .product(name: "Dependencies", package: "swift-dependencies"),
@@ -758,7 +772,8 @@ targets.append(contentsOf: [
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ]
+        ],
+        exclude: ["__Snapshots__"]
     ),
     .testTarget(
         name: "OpenMusicEventEditorsTests",

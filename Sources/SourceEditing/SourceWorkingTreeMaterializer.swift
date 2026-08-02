@@ -44,8 +44,6 @@ public extension SourceWorkingTreeMaterializer {
         temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory
     ) -> Self {
         Self { sourceRepositoryURL, relativePath in
-            @Dependency(\.uuid) var uuid
-
             let fileManager = FileManager.default
             let sourceRepositoryURL = sourceRepositoryURL.standardizedFileURL
             var isDirectory: ObjCBool = false
@@ -61,7 +59,7 @@ public extension SourceWorkingTreeMaterializer {
 
             let relativePath = try normalizedRelativePath(relativePath)
             let workingRepositoryURL = temporaryDirectoryURL
-                .appending(path: "SourceWorkingTree-\(uuid().uuidString)")
+                .appending(path: "SourceWorkingTree-\(UUID().uuidString)")
                 .standardizedFileURL
             try fileManager.copyItem(at: sourceRepositoryURL, to: workingRepositoryURL)
 

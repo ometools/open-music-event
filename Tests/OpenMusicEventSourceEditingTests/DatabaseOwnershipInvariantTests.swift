@@ -70,7 +70,7 @@ struct DatabaseOwnershipInvariantTests {
     }
 
     @Test
-    func workspaceContextKeepsTheApplicationDatabaseAsMainAndAttachesTheReferenceReadOnly() throws {
+    func workspaceResourceKeepsTheApplicationDatabaseAsMainAndAttachesTheReferenceReadOnly() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -85,27 +85,13 @@ struct DatabaseOwnershipInvariantTests {
         )
         try setMarker("imported baseline", in: referenceDatabase.database)
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace")
-        let grant = AuthoringGrant(
-            principal: .local,
-            role: .owner,
-            workspaceID: workspaceID
-        )
         let workspaceDatabase = try SourceWorkspaceDatabase(
             workspaceID: workspaceID,
             mainDatabase: defaultDatabase,
             referenceDatabase: referenceDatabase
         )
 
-        let observed = try withDependencies {
-            $0.defaultDatabase = defaultDatabase
-            $0.useAuthoringContext(
-                workspaceDatabase,
-                grant: SharedReader(value: Optional(grant))
-            )
-        } operation: {
-            @Dependency(\.defaultDatabase) var inheritedDatabase
-            @Dependency(\.editingWorkspaceID) var inheritedWorkspaceID
-            return try inheritedDatabase.write { db in
+        let observed = try workspaceDatabase.database.write { db in
                 let databasePaths = try Dictionary(
                     uniqueKeysWithValues: Row
                         .fetchAll(db, sql: "PRAGMA database_list")
@@ -126,9 +112,8 @@ struct DatabaseOwnershipInvariantTests {
                 return (
                     databasePaths,
                     try #require(referenceMarker),
-                    inheritedWorkspaceID
+                    workspaceDatabase.workspaceID
                 )
-            }
         }
 
         #expect(
@@ -247,66 +232,6 @@ struct DatabaseOwnershipInvariantTests {
         try setMarker("refreshed baseline", in: refreshedReferenceDatabase.database)
         try refreshedReferenceDatabase.database.backup(to: referenceDatabase.database)
         #expect(try baselineMarker(in: workspaceDatabase.database) == "refreshed baseline")
-    }
-
-    @Test
-    func defaultAndReadOnlyReferenceAreReadableTogetherAndAlwaysDetach() throws {
-        let defaultDatabase = try DatabaseQueue()
-        try setMarker("current edit", in: defaultDatabase)
-        let referenceDatabase = try defaultBaselineDatabase()
-        defer { try? FileManager.default.removeItem(atPath: referenceDatabase.path) }
-        try referenceDatabase.write { db in
-            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
-            try db.execute(sql: "INSERT INTO marker VALUES ('imported baseline')")
-        }
-
-        try defaultDatabase.writeWithoutTransaction { db in
-            let values = try referenceDatabase.withAttached(to: db) { schemaName in
-                let defaultValue = try String.fetchOne(db, sql: "SELECT value FROM marker")
-                let referenceValue = try String.fetchOne(
-                    db,
-                    sql: #"SELECT value FROM "\#(schemaName)"."marker""#
-                )
-                return (
-                    try #require(defaultValue),
-                    try #require(referenceValue)
-                )
-            }
-            #expect(values.0 == "current edit")
-            #expect(values.1 == "imported baseline")
-
-            #expect(throws: Error.self) {
-                try referenceDatabase.withAttached(to: db) { schemaName in
-                    try db.execute(
-                        sql: #"UPDATE "\#(schemaName)"."marker" SET value = 'forbidden'"#
-                    )
-                }
-            }
-
-            expectNoDifference(
-                try String.fetchAll(db, sql: "SELECT name FROM pragma_database_list"),
-                ["main"]
-            )
-        }
-        #expect(try marker(in: defaultDatabase) == "current edit")
-        #expect(try marker(in: referenceDatabase.database) == "imported baseline")
-    }
-
-    @Test
-    func referenceAttachmentRejectsAnExistingTransaction() throws {
-        let defaultDatabase = try DatabaseQueue()
-        let referenceDatabase = try defaultBaselineDatabase()
-        defer { try? FileManager.default.removeItem(atPath: referenceDatabase.path) }
-
-        try defaultDatabase.write { db in
-            #expect(throws: SourceBaselineDatabaseAttachmentError.activeTransaction) {
-                try referenceDatabase.withAttached(to: db) { _ in }
-            }
-            expectNoDifference(
-                try String.fetchAll(db, sql: "SELECT name FROM pragma_database_list"),
-                ["main"]
-            )
-        }
     }
 
     @Test

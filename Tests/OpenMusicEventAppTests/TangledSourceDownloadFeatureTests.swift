@@ -1,6 +1,7 @@
 import ATProto
 import Clocks
 import ComposableArchitecture2
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -84,15 +85,19 @@ struct TangledSourceDownloadFeatureTests {
         store.send(.didTapTeamWorkspace(sourceBaselineID))
 
         #expect(
-            store.state.teamWorkspaceDetail?.content.content.sourceBaselineID
+            store.state.teamWorkspaceDetail?.content.authoring.content.content
+                .sourceBaselineID
                 == sourceBaselineID
         )
-        #expect(store.state.teamWorkspaceDetail?.content.access == .attendee)
+        #expect(
+            store.state.teamWorkspaceDetail?.content.authoring.grant?.access
+                ?? .attendee == .attendee
+        )
         #expect(preparedWorkspaceIDs.withLock { $0.isEmpty })
 
         // The explicit action grants authoring immediately and starts source promotion.
         let entryTask = store.send(
-            .teamWorkspaceDetail(.content(.enterButtonTapped))
+            .teamWorkspaceDetail(.content(.authoring(.enterButtonTapped)))
         )
         await entryTask?.value
 
@@ -101,7 +106,7 @@ struct TangledSourceDownloadFeatureTests {
             [workspaceID]
         )
         #expect(
-            store.state.teamWorkspaceDetail?.content.access
+            store.state.teamWorkspaceDetail?.content.authoring.grant?.access ?? .attendee
                 == .authoring(.owner)
         )
     }
@@ -247,7 +252,7 @@ struct TangledSourceDownloadFeatureTests {
             initialState.teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
                 storage: OpenMusicEventOAuth.storage
             ) {
-                OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
                     workspaceID: EditingWorkspaceRecord.ID(
                         sourceBaselineID: firstSourceBaselineID
                     )
@@ -1155,75 +1160,7 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func sourceWorkspaceSerializesLaunchRefreshAndAuthoringPreparation() async throws {
-        let sourceProvenance = tangledSourceProvenance(
-            "serialized-source-workspace",
-            ref: "main"
-        )
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
-        let probe = SourceWorkspaceSerializationProbe()
-        let result = try validationResult()
-
-        try await withDependencies {
-            $0.context = .test
-            $0.tangledSourceImport = TangledSourceImportClient { _ in
-                await probe.refresh()
-                return result
-            }
-            $0.sourceEditModePreparation = SourceEditModePreparationClient { requestedBaselineID in
-                #expect(requestedBaselineID == sourceBaselineID)
-                await probe.prepare()
-            }
-            try OME.prepareDependencies(&$0)
-        } operation: {
-            @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
-            @Dependency(\.sourceWorkspace) var sourceWorkspace
-            @Dependency(\.tangledSourceImport) var tangledSourceImport
-
-            let state = sourceWorkspace.state(workspaceID)
-            let refreshTask = Task {
-                try await tangledSourceImport.importSource(
-                    OpenMusicEventSourceValidationRequest(
-                        source: sourceProvenance.reference,
-                        organizerID: result.organizerID,
-                        ref: "main"
-                    )
-                )
-            }
-            await probe.waitForRefreshToStart()
-
-            let preparationTask = Task {
-                try await sourceEditModePreparation.prepare(sourceBaselineID)
-            }
-            for _ in 0..<100 where state.wrappedValue.queuedOperationCount == 0 {
-                await Task.yield()
-            }
-
-            #expect(
-                state.wrappedValue
-                    == SourceWorkspaceState(
-                        activity: .refreshing,
-                        queuedOperationCount: 1
-                    )
-            )
-
-            await probe.finishRefresh()
-            _ = try await refreshTask.value
-            try await preparationTask.value
-
-            #expect(state.wrappedValue == SourceWorkspaceState())
-        }
-
-        let operations = await probe.recordedOperations()
-        expectNoDifference(
-            operations,
-            [.refreshStarted, .refreshFinished, .preparationStarted]
-        )
-    }
-
-    @Test
-    func sourceWorkspaceRefreshRebasesLocalEditsOntoNewBackendData() async throws {
+    func workspaceReconciliationRebasesLocalEditsOntoNewBackendData() async throws {
         let database = try makePreparedDatabase()
         let organizerID = importedEventID().organizerID
         let refreshRequest = OpenMusicEventSourceValidationRequest(
@@ -1285,7 +1222,25 @@ struct TangledSourceDownloadFeatureTests {
                 .execute(db)
         }
 
-        let result = try await withDependencies {
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient
+            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: referenceDatabaseURL.path
+        )
+        let source = try SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            mainDatabase: database,
+            referenceDatabase: referenceDatabase
+        )
+        let expectedLine = WorkspaceEditingLine.canonical(
+            WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: "main"),
+                revision: WorkspaceRevision(rawValue: "main-before-refresh")
+            )
+        )
+
+        let line = try await withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
             $0.defaultDatabase = database
@@ -1309,29 +1264,24 @@ struct TangledSourceDownloadFeatureTests {
                 )
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
-            let sourceWorkspace = SourceWorkspaceClient.coordinated(
-                database: database,
-                importSource: .live,
-                prepareForEditing: .noop
-            )
-            $0.sourceWorkspace = sourceWorkspace
-            $0.tangledSourceImport = TangledSourceImportClient(
-                importSource: sourceWorkspace.importSource
-            )
-            $0.sourceEditModePreparation = SourceEditModePreparationClient(
-                prepare: sourceWorkspace.prepareForEditing
-            )
         } operation: {
-            @Dependency(\.tangledSourceImport) var tangledSourceImport
+            @Dependency(WorkspaceReferenceUpdateClient.self) var referenceUpdate
             @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
             let resolvedRepositoryURL = try sourceRepositoryStorage
                 .repositoryURL(sourceProvenance)
             #expect(resolvedRepositoryURL == storedRepositoryURL)
             #expect(FileManager.default.fileExists(atPath: resolvedRepositoryURL.path))
-            return try await tangledSourceImport.importSource(refreshRequest)
+            return try await referenceUpdate.reconcile(
+                source,
+                workspaceID,
+                WorkspaceReconciliation(expected: expectedLine)
+            )
         }
 
-        #expect(result.repositoryURL == storedRepositoryURL)
+        guard case .canonical = line else {
+            Issue.record("Expected canonical line after reconciliation.")
+            return
+        }
         let defaultEventNames = try await database.read { db in
             try OMERecord.Event.fetchAll(db).map(\.name).sorted()
         }
@@ -1340,11 +1290,6 @@ struct TangledSourceDownloadFeatureTests {
             ["Backend Added", "Locally Edited"]
         )
 
-        let referenceDatabaseURL = try SourceReferenceDatabaseClient
-            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
-        let referenceDatabase = try defaultBaselineDatabase(
-            path: referenceDatabaseURL.path
-        )
         let referenceEventNames = try referenceDatabase.read { db in
             try OMERecord.Event.fetchAll(db).map(\.name).sorted()
         }
@@ -1353,24 +1298,20 @@ struct TangledSourceDownloadFeatureTests {
             ["Backend Added", "Backend Existing"]
         )
 
-        let summary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
-            $0.sourceRepositoryStorage = .live
-            $0.sourceReferenceDatabase = .live
-            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-        } operation: {
-            try SourceEditSummary.query(
-                sourceBaselineID: sourceBaselineID,
-                using: database
-            )
+        let attachedBaselineSchema = try await source.database.read { db in
+            try SourceEditingSession.attachedBaselineSchemaName(in: db)
         }
+        #expect(attachedBaselineSchema == SourceEditingSession.baselineSchemaName)
+        let summary = try SourceEditSummary.query(
+            sourceBaselineID: sourceBaselineID,
+            using: source.database
+        )
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
     }
 
     @Test
-    func sourceWorkspaceRefreshRejectsConflictingBackendEditWithoutReplacingState() async throws {
+    func workspaceReconciliationRejectsConflictingBackendEditWithoutReplacingState() async throws {
         let database = try makePreparedDatabase()
         let organizerID = importedEventID().organizerID
         let refreshRequest = OpenMusicEventSourceValidationRequest(
@@ -1380,6 +1321,7 @@ struct TangledSourceDownloadFeatureTests {
         )
         let requestedSourceProvenance = try refreshRequest.tangledSourceProvenance()
         let sourceProvenance = try #require(requestedSourceProvenance)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
         let storageRootURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-conflicting-source-root-\(UUID().uuidString)")
         let workingRootURL = FileManager.default.temporaryDirectory
@@ -1431,6 +1373,24 @@ struct TangledSourceDownloadFeatureTests {
                 .execute(db)
         }
 
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient
+            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: referenceDatabaseURL.path
+        )
+        let source = try SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            mainDatabase: database,
+            referenceDatabase: referenceDatabase
+        )
+        let expectedLine = WorkspaceEditingLine.canonical(
+            WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: "main"),
+                revision: WorkspaceRevision(rawValue: "main-before-refresh")
+            )
+        )
+
         let error = await #expect(throws: SourcePatchApplierError.self) {
             try await withDependencies {
                 $0.context = .test
@@ -1453,21 +1413,13 @@ struct TangledSourceDownloadFeatureTests {
                     )
                     return TangledSourceCheckout(repositoryURL: request.outputURL)
                 }
-                let sourceWorkspace = SourceWorkspaceClient.coordinated(
-                    database: database,
-                    importSource: .live,
-                    prepareForEditing: .noop
-                )
-                $0.sourceWorkspace = sourceWorkspace
-                $0.tangledSourceImport = TangledSourceImportClient(
-                    importSource: sourceWorkspace.importSource
-                )
-                $0.sourceEditModePreparation = SourceEditModePreparationClient(
-                    prepare: sourceWorkspace.prepareForEditing
-                )
             } operation: {
-                @Dependency(\.tangledSourceImport) var tangledSourceImport
-                _ = try await tangledSourceImport.importSource(refreshRequest)
+                @Dependency(WorkspaceReferenceUpdateClient.self) var referenceUpdate
+                _ = try await referenceUpdate.reconcile(
+                    source,
+                    workspaceID,
+                    WorkspaceReconciliation(expected: expectedLine)
+                )
             }
         }
         expectNoDifference(
@@ -1480,11 +1432,6 @@ struct TangledSourceDownloadFeatureTests {
         }
         expectNoDifference(defaultEventNames, ["Locally Edited"])
 
-        let referenceDatabaseURL = try SourceReferenceDatabaseClient
-            .referenceDatabaseURL(repositoryURL: storedRepositoryURL)
-        let referenceDatabase = try defaultBaselineDatabase(
-            path: referenceDatabaseURL.path
-        )
         let referenceEventNames = try referenceDatabase.read { db in
             try OMERecord.Event.fetchAll(db).map(\.name).sorted()
         }
@@ -2970,50 +2917,6 @@ private struct ImportFailure: Error {}
 
 private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
     var description: String
-}
-
-private actor SourceWorkspaceSerializationProbe {
-    enum Operation: Equatable, Sendable {
-        case refreshStarted
-        case refreshFinished
-        case preparationStarted
-    }
-
-    private(set) var operations: [Operation] = []
-    private var refreshContinuation: CheckedContinuation<Void, Never>?
-    private var refreshStarted = false
-    private var refreshStartedContinuation: CheckedContinuation<Void, Never>?
-
-    func refresh() async {
-        operations.append(.refreshStarted)
-        refreshStarted = true
-        refreshStartedContinuation?.resume()
-        refreshStartedContinuation = nil
-        await withCheckedContinuation { continuation in
-            refreshContinuation = continuation
-        }
-        operations.append(.refreshFinished)
-    }
-
-    func prepare() {
-        operations.append(.preparationStarted)
-    }
-
-    func waitForRefreshToStart() async {
-        guard !refreshStarted else { return }
-        await withCheckedContinuation { continuation in
-            refreshStartedContinuation = continuation
-        }
-    }
-
-    func finishRefresh() {
-        refreshContinuation?.resume()
-        refreshContinuation = nil
-    }
-
-    func recordedOperations() -> [Operation] {
-        operations
-    }
 }
 
 private struct BootstrapUnexpectedHTTPRequest: CustomStringConvertible, Error {

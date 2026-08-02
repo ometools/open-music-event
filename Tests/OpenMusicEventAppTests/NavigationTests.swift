@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ATProto
 import Clocks
 import ComposableArchitecture2
+import ComposableAuthoring
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -77,6 +78,12 @@ private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedul
 
 private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private extension EventViewer.State {
+    var stageDetailSpawn: Spawn<StageDetail>? {
+        stagesViewer?.state.destination?.stageDetail
+    }
 }
 
 private func channelLocalID(_ string: String) -> OMERecord.ID<OMERecord.Channel> {
@@ -408,9 +415,9 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.eventViewer?.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == eventID)
         #expect(
-            store.state.root.eventViewer?.content.content.pendingScheduleLaunchAction == nil
+            store.state.root.eventViewer?.content.authoring.content.content.pendingScheduleLaunchAction == nil
         )
     }
 
@@ -423,7 +430,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(firstEventID, nil))))
-        #expect(store.state.root.eventViewer?.content.content.eventID == firstEventID)
+        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(secondEventID, nil))))
 
@@ -431,7 +438,7 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == secondEventID)
-        #expect(store.state.root.eventViewer?.content.content.eventID == secondEventID)
+        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == secondEventID)
     }
     #endif
 
@@ -451,11 +458,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.content.content.selectedFeature
+            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
                 == .contributors
         )
         #expect(
-            store.state.root.eventViewer?.content.content.contributorsViewer?
+            store.state.root.eventViewer?.content.authoring.content.content.contributorsViewer?
                 .destination?.contributorDetail?.contributorID == contributorID
         )
     }
@@ -476,11 +483,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.content.content.selectedFeature
+            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
                 == .stages
         )
         #expect(
-            store.state.root.eventViewer?.content.content.stagesViewer?
+            store.state.root.eventViewer?.content.authoring.content.content.stagesViewer?
                 .destination?.stageDetail?.stageID == stageID
         )
     }
@@ -517,11 +524,11 @@ struct NavigationTests {
         store.send(.root(.openRoute(route)))
 
         #expect(
-            store.state.root.eventViewer?.content.content.selectedFeature
+            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
                 == .schedule(.schedule)
         )
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.content.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -540,7 +547,7 @@ struct NavigationTests {
         store.send(.root(.openRoute(.event(eventID, .performance(performanceID)))))
 
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.content.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -596,7 +603,7 @@ struct NavigationTests {
 
         let task = store.send(.root(.handleNavigationRequest(.event(eventID, .workspace))))
         #expect(
-            store.state.root.eventViewer?.content.content.pendingAuthoringEntry
+            store.state.root.eventViewer?.content.authoring.content.content.pendingAuthoringEntry
                 == .target(.workspace)
         )
         await sourcePreparationGate.waitForStart()
@@ -607,29 +614,29 @@ struct NavigationTests {
         expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
         #expect(
-            store.state.root.eventViewer?.content.access
+            store.state.root.eventViewer?.content.authoring.grant?.access ?? .attendee
                 == .authoring(.owner)
         )
         #expect(
-            store.state.root.eventViewer?.content.content.installedFeatures
+            store.state.root.eventViewer?.content.authoring.content.content.installedFeatures
                 .contains(.workspace) == true
         )
         #expect(
-            store.state.root.eventViewer?.content.content.selectedFeature
+            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
                 == .workspace
         )
         #expect(
-            store.state.root.eventViewer?.content.content.eventWorkspace?.eventID
+            store.state.root.eventViewer?.content.authoring.content.content.eventWorkspace?.eventID
                 == eventID
         )
         #expect(
-            store.state.root.eventViewer?.content.sourcePreparation.isRunning == true
+            store.state.root.eventViewer?.content.authoring.content.phase == .preparingSource
         )
 
         await sourcePreparationGate.open()
         await task?.value
         await waitUntil {
-            store.state.root.eventViewer?.content.sourcePreparation.isRunning == false
+            store.state.root.eventViewer?.content.authoring.content.phase != .preparingSource
         }
     }
 
@@ -674,35 +681,45 @@ struct NavigationTests {
             let teamWorkspaceStore = try #require(
                 myEventsStore.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)
             )
-            let teamWorkspaceAuthoringStore = teamWorkspaceStore.scope(
+            let workspaceAuthoringStore = teamWorkspaceStore.scope(
                 \.content,
                 action: \.content
+            )
+            let teamWorkspaceAuthoringStore = workspaceAuthoringStore.scope(
+                \.authoring,
+                action: \.authoring
             )
 
             await teamWorkspaceAuthoringStore.send(.enterButtonTapped)?.value
             await waitUntil {
-                teamWorkspaceAuthoringStore.access.canEditContent
+                teamWorkspaceAuthoringStore.grant?.access.canEditContent == true
             }
-            let teamWorkspaceDetailStore = teamWorkspaceAuthoringStore.scope(
+            let workspaceStore = teamWorkspaceAuthoringStore.scope(
                 \.content,
                 action: \.content
             )
+            let teamWorkspaceDetailStore = workspaceStore.scope(\.content, action: \.content)
             await teamWorkspaceDetailStore.send(.eventButtonTapped(eventID))?.value
 
             let eventAuthoringStore = try #require(
                 $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
             )
-            let eventWorkspaceAuthoringStore = eventAuthoringStore.scope(
+            let authoringWorkspaceStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
             )
-            let eventViewerStore = eventWorkspaceAuthoringStore.scope(
+            let authoringStore = authoringWorkspaceStore.scope(
+                \.authoring,
+                action: \.authoring
+            )
+            let eventWorkspaceStore = authoringStore.scope(
                 \.content,
                 action: \.content
             )
+            let eventViewerStore = eventWorkspaceStore.scope(\.content, action: \.content)
             #expect(eventViewerStore.eventID == eventID)
             #expect(
-                eventWorkspaceAuthoringStore.access
+                authoringStore.grant?.access
                     == .authoring(.owner)
             )
             #expect(eventViewerStore.installedFeatures.contains(.workspace))
@@ -755,14 +772,22 @@ struct NavigationTests {
             let eventAuthoringStore = try #require(
                 $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
             )
-            let authoringStore = eventAuthoringStore.scope(\.content, action: \.content)
-            let eventViewerStore = authoringStore.scope(\.content, action: \.content)
+            let authoringWorkspaceStore = eventAuthoringStore.scope(
+                \.content,
+                action: \.content
+            )
+            let authoringStore = authoringWorkspaceStore.scope(
+                \.authoring,
+                action: \.authoring
+            )
+            let workspaceStore = authoringStore.scope(\.content, action: \.content)
+            let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
             await waitUntil {
-                authoringStore.canEnterAuthoring
+                authoringStore.canEnter
             }
             #expect(eventViewerStore.eventID == eventID)
-            #expect(authoringStore.access == .attendee)
-            #expect(authoringStore.canEnterAuthoring)
+            #expect((authoringStore.grant?.access ?? .attendee) == .attendee)
+            #expect(authoringStore.canEnter)
             #expect(!eventViewerStore.installedFeatures.contains(.workspace))
             expectNoDifference(admissionRequests.withLock { $0 }, [workspaceID])
         }
@@ -941,7 +966,8 @@ struct NavigationTests {
             store.send(.myEvents(.didTapTeamWorkspace(sourceBaselineID)))
         }
         #expect(
-            store.state.myEvents.teamWorkspaceDetail?.content.content.sourceBaselineID
+            store.state.myEvents.teamWorkspaceDetail?.content.authoring.content.content
+                .sourceBaselineID
                 == sourceBaselineID
         )
     }
@@ -1420,15 +1446,27 @@ struct NavigationTests {
                 return .granted(principal: .local, role: .owner)
             }
         } operation: {
-            TestStore(
-                initialState: Authoring<TeamWorkspaceDetail>.State(workspaceID: workspaceID) {
+            typealias TeamWorkspaceAuthoring = ComposableAuthoring.Authoring<
+                TeamWorkspaceDetail,
+                EditingWorkspaceRecord.ID,
+                AuthoringGrant
+            >
+            return TestStore(
+                initialState: TeamWorkspaceAuthoring.State(context: workspaceID) {
                     TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
                 }
             ) {
-                Authoring { TeamWorkspaceDetail() }
+                TeamWorkspaceAuthoring { TeamWorkspaceDetail() }
+                    .dependency(
+                        ComposableAuthoring.AuthoringClient<
+                            EditingWorkspaceRecord.ID,
+                            AuthoringGrant
+                        >.openMusicEvent
+                    )
             }
         }
 
+        await store.send(.refreshAdmission)?.value
         let task = store.send(.enterButtonTapped)
         let requests = await authorizationCenter.requests()
         for await request in requests {
@@ -1439,7 +1477,7 @@ struct NavigationTests {
         }
         await task?.value
 
-        #expect(store.state.access == .authoring(.owner))
+        #expect(store.state.grant?.access == .authoring(.owner))
         store.send(.content(.manageSourceButtonTapped))
         #expect(store.state.content.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
         #expect(store.state.content.teamWorkspaceEditor?.calendarID == calendarID)
@@ -1630,52 +1668,6 @@ struct NavigationTests {
     }
 
     @Test
-    func teamWorkspaceEditorShowsSourceRefreshProgressWhileRefreshIsRunning() async throws {
-        let database = try makePreparedDatabase()
-        let sourceProvenance = sourceProvenance("team-workspace-refresh-source")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-        let gate = SourceRefreshGate()
-        let recorder = SourceRefreshRecorder()
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
-                await recorder.record(sourceBaselineID)
-                await gate.pauseUntilOpened()
-            }
-        } operation: {
-            TestStore(
-                initialState: SourceWorkspace.State(
-                    sourceBaselineID: sourceBaselineID,
-                    calendarID: calendarID
-                )
-            ) {
-                SourceWorkspace()
-            }
-        }
-
-        let refreshTask = store.send(.reviews(.refreshSourceButtonTapped)) {
-            $0.reviews.sourceRefreshStatus = .refreshing
-        }
-        await gate.waitForStart()
-        #expect(store.state.reviews.sourceRefreshStatus == .refreshing)
-
-        store.send(.reviews(.refreshSourceButtonTapped))
-
-        await gate.open()
-        await refreshTask?.value
-
-        #expect(store.state.reviews.sourceRefreshStatus == .idle)
-        let sourceBaselineIDs = await recorder.sourceBaselineIDs
-        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
-    }
-
-    @Test
     func eventInfoPullToRefreshPostsSourceDataRefreshRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("refresh-source-event")
@@ -1780,244 +1772,6 @@ struct NavigationTests {
         )?.value
         #expect(await recorder.sourceBaselineIDs == [sourceBaselineID])
         #expect(store.state.eventViewer.selectedFeature == .about)
-    }
-
-    @Test
-    func eventViewerRefreshesSourceDataFromSourceTabRefresh() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("viewer-source-refresh-event")
-        let sourceProvenance = sourceProvenance("viewer-source-refresh-source")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let sourceBaseline = SourceBaselineRecord(
-            source: sourceProvenance,
-            databaseFileName: "baseline.sqlite",
-            importedAt: Date(timeIntervalSince1970: 0)
-        )
-        let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
-        let recorder = SourceRefreshRecorder()
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let oldBaselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "old-baseline.sqlite").path()
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Viewer Source Refresh Event")
-            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
-            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-            try Self.insertEventSourceProvenance(
-                db,
-                eventID: eventID,
-                sourceProvenance: sourceProvenance
-            )
-        }
-        try database.backup(to: oldBaselineDatabase.database)
-        try await database.write { db in
-            try OMERecord.Event
-                .find(eventID)
-                .update { $0.name = "Refreshed Source Event" }
-                .execute(db)
-        }
-        let initialSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: oldBaselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: oldBaselineDatabase)
-        } operation: {
-            try EventWorkspaceSummary.query(eventID: eventID, using: database)
-        }
-        expectNoDifference(initialSummary.totalCount, 1)
-        let authoringDatabase = try SourceWorkspaceDatabase(
-            workspaceID: workspace.id,
-            mainDatabase: database,
-            referenceDatabase: oldBaselineDatabase
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = authoringDatabase.database
-            $0.sourceReferenceDatabase = .test(database: oldBaselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: oldBaselineDatabase)
-            $0.useAuthoringContext(
-                workspace.id,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .owner,
-                        workspaceID: workspace.id
-                    )
-                )
-            )
-            $0.defaultEventID = eventID
-            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
-                await recorder.record(sourceBaselineID)
-                try database.backup(to: oldBaselineDatabase.database)
-            }
-        } operation: {
-            var initialState = EventViewerHarness.State(eventID: eventID)
-            initialState.eventViewer.selectedFeature = .workspace
-            return TestStore(initialState: initialState) {
-                EventViewerHarness()
-            }
-        }
-
-        expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
-            1
-        )
-        await store.send(
-            .eventViewer(.eventWorkspace(.reviews(.refreshSourceButtonTapped)))
-        )?.value
-        let sourceBaselineIDs = await recorder.sourceBaselineIDs
-        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
-        let refreshedSummary = try await authoringDatabase.database.read { db in
-            try SourceWorkspaceSummary.Query(target: .event(eventID)).fetch(db)
-        }
-        expectNoDifference(refreshedSummary.totalCount, 0)
-        expectNoDifference(
-            store.state.eventViewer.selectedFeature,
-            EventViewer.EventFeature.workspace
-        )
-        await waitUntil {
-            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount
-                == 0
-        }
-        expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
-            0
-        )
-    }
-
-    @Test
-    func eventViewerRemovesPullReviewAfterPullMerge() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("viewer-merge-refresh-event")
-        let sourceProvenance = sourceProvenance("viewer-merge-refresh-source")
-        let sourceBaseline = SourceBaselineRecord(
-            source: sourceProvenance,
-            databaseFileName: "baseline.sqlite",
-            importedAt: Date(timeIntervalSince1970: 0)
-        )
-        let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let baselineDatabasePath = directoryURL
-            .appending(path: "baseline.sqlite")
-            .path()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Source Event Before Merge")
-            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
-            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-            try Self.insertEventSourceProvenance(
-                db,
-                eventID: eventID,
-                sourceProvenance: sourceProvenance
-            )
-        }
-        let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
-        try database.backup(to: baselineDatabase.database)
-        try await database.write { db in
-            try OMERecord.Event
-                .find(eventID)
-                .update { $0.name = "Source Event After Merge" }
-                .execute(db)
-        }
-        let review = TangledPullReview(
-            author: "did:plc:author123",
-            body: "Update the event name.",
-            commentCount: 0,
-            createdAt: "2026-07-03T12:01:00Z",
-            patchBlobs: [],
-            sourceBranch: "ome/proposal-name",
-            state: "open",
-            targetBranch: "main",
-            targetRepositoryDID: "did:plc:targetrepo",
-            title: "Update source event name",
-            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
-        )
-        let refreshedSourceBaselineIDs = Mutex([SourceBaselineRecord.ID]())
-        let mergeRequests = Mutex([OpenMusicEventTangledPullReviewMergeRequest]())
-        let store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-            $0.useAuthoringContext(
-                workspace.id,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .owner,
-                        workspaceID: workspace.id
-                    )
-                )
-            )
-            $0.defaultEventID = eventID
-            $0.sourceDataRefresh = SourceDataRefreshClient { refreshedSourceBaselineID in
-                refreshedSourceBaselineIDs.withLock { $0.append(refreshedSourceBaselineID) }
-                let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
-                try database.backup(to: baselineDatabase.database)
-            }
-            $0.tangledPullReviewClient = TangledPullReviewClient(
-                list: { _ in [review] },
-                merge: { request in
-                    mergeRequests.withLock { $0.append(request) }
-                }
-            )
-        } operation: {
-            var initialState = EventViewerHarness.State(eventID: eventID)
-            initialState.eventViewer.selectedFeature = .workspace
-            initialState.eventViewer.eventWorkspace?.reviews.reviewsStatus = .loaded([
-                review,
-            ])
-            initialState.eventViewer.eventWorkspace?.reviews.selectedReview = .loaded(review)
-            return TestStore(initialState: initialState) {
-                EventViewerHarness()
-            }
-        }
-
-        let initialWorkspaceSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try EventWorkspaceSummary.query(eventID: eventID, using: database)
-        }
-        expectNoDifference(
-            initialWorkspaceSummary.totalCount,
-            1
-        )
-        await store.send(
-            .eventViewer(.eventWorkspace(.reviews(.approveButtonTapped(review))))
-        )?.value
-
-        await waitUntil {
-            refreshedSourceBaselineIDs.withLock { $0 } == [sourceBaseline.id]
-        }
-        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [sourceBaseline.id])
-        expectNoDifference(
-            mergeRequests.withLock { $0 },
-            [
-                OpenMusicEventTangledPullReviewMergeRequest(
-                    eventID: eventID,
-                    review: review
-                ),
-            ]
-        )
-        expectNoDifference(store.state.eventViewer.selectedFeature, EventViewer.EventFeature.workspace)
-        #expect(store.state.eventViewer.eventWorkspace?.reviews.selectedReview == nil)
-        await waitUntil {
-            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount
-                == 0
-        }
-        expectNoDifference(
-            store.state.eventViewer.eventWorkspace?.changes.sourceWorkspaceSummary.totalCount,
-            0
-        )
     }
 
     @Test
@@ -2829,15 +2583,9 @@ struct NavigationTests {
                 workspaceID: workspaceID
             )
         )
-        let authoringDatabase = try SourceWorkspaceDatabase(
-            workspaceID: workspaceID,
-            mainDatabase: appDatabase,
-            referenceDatabase: referenceDatabase
-        )
-
         let (scheduleTitles, performanceTitles, eventWorkspaceSourceBaselineID, workspaceChangeCount) = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = authoringDatabase.database
+            $0.defaultDatabase = appDatabase
             $0.defaultEventID = eventID
             $0.sourceReferenceDatabase = .test(database: referenceDatabase)
             $0.workspaceReferenceDatabase = .test(database: referenceDatabase)
@@ -2859,10 +2607,12 @@ struct NavigationTests {
                     performances.map(\.title)
                 )
             }
-            let eventViewer = EventViewer.State(eventID: eventID)
-            let workspaceSummary = try await database.read { db in
-                try SourceWorkspaceSummary.Query(target: .event(eventID)).fetch(db)
-            }
+            var eventViewer = EventViewer.State(eventID: eventID)
+            eventViewer.eventWorkspace = EventWorkspace.State(eventID: eventID)
+            let workspaceSummary = try SourceWorkspaceSummary.query(
+                target: .event(eventID),
+                using: database
+            )
             return (
                 scheduleTitles,
                 performanceTitles,
@@ -3409,6 +3159,9 @@ struct NavigationTests {
         let performanceID = performanceLocalID("evening-set")
         let denver = try #require(TimeZone(identifier: "America/Denver"))
         let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let friday = try #require(LocalDate("2026-08-07"))
+        let startTime = try #require(friday.at(hour: 20, in: denver))
+        let endTime = try #require(friday.at(hour: 21, in: denver))
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -3418,27 +3171,78 @@ struct NavigationTests {
                 name: "Event Time Zone Refresh",
                 timeZone: denver
             )
+            try Self.insertSchedule(
+                db,
+                eventID: selectedEventID,
+                scheduleID: "friday",
+                date: friday
+            )
+            try Self.insertStage(
+                db,
+                eventID: selectedEventID,
+                stageID: "meadow",
+                name: "Meadow"
+            )
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "artist",
+                name: "Artist"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "evening-set",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: startTime,
+                endTime: endTime,
+                title: "Evening Set"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "evening-set",
+                contributorID: "artist"
+            )
         }
 
         try await withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = selectedEventID
         } operation: {
-            var state = EventViewer.State(
-                eventID: selectedEventID,
-                authoringGrant: SharedReader(value: nil),
-                features: [.schedule(.schedule), .contributors]
-            )
+            let store = Store(
+                initialState: EventViewer.State(
+                    eventID: selectedEventID,
+                    authoringGrant: SharedReader(value: nil),
+                    features: [.schedule(.schedule), .contributors]
+                )
+            ) {
+                EventViewer()
+            }
+            let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
+            let singleStageStore: StoreOf<ScheduleSingleStageAtOnce> =
+                scheduleStore.spawn(\.singleStageAtOnce)
+            let contributorsStore = try #require(store.spawn(\.contributorsViewer))
 
             // The attendee opens a performance and contributor while the event uses Denver time.
-            state.navigate(to: .performance(performanceID))
+            await singleStageStore.send(.performanceButtonTapped(performanceID))?.value
             let performanceDetail = try #require(
-                state.scheduleViewers.first?.state.destination?.performanceDetail
+                scheduleStore.destination?.performanceDetail
             )
-            state.navigate(to: .contributor(contributorID))
+            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
             let contributorDetail = try #require(
-                state.contributorsViewer?.state.destination?.contributorDetail
+                contributorsStore.destination?.contributorDetail
+            )
+            expectNoDifference(
+                [
+                    scheduleStore.timeZone?.identifier,
+                    performanceDetail.timeZone?.identifier,
+                    contributorDetail.timeZone?.identifier,
+                ],
+                Array(repeating: denver.identifier, count: 3)
             )
 
             // A source refresh changes the event's canonical time zone while those features remain mounted.
@@ -3448,14 +3252,18 @@ struct NavigationTests {
                     .update { $0.timeZone = losAngeles }
                     .execute(db)
             }
-            state.reloadAfterSourceDataRefresh()
+            await waitUntil {
+                scheduleStore.timeZone == losAngeles
+                    && performanceDetail.timeZone == losAngeles
+                    && contributorDetail.timeZone == losAngeles
+            }
 
             // Every attendee-facing renderer follows the refreshed event record together.
             expectNoDifference(
                 [
-                    state.scheduleViewers.first?.state.timeZone?.identifier,
-                    performanceDetail.state.timeZone?.identifier,
-                    contributorDetail.state.timeZone?.identifier,
+                    scheduleStore.timeZone?.identifier,
+                    performanceDetail.timeZone?.identifier,
+                    contributorDetail.timeZone?.identifier,
                 ],
                 [
                     losAngeles.identifier,
@@ -6033,11 +5841,19 @@ struct NavigationTests {
             let eventAuthoringStore = try #require(
                 $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
             )
-            let authoringStore = eventAuthoringStore.scope(
+            let authoringWorkspaceStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
             )
-            @Bindable var eventViewerStore = authoringStore.scope(
+            let authoringStore = authoringWorkspaceStore.scope(
+                \.authoring,
+                action: \.authoring
+            )
+            let workspaceStore = authoringStore.scope(
+                \.content,
+                action: \.content
+            )
+            @Bindable var eventViewerStore = workspaceStore.scope(
                 \.content,
                 action: \.content
             )
@@ -6228,11 +6044,19 @@ struct NavigationTests {
             let eventAuthoringStore = try #require(
                 $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
             )
-            let authoringStore = eventAuthoringStore.scope(
+            let authoringWorkspaceStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
             )
-            @Bindable var eventViewerStore = authoringStore.scope(
+            let authoringStore = authoringWorkspaceStore.scope(
+                \.authoring,
+                action: \.authoring
+            )
+            let workspaceStore = authoringStore.scope(
+                \.content,
+                action: \.content
+            )
+            @Bindable var eventViewerStore = workspaceStore.scope(
                 \.content,
                 action: \.content
             )
@@ -6283,27 +6107,31 @@ struct NavigationTests {
             )
         }
 
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "navigation-test")
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .local,
+                role: .owner,
+                workspaceID: workspaceID
+            )
+        )
+
         try await withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.useAuthoringContext(
+                workspaceID,
+                grant: SharedReader(grant)
+            )
         } operation: {
-            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
-                OpenMusicEventAppRoot()
+            @Bindable var eventViewerStore = Store(
+                initialState: EventViewer.State.route(eventID: eventID, target: nil)
+            ) {
+                EventViewer()
             }
-            await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(
-                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
-            )
-            let authoringStore = eventAuthoringStore.scope(
-                \.content,
-                action: \.content
-            )
-            @Bindable var eventViewerStore = authoringStore.scope(
-                \.content,
-                action: \.content
-            )
             @Bindable var stagesStore = try #require(eventViewerStore.spawn(\.stagesViewer))
             await stagesStore.send(.stageButtonTapped(stageID))?.value
             let detailStore = try #require(
@@ -6330,6 +6158,75 @@ struct NavigationTests {
             #expect(editStage.form.value.category == "main")
             #expect(editStage.form.value.sortIndex == "2")
             #expect(editStage.mode.stageID == stageID)
+        }
+    }
+
+    @available(macOS 26, *)
+    @Test
+    func eventViewerStageEditDestinationMountsInTestStoreActor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "meadow",
+                name: "Meadow",
+                category: "main",
+                sortIndex: 2
+            )
+        }
+
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "navigation-test")
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .local,
+                role: .owner,
+                workspaceID: workspaceID
+            )
+        )
+
+        try await withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.useAuthoringContext(
+                workspaceID,
+                grant: SharedReader(grant)
+            )
+        } operation: {
+            await TestExhaustivity.$current.withValue(.off) {
+                let store = await TestStoreActor(
+                    initialState: EventViewer.State.route(eventID: eventID, target: nil)
+                ) {
+                    EventViewer()
+                }
+
+                await store.send(
+                    to: \.stagesViewer,
+                    .stageButtonTapped(stageID)
+                )?.value
+                await store.send(
+                    to: \.stageDetailSpawn,
+                    .editButtonTapped
+                )?.value
+
+                #expect(
+                    await store[
+                        dynamicMember: \.destination?.stageForm?.hasLoadedDraft
+                    ] == true
+                )
+                #expect(
+                    await store[dynamicMember: \.destination?.stageForm?.form.value.name]
+                        == "Meadow"
+                )
+                await store.dismount()
+            }
         }
     }
 
@@ -7870,7 +7767,7 @@ struct NavigationTests {
         )
         #expect(store.state.root.eventViewer?.id == eventID)
         expectNoDifference(
-            store.state.root.eventViewer?.content.content.pendingScheduleLaunchAction,
+            store.state.root.eventViewer?.content.authoring.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
     }
@@ -7924,10 +7821,10 @@ struct NavigationTests {
              OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
         }
 
-        #expect(state.eventViewer?.content.content.eventID == eventID)
-        #expect(state.eventViewer?.content.access == .attendee)
+        #expect(state.eventViewer?.content.authoring.content.content.eventID == eventID)
+        #expect((state.eventViewer?.content.authoring.grant?.access ?? .attendee) == .attendee)
         #expect(
-            state.eventViewer?.content.content.installedFeatures
+            state.eventViewer?.content.authoring.content.content.installedFeatures
                 .contains(.workspace) == false
         )
     }
@@ -7973,15 +7870,15 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            state.eventViewer?.content.access,
+            state.eventViewer?.content.authoring.grant?.access ?? .attendee,
             .authoring(.owner)
         )
         expectNoDifference(
-            state.eventViewer?.content.grant?.principal,
+            state.eventViewer?.content.authoring.grant?.principal,
             .local
         )
         expectNoDifference(
-            state.eventViewer?.content.workspaceID,
+            state.eventViewer?.content.authoring.context,
             workspace.id
         )
     }
@@ -8042,11 +7939,11 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            state.eventViewer?.content.workspaceID,
+            state.eventViewer?.content.authoring.context,
             workspaceID
         )
         expectNoDifference(
-            state.eventViewer?.content.access,
+            state.eventViewer?.content.authoring.grant?.access ?? .attendee,
             .authoring(.owner)
         )
     }
@@ -8119,7 +8016,7 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == eventID)
 
         await store.modify {
             $0.root.eventViewer = nil
@@ -8162,11 +8059,19 @@ struct NavigationTests {
             let eventAuthoringStore = try #require(
                 $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
             )
-            let authoringStore = eventAuthoringStore.scope(
+            let authoringWorkspaceStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
             )
-            @Bindable var eventViewerStore = authoringStore.scope(
+            let authoringStore = authoringWorkspaceStore.scope(
+                \.authoring,
+                action: \.authoring
+            )
+            let workspaceStore = authoringStore.scope(
+                \.content,
+                action: \.content
+            )
+            @Bindable var eventViewerStore = workspaceStore.scope(
                 \.content,
                 action: \.content
             )
@@ -8271,7 +8176,7 @@ struct NavigationTests {
                 WhiteLabelRoot.TeamWorkspace.State(
                     storage: OpenMusicEventOAuth.storage
                 ) {
-                    OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                    OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
                         workspaceID: workspaceID,
                         grant: grant
                     ) {
@@ -8288,11 +8193,11 @@ struct NavigationTests {
         store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
 
         #expect(
-            store.state.root.eventViewer?.content.access
+            store.state.root.eventViewer?.content.authoring.grant?.access ?? .attendee
                 == .authoring(.owner)
         )
         #expect(
-            store.state.root.eventViewer?.content.content.installedFeatures
+            store.state.root.eventViewer?.content.authoring.content.content.installedFeatures
                 .contains(.workspace) == true
         )
 
@@ -8339,7 +8244,7 @@ struct NavigationTests {
                 WhiteLabelRoot.TeamWorkspace.State(
                     storage: OpenMusicEventOAuth.storage
                 ) {
-                    OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                    OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
                         workspaceID: workspaceID
                     ) {
                         TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
@@ -8354,11 +8259,11 @@ struct NavigationTests {
 
         let authorizationTask = store.send(
             to: \.teamWorkspaceDetail!,
-            .content(.enterButtonTapped)
+            .content(.authoring(.enterButtonTapped))
         )
         await authorizationTask?.value
         #expect(
-            store.state.teamWorkspaceDetail?.state.content.access
+            store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
                 == .authoring(.owner)
         )
         expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
@@ -8393,9 +8298,13 @@ struct NavigationTests {
         )))
 
         #expect(store.state.organizerID == testOrganizerID)
-        #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
         #expect(
-            store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+            store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+                ?? .attendee == .attendee
+        )
+        #expect(
+            store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+                .sourceBaselineID
                 == sourceBaselineID
         )
     }
@@ -8421,9 +8330,9 @@ struct NavigationTests {
             )
         }
 
-        #expect(state.eventViewer?.content.content.eventID == eventID)
+        #expect(state.eventViewer?.content.authoring.content.content.eventID == eventID)
         expectNoDifference(
-            state.eventViewer?.content.content.pendingScheduleLaunchAction,
+            state.eventViewer?.content.authoring.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
     }
@@ -8459,9 +8368,12 @@ struct NavigationTests {
             }
         }
 
-        #expect(store.state.root.eventViewer?.content.access == .attendee)
         #expect(
-            store.state.root.eventViewer?.content.content.installedFeatures
+            (store.state.root.eventViewer?.content.authoring.grant?.access ?? .attendee)
+                == .attendee
+        )
+        #expect(
+            store.state.root.eventViewer?.content.authoring.content.content.installedFeatures
                 .contains(.workspace) == false
         )
     }
@@ -8509,7 +8421,7 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            state.teamWorkspaceDetail?.state.content.access,
+            state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee,
             .authoring(.owner)
         )
         #expect(state.showsAuthoringControls)

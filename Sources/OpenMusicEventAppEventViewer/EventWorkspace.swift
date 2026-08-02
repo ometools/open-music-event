@@ -1,7 +1,10 @@
 import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
+import ComposableAuthoring
 import ComposableForms
+import ComposableWorkspace
+import Dependencies
 import ErrorHandling
 import Foundation
 import GRDB
@@ -26,10 +29,10 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     public var availability: SourceChangesAvailability
     public var groups: [SourceChangeGroup]
     public var recordComparisons: SourceRecordComparisons
-    public var target: SourceProposalTarget
+    public var target: OpenMusicEventSourceTarget
 
     public init(
-        target: SourceProposalTarget,
+        target: OpenMusicEventSourceTarget,
         availability: SourceChangesAvailability,
         groups: [SourceChangeGroup],
         recordComparisons: SourceRecordComparisons = .empty
@@ -41,7 +44,7 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 
     public init(
-        target: SourceProposalTarget,
+        target: OpenMusicEventSourceTarget,
         eventSummary: EventWorkspaceSummary
     ) {
         self.init(
@@ -53,7 +56,7 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 
     public init(
-        target: SourceProposalTarget,
+        target: OpenMusicEventSourceTarget,
         sourceSummary: SourceEditSummary
     ) {
         self.init(
@@ -65,7 +68,7 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 
     public init(
-        target: SourceProposalTarget,
+        target: OpenMusicEventSourceTarget,
         changeSummary: SourceChangeSummary
     ) {
         self.init(
@@ -112,7 +115,7 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
         return totalCount
     }
 
-    static func initialValue(target: SourceProposalTarget) -> Self {
+    static func initialValue(target: OpenMusicEventSourceTarget) -> Self {
         switch target {
         case .event:
             Self(target: target, availability: .notInWorkspace, groups: [])
@@ -124,50 +127,16 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
 
 extension SourceWorkspaceSummary {
     static func query(
-        target: SourceProposalTarget,
-        using database: any DatabaseWriter
+        target: OpenMusicEventSourceTarget,
+        using database: any DatabaseReader
     ) throws -> Self {
-        try database.writeWithoutTransaction { db in
-            if try SourceEditingSession.attachedBaselineSchemaName(in: db) != nil {
-                return try queryAttached(target: target, in: db)
-            }
-            return try query(target: target, in: db)
+        try database.read { db in
+            try query(target: target, in: db)
         }
     }
 
     static func query(
-        target: SourceProposalTarget
-    ) -> some FetchKeyRequest<Self> {
-        Query(target: target)
-    }
-
-    static func queryAttached(
-        target: SourceProposalTarget,
-        in db: Database
-    ) throws -> Self {
-        switch target {
-        case let .event(eventID):
-            return SourceWorkspaceSummary(
-                target: target,
-                eventSummary: try EventWorkspaceSummary.queryAttached(
-                    eventID: eventID,
-                    in: db
-                )
-            )
-
-        case let .calendar(_, sourceBaselineID):
-            return SourceWorkspaceSummary(
-                target: target,
-                sourceSummary: try SourceEditSummary.queryAttached(
-                    sourceBaselineID: sourceBaselineID,
-                    in: db
-                )
-            )
-        }
-    }
-
-    static func query(
-        target: SourceProposalTarget,
+        target: OpenMusicEventSourceTarget,
         in db: Database
     ) throws -> Self {
         switch target {
@@ -187,13 +156,13 @@ extension SourceWorkspaceSummary {
             )
         }
     }
+}
 
-    struct Query: FetchKeyRequest {
-        var target: SourceProposalTarget
+struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
+    let target: OpenMusicEventSourceTarget
 
-        func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
-            try SourceWorkspaceSummary.queryAttached(target: target, in: db)
-        }
+    func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
+        try SourceWorkspaceSummary.query(target: target, in: db)
     }
 }
 
@@ -213,16 +182,14 @@ public struct EventWorkspace {
             self.init(target: .calendar(calendarID, sourceBaselineID))
         }
 
-        public init(target: SourceProposalTarget) {
-            self._authoringGrant = Self.authoringGrant()
+        public init(target: OpenMusicEventSourceTarget) {
             self.target = target
             self.changes = WorkspaceChanges.State(target: target)
             self.reviews = WorkspaceReviews.State(target: target)
         }
 
-        public let target: SourceProposalTarget
+        public let target: OpenMusicEventSourceTarget
         public var id: String { target.id }
-        @SharedReader public var authoringGrant: AuthoringGrant?
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
         public var reviews: WorkspaceReviews.State
@@ -257,19 +224,19 @@ public struct EventWorkspace {
             return true
         }
 
-        public var availablePages: [Page] {
+        public func availablePages(authoringAccess: AuthoringAccess) -> [Page] {
             var pages: [Page] = [.changes]
             if collaborators != nil {
                 pages.append(.collaborators)
             }
-            if reviews.canReview {
+            if reviews.canReview(authoringAccess: authoringAccess) {
                 pages.append(.reviews)
             }
             return pages
         }
 
-        mutating func reloadCollaboratorsForAuthoringAccess() {
-            guard let grant = authoringGrant,
+        mutating func reloadCollaboratorsForAuthoringAccess(_ grant: AuthoringGrant?) {
+            guard let grant,
                   case .actor = grant.principal,
                   grant.role.canManageCollaborators
             else {
@@ -286,10 +253,6 @@ public struct EventWorkspace {
             )
         }
 
-        static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-            @Dependency(\.authoringGrant) var authoringGrant
-            return authoringGrant
-        }
     }
 
     public enum Page: String, CaseIterable, Identifiable {
@@ -299,7 +262,7 @@ public struct EventWorkspace {
 
         public var id: Self { self }
 
-        public func title(for target: SourceProposalTarget) -> String {
+        public func title(for target: OpenMusicEventSourceTarget) -> String {
             switch self {
             case .changes:
                 switch target {
@@ -330,6 +293,9 @@ public struct EventWorkspace {
             calendarID: OMERecord.Calendar.ID
         )
     }
+
+    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+    var authoring
 
     public var body: some Feature {
         Features {
@@ -367,26 +333,12 @@ public struct EventWorkspace {
         .ifLet(\.collaborators, action: \.collaborators) {
             WorkspaceCollaborators()
         }
-        .onChange(of: store.authoringGrant) { _, _, state in
-            state.reloadCollaboratorsForAuthoringAccess()
-            if !state.availablePages.contains(state.selectedPage) {
+        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
+            state.reloadCollaboratorsForAuthoringAccess(grant)
+            let access = grant?.access ?? .attendee
+            if !state.availablePages(authoringAccess: access).contains(state.selectedPage) {
                 state.selectedPage = .changes
             }
-        }
-        .onMount { state in
-            state.reloadCollaboratorsForAuthoringAccess()
-        }
-        .onEvent(SourceProposalCreated.self) { publication, state in
-            let proposalCreated = state.reviews.proposalCreated
-            store.addTask {
-                try proposalCreated(publication)
-            }
-        }
-        .onEvent(CreatedSourceReviewLoaded.self) { _, state in
-            state.changes.sourceProposal = nil
-        }
-        .onEvent(SourceProposalDismissed.self) { _, state in
-            state.reviews.pendingCreatedReviewID = nil
         }
         .spawn(\.account) {
             Account()
@@ -401,13 +353,17 @@ public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
     @Bindable var accountStore: StoreOf<Account>
     let presentsAccountPresentation: Bool
+    let authoringAccess: AuthoringAccess
+    @Environment(\.openMusicEventWorkspacePhase) var workspacePhase
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(
         store: StoreOf<EventWorkspace>,
-        accountStore: StoreOf<Account>? = nil
+        accountStore: StoreOf<Account>? = nil,
+        authoringAccess: AuthoringAccess = .attendee
     ) {
         self.store = store
+        self.authoringAccess = authoringAccess
         if let accountStore {
             self.accountStore = accountStore
             self.presentsAccountPresentation = false
@@ -534,9 +490,12 @@ public struct EventWorkspaceView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 6)
 
-                if store.availablePages.count > 1 {
+                let availablePages = store.state.availablePages(
+                    authoringAccess: authoringAccess
+                )
+                if availablePages.count > 1 {
                     Picker("Workspace", selection: $store.selectedPage) {
-                        ForEach(store.availablePages) { page in
+                        ForEach(availablePages) { page in
                             Text(page.title(for: store.target)).tag(page)
                         }
                     }
@@ -553,12 +512,15 @@ public struct EventWorkspaceView: View {
                         changesStore.send(.proposeChangesButtonTapped)
                     } label: {
                         Label(
-                            changesStore.sourcePatchStatus.proposeButtonTitle,
+                            workspacePhase.proposalButtonTitle,
                             systemImage: "paperplane"
                         )
                         .frame(maxWidth: .infinity)
                     }
-                    .disabled(!changesStore.canProposeChanges)
+                    .disabled(
+                        !changesStore.state.canProposeChanges(authoringAccess: authoringAccess)
+                            || !workspacePhase.canRequestProposalAction
+                    )
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
                     .padding(.horizontal)
@@ -1183,31 +1145,41 @@ struct SourceIndicatorView: View {
     }
 }
 
-public struct SourceProposalStatusView: View {
-    let status: SourceProposalFlow.Status
+public struct WorkspacePublicationStatusView: View {
+    let phase: WorkspacePhase<SourcePatch>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    public init(status: SourceProposalFlow.Status) {
-        self.status = status
+    public init(phase: WorkspacePhase<SourcePatch>) {
+        self.phase = phase
     }
 
     public var body: some View {
-        switch status {
-        case .composing:
+        switch phase {
+        case .inactive, .ready(.canonical):
             EmptyView()
 
-        case let .created(publication):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Sent for review", systemImage: "checkmark.circle")
-                    .foregroundStyle(.green)
-                if let sourceChangeURL = publication.sourceChangeURL {
-                    Link("Open review", destination: sourceChangeURL)
-                }
-            }
+        case .ready(.proposal):
+            Label("Proposal ready for more changes", systemImage: "checkmark.circle")
+                .foregroundStyle(.green)
 
-        case let .failed(failure):
+        case .preparingSource:
+            progress("Preparing workspace")
+
+        case .capturingSubmission:
+            progress("Capturing current changes")
+
+        case .publishing:
+            progress("Sending changes for review")
+
+        case .reconciling:
+            progress("Reconciling source changes")
+
+        case let .sourcePreparationFailed(failure),
+             let .submissionCaptureFailed(_, _, failure),
+             let .publicationFailed(_, failure),
+             let .reconciliationFailed(_, failure):
             VStack(alignment: .leading, spacing: 4) {
-                Label("Changes couldn't be sent", systemImage: "exclamationmark.triangle")
+                Label("Workspace operation failed", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                 if showsTechnicalDetails {
                     Text(failure.message)
@@ -1217,19 +1189,29 @@ public struct SourceProposalStatusView: View {
                 }
             }
 
-        case .proposing:
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("Sending for review")
-            }
+        case .publicationInterrupted:
+            Label("Sending was interrupted", systemImage: "pause.circle")
+                .foregroundStyle(.orange)
+
+        case .stale:
+            Label("The source moved; reconcile before sending", systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
         }
+    }
+
+    private func progress(_ title: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text(title)
+        }
+        .foregroundStyle(.secondary)
     }
 }
 
-public struct SourceProposalComposerView: View {
-    @Bindable var store: StoreOf<SourceProposalFlow>
+public struct WorkspaceProposalDraftView: View {
+    @Bindable var store: StoreOf<WorkspaceProposalDraft>
 
-    public init(store: StoreOf<SourceProposalFlow>) {
+    public init(store: StoreOf<WorkspaceProposalDraft>) {
         self.store = store
     }
 
@@ -1237,53 +1219,82 @@ public struct SourceProposalComposerView: View {
         NavigationStack {
             List {
                 Section("Title") {
-                    TextField("Title", text: $store.form.value.title)
-                        .onSubmit {
-                            store.send(.form(.fieldSubmitted(SourceProposalFormFieldID.title)))
-                        }
-                    FormFieldValidationStatus(
-                        validation: store.form.validation[SourceProposalFormFieldID.title]
+                    TextField(
+                        "Title",
+                        text: Binding(
+                            get: { store.title },
+                            set: { store.send(.titleChanged($0)) }
+                        )
                     )
                 }
 
                 Section("Description") {
                     PortableTextField(
                         "Description",
-                        text: $store.form.value.description,
+                        text: Binding(
+                            get: { store.description },
+                            set: { store.send(.descriptionChanged($0)) }
+                        ),
                         axis: .vertical
                     )
                     .portableLineLimit(4...8)
                 }
 
-                SourceProposalStatusView(status: store.status)
                 SourceProposalSummarySections(
-                    groups: store.sourceChangeGroups,
-                    recordComparisons: store.sourceRecordComparisons
+                    groups: store.groups,
+                    recordComparisons: store.recordComparisons
                 )
-                SourceFileAttributionSection(attributions: store.sourceFileAttributions)
             }
             .navigationTitle("Send changes for review")
             .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        store.send(.doneButtonTapped)
+                        store.send(.cancelButtonTapped)
                     } label: {
                         Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)
                     }
-                    .disabled(store.status.isProposing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     SubmitButton(
                         .propose,
-                        isInProgress: store.status.isProposing,
-                        isDisabled: !store.canCreateSourceProposal
+                        isInProgress: false,
+                        isDisabled: store.proposalTitle == nil
                     ) {
                         store.send(.createProposalButtonTapped)
                     }
                 }
             }
+        }
+    }
+}
+
+private extension WorkspacePhase where ChangeSet == SourcePatch {
+    var proposalButtonTitle: String {
+        switch self {
+        case .ready(.canonical):
+            "Propose"
+        case .ready(.proposal):
+            "Update Proposal"
+        case .publicationFailed, .publicationInterrupted:
+            "Retry"
+        case .reconciliationFailed, .stale:
+            "Reconcile"
+        case .capturingSubmission, .inactive, .preparingSource, .publishing,
+             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
+            "Working"
+        }
+    }
+
+    var canRequestProposalAction: Bool {
+        switch self {
+        case .ready, .publicationFailed, .publicationInterrupted,
+             .reconciliationFailed, .stale:
+            true
+        case .capturingSubmission, .inactive, .preparingSource, .publishing,
+             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
+            false
         }
     }
 }
@@ -1563,7 +1574,7 @@ private extension SourceRecordChange {
 }
 
 private extension Array where Element == SourceChangeGroup {
-    func prioritizing(target: SourceProposalTarget) -> Self {
+    func prioritizing(target: OpenMusicEventSourceTarget) -> Self {
         switch target {
         case .calendar:
             self
@@ -1599,20 +1610,22 @@ private extension EventSourceProvenanceRecord {
 
 extension WorkspaceReviews.SemanticDiff {
     static func reviewBranchDiff(
-        target: SourceProposalTarget,
-        sourceBaselineID: SourceBaselineRecord.ID,
+        target: OpenMusicEventSourceTarget,
         review: TangledPullReview,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance,
         sourceSnapshot: TangledPullReviewSourceSnapshotClient
     ) async throws -> Self {
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(sourceProvenance) else {
-            throw TangledPullReviewSemanticDiffError.sourceBaselineMissing(sourceProvenance)
+        guard let sourceBranch = review.sourceBranch?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ), !sourceBranch.isEmpty else {
+            throw TangledPullReviewSourceSnapshotError.missingSourceBranch(review.id)
         }
 
-        @Dependency(\.uuid) var uuid
         let scratchRootURL = FileManager.default.temporaryDirectory
-            .appending(path: "ome-review-semantic-diff-\(uuid().uuidString)", directoryHint: .isDirectory)
+            .appending(
+                path: "ome-review-semantic-diff-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
             .standardizedFileURL
         try FileManager.default.createDirectory(
             at: scratchRootURL,
@@ -1620,22 +1633,33 @@ extension WorkspaceReviews.SemanticDiff {
         )
         defer { try? FileManager.default.removeItem(at: scratchRootURL) }
 
-        let insertion = try await sourceSnapshot.insertion(
+        let targetInsertion = try await sourceSnapshot.insertion(
             TangledPullReviewSourceSnapshotRequest(
                 organizerID: target.organizerID,
-                review: review,
+                ref: review.targetBranch,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let reviewInsertion = try await sourceSnapshot.insertion(
+            TangledPullReviewSourceSnapshotRequest(
+                organizerID: target.organizerID,
+                ref: sourceBranch,
                 sourceProvenance: sourceProvenance
             )
         )
 
-        // This short-lived review snapshot is temporary reference staging used only to compare
-        // the proposed branch with the persisted reference. It is not an application or
-        // workspace-owned writable database.
+        // These short-lived databases compare the proposal branch with its remote target branch.
+        // A workspace may already have advanced its own reference to the proposal, so the live
+        // workspace baseline cannot answer what the pull request changes.
+        let targetDatabaseURL = scratchRootURL
+            .appending(path: "target.sqlite")
+        let targetDatabase = try DatabasePool(path: targetDatabaseURL.path)
         let reviewDatabaseURL = scratchRootURL
             .appending(path: "review.sqlite")
         let reviewDatabase = try DatabasePool(path: reviewDatabaseURL.path)
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(targetDatabase)
         try migrator.migrate(reviewDatabase)
 
         try await withDependencies {
@@ -1643,35 +1667,38 @@ extension WorkspaceReviews.SemanticDiff {
             $0.sourceReferenceDatabaseMigrator = .openMusicEvent
             $0.localImageFileStore = .scratch(rootURL: scratchRootURL)
         } operation: {
-            try await insertion.insert(into: reviewDatabase)
+            try await targetInsertion.insert(into: targetDatabase)
+            try await reviewInsertion.insert(into: reviewDatabase)
         }
 
-        let semanticDiff = try await reviewDatabase.writeWithoutTransaction { db in
-            try baselineDatabase.withAttached(to: db) { baselineSchemaName in
-                let summary = try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName
+        let reviewSession = try SourceEditingSession(
+            mainDatabase: reviewDatabase,
+            baselineDatabasePath: targetDatabaseURL.path
+        )
+        let semanticDiff = try await reviewSession.database.read { db in
+            let summary = try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: SourceEditingSession.baselineSchemaName
+            )
+            switch summary.availability {
+            case .available:
+                let workspaceSummary = SourceWorkspaceSummary(
+                    target: target,
+                    changeSummary: summary
                 )
-                switch summary.availability {
-                case .available:
-                    let workspaceSummary = SourceWorkspaceSummary(
-                        target: target,
-                        changeSummary: summary
-                    )
-                    let sourceFileAttributions = try openMusicEventSourceFileAttributions(
-                        groups: workspaceSummary.groups,
-                        recordComparisons: workspaceSummary.recordComparisons,
-                        in: db
-                    )
-                    return Self(
-                        groups: workspaceSummary.groups,
-                        recordComparisons: workspaceSummary.recordComparisons,
-                        sourceFileAttributions: sourceFileAttributions
-                    )
+                let sourceFileAttributions = try openMusicEventSourceFileAttributions(
+                    groups: workspaceSummary.groups,
+                    recordComparisons: workspaceSummary.recordComparisons,
+                    in: db
+                )
+                return Self(
+                    groups: workspaceSummary.groups,
+                    recordComparisons: workspaceSummary.recordComparisons,
+                    sourceFileAttributions: sourceFileAttributions
+                )
 
-                case let .unavailable(reason):
-                    throw TangledPullReviewSemanticDiffError.unavailable(reason)
-                }
+            case let .unavailable(reason):
+                throw TangledPullReviewSemanticDiffError.unavailable(reason)
             }
         }
 
@@ -1680,13 +1707,10 @@ extension WorkspaceReviews.SemanticDiff {
 }
 
 private enum TangledPullReviewSemanticDiffError: Error, CustomStringConvertible {
-    case sourceBaselineMissing(OME.SourceDatabaseInsertion.SourceProvenance)
     case unavailable(SourceChangeSummary.UnavailableReason)
 
     var description: String {
         switch self {
-        case let .sourceBaselineMissing(provenance):
-            "Source baseline is missing for \(provenance.reference)."
         case let .unavailable(reason):
             "Review changes are unavailable: \(reason)."
         }

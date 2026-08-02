@@ -1,24 +1,34 @@
 import Clocks
+import ATProto
+import ATProtoOAuth
 @preconcurrency import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import DebugSnapshots
 import FileTree
 import Foundation
+import GRDB
+import HTTPClient
+import HTTPTypes
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
+import SourceControlClient
 import SourceEditing
 import SnapshotTesting
 import SnapshotTestingCustomDump
 import SQLiteData
-import Sharing
 import Synchronization
+import SwiftUI
+import TangledLexicon
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -103,8 +113,11 @@ extension UserStoryTests {
                         at: request.outputURL,
                         withIntermediateDirectories: true
                     )
+                    let source = request.ref == review.targetBranch
+                        ? baselineSource
+                        : reviewSource
                     _ = try OpenMusicEventSourceRepositoryFileTree()
-                        .write(reviewSource, to: request.outputURL)
+                        .write(source, to: request.outputURL)
                     return TangledSourceCheckout(repositoryURL: request.outputURL)
                 }
             } operation: {
@@ -126,7 +139,9 @@ extension UserStoryTests {
 
             // The real snapshot client checks out the review branch and compares it to HEAD.
             guard case let .loaded(diff) = store.state.reviews.semanticDiffs[review.id] else {
-                Issue.record("Expected Wicked Woods semantic diff response.")
+                Issue.record(
+                    "Expected Wicked Woods semantic diff response, got \(String(reflecting: store.state.reviews.semanticDiffs[review.id]))."
+                )
                 return
             }
             receivedDiff.withLock { $0 = diff }
@@ -134,23 +149,20 @@ extension UserStoryTests {
             #expect(diff.groups.contains { $0.id == "events" && $0.added == 1 })
             #expect(diff.groups.contains { $0.id == "stages" && $0.added == 1 })
 
-            #expect(checkoutRequests.withLock { $0.count } == 1)
-            let checkoutRequest = try #require(
-                checkoutRequests.withLock { $0.first }
-            )
-            expectNoDifference(
-                checkoutRequest.repository,
-                TangledRepositoryReference(
-                    host: "tangled.org",
-                    owner: "did:plc:5df2u7ief6m6tn77jznicxob",
-                    repository: "ome-workspace"
+            let requests = checkoutRequests.withLock { $0 }
+            #expect(requests.count == 2)
+            for request in requests {
+                expectNoDifference(
+                    request.repository,
+                    TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                        repository: "ome-workspace"
+                    )
                 )
-            )
-            expectNoDifference(
-                checkoutRequest.ref,
-                "ome/proposal-9ada21bf-9319-4997-824b-8de5e16d9d42"
-            )
-            #expect(checkoutRequest.outputURL.lastPathComponent.hasPrefix("ome-source-clone-"))
+                #expect(request.outputURL.lastPathComponent.hasPrefix("ome-source-clone-"))
+            }
+            expectNoDifference(requests.map(\.ref), ["main", review.sourceBranch!])
             let semanticDiff = try #require(receivedDiff.withLock { $0 })
             let eventGroup = try #require(
                 semanticDiff.groups.first { $0.id == "events" }
@@ -183,136 +195,28 @@ extension UserStoryTests {
             await store.dismount()
         }
 
-        @Test
-        func populatedScheduleAuthoringEditProposalMergeRefreshUsesDefaultAndReference() async throws {
-            let defaultDatabaseURL = FileManager.default.temporaryDirectory
-                .appending(path: "testival-default.sqlite")
-            try? FileManager.default.removeItem(at: defaultDatabaseURL)
-            let database = try UserStory.makePreparedStoryDatabase(at: defaultDatabaseURL)
-            let backend = try TestivalPullRequestBackend(database: database)
-            let sourceDescriptor = WhiteLabelSourceDescriptor(
-                reference: .source("https://tangled.org/testival/source"),
-                version: "main"
-            )
-
-            let importTask = Task {
-                try await backend.whiteLabelSourceImport.ensureImported(
-                    UserStory.organizerID,
-                    sourceDescriptor
-                )
-            }
-            await backend.firstLaunch.waitForSourceImport()
-            await backend.firstLaunch.releaseSourceImport()
-            let importedEventIDs = try await importTask.value
-            expectNoDifference(importedEventIDs, [UserStory.eventID])
-
-            let calendarID = OMERecord.Calendar.ID(
-                ownerID: UserStory.organizerID,
-                calendarID: OMERecord.Calendar.defaultID
-            )
-            let target = SourceProposalTarget.calendar(calendarID, backend.sourceBaselineID)
-            let workspaceID = EditingWorkspaceRecord.ID(
-                sourceBaselineID: backend.sourceBaselineID
-            )
-            let authoringGrant = Shared<AuthoringGrant?>(
-                value: AuthoringGrant(
-                    principal: .local,
-                    role: .owner,
-                    workspaceID: workspaceID
-                )
-            )
-
-            try await withDependencies {
-                $0.context = .test
-                $0.defaultDatabase = database
-                $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
-                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-                $0.useAuthoringContext(
-                    workspaceID,
-                    grant: SharedReader(authoringGrant)
-                )
-            } operation: {
-                // Schedule and Workspace both inherit the populated application database.
-                let scheduleStages = try await database.read { db in
-                    try ScheduleViewer.stagesQuery(eventID: UserStory.eventID).fetchAll(db)
-                }
-                #expect(
-                    scheduleStages.contains { $0.id.stageID == UserStory.meadowStageID }
-                )
-
-                @Dependency(\.defaultDatabase) var inheritedDatabase
-                let inheritedStages = try await inheritedDatabase.read { db in
-                    try ScheduleViewer.stagesQuery(eventID: UserStory.eventID).fetchAll(db)
-                }
-                expectNoDifference(inheritedStages, scheduleStages)
-
-                try await TestivalPullRequestBackend.applyEditedStage(to: inheritedDatabase)
-                let editedSummary = try SourceWorkspaceSummary.query(
-                    target: target,
-                    using: inheritedDatabase
-                )
-                expectNoDifference(editedSummary.totalCount, 1)
-
-                let patchGenerator = SourcePatchGenerator<OpenMusicEventCalendarSourcePatchRequest> {
-                    request in
-                    expectNoDifference(
-                        request,
-                        OpenMusicEventCalendarSourcePatchRequest(
-                            calendarID: calendarID,
-                            sourceBaselineID: backend.sourceBaselineID
-                        )
-                    )
-                    return backend.expectedStagePatch
-                }
-                let patch = try await patchGenerator.generate(
-                    OpenMusicEventCalendarSourcePatchRequest(
-                        calendarID: calendarID,
-                        sourceBaselineID: backend.sourceBaselineID
-                    )
-                )
-                let publication = try await backend.sourcePatchPublisher.publish(
-                    SourcePatchPublishRequest(
-                        description: "Renames Meadow and updates the stage image.",
-                        location: SourcePatchLocation(
-                            repositoryURL: FileManager.default.temporaryDirectory
-                        ),
-                        patch: patch,
-                        title: "Update Meadow stage details"
-                    )
-                )
-                expectNoDifference(publication, backend.createdPublication)
-
-                let reviewRequest = OpenMusicEventTangledPullReviewRequest(target: target)
-                let reviews = try await backend.tangledPullReviewClient.list(reviewRequest)
-                expectNoDifference(reviews, [backend.createdReview])
-                try await backend.tangledPullReviewClient.merge(
-                    OpenMusicEventTangledPullReviewMergeRequest(
-                        target: target,
-                        review: backend.createdReview
-                    )
-                )
-                try await backend.sourceDataRefresh.refresh(backend.sourceBaselineID)
-
-                let refreshedSummary = try SourceWorkspaceSummary.query(
-                    target: target,
-                    using: inheritedDatabase
-                )
-                expectNoDifference(refreshedSummary.totalCount, 0)
-                let refreshedDefaultStage = try await backend.stage(UserStory.meadowStageID)
-                let refreshedReferenceStage = try await backend.referenceStage(
-                    UserStory.meadowStageID
-                )
-                expectNoDifference(refreshedDefaultStage, refreshedReferenceStage)
-            }
-        }
-
         @available(macOS 26, *)
-        private func firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor() async throws {
+        @MainActor
+        @Test
+        func firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingLiveStore() async throws {
             let defaultDatabaseURL = FileManager.default.temporaryDirectory
                 .appending(path: "testival-default.sqlite")
             try? FileManager.default.removeItem(at: defaultDatabaseURL)
             let database = try UserStory.makePreparedStoryDatabase(at: defaultDatabaseURL)
             let backend = try TestivalPullRequestBackend(database: database)
+            let session = try testivalOwnerSession()
+            let originalSessionStore = OpenMusicEventOAuth.sessionStore.wrappedValue
+            let originalSelectedSessionID = OpenMusicEventOAuth.selectedSessionID.wrappedValue
+            defer {
+                OpenMusicEventOAuth.sessionStore.withLock { $0 = originalSessionStore }
+                OpenMusicEventOAuth.selectedSessionID.withLock {
+                    $0 = originalSelectedSessionID
+                }
+            }
+            var sessionStore = OAuth.SessionStore()
+            sessionStore.upsert(session)
+            OpenMusicEventOAuth.sessionStore.withLock { $0 = sessionStore }
+            OpenMusicEventOAuth.selectedSessionID.withLock { $0 = session.accountID }
 
             let eventID = UserStory.eventID
             let stageID = UserStory.meadowStageID
@@ -321,49 +225,36 @@ extension UserStoryTests {
             ))
 
             try await withDependencies {
-                $0[AuthoringPolicyClient.self] = backend.authoringPolicy
                 $0.context = .test
+                $0.sourceRepositoryStorageRoot = backend.sourceRepositoryStorageRoot
+                OME.prepareDependencies(&$0, database: database)
                 $0.continuousClock = ImmediateClock()
                 $0.date = .constant(Date(timeIntervalSince1970: 1_784_169_600))
-                $0.defaultDatabase = database
                 $0.defaultEventID = eventID
-                $0.sourceDataRefresh = backend.sourceDataRefresh
-                $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
-                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-                $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
-                    SourcePatchGenerator { request in
-                        #expect(
-                            request == OpenMusicEventCalendarSourcePatchRequest(
-                                calendarID: OMERecord.Calendar.ID(
-                                    ownerID: eventID.organizerID,
-                                    calendarID: OMERecord.Calendar.defaultID
-                                ),
-                                sourceBaselineID: backend.sourceBaselineID
-                            )
-                        )
-                        return backend.expectedStagePatch
-                    }
-                $0.sourcePatchPublisher = backend.sourcePatchPublisher
+                $0[Atmosphere.Account.Client.self] = backend.accountClient
+                $0[XRPC.Client.self] = .liveValue
+                $0.httpClient = backend.httpClient
+                $0.pdsHost = session.pdsHost
+                $0.sourceControl = backend.sourceControl
+                $0.tangledSSHCredentials = backend.tangledSSHCredentials
+                $0.tangledRepositoryMembership = backend.tangledRepositoryMembership
+                $0.tangledSourceCheckout = backend.tangledSourceCheckout
                 $0.tangledPullReviewClient = backend.tangledPullReviewClient
-                $0.tangledPullReviewSourceSnapshot = backend.tangledPullReviewSourceSnapshot
-                $0.whiteLabelSourceImport = backend.whiteLabelSourceImport
                 $0.whiteLabelSourceRegistry = backend.whiteLabelSourceRegistry
             } operation: {
-                let store: TestStoreActor<OpenMusicEventAppRoot> = await TestStoreActor(
+                let store = Store(
                     initialState: OpenMusicEventAppRoot.State(
                         variant: .whiteLabel(backend.appConfiguration)
                     )
                 ) {
                     OpenMusicEventAppRoot()
-                } changes: {
-                    $0.whiteLabelRoot?.loadingPhase = .locatingSource
                 }
 
                 try await assertFirstLaunchAndEnterAuthoring(
                     store: store,
                     backend: backend
                 )
-                let expectedGeneratedStageStatus = try await editStageAndGeneratePatch(
+                let editedStage = try await editStageAndGeneratePatch(
                     store: store,
                     backend: backend,
                     eventID: eventID,
@@ -371,165 +262,184 @@ extension UserStoryTests {
                     stageURL: stageURL
                 )
                 try await proposeMergeAndRefresh(
-                    store: store,
+                    mounted: editedStage.mounted,
                     backend: backend,
                     stageID: stageID,
-                    expectedGeneratedStageStatus: expectedGeneratedStageStatus
+                    expectedGeneratedStageStatus: editedStage.sourcePatchStatus
                 )
-                await store.dismount()
             }
         }
 
         @available(macOS 26, *)
+        @MainActor
         private func assertFirstLaunchAndEnterAuthoring(
-            store: TestStoreActor<OpenMusicEventAppRoot>,
+            store: StoreOf<OpenMusicEventAppRoot>,
             backend: TestivalPullRequestBackend
         ) async throws {
             // The user launches the Testival app for the first time, and the
             // mounted root asks the source registry where Testival lives.
             await backend.firstLaunch.waitForSourceRegistryLookup()
-            #expect(
-                await store[dynamicMember: \.whiteLabelRoot?.loadingPhase]
-                == .locatingSource
-            )
+            #expect(store.whiteLabelRoot?.loadingPhase == .locatingSource)
 
             // The registry resolves Testival to its Tangled source.
             await backend.firstLaunch.releaseSourceRegistryLookup()
 
             // The app begins importing the configured source into the local database.
             await backend.firstLaunch.waitForSourceImport()
-            await store.expect {
-                $0.whiteLabelRoot?.loadingPhase = .importingSource
+            await waitUntil {
+                store.whiteLabelRoot?.loadingPhase == .importingSource
             }
+            #expect(store.whiteLabelRoot?.loadingPhase == .importingSource)
 
             // Source import writes the downloaded event rows.
             await backend.firstLaunch.releaseSourceImport()
 
             // The app opens the imported source and mounts its team workspace.
-            await store.receive(
-                from: \.whiteLabelRoot,
-                \.loadDataSucceeded,
-                .equals(WhiteLabelRoot.LoadedRoot(
-                    organizerID: UserStory.organizerID,
-                    sourceBaselineIDs: [backend.sourceBaselineID]
-                )),
-                timeout: .seconds(1)
-            ) {
-                $0.whiteLabelRoot?.loadingPhase = .idle
-                $0.whiteLabelRoot?.organizerID = UserStory.organizerID
-                $0.whiteLabelRoot?.teamWorkspaceDetail = snap(
-                    WhiteLabelRoot.TeamWorkspace.State(
-                        storage: OpenMusicEventOAuth.storage
-                    ) {
-                        OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
-                            workspaceID: EditingWorkspaceRecord.ID(
-                                sourceBaselineID: backend.sourceBaselineID
-                            )
-                        ) {
-                            TeamWorkspaceDetail.State(
-                                sourceBaselineID: backend.sourceBaselineID
-                            )
-                        }
-                    }
-                )
+            await waitUntil {
+                store.whiteLabelRoot?.loadingPhase == .idle
+                    && store.storyTeamWorkspaceDetail?.sourceBaselineID
+                        == backend.sourceBaselineID
             }
-            #expect(
-                await store[dynamicMember: \.storyTeamWorkspaceDetail?.sourceBaselineID]
-                == backend.sourceBaselineID
-            )
+            #expect(store.storyTeamWorkspaceDetail?.sourceBaselineID == backend.sourceBaselineID)
 
             // The downloaded team workspace is hydrated from the imported source.
-            let teamWorkspace = try #require(
-                await store[dynamicMember: \.storyTeamWorkspaceDetail]
+            let teamWorkspace = try #require(store.storyTeamWorkspaceDetail)
+            expectNoDifference(teamWorkspace.sourceBaselineID, backend.sourceBaselineID)
+            expectNoDifference(teamWorkspace.organizer?.id, UserStory.organizerID)
+            expectNoDifference(teamWorkspace.events.map(\.id), [UserStory.eventID])
+            expectNoDifference(
+                teamWorkspace.calendar?.id,
+                OMERecord.Calendar.ID(
+                    ownerID: UserStory.organizerID,
+                    calendarID: OMERecord.Calendar.defaultID
+                )
             )
-            assertSnapshot(
-                of: teamWorkspace,
-                as: .customDump,
-                named: "downloaded-team-workspace",
-                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
+            expectNoDifference(
+                teamWorkspace.sourceBaseline?.sourceReference,
+                "tangled.org/testival/source"
             )
-
-            // The user enters authoring mode for the downloaded source workspace.
-            let enterAuthoringTask = await store.send(
-                to: \.storyTeamWorkspaceSpawn!,
-                .content(.enterButtonTapped)
-            )
-
-            // The workspace wrapper grants authoring only after authorization and preparation finish.
-            await enterAuthoringTask?.value
-            let authoringGrant = try #require(
-                await store[dynamicMember: \.storyTeamWorkspaceAuthoring?.grant]
-            )
-            expectNoDifference(authoringGrant.principal, .local)
-            expectNoDifference(authoringGrant.role, .owner)
+            expectNoDifference(teamWorkspace.sourceBaseline?.ref, "main")
 
         }
 
         @available(macOS 26, *)
+        @MainActor
         private func editStageAndGeneratePatch(
-            store: TestStoreActor<OpenMusicEventAppRoot>,
+            store: StoreOf<OpenMusicEventAppRoot>,
             backend: TestivalPullRequestBackend,
             eventID: OMERecord.Event.ID,
             stageID: OMERecord.ID<OMERecord.Stage>,
             stageURL: URL
-        ) async throws -> WorkspaceChanges.SourcePatchStatus {
+        ) async throws -> StageEditStoryResult {
             // The user opens Meadow from a Testival stage link.
-            await store.send(.openURL(stageURL))
+            await store.send(.openURL(stageURL))?.value
 
             // The app routes into Meadow with authoring controls available.
-            await store.receive(
-                \.openRoute,
-                .equals(.event(eventID, .stage(stageID))),
-                timeout: .seconds(1)
-            )
+            await waitUntil {
+                store.storyEventViewer?.stagesViewer?.destination?.stageDetail?.stageID
+                    == stageID
+            }
+            let mounted = try mountedEventViewerStores(from: store)
+            @Bindable var eventViewerStore = mounted.eventViewer
 
-            #expect(
-                await store[dynamicMember: \.storyEventAuthoring?.access]
-                == .authoring(.owner)
+            // The mounted Authoring feature evaluates live workspace policy before entry.
+            await waitUntil {
+                store.storyEventAuthoring?.admission == .available
+            }
+            let enterAuthoringTask = store.send(
+                .destination(
+                    .eventViewer(
+                        .content(.authoring(.enterButtonTapped))
+                    )
+                )
             )
-            #expect(
-                await store[dynamicMember: \.storyEventViewer?.selectedFeature]
-                    == .stages
+            await enterAuthoringTask?.value
+
+            // A validated grant prepares the existing source exactly once and leaves the
+            // package Workspace on its canonical editing line.
+            let authoringGrant = try #require(store.storyEventAuthoring?.grant)
+            expectNoDifference(
+                authoringGrant.principal,
+                .actor(UserStory.organizerID)
             )
+            expectNoDifference(authoringGrant.role, .owner)
+            await waitUntil {
+                guard let phase = store.storyEventWorkspace?.phase else { return false }
+                if case .ready = phase { return true }
+                return false
+            }
+            let workspacePhase = try #require(store.storyEventWorkspace?.phase)
+            guard case .ready(.canonical) = workspacePhase else {
+                throw WorkspaceStoryError.unexpectedWorkspacePhase(
+                    String(customDumping: workspacePhase)
+                )
+            }
+            #expect(backend.sourceCheckoutRequests.withValue { $0.count } == 1)
+            let workspaceSource = try #require(mounted.workspace.source)
+            expectNoDifference(workspaceSource.database.path, backend.database.path)
+            let attachedSchemas = try await workspaceSource.database.read { db in
+                try Set(
+                    Row.fetchAll(db, sql: "PRAGMA database_list")
+                        .map { $0["name"] as String }
+                )
+            }
+            #expect(attachedSchemas.contains("main"))
+            #expect(attachedSchemas.contains(SourceEditingSession.baselineSchemaName))
+
+            #expect(store.storyEventAuthoring?.grant?.access == .authoring(.owner))
+            #expect(store.storyEventViewer?.selectedFeature == .stages)
             #expect(
-                await store[dynamicMember: \.storyEventViewer?.stagesViewer?.destination?.stageDetail?.stageID]
+                store.storyEventViewer?.stagesViewer?.destination?.stageDetail?.stageID
                 == stageID
             )
 
             // The user edits Meadow through the mounted stage detail.
-            let editTask = await store.send(
-                to: \.storyStageDetailSpawn!,
-                .editButtonTapped
+            @Bindable var stagesStore = try #require(
+                eventViewerStore.spawn(\.stagesViewer)
             )
+            let stageDetailStore = try #require(
+                $stagesStore
+                    .scope(\.destination, action: \.destination)
+                    .stageDetail
+                    .wrappedValue
+            )
+            let editTask = stageDetailStore.send(.editButtonTapped)
             await editTask?.value
 
-            // Meadow's form opens with the source-backed draft.
-            let stageForm = try #require(
-                await store[dynamicMember: \.storyEventViewer?.destination?.stageForm?.state]
+            // Mount the presented child exactly as EventViewerView does. Its on-mount query then
+            // loads Meadow from the workspace-provided database.
+            @Bindable var stageForm = try #require(
+                $eventViewerStore
+                    .scope(\.destination, action: \.destination)
+                    .stageForm
+                    .wrappedValue
             )
-            #expect(stageForm.hasLoadedDraft)
-            assertSnapshot(
-                of: stageForm,
-                as: .customDump,
-                named: "stage-form-before-workspace-proposal",
-                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
+            await waitUntil { stageForm.hasLoadedDraft }
+            try #require(
+                stageForm.hasLoadedDraft,
+                "The mounted stage form did not load: \(stageForm.errorMessage ?? "no error reported")"
+            )
+            expectNoDifference(stageForm.form.value.name, "Meadow")
+            expectNoDifference(stageForm.form.value.category, "main")
+            expectNoDifference(stageForm.form.value.sortIndex, "1")
+            expectNoDifference(
+                stageForm.heroImageURL,
+                "https://cdn.example.com/stages/meadow-hero.png"
+            )
+            expectNoDifference(
+                stageForm.logoURL,
+                "https://cdn.example.com/stages/meadow-logo.png"
             )
 
             // The user changes public stage data that should become the pull request.
-            await store.modify {
-                $0.storyEventViewer?.destination.modify(\.stageForm) {
-                    $0.form.value.name = "Meadow Workshop"
-                    $0.form.value.category = "workshop"
-                    $0.form.value.sortIndex = "7"
-                    $0.heroImageURL = "https://cdn.example.com/stages/meadow-workshop-hero.png"
-                }
-            }
+            $stageForm.form.value.name.wrappedValue = "Meadow Workshop"
+            $stageForm.form.value.category.wrappedValue = "workshop"
+            $stageForm.form.value.sortIndex.wrappedValue = "7"
+            $stageForm.heroImageURL.wrappedValue =
+                "https://cdn.example.com/stages/meadow-workshop-hero.png"
 
             // The user saves the edit into the local workspace database.
-            await store.send(
-                to: \.storyStageFormSpawn!,
-                .saveButtonTapped
-            )?.value
+            await stageForm.send(.saveButtonTapped)?.value
 
             // The saved row is immediately visible from the application default database.
             let savedStage = try await backend.stage(stageID)
@@ -538,14 +448,10 @@ extension UserStoryTests {
             expectNoDifference(savedStage.imageURL?.absoluteString, "https://cdn.example.com/stages/meadow-workshop-hero.png")
 
             // The user switches to the Workspace tab to inspect unpublished changes.
-            await store.modify {
-                $0.storyEventViewer?.selectedFeature = .workspace
-            }
+            $eventViewerStore.selectedFeature.wrappedValue = .workspace
 
             // The Workspace query is the seam: it shows exactly what the local edit changed.
-            let workspace = try #require(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace]
-            )
+            let workspace = try #require(eventViewerStore.eventWorkspace)
             assertSnapshot(
                 of: workspace.changes.sourceWorkspaceSummary,
                 as: .customDump,
@@ -554,16 +460,8 @@ extension UserStoryTests {
             )
 
             // The user checks the generated source patch before proposing it.
-            let generateSourcePatchTask = await store.send(
-                .destination(
-                    .eventViewer(
-                        .content(
-                            .content(
-                                .eventWorkspace(.changes(.checkChangesButtonTapped))
-                            )
-                        )
-                    )
-                )
+            let generateSourcePatchTask = eventViewerStore.send(
+                .eventWorkspace(.changes(.checkChangesButtonTapped))
             )
 
             await generateSourcePatchTask?.value
@@ -571,13 +469,14 @@ extension UserStoryTests {
 
             // The generated patch is the source-level view of the same workspace diff.
             let sourcePatchStatus = try #require(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourcePatchStatus
-                ]
+                eventViewerStore.eventWorkspace?.changes.sourcePatchStatus
             )
             guard case .generated = sourcePatchStatus else {
                 Issue.record("Expected the stage source patch to be generated.")
-                return .notGenerated
+                return StageEditStoryResult(
+                    mounted: mounted,
+                    sourcePatchStatus: .notGenerated
+                )
             }
             let expectedGeneratedStageStatus = sourcePatchStatus
             #expect(sourcePatchStatus == expectedGeneratedStageStatus)
@@ -588,85 +487,81 @@ extension UserStoryTests {
                 testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
-            return expectedGeneratedStageStatus
+            return StageEditStoryResult(
+                mounted: mounted,
+                sourcePatchStatus: expectedGeneratedStageStatus
+            )
 
         }
 
         @available(macOS 26, *)
+        @MainActor
         private func proposeMergeAndRefresh(
-            store: TestStoreActor<OpenMusicEventAppRoot>,
+            mounted: MountedEventViewerStores,
             backend: TestivalPullRequestBackend,
             stageID: OMERecord.ID<OMERecord.Stage>,
             expectedGeneratedStageStatus: WorkspaceChanges.SourcePatchStatus
         ) async throws {
+            @Bindable var eventViewerStore = mounted.eventViewer
+
             // The user starts a proposal from the generated patch.
-            let proposeChangeTask = await store.send(
-                .destination(
-                    .eventViewer(
-                        .content(
-                            .content(
-                                .eventWorkspace(.changes(.proposeChangesButtonTapped))
-                            )
-                        )
-                    )
-                )
+            let proposeChangeTask = eventViewerStore.send(
+                .eventWorkspace(.changes(.proposeChangesButtonTapped))
             )
 
             await proposeChangeTask?.value
             await flushNestedSpawnEffects()
             #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourcePatchStatus
-                ]
-                == expectedGeneratedStageStatus
+                eventViewerStore.eventWorkspace?.changes.sourcePatchStatus
+                    == expectedGeneratedStageStatus
             )
-            #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.status
-                ]
-                == .composing
-            )
+            #expect(eventViewerStore.eventWorkspace?.changes.proposalDraft != nil)
 
-            // The proposal composer carries the current workspace diff, not a hand-built proposal.
-            let proposal = try #require(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal
-                ]
+            // The draft carries the current workspace diff and only presentation input.
+            let proposalDraft = try #require(
+                eventViewerStore.eventWorkspace?.changes.proposalDraft
             )
-            assertSnapshot(
-                of: proposal,
-                as: .customDump,
-                named: "proposal-composer-before-publish",
-                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
+            let currentSummary = try #require(
+                eventViewerStore.eventWorkspace?.changes.sourceWorkspaceSummary
+            )
+            expectNoDifference(
+                proposalDraft.groups,
+                currentSummary.groups
+            )
+            expectNoDifference(
+                proposalDraft.recordComparisons,
+                currentSummary.recordComparisons
             )
 
             // The user writes a clear PR title and description.
-            await store.modify {
-                $0.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value.title =
-                    "Update Meadow stage details"
-                $0.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value.description =
-                    "Renames Meadow and updates the stage image."
-            }
-
-            let proposalFormValue = try #require(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.changes.sourceProposal?.form.value
-                ]
+            await eventViewerStore.send(
+                .eventWorkspace(
+                    .changes(
+                        .proposalDraft(.titleChanged("Update Meadow stage details"))
+                    )
+                )
+            )?.value
+            await eventViewerStore.send(
+                .eventWorkspace(
+                    .changes(
+                        .proposalDraft(
+                            .descriptionChanged(
+                                "Renames Meadow and updates the stage image."
+                            )
+                        )
+                    )
+                )
+            )?.value
+            expectNoDifference(
+                eventViewerStore.eventWorkspace?.changes.proposalDraft?.title,
+                "Update Meadow stage details"
             )
 
             // The user publishes the proposal.
-            let publishProposalTask = await store.send(
-                .destination(
-                    .eventViewer(
-                        .content(
-                            .content(
-                                .eventWorkspace(
-                                    .changes(
-                                        .sourceProposal(.formSubmitted(proposalFormValue))
-                                    )
-                                )
-                            )
-                        )
+            let publishProposalTask = eventViewerStore.send(
+                .eventWorkspace(
+                    .changes(
+                        .proposalDraft(.createProposalButtonTapped)
                     )
                 )
             )
@@ -674,38 +569,45 @@ extension UserStoryTests {
             // Tangled creates a pull request from the generated source patch.
             await publishProposalTask?.value
             await flushNestedSpawnEffects()
+            await waitUntil {
+                guard case .ready(.proposal) = mounted.workspace.phase else { return false }
+                return true
+            }
+            #expect(eventViewerStore.eventWorkspace?.changes.proposalDraft == nil)
 
             // The Workspace reloads reviews and lands on the newly created pull request.
+            #expect(eventViewerStore.eventWorkspace?.reviews.pendingCreatedReviewID == nil)
             #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.pendingCreatedReviewID
-                ]
-                == nil
+                eventViewerStore.eventWorkspace?.reviews.selectedReview
+                    == .loaded(backend.createdReview)
             )
             #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.selectedReview
-                ]
-                == .loaded(backend.createdReview)
+                eventViewerStore.eventWorkspace?.reviews.reviewsStatus
+                    == .loaded([backend.createdReview])
             )
-            #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.reviewsStatus
+            expectNoDifference(
+                backend.publicationOperations.value,
+                [
+                    "resolve target repository",
+                    "clone canonical source",
+                    "open proposal checkout",
+                    "stage captured changes",
+                    "commit captured changes",
+                    "create proposal branch",
+                    "open proposal checkout",
+                    "push proposal branch",
+                    "resolve target repository",
+                    "format committed patch",
+                    "upload proposal patch",
+                    "record proposal",
                 ]
-                == .loaded([backend.createdReview])
             )
 
             // The user opens the semantic review diff for the created pull request.
-            let reviewSemanticDiffTask = await store.send(
-                .destination(
-                    .eventViewer(
-                        .content(
-                            .content(
-                                .eventWorkspace(
-                                    .reviews(.showChangesButtonTapped(backend.createdReview))
-                                )
-                            )
-                        )
+            let reviewSemanticDiffTask = eventViewerStore.send(
+                .eventWorkspace(
+                    .reviews(
+                        .showChangesButtonTapped(backend.createdReview)
                     )
                 )
             )
@@ -714,10 +616,8 @@ extension UserStoryTests {
             await flushNestedSpawnEffects()
 
             // The review diff shows the same stage change that came from the local edit.
-            let semanticDiffStatus = await store[
-                dynamicMember: \.storyEventViewer?.eventWorkspace?
-                    .reviews.semanticDiffs[backend.createdReview.id]
-            ]
+            let semanticDiffStatus = eventViewerStore.eventWorkspace?
+                .reviews.semanticDiffs[backend.createdReview.id]
             guard case let .loaded(semanticDiff) = try #require(semanticDiffStatus) else {
                 Issue.record("Expected the created review semantic diff to load.")
                 return
@@ -731,16 +631,10 @@ extension UserStoryTests {
             )
 
             // The user merges the pull request.
-            let mergePullReviewTask = await store.send(
-                .destination(
-                    .eventViewer(
-                        .content(
-                            .content(
-                                .eventWorkspace(
-                                    .reviews(.approveButtonTapped(backend.createdReview))
-                                )
-                            )
-                        )
+            let mergePullReviewTask = eventViewerStore.send(
+                .eventWorkspace(
+                    .reviews(
+                        .approveButtonTapped(backend.createdReview)
                     )
                 )
             )
@@ -749,23 +643,29 @@ extension UserStoryTests {
             await mergePullReviewTask?.value
             await flushNestedSpawnEffects()
             await waitUntil {
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?
-                        .changes.sourceWorkspaceSummary.totalCount
-                ] == 0
+                eventViewerStore.eventWorkspace?
+                    .changes.sourceWorkspaceSummary.totalCount == 0
+            }
+            let directlyQueriedSummary = try SourceWorkspaceSummary.query(
+                target: .event(UserStory.eventID),
+                using: try #require(mounted.workspace.source).database
+            )
+            expectNoDifference(directlyQueriedSummary.totalCount, 0)
+            expectNoDifference(
+                eventViewerStore.eventWorkspace?.changes.sourceWorkspaceSummary,
+                directlyQueriedSummary
+            )
+            let mergedWorkspacePhase = mounted.workspace.phase
+            guard case .ready(.canonical) = mergedWorkspacePhase else {
+                throw WorkspaceStoryError.unexpectedWorkspacePhase(
+                    String(customDumping: mergedWorkspacePhase)
+                )
             }
             #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?
-                        .reviews.reviewOperations[backend.createdReview.id]
-                ] == nil
+                eventViewerStore.eventWorkspace?
+                    .reviews.reviewOperations[backend.createdReview.id] == nil
             )
-            #expect(
-                await store[
-                    dynamicMember: \.storyEventViewer?.eventWorkspace?.reviews.selectedReview
-                ]
-                == nil
-            )
+            #expect(eventViewerStore.eventWorkspace?.reviews.selectedReview == nil)
 
             // The refreshed source contains the merged stage edit.
             let refreshedStage = try await backend.stage(stageID)
@@ -773,9 +673,7 @@ extension UserStoryTests {
             expectNoDifference(refreshedStage.imageURL?.absoluteString, "https://cdn.example.com/stages/meadow-workshop-hero.png")
 
             // The Workspace no longer has unpublished local changes after the source refresh.
-            let refreshedWorkspace = try #require(
-                await store[dynamicMember: \.storyEventViewer?.eventWorkspace]
-            )
+            let refreshedWorkspace = try #require(eventViewerStore.eventWorkspace)
             assertSnapshot(
                 of: refreshedWorkspace.changes.sourceWorkspaceSummary,
                 as: .customDump,
@@ -788,63 +686,124 @@ extension UserStoryTests {
     }
 }
 
+@available(macOS 26, *)
+@MainActor
+private func mountedEventViewerStores(
+    from rootStore: StoreOf<OpenMusicEventAppRoot>
+) throws -> MountedEventViewerStores {
+    @Bindable var rootStore = rootStore
+    let eventAuthoringStore = try #require(
+        $rootStore
+            .scope(\.destination, action: \.destination)
+            .eventViewer
+            .wrappedValue
+    )
+    let authoringWorkspaceStore = eventAuthoringStore.scope(
+        \.content,
+        action: \.content
+    )
+    let authoringStore = authoringWorkspaceStore.scope(
+        \.authoring,
+        action: \.authoring
+    )
+    let workspaceStore = authoringStore.scope(
+        \.content,
+        action: \.content
+    )
+    let eventViewerStore = workspaceStore.scope(
+        \.content,
+        action: \.content
+    )
+    return MountedEventViewerStores(
+        authorization: eventAuthoringStore,
+        authoringWorkspace: authoringWorkspaceStore,
+        authoring: authoringStore,
+        workspace: workspaceStore,
+        eventViewer: eventViewerStore
+    )
+}
+
+@available(macOS 26, *)
+@MainActor
+private struct MountedEventViewerStores {
+    let authorization: StoreOf<OpenMusicEventEventAuthoring>
+    let authoringWorkspace: StoreOf<OpenMusicEventAuthoringWorkspace<EventViewer>>
+    let authoring: StoreOf<OpenMusicEventAuthoringWorkspace<EventViewer>.AuthoringFeature>
+    let workspace: StoreOf<OpenMusicEventAuthoringWorkspace<EventViewer>.WorkspaceFeature>
+    let eventViewer: StoreOf<EventViewer>
+}
+
+@available(macOS 26, *)
+@MainActor
+private struct StageEditStoryResult {
+    let mounted: MountedEventViewerStores
+    let sourcePatchStatus: WorkspaceChanges.SourcePatchStatus
+}
+
 private extension OpenMusicEventAppRoot.State {
     var storyTeamWorkspaceSpawn: Spawn<WhiteLabelRoot.TeamWorkspace>? {
         whiteLabelRoot?.state.teamWorkspaceDetail
     }
 
-    var storyTeamWorkspaceAuthoring: Authoring<TeamWorkspaceDetail>.State? {
-        get {
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content
-        }
-        set {
-            guard let newValue else {
-                whiteLabelRoot?.state.teamWorkspaceDetail = nil
-                return
-            }
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content = newValue
-        }
-    }
-
     var storyTeamWorkspaceDetail: TeamWorkspaceDetail.State? {
         get {
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.content
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.authoring.content.content
         }
         set {
             guard let newValue else { return }
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.content = newValue
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.authoring.content.content =
+                newValue
         }
     }
 
-    var storyEventAuthoring: Authoring<EventViewer>.State? {
+    var storyEventAuthoring:
+        OpenMusicEventAuthoringWorkspace<EventViewer>.AuthoringFeature.State?
+    {
+        eventViewer?.content.authoring
+    }
+
+    var storyEventWorkspace:
+        OpenMusicEventAuthoringWorkspace<EventViewer>.WorkspaceFeature.State?
+    {
         get {
-            eventViewer?.content
+            eventViewer?.content.authoring.content
         }
         set {
-            guard let newValue else {
-                eventViewer = nil
-                return
-            }
-            eventViewer?.content = newValue
+            guard let newValue else { return }
+            eventViewer?.content.authoring.content = newValue
         }
     }
 
     var storyEventViewer: EventViewer.State? {
         get {
-            eventViewer?.content.content
+            eventViewer?.content.authoring.content.content
         }
         set {
             guard let newValue else { return }
-            eventViewer?.content.content = newValue
+            eventViewer?.content.authoring.content.content = newValue
         }
     }
 
     var storyStageDetailSpawn: Spawn<StageDetail>? {
-        eventViewer?.content.content.stagesViewer?.state.destination?.stageDetail
+        eventViewer?
+            .content
+            .authoring
+            .content
+            .content
+            .stagesViewer?
+            .state
+            .destination?
+            .stageDetail
     }
 
-    var storyStageFormSpawn: Spawn<EditStage>? {
-        eventViewer?.content.content.destination?.stageForm
+    var storyStageForm: EditStage.State? {
+        eventViewer?
+            .content
+            .authoring
+            .content
+            .content
+            .destination?
+            .stageForm
     }
 
 }
@@ -914,15 +873,44 @@ private func flushNestedSpawnEffects() async {
     await Task.yield()
 }
 
+private func testivalOwnerSession() throws -> OAuth.Session {
+    let organizerID = UserStory.organizerID
+    var grantedPermissions: Set<OAuth.Permission> = [.atproto]
+    grantedPermissions.formUnion(
+        OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+    )
+    return OAuth.Session(
+        accountID: Atmosphere.Account.ID(organizerID),
+        pdsHost: "publisher.pds.example",
+        tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
+            try #require(URL(string: "https://publisher.pds.example/oauth/token"))
+        ),
+        scope: OAuth.Scope(
+            rawValue: grantedPermissions
+                .map(\.rawValue)
+                .sorted()
+                .joined(separator: " ")
+        ),
+        accessToken: OAuth.AccessToken(rawValue: "testival-owner-access-token"),
+        refreshToken: OAuth.RefreshToken(rawValue: "testival-owner-refresh-token"),
+        dpopKey: OAuth.DPOP.Key()
+    )
+}
+
+@MainActor
 private func waitUntil(
     _ condition: @escaping () async -> Bool,
     sourceLocation: SourceLocation = #_sourceLocation
 ) async {
     for _ in 0..<1_000 {
         if await condition() { return }
-        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(1))
     }
     Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
+}
+
+private enum WorkspaceStoryError: Error {
+    case unexpectedWorkspacePhase(String)
 }
 
 private actor TestivalFirstLaunch {
@@ -1009,22 +997,21 @@ private actor TestivalFirstLaunch {
 }
 
 private struct TestivalPullRequestBackend {
+    let accountClient: Atmosphere.Account.Client
     let appConfiguration: WhiteLabelAppConfiguration
-    let authoringPolicy: AuthoringPolicyClient
-    let createdPublication: SourcePatchPublication
     let createdReview: TangledPullReview
     let database: any DatabaseWriter
-    let expectedStagePatch: SourcePatch
-    let expectedStageSourceFileAttributions: [SourceFileAttribution]
     let firstLaunch: TestivalFirstLaunch
-    let referenceDatabase: SourceBaselineDatabase
+    let httpClient: HTTPClient
+    let publicationOperations: LockIsolated<[String]>
     let sourceBaselineID: SourceBaselineRecord.ID
-    let sourceDataRefresh: SourceDataRefreshClient
-    let sourcePatchPublisher: SourcePatchPublisher
-    let sourceReferenceDatabase: SourceReferenceDatabaseClient
+    let sourceCheckoutRequests: LockIsolated<[TangledSourceCheckoutRequest]>
+    let sourceControl: SourceControlClient
+    let sourceRepositoryStorageRoot: SourceRepositoryStorageRootClient
+    let tangledRepositoryMembership: TangledRepositoryMembershipClient
+    let tangledSSHCredentials: TangledSSHCredentialsClient
+    let tangledSourceCheckout: TangledSourceCheckoutClient
     let tangledPullReviewClient: TangledPullReviewClient
-    let tangledPullReviewSourceSnapshot: TangledPullReviewSourceSnapshotClient
-    let whiteLabelSourceImport: WhiteLabelSourceImportClient
     let whiteLabelSourceRegistry: WhiteLabelSourceRegistryClient
 
     init(database: any DatabaseWriter) throws {
@@ -1034,170 +1021,240 @@ private struct TestivalPullRequestBackend {
             ref: "main"
         )
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let expectedStagePatch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/testival-2026/stages/meadow.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Meadow\n".utf8),
-                    newContents: Data("name: Meadow Workshop\n".utf8)
-                )
-            ]
-        )
-        let expectedStageSourceFileAttributions = [
-            SourceFileAttribution(
-                filePath: "events/testival-2026/stages/meadow.yml",
-                recordChangeIDs: [
-                    #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
-                ]
-            )
-        ]
+        let proposalBranch = "ome/proposal-00000000-0000-0000-0000-000000000001"
+        let proposalURI =
+            "at://did:web:example.com/sh.tangled.repo.pull/"
+            + "ome-00000000000000000000000000000001"
         let createdReview = TangledPullReview(
-            author: "did:plc:contributor",
+            author: "did:web:example.com",
             body: "Renames Meadow and updates the stage image.",
             commentCount: 0,
             createdAt: "2026-07-16T12:00:00Z",
             patchBlobs: [],
-            sourceBranch: "update-meadow",
-            sourceRepositoryDID: "did:plc:contributor-source",
+            sourceBranch: proposalBranch,
+            sourceRepositoryDID: nil,
             state: "open",
             targetBranch: "main",
-            targetRepositoryDID: "did:plc:testival",
+            targetRepositoryDID: "did:plc:testival-source",
             title: "Update Meadow stage details",
-            uri: "at://did:plc:testival/app.tangled.pull.review/update-meadow",
+            uri: proposalURI,
         )
-        let createdPublication = SourcePatchPublication(
-            sourceChangeID: createdReview.id,
-            sourceChangeURL: URL(string: "https://tangled.org/testival/source/pulls/update-meadow")
-        )
-        let baselineDatabaseURL = FileManager.default.temporaryDirectory
-            .appending(path: "testival-source-baseline.sqlite")
-        try? FileManager.default.removeItem(at: baselineDatabaseURL)
-        let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabaseURL.path)
-        let importedAt = Date(timeIntervalSince1970: 1_784_169_600)
-        try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(baselineDatabase)
         let firstLaunch = TestivalFirstLaunch()
         let reviews = LockIsolated<[TangledPullReview]>([])
+        let proposalSource = LockIsolated<OpenMusicEventSourceRepository?>(nil)
+        let publicationOperations = LockIsolated<[String]>([])
+        let sourceCheckoutRequests = LockIsolated<[TangledSourceCheckoutRequest]>([])
+        let remoteMerged = LockIsolated(false)
+        let sourceRepositoryStorageURL = FileManager.default.temporaryDirectory
+            .appending(
+                path: "testival-source-repositories-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        let sourceRepositoryStorageRoot = SourceRepositoryStorageRootClient.rooted(
+            at: sourceRepositoryStorageURL
+        )
 
         self.appConfiguration = WhiteLabelAppConfiguration(
             brand: WhiteLabelBrand(displayName: "Testival"),
             organizerID: UserStory.organizerID
         )
-        self.authoringPolicy = AuthoringPolicyClient { _ in
-            .granted(principal: .local, role: .owner)
-        }
-        self.createdPublication = createdPublication
+        self.accountClient = try .testival()
         self.createdReview = createdReview
         self.database = database
-        self.expectedStagePatch = expectedStagePatch
-        self.expectedStageSourceFileAttributions = expectedStageSourceFileAttributions
         self.firstLaunch = firstLaunch
-        self.referenceDatabase = baselineDatabase
-        self.sourceBaselineID = sourceBaselineID
-        self.sourceDataRefresh = SourceDataRefreshClient { _ in
-            try await Self.applyEditedStage(to: database)
-            try await Self.applyEditedStage(to: baselineDatabase.database)
-        }
-        self.sourceReferenceDatabase = .test(database: baselineDatabase)
-        self.sourcePatchPublisher = SourcePatchPublisher { _ in
-            reviews.withValue { $0 = [createdReview] }
-            return createdPublication
-        }
-        self.tangledPullReviewClient = TangledPullReviewClient(
-            list: { _ in reviews.value },
-            merge: { _ in
-                reviews.withValue { $0 = [] }
-            }
-        )
-        self.tangledPullReviewSourceSnapshot = TangledPullReviewSourceSnapshotClient { _ in
-            return try OMERecord.SourceDatabaseInsertion(
-                OMERecord.SourceDatabaseInsertion.Configuration(
-                    source: try Self.sourceRepository(
-                        meadowName: "Meadow Workshop",
-                        meadowCategory: OMERecord.Stage.Category("workshop"),
-                        meadowSortIndex: 7,
-                        meadowHeroURLString: "https://cdn.example.com/stages/meadow-workshop-hero.png"
-                    ),
-                    organizerID: UserStory.organizerID,
-                    sourceProvenance: sourceProvenance
+        self.httpClient = HTTPClient { request, _ in
+            switch request.url?.host {
+            case "testival-owner.pds.example":
+                publicationOperations.withValue { $0.append("resolve target repository") }
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:testival-owner/sh.tangled.repo/source",
+                          "cid": "bafyreitestivalsource",
+                          "value": {
+                            "$type": "sh.tangled.repo",
+                            "name": "source",
+                            "repoDid": "did:plc:testival-source",
+                            "knot": "knot1.tangled.sh",
+                            "createdAt": "2026-07-16T12:00:00Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
                 )
-            )
+
+            case "publisher.pds.example":
+                if request.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true {
+                    publicationOperations.withValue { $0.append("upload proposal patch") }
+                    return Data(
+                        """
+                        {
+                          "blob": {
+                            "$type": "blob",
+                            "ref": {"$link": "bafkreitestivalpatch"},
+                            "mimeType": "application/gzip",
+                            "size": 321
+                          }
+                        }
+                        """
+                        .utf8
+                    )
+                }
+                if request.url?.path.hasSuffix("/com.atproto.repo.putRecord") == true {
+                    publicationOperations.withValue { $0.append("record proposal") }
+                    reviews.withValue { $0 = [createdReview] }
+                    return Data(
+                        """
+                        {
+                          "uri": "\(proposalURI)",
+                          "cid": "bafyreitestivalpull"
+                        }
+                        """
+                        .utf8
+                    )
+                }
+                throw WorkspaceStoryBackendError.unexpectedRequest(
+                    request.url?.absoluteString ?? "missing URL"
+                )
+
+            default:
+                throw WorkspaceStoryBackendError.unexpectedRequest(
+                    request.url?.absoluteString ?? "missing URL"
+                )
+            }
         }
-        self.whiteLabelSourceImport = WhiteLabelSourceImportClient { _, _ in
-            await firstLaunch.reachSourceImport()
-            let insertion = try OMERecord.SourceDatabaseInsertion(
-                OMERecord.SourceDatabaseInsertion.Configuration(
-                    source: try Self.sourceRepository(
+        self.publicationOperations = publicationOperations
+        self.sourceBaselineID = sourceBaselineID
+        self.sourceCheckoutRequests = sourceCheckoutRequests
+        self.sourceControl = SourceControlClient(
+            clone: { request in
+                publicationOperations.withValue { $0.append("clone canonical source") }
+                try FileManager.default.createDirectory(
+                    at: request.destinationURL,
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    try Self.sourceRepository(
                         meadowName: "Meadow",
                         meadowCategory: OMERecord.Stage.Category("main"),
                         meadowSortIndex: 1,
                         meadowHeroURLString: "https://cdn.example.com/stages/meadow-hero.png"
                     ),
-                    organizerID: UserStory.organizerID,
-                    sourceProvenance: sourceProvenance
+                    to: request.destinationURL
+                )
+                return Repository(url: request.destinationURL)
+            },
+            open: { url in
+                publicationOperations.withValue { $0.append("open proposal checkout") }
+                return Repository(url: url)
+            },
+            fetch: { _ in },
+            checkout: { _ in },
+            createBranch: { request in
+                publicationOperations.withValue { $0.append("create proposal branch") }
+                expectNoDifference(request.name.rawValue, proposalBranch)
+                return Branch(name: request.name)
+            },
+            status: { _ in [] },
+            stage: { request in
+                publicationOperations.withValue { $0.append("stage captured changes") }
+                #expect(!request.paths.isEmpty)
+            },
+            commit: { request in
+                publicationOperations.withValue { $0.append("commit captured changes") }
+                expectNoDifference(
+                    request.message.rawValue,
+                    "Update Meadow stage details"
+                )
+                return Commit(
+                    id: CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedcbafedc")
+                )
+            },
+            formatPatch: { _ in
+                publicationOperations.withValue { $0.append("format committed patch") }
+                return Data(
+                    """
+                    diff --git a/events/testival-2026/stages/meadow.yml b/events/testival-2026/stages/meadow.yml
+                    --- a/events/testival-2026/stages/meadow.yml
+                    +++ b/events/testival-2026/stages/meadow.yml
+                    @@ -1 +1 @@
+                    -name: Meadow
+                    +name: Meadow Workshop
+
+                    """.utf8
+                )
+            },
+            push: { request in
+                publicationOperations.withValue { $0.append("push proposal branch") }
+                expectNoDifference(request.localBranch.rawValue, proposalBranch)
+                expectNoDifference(request.remoteBranch.rawValue, proposalBranch)
+                let source = try OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: request.repository.url)
+                    .output
+                    .requiredValue
+                proposalSource.withValue { $0 = source }
+            }
+        )
+        self.sourceRepositoryStorageRoot = sourceRepositoryStorageRoot
+        self.tangledRepositoryMembership = TangledRepositoryMembershipClient {
+            _, expectedOwnerID, actorID in
+                let organizerID = UserStory.organizerID
+                return expectedOwnerID == organizerID && actorID == organizerID
+        }
+        self.tangledSSHCredentials = TangledSSHCredentialsClient {
+            Credentials(
+                ssh: SSHCredentials(
+                    publicKey: "ssh-ed25519 testival-public-key Open Music Event",
+                    privateKey: "testival-private-key"
                 )
             )
-            try await withDependencies {
-                $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-            } operation: {
-                try await insertion.migrateAndInsert(into: database)
-            }
-            try await Self.stabilizeSourceImportMetadata(
-                in: database,
-                sourceBaselineID: sourceBaselineID,
-                referenceDatabaseFileName: baselineDatabaseURL.lastPathComponent,
-                importedAt: importedAt
-            )
-            try await Self.stabilizeSourceImportMetadata(
-                in: baselineDatabase.database,
-                sourceBaselineID: sourceBaselineID,
-                referenceDatabaseFileName: baselineDatabaseURL.lastPathComponent,
-                importedAt: importedAt
-            )
-            await firstLaunch.finishSourceImport()
-            return [UserStory.eventID]
         }
+        self.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+            sourceCheckoutRequests.withValue { $0.append(request) }
+            if request.ref == "main" {
+                await firstLaunch.reachSourceImport()
+            }
+            try FileManager.default.createDirectory(
+                at: request.outputURL,
+                withIntermediateDirectories: true
+            )
+            let usesMergedSource = remoteMerged.value
+                || request.ref == createdReview.sourceBranch
+            let source = if usesMergedSource {
+                try #require(proposalSource.value)
+            } else {
+                try Self.sourceRepository(
+                    meadowName: "Meadow",
+                    meadowCategory: OMERecord.Stage.Category("main"),
+                    meadowSortIndex: 1,
+                    meadowHeroURLString: "https://cdn.example.com/stages/meadow-hero.png"
+                )
+            }
+            _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                source,
+                to: request.outputURL
+            )
+            if request.ref == "main" {
+                await firstLaunch.finishSourceImport()
+            }
+            return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
+        self.tangledPullReviewClient = TangledPullReviewClient(
+            list: { _ in reviews.value },
+            merge: { _ in
+                remoteMerged.withValue { $0 = true }
+                reviews.withValue { $0 = [] }
+            }
+        )
         self.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { _ in
             await firstLaunch.reachSourceRegistryLookup()
             return WhiteLabelSourceDescriptor(
                 reference: .source("https://tangled.org/testival/source"),
                 version: "main"
-            )
-        }
-    }
-
-    fileprivate static func applyEditedStage(to database: any DatabaseWriter) async throws {
-        let mergedHeroURL = try #require(URL(
-            string: "https://cdn.example.com/stages/meadow-workshop-hero.png"
-        ))
-        try await database.write { db in
-            var stage = try #require(
-                try OMERecord.Stage
-                    .find(OMERecord.Stage.ID(
-                        organizerID: UserStory.eventID.organizerID,
-                        eventID: UserStory.eventID.eventID,
-                        stageID: UserStory.meadowStageID
-                    ))
-                    .fetchOne(db)
-            )
-            stage.name = "Meadow Workshop"
-            stage.category = OMERecord.Stage.Category("workshop")
-            stage.sortIndex = 7
-            stage.images = (stage.images ?? [])
-                .filter { $0.role != .hero }
-                + [.stageHero(url: mergedHeroURL)]
-            try OMERecord.Stage.update(stage).execute(db)
-        }
-    }
-
-    func referenceStage(
-        _ stageID: OMERecord.ID<OMERecord.Stage>
-    ) async throws -> OMERecord.Stage {
-        try await referenceDatabase.database.read { db in
-            try #require(
-                try StageDetail.stageQuery(stageID: stageID, eventID: UserStory.eventID)
-                    .fetchOne(db)
             )
         }
     }
@@ -1220,6 +1277,7 @@ private struct TestivalPullRequestBackend {
         ))
 
         return OpenMusicEventSourceRepository(
+            calendar: .defaultCalendar,
             events: [
                 DirectoryContent(
                     directoryName: "testival-2026",
@@ -1279,38 +1337,6 @@ private struct TestivalPullRequestBackend {
         )
     }
 
-    private static func stabilizeSourceImportMetadata(
-        in database: any DatabaseWriter,
-        sourceBaselineID: SourceBaselineRecord.ID,
-        referenceDatabaseFileName: String,
-        importedAt: Date
-    ) async throws {
-        try await database.write { db in
-            try #sql("""
-                UPDATE "sourceBaselines"
-                SET
-                  "databaseFileName" = \(bind: referenceDatabaseFileName),
-                  "importedAt" = \(bind: importedAt)
-                WHERE "id" = \(bind: sourceBaselineID.rawValue)
-                """)
-                .execute(db)
-            try #sql("""
-                UPDATE "editingWorkspaces"
-                SET
-                  "referenceDatabaseFileName" = \(bind: referenceDatabaseFileName),
-                  "createdAt" = \(bind: importedAt),
-                  "updatedAt" = \(bind: importedAt)
-                WHERE "sourceBaselineID" = \(bind: sourceBaselineID.rawValue)
-                """)
-                .execute(db)
-            try #sql("""
-                UPDATE "calendarEntries"
-                SET "createdAt" = \(bind: importedAt)
-                """)
-                .execute(db)
-        }
-    }
-
     func stage(_ stageID: OMERecord.ID<OMERecord.Stage>) async throws -> OMERecord.Stage {
         return try await database.read { db in
             try #require(
@@ -1319,6 +1345,64 @@ private struct TestivalPullRequestBackend {
             )
         }
     }
+}
+
+private enum WorkspaceStoryBackendError: Error {
+    case unexpectedRequest(String)
+    case unexpectedAccount(String)
+}
+
+private extension Atmosphere.Account.Client {
+    static func testival() throws -> Self {
+        let did = try #require(DID("did:plc:testival-owner"))
+        let handle = Atmosphere.Account.Handle("testival")
+        let account = Atmosphere.Account(id: .init(did), handle: handle)
+        let document = try testivalDIDDocument(did: did, handle: handle)
+        return Self(
+            resolveHandle: { requestedHandle in
+                guard requestedHandle == handle else {
+                    throw WorkspaceStoryBackendError.unexpectedAccount(
+                        requestedHandle.rawValue
+                    )
+                }
+                return (account, document)
+            },
+            resolveDID: { requestedDID in
+                guard requestedDID == did else {
+                    throw WorkspaceStoryBackendError.unexpectedAccount(
+                        requestedDID.description
+                    )
+                }
+                return (account, document)
+            }
+        )
+    }
+}
+
+private func testivalDIDDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+              "id": "\(did.description)",
+              "alsoKnownAs": ["at://\(handle.rawValue)"],
+              "verificationMethod": [],
+              "service": [
+                {
+                  "id": "#atproto_pds",
+                  "type": "AtprotoPersonalDataServer",
+                  "serviceEndpoint": "https://testival-owner.pds.example"
+                }
+              ]
+            }
+            """
+            .utf8
+        )
+    )
 }
 
 private extension SourceReferenceDatabaseClient {

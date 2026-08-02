@@ -212,47 +212,6 @@ struct SettingsFeatureTests {
         await editTask?.value
     }
 
-    @Test
-    func eventSettingsButtonsEnterAndExitAuthoring() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        let workspaceID = EditingWorkspaceRecord.ID(localEventID: eventID)
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0[AuthoringPolicyClient.self] = .authoring
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                prepareSource: { _ in }
-            )
-        } operation: {
-            TestStore(
-                initialState: Authoring<EventSettings>.State(workspaceID: workspaceID) {
-                    EventSettings.State(eventID: eventID)
-                }
-            ) {
-                Authoring { EventSettings() }
-            }
-        }
-
-        // Event Settings is mounted in attendee mode, where the user asks to enter authoring.
-        let enterTask = store.send(.content(.enterAuthoringButtonTapped))
-        await enterTask?.value
-        store.expect {
-            $0.grant = AuthoringGrant(
-                principal: .local,
-                role: .owner,
-                workspaceID: workspaceID
-            )
-        }
-
-        // The same screen lets the author return to attendee mode.
-        let exitTask = store.send(.content(.exitAuthoringButtonTapped))
-        await exitTask?.value
-        store.expect {
-            $0.grant = nil
-        }
-    }
-
     private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(60))

@@ -261,7 +261,7 @@ public extension TangledPullReviewClient {
                 let repository = try TangledRepositoryReference(
                     sourceReference: remote.reference
                 )
-                let targetRepository = try await TangledSourcePatchPublisher()
+                let targetRepository = try await TangledWorkspacePublisher()
                     .targetRepository(repository)
                 let subject = targetRepository.repositoryDID
 
@@ -390,7 +390,7 @@ public extension TangledPullReviewClient {
 
                 let pullURI = try requireTangledPullURI(review.uri)
                 let pullAuthorDID = try requireDIDAuthority(pullURI)
-                let pullRecord = try await TangledSourcePatchPublisherDiagnostics.run(
+                let pullRecord = try await TangledWorkspacePublisherDiagnostics.run(
                     operation: "pullReview.fetchRawDiffRecord",
                     details: [
                         "pull: \(pullURI.description)",
@@ -435,7 +435,7 @@ private enum TangledPullReviewListSourceKey: DependencyKey {
     static let testValue = TangledPullReviewListSource.tangledXRPC
 }
 
-private extension ATProto.URI {
+extension ATProto.URI {
     var authorDescription: String {
         switch authority {
         case let .did(did):
@@ -650,7 +650,7 @@ private struct TangledPullReviewRepositoryOwner: Sendable {
     }
 }
 
-private func patchTextForLatestRound(
+func patchTextForLatestRound(
     in pull: TangledPullRecord,
     authorDID: DID
 ) async throws -> String {

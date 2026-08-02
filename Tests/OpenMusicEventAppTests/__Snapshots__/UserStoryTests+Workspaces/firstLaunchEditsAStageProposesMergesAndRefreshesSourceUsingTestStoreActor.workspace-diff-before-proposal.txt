@@ -10,6 +10,14 @@ SourceWorkspaceSummary(
       records: []
     ),
     [1]: SourceChangeGroup(
+      id: "workspaceRelationships",
+      displayName: "WorkspaceRelationshipRecord",
+      added: 0,
+      modified: 0,
+      deleted: 0,
+      records: []
+    ),
+    [2]: SourceChangeGroup(
       id: "events",
       displayName: "Event",
       added: 0,
@@ -17,7 +25,7 @@ SourceWorkspaceSummary(
       deleted: 0,
       records: []
     ),
-    [2]: SourceChangeGroup(
+    [3]: SourceChangeGroup(
       id: "stages",
       displayName: "Stage",
       added: 0,
@@ -172,7 +180,6 @@ SourceWorkspaceSummary(
                   appearance: nil,
                   materializationPolicy: "prefetchOnOpen",
                   thumbhash: nil,
-                  dimensions: nil,
                   focalPoint: nil
                 ),
                 [2]: (…)
@@ -182,7 +189,7 @@ SourceWorkspaceSummary(
         )
       ]
     ),
-    [3]: SourceChangeGroup(
+    [4]: SourceChangeGroup(
       id: "contributors",
       displayName: "Contributor",
       added: 0,
@@ -190,7 +197,7 @@ SourceWorkspaceSummary(
       deleted: 0,
       records: []
     ),
-    [4]: SourceChangeGroup(
+    [5]: SourceChangeGroup(
       id: "schedules",
       displayName: "Schedule",
       added: 0,
@@ -198,15 +205,31 @@ SourceWorkspaceSummary(
       deleted: 0,
       records: []
     ),
-    [5]: SourceChangeGroup(
-      id: "performances",
-      displayName: "Performance",
+    [6]: SourceChangeGroup(
+      id: "scheduleItems",
+      displayName: "ScheduleItem",
       added: 0,
       modified: 0,
       deleted: 0,
       records: []
     ),
-    [6]: SourceChangeGroup(
+    [7]: SourceChangeGroup(
+      id: "scheduleItemPerformanceDetails",
+      displayName: "PerformanceDetails",
+      added: 0,
+      modified: 0,
+      deleted: 0,
+      records: []
+    ),
+    [8]: SourceChangeGroup(
+      id: "scheduleItemContributors",
+      displayName: "Contributor",
+      added: 0,
+      modified: 0,
+      deleted: 0,
+      records: []
+    ),
+    [9]: SourceChangeGroup(
       id: "channels",
       displayName: "Channel",
       added: 0,
@@ -214,7 +237,7 @@ SourceWorkspaceSummary(
       deleted: 0,
       records: []
     ),
-    [7]: SourceChangeGroup(
+    [10]: SourceChangeGroup(
       id: "posters",
       displayName: "Poster",
       added: 0,
@@ -374,7 +397,6 @@ SourceWorkspaceSummary(
                   appearance: nil,
                   materializationPolicy: "prefetchOnOpen",
                   thumbhash: nil,
-                  dimensions: nil,
                   focalPoint: nil
                 ),
                 [2]: (…)
@@ -409,7 +431,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .prefetchOnOpen,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             ),
             [1]: OpenMusicEvent.ImageAsset(
@@ -420,7 +441,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .prefetchOnOpen,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             ),
             [2]: OpenMusicEvent.ImageAsset(
@@ -431,7 +451,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .lazy,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             )
           ],
@@ -465,7 +484,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .prefetchOnOpen,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             ),
             [1]: OpenMusicEvent.ImageAsset(
@@ -476,7 +494,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .prefetchOnOpen,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             ),
             [2]: OpenMusicEvent.ImageAsset(
@@ -487,7 +504,6 @@ SourceWorkspaceSummary(
               appearance: nil,
               materializationPolicy: .lazy,
               thumbhash: nil,
-              dimensions: nil,
               focalPoint: nil
             )
           ],

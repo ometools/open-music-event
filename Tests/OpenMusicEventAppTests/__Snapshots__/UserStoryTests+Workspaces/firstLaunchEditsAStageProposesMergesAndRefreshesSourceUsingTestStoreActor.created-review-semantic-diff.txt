@@ -1,5 +1,5 @@
 .loaded(
-  EventWorkspace.TangledPullReviewSemanticDiff(
+  WorkspaceReviews.SemanticDiff(
     groups: [
       [0]: SourceChangeGroup(
         id: "calendars",
@@ -10,6 +10,14 @@
         records: []
       ),
       [1]: SourceChangeGroup(
+        id: "workspaceRelationships",
+        displayName: "WorkspaceRelationshipRecord",
+        added: 0,
+        modified: 0,
+        deleted: 0,
+        records: []
+      ),
+      [2]: SourceChangeGroup(
         id: "events",
         displayName: "Event",
         added: 0,
@@ -17,7 +25,7 @@
         deleted: 0,
         records: []
       ),
-      [2]: SourceChangeGroup(
+      [3]: SourceChangeGroup(
         id: "stages",
         displayName: "Stage",
         added: 0,
@@ -126,7 +134,7 @@
                         }
                       },
                       {
-                        "assetKey" : "did:web:example.com|testival-2026|stage|meadow|hero|default",
+                        "assetKey" : "did:web:example.com|testival-2026|stage|meadow|hero",
                         "materializationPolicy" : "prefetchOnOpen",
                         "renderKind" : "fullImage",
                         "role" : "hero",
@@ -163,7 +171,8 @@
                 value: [
                   [0]: (…),
                   [1]: (
-                    assetKey: "did:web:example.com|testival-2026|stage|meadow|hero|default",
+            -       assetKey: "did:web:example.com|testival-2026|stage|meadow|hero|default",
+            +       assetKey: "did:web:example.com|testival-2026|stage|meadow|hero",
             -       source: "url(https://cdn.example.com/stages/meadow-hero.png)",
             +       source: "url(https://cdn.example.com/stages/meadow-workshop-hero.png)",
                     role: "hero",
@@ -171,7 +180,6 @@
                     appearance: nil,
                     materializationPolicy: "prefetchOnOpen",
                     thumbhash: nil,
-                    dimensions: nil,
                     focalPoint: nil
                   ),
                   [2]: (…)
@@ -181,7 +189,7 @@
           )
         ]
       ),
-      [3]: SourceChangeGroup(
+      [4]: SourceChangeGroup(
         id: "contributors",
         displayName: "Contributor",
         added: 0,
@@ -189,7 +197,7 @@
         deleted: 0,
         records: []
       ),
-      [4]: SourceChangeGroup(
+      [5]: SourceChangeGroup(
         id: "schedules",
         displayName: "Schedule",
         added: 0,
@@ -197,15 +205,31 @@
         deleted: 0,
         records: []
       ),
-      [5]: SourceChangeGroup(
-        id: "performances",
-        displayName: "Performance",
+      [6]: SourceChangeGroup(
+        id: "scheduleItems",
+        displayName: "ScheduleItem",
         added: 0,
         modified: 0,
         deleted: 0,
         records: []
       ),
-      [6]: SourceChangeGroup(
+      [7]: SourceChangeGroup(
+        id: "scheduleItemPerformanceDetails",
+        displayName: "PerformanceDetails",
+        added: 0,
+        modified: 0,
+        deleted: 0,
+        records: []
+      ),
+      [8]: SourceChangeGroup(
+        id: "scheduleItemContributors",
+        displayName: "Contributor",
+        added: 0,
+        modified: 0,
+        deleted: 0,
+        records: []
+      ),
+      [9]: SourceChangeGroup(
         id: "channels",
         displayName: "Channel",
         added: 0,
@@ -213,7 +237,7 @@
         deleted: 0,
         records: []
       ),
-      [7]: SourceChangeGroup(
+      [10]: SourceChangeGroup(
         id: "posters",
         displayName: "Poster",
         added: 0,
@@ -327,7 +351,7 @@
                         }
                       },
                       {
-                        "assetKey" : "did:web:example.com|testival-2026|stage|meadow|hero|default",
+                        "assetKey" : "did:web:example.com|testival-2026|stage|meadow|hero",
                         "materializationPolicy" : "prefetchOnOpen",
                         "renderKind" : "fullImage",
                         "role" : "hero",
@@ -364,7 +388,8 @@
                 value: [
                   [0]: (…),
                   [1]: (
-                    assetKey: "did:web:example.com|testival-2026|stage|meadow|hero|default",
+            -       assetKey: "did:web:example.com|testival-2026|stage|meadow|hero|default",
+            +       assetKey: "did:web:example.com|testival-2026|stage|meadow|hero",
             -       source: "url(https://cdn.example.com/stages/meadow-hero.png)",
             +       source: "url(https://cdn.example.com/stages/meadow-workshop-hero.png)",
                     role: "hero",
@@ -372,7 +397,6 @@
                     appearance: nil,
                     materializationPolicy: "prefetchOnOpen",
                     thumbhash: nil,
-                    dimensions: nil,
                     focalPoint: nil
                   ),
                   [2]: (…)
@@ -407,7 +431,6 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               ),
               [1]: OpenMusicEvent.ImageAsset(
@@ -418,7 +441,6 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               ),
               [2]: OpenMusicEvent.ImageAsset(
@@ -429,7 +451,6 @@
                 appearance: nil,
                 materializationPolicy: .lazy,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               )
             ],
@@ -463,18 +484,16 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               ),
               [1]: OpenMusicEvent.ImageAsset(
-                assetKey: "did:web:example.com|testival-2026|stage|meadow|hero|default",
+                assetKey: "did:web:example.com|testival-2026|stage|meadow|hero",
                 source: .url(URL(https://cdn.example.com/stages/meadow-workshop-hero.png)),
                 role: .hero,
                 renderKind: .fullImage,
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               ),
               [2]: OpenMusicEvent.ImageAsset(
@@ -485,7 +504,6 @@
                 appearance: nil,
                 materializationPolicy: .lazy,
                 thumbhash: nil,
-                dimensions: nil,
                 focalPoint: nil
               )
             ],

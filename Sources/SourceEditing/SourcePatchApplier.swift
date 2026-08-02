@@ -64,6 +64,7 @@ private enum SourcePatchApplierKey: DependencyKey {
 }
 
 private enum SourcePatchApplyOperation {
+    case none
     case remove(path: String, url: URL)
     case write(path: String, url: URL, contents: Data)
 
@@ -79,10 +80,14 @@ private enum SourcePatchApplyOperation {
             guard let newContents = change.newContents else {
                 throw SourcePatchApplierError.missingNewContents(path: change.path)
             }
-            guard !fileManager.fileExists(atPath: url.path) else {
-                throw SourcePatchApplierError.fileAlreadyExists(path: change.path)
+            if fileManager.fileExists(atPath: url.path) {
+                guard try Data(contentsOf: url) == newContents else {
+                    throw SourcePatchApplierError.fileAlreadyExists(path: change.path)
+                }
+                self = .none
+            } else {
+                self = .write(path: change.path, url: url, contents: newContents)
             }
-            self = .write(path: change.path, url: url, contents: newContents)
 
         case .modified:
             guard let oldContents = change.oldContents else {
@@ -91,30 +96,42 @@ private enum SourcePatchApplyOperation {
             guard let newContents = change.newContents else {
                 throw SourcePatchApplierError.missingNewContents(path: change.path)
             }
-            try Self.requireCurrentContents(
-                oldContents,
-                at: url,
-                path: change.path,
-                fileManager: fileManager
-            )
-            self = .write(path: change.path, url: url, contents: newContents)
+            if fileManager.fileExists(atPath: url.path),
+               try Data(contentsOf: url) == newContents {
+                self = .none
+            } else {
+                try Self.requireCurrentContents(
+                    oldContents,
+                    at: url,
+                    path: change.path,
+                    fileManager: fileManager
+                )
+                self = .write(path: change.path, url: url, contents: newContents)
+            }
 
         case .deleted:
             guard let oldContents = change.oldContents else {
                 throw SourcePatchApplierError.missingOldContents(path: change.path)
             }
-            try Self.requireCurrentContents(
-                oldContents,
-                at: url,
-                path: change.path,
-                fileManager: fileManager
-            )
-            self = .remove(path: change.path, url: url)
+            if fileManager.fileExists(atPath: url.path) {
+                try Self.requireCurrentContents(
+                    oldContents,
+                    at: url,
+                    path: change.path,
+                    fileManager: fileManager
+                )
+                self = .remove(path: change.path, url: url)
+            } else {
+                self = .none
+            }
         }
     }
 
     func apply(fileManager: FileManager) throws {
         switch self {
+        case .none:
+            break
+
         case let .remove(_, url):
             try fileManager.removeItem(at: url)
 

@@ -40,14 +40,45 @@ persisted locally, and can be imported from organizer-owned source repositories.
   into the domain model.
 - `Sources/OpenMusicEventDatabase` owns the local database layer, image storage,
   source provenance, and import insertion.
-- `Sources/OpenMusicEventSourceEditing` and `Sources/SourceEditing` generate,
-  apply, and publish source patches.
+- `Sources/SourceEditing` contains database comparison and patch primitives.
+- `Sources/OpenMusicEventSourceEditing` adapts those primitives to the generic
+  `ComposableWorkspace` lifecycle and Tangled publication boundary.
 - `Sources/OpenMusicEventAuthentication` wires ATProto OAuth into the app.
 - `Sources/OpenMusicEventCLI` exposes the `ome` command-line tools.
 
 Smaller modules such as `ScheduleComponents`, `OpenMusicEventImages`,
 `OpenMusicEventTimeZones`, `SwiftUITabFeatures`, and `BlueskyActorCache` keep
 shared UI and infrastructure code out of the main app target.
+
+## Authoring and Workspace Contract
+
+OME composes OAuth authorization, authoring policy, and one generic editable
+workspace around the Event Viewer. OAuth owns the signed-in session and network
+authorization. Authoring owns whether OME policy grants an editing capability.
+Workspace owns reference preparation and the durable proposal state machine.
+The Event Viewer owns only editing and presentation.
+
+There is exactly one writable application database: `defaultDatabase`. While a
+workspace is prepared, its `SourceWorkspaceDatabase` exposes that same writer as
+`main` with `source_baseline` already attached read-only. Descendants receive the
+exact prepared database resource from Workspace and issue ordinary live queries
+against it. They must never reopen the workspace, install another writer, attach
+another comparison baseline, or maintain a reload token to make edits visible.
+
+The first publication freezes the current database difference, creates and
+pushes a proposal branch, records the Tangled proposal, and advances the attached
+workspace baseline to that proposal commit. Edits made after capture remain in
+the writable database and therefore remain visible as unpublished changes. A
+later publication adds another commit to the same open proposal branch. Remote
+target movement enters the explicit reconciliation path; preparation never
+silently fetches or advances an existing baseline.
+
+Durable publication progress lives in `workspacePublications`, keyed by the
+workspace ID. Clients are stateless database and network adapters. Losing an
+authoring grant interrupts work that is in flight, but a settled prepared
+workspace and its open proposal survive grant loss and re-entry. Proposal review
+diffs compare the remote target branch with the immutable proposal branch rather
+than the workspace's already-advanced baseline.
 
 ## Running
 

@@ -1,9 +1,10 @@
 import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
-import Sharing
 import SQLiteData
 import SourceEditing
 #if os(Android)
@@ -18,7 +19,6 @@ public struct WorkspaceChanges {
 
     public enum PatchPurpose: Equatable, Sendable {
         case checkChanges
-        case proposeChanges
     }
 
     public enum SourcePatchStatus: Equatable, Sendable {
@@ -72,12 +72,11 @@ public struct WorkspaceChanges {
     }
 
     public struct State {
-        public init(target: SourceProposalTarget) {
-            self._authoringGrant = Self.authoringGrant()
+        public init(target: OpenMusicEventSourceTarget) {
             self.target = target
             self._sourceWorkspaceSummary = Fetch(
                 wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
-                SourceWorkspaceSummary.query(target: target)
+                SourceWorkspaceSummaryRequest(target: target)
             )
             self._sourceProvenance = FetchOne(
                 Self.sourceProvenanceQuery(target: target)
@@ -87,11 +86,10 @@ public struct WorkspaceChanges {
             )
         }
 
-        public let target: SourceProposalTarget
-        @SharedReader public var authoringGrant: AuthoringGrant?
+        public let target: OpenMusicEventSourceTarget
         public var resetStatus: ResetStatus = .idle
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
-        public var sourceProposal: SourceProposalFlow.State?
+        public var proposalDraft: WorkspaceProposalDraft.State?
         @DebugSnapshotIgnored
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @DebugSnapshotIgnored
@@ -103,14 +101,18 @@ public struct WorkspaceChanges {
     public enum Action {
         case checkChangesButtonTapped
         case proposeChangesButtonTapped
+        case proposalDraft(WorkspaceProposalDraft.Action)
         case resetChangesButtonTapped
-        case sourceProposal(SourceProposalFlow.Action)
     }
 
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var calendarSourcePatchGenerator
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
+    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+    var authoring
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
+    var workspace
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -149,7 +151,7 @@ public struct WorkspaceChanges {
                                 return
                             }
                             $0.sourcePatchStatus = .generated(preparation)
-                            $0.sourceProposal = nil
+                            $0.proposalDraft = nil
                         }
                     } catch {
                         try store.modify {
@@ -157,69 +159,52 @@ public struct WorkspaceChanges {
                                 .checkChanges,
                                 SourcePatchGenerationFailure(error)
                             )
-                            $0.sourceProposal = nil
+                            $0.proposalDraft = nil
                         }
                     }
                 }
 
             case .proposeChangesButtonTapped:
-                guard state.canProposeChanges,
-                      let sourcePatchRequest = state.workspaceSourcePatchRequest
-                else { return }
+                guard state.canProposeChanges(
+                    authoringAccess: authoring.grant.wrappedValue?.access ?? .attendee
+                ) else { return }
+                switch workspace.phase.wrappedValue {
+                case .ready(.canonical):
+                    state.proposalDraft = WorkspaceProposalDraft.State(
+                        groups: state.sourceWorkspaceSummary.groups,
+                        recordComparisons: state.sourceWorkspaceSummary.recordComparisons
+                    )
 
-                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
-                let database = database
-                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
-                state.sourcePatchStatus = .generating(.proposeChanges)
-                state.sourceProposal = nil
-                store.addTask {
-                    do {
-                        let patch = try await calendarSourcePatchGenerator.generate(
-                            sourcePatchRequest
+                case .ready(.proposal):
+                    store.addTask {
+                        let task = try store.post(
+                            key: WorkspaceProposalUpdateRequested.self,
+                            value: ()
                         )
-                        let sourceFileAttributions = try await database.read { db in
-                            try openMusicEventSourceFileAttributions(
-                                patch: patch,
-                                groups: sourceWorkspaceSummary.groups,
-                                recordComparisons: sourceWorkspaceSummary.recordComparisons,
-                                in: db
-                            )
-                        }
-                        let preparation = SourceProposalPreparation(
-                            patch: patch,
-                            sourceFileAttributions: sourceFileAttributions,
-                            sourceWorkspaceSummary: sourceWorkspaceSummary
-                        )
-                        try store.modify {
-                            guard $0.sourceWorkspaceSummary == sourceWorkspaceSummary else {
-                                $0.sourcePatchStatus = .needsGeneration
-                                return
-                            }
-                            $0.sourcePatchStatus = .generated(preparation)
-                            guard !patch.isEmpty,
-                                  sourceWorkspaceSummary.totalCount > 0,
-                                  case .available = sourceWorkspaceSummary.availability
-                            else {
-                                $0.sourceProposal = nil
-                                return
-                            }
-                            $0.sourceProposal = SourceProposalFlow.State(
-                                target: $0.target,
-                                sourceChangeGroups: sourceWorkspaceSummary.groups,
-                                sourceRecordComparisons: sourceWorkspaceSummary.recordComparisons,
-                                sourceFileAttributions: sourceFileAttributions,
-                                patch: patch
-                            )
-                        }
-                    } catch {
-                        try store.modify {
-                            $0.sourcePatchStatus = .failed(
-                                .proposeChanges,
-                                SourcePatchGenerationFailure(error)
-                            )
-                            $0.sourceProposal = nil
-                        }
+                        await task?.value
                     }
+
+                case .publicationFailed, .publicationInterrupted:
+                    store.addTask {
+                        let task = try store.post(
+                            key: WorkspacePublicationRetryRequested.self,
+                            value: ()
+                        )
+                        await task?.value
+                    }
+
+                case .reconciliationFailed, .stale:
+                    store.addTask {
+                        let task = try store.post(
+                            key: WorkspaceReconciliationRequested.self,
+                            value: ()
+                        )
+                        await task?.value
+                    }
+
+                case .capturingSubmission, .inactive, .preparingSource, .publishing,
+                     .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
+                    break
                 }
 
             case .resetChangesButtonTapped:
@@ -239,7 +224,7 @@ public struct WorkspaceChanges {
                                     sourceWorkspaceSummary: sourceWorkspaceSummary
                                 )
                             )
-                            $0.sourceProposal = nil
+                            $0.proposalDraft = nil
                         }
                     } catch {
                         try store.modify {
@@ -248,19 +233,20 @@ public struct WorkspaceChanges {
                     }
                 }
 
-            case .sourceProposal:
+            case .proposalDraft:
                 break
             }
         }
-        .ifLet(\.sourceProposal, action: \.sourceProposal) {
-            SourceProposalFlow()
+        .ifLet(\.proposalDraft, action: \.proposalDraft) {
+            WorkspaceProposalDraft()
         }
-        .onEvent(SourceProposalDismissed.self) { _, state in
-            state.sourceProposal = nil
+        .onEvent(WorkspaceProposalDraftDismissed.self) { _, state in
+            state.proposalDraft = nil
             return .continue
         }
         .onEvent(AuthoringAccessRevoked.self) { _, state in
-            state.sourceProposal = nil
+            state.proposalDraft = nil
+            return .continue
         }
         .onChange(of: store.sourceWorkspaceSummary) { oldSummary, summary, state in
             guard oldSummary != summary else { return }
@@ -270,19 +256,14 @@ public struct WorkspaceChanges {
             case .failed, .needsGeneration, .notGenerated:
                 break
             }
-            state.sourceProposal = nil
+            state.proposalDraft = nil
         }
     }
 }
 
 extension WorkspaceChanges.State {
-    static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-        @Dependency(\.authoringGrant) var authoringGrant
-        return authoringGrant
-    }
-
     static func sourceBaselineQuery(
-        target: SourceProposalTarget
+        target: OpenMusicEventSourceTarget
     ) -> some SelectStatementOf<SourceBaselineRecord> {
         switch target {
         case let .calendar(_, sourceBaselineID):
@@ -299,7 +280,7 @@ extension WorkspaceChanges.State {
     }
 
     static func sourceProvenanceQuery(
-        target: SourceProposalTarget
+        target: OpenMusicEventSourceTarget
     ) -> some SelectStatementOf<EventSourceProvenanceRecord> {
         switch target {
         case let .calendar(calendarID, sourceBaselineID):
@@ -354,12 +335,12 @@ extension WorkspaceChanges.State {
         sourceKind == .tangled && sourceBaselineID != nil
     }
 
-    public var canProposeChanges: Bool {
+    public func canProposeChanges(authoringAccess: AuthoringAccess) -> Bool {
         sourceWorkspaceSummary.totalCount > 0
             && canPublishSourceProposal
-            && authoringGrant?.role.canPropose == true
+            && authoringAccess.canPropose
             && !sourcePatchStatus.isGenerating
-            && sourceProposal == nil
+            && proposalDraft == nil
     }
 
     public var canResetEdits: Bool {
@@ -384,13 +365,7 @@ extension WorkspaceChanges.SourcePatchStatus {
 
     var proposeButtonTitle: String {
         switch self {
-        case let .failed(purpose, _):
-            purpose == .proposeChanges ? "Try Again" : "Propose"
-        case .generating(.proposeChanges):
-            "Preparing"
-        case .generating(.checkChanges):
-            "Checking"
-        case .generated, .needsGeneration, .notGenerated:
+        case .failed, .generated, .generating, .needsGeneration, .notGenerated:
             "Propose"
         }
     }
@@ -409,6 +384,7 @@ extension WorkspaceChanges.SourcePatchStatus {
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
+    @Environment(\.openMusicEventWorkspacePhase) var workspacePhase
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
@@ -426,17 +402,12 @@ public struct WorkspaceChangesView: View {
             if store.sourceWorkspaceSummary.totalCount == 0
                 || !store.canPublishSourceProposal
                 || store.sourcePatchStatus.requiresAttention
-                || store.sourceProposal != nil
+                || workspacePhase.activity != nil
+                || workspacePhase.failure != nil
+                || workspacePhase.proposal != nil
             {
                 Section("Your changes") {
                     switch store.sourcePatchStatus {
-                    case .generating(.proposeChanges):
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Preparing proposal")
-                        }
-                        .foregroundStyle(.secondary)
-
                     case .generating(.checkChanges):
                         HStack(spacing: 8) {
                             ProgressView()
@@ -464,9 +435,7 @@ public struct WorkspaceChangesView: View {
                             .foregroundStyle(.secondary)
 
                     case .generated:
-                        if let status = store.sourceProposal?.status {
-                            SourceProposalStatusView(status: status)
-                        }
+                        EmptyView()
 
                     case .needsGeneration, .notGenerated:
                         if store.sourceWorkspaceSummary.totalCount == 0 {
@@ -477,6 +446,8 @@ public struct WorkspaceChangesView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    WorkspacePublicationStatusView(phase: workspacePhase)
                 }
             }
 
@@ -512,9 +483,9 @@ public struct WorkspaceChangesView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) {
-            proposalStore in
-            SourceProposalComposerView(store: proposalStore)
+        .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) {
+            draftStore in
+            WorkspaceProposalDraftView(store: draftStore)
         }
         .alert(
             "Reset local changes?",

@@ -34,7 +34,7 @@ import Testing
 )
 struct EventWorkspaceSourcePatchInvalidationTests {
     @Test
-    func observedSourceSummaryTracksOnlyRelevantMainDatabaseWrites() async throws {
+    func observedSourceSummaryTracksWritesToTheOriginalApplicationDatabase() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let mainDatabase = try makePreparedDatabase(
@@ -47,65 +47,40 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             path: directoryURL.appending(path: "baseline.sqlite").path()
         )
         try mainDatabase.backup(to: baselineDatabase.database)
-        let workspaceDatabase = try SourceWorkspaceDatabase(
-            workspaceID: EditingWorkspaceRecord.ID(
-                sourceBaselineID: sourceBaselineID(for: eventID)
-            ),
-            mainDatabase: mainDatabase,
-            referenceDatabase: baselineDatabase
-        )
-        try await workspaceDatabase.database.write { db in
+        try await mainDatabase.write { db in
             try db.execute(
                 sql: "CREATE TABLE observation_noise (id INTEGER PRIMARY KEY)"
             )
         }
 
-        let fetchCount = Mutex(0)
-        let summaries = Mutex<[SourceWorkspaceSummary]>([])
-        let failures = Mutex<[String]>([])
-        let observation = ValueObservation
-            .tracking { db in
-                try SourceWorkspaceSummary.Query(target: .event(eventID)).fetch(db)
-            }
-            .handleEvents(
-                willFetch: {
-                    fetchCount.withLock { $0 += 1 }
-                }
-            )
-        let cancellable = observation.start(
-            in: workspaceDatabase.database,
-            scheduling: .immediate,
-            onError: { error in
-                failures.withLock { $0.append(String(reflecting: error)) }
-            },
-            onChange: { summary in
-                summaries.withLock { $0.append(summary) }
-            }
-        )
-        defer { cancellable.cancel() }
+        let state = withDependencies {
+            $0.defaultDatabase = mainDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            WorkspaceChanges.State(target: .event(eventID))
+        }
+        try await waitForCondition {
+            state.sourceWorkspaceSummary.availability == .available
+        }
+        #expect(state.sourceWorkspaceSummary.totalCount == 0)
 
-        let initialFetchCount = fetchCount.withLock { $0 }
-        #expect(initialFetchCount > 0)
-        #expect(summaries.withLock { $0.last?.totalCount } == 0)
-        #expect(failures.withLock { $0 }.isEmpty)
-
-        try await workspaceDatabase.database.write { db in
+        try await mainDatabase.write { db in
             try db.execute(sql: "INSERT INTO observation_noise DEFAULT VALUES")
         }
         try await Task.sleep(for: .milliseconds(50))
-        #expect(fetchCount.withLock { $0 } == initialFetchCount)
+        #expect(state.sourceWorkspaceSummary.totalCount == 0)
 
-        try await workspaceDatabase.database.write { db in
+        try await mainDatabase.write { db in
             try OME.Event
                 .find(eventID)
                 .update { $0.name = "Observed Source Event" }
                 .execute(db)
         }
         try await waitForCondition {
-            summaries.withLock { $0.last?.totalCount == 1 }
+            state.sourceWorkspaceSummary.totalCount == 1
         }
-        #expect(fetchCount.withLock { $0 } == initialFetchCount + 1)
-        #expect(failures.withLock { $0 }.isEmpty)
+        #expect(state.sourceWorkspaceSummary.totalCount == 1)
     }
 
     @Test
@@ -224,1166 +199,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             )
         )
-        #expect(store.state.changes.sourceProposal == nil)
-        await store.dismount()
-    }
-
-    @Test
-    func proposeChangeReviewsChangesWhenPatchIsNotReady() async throws {
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let database = try makePreparedDatabase(
-            at: directoryURL.appending(path: "app.sqlite")
-        )
-        let eventID = testEventID("event-1")
-        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
-        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
-        try await seedEditingWorkspace(for: eventID, in: database)
-        let baselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "baseline.sqlite").path()
-        )
-        try database.backup(to: baselineDatabase.database)
-        try await database.write { db in
-            try OME.Event
-                .find(eventID)
-                .update { $0.name = "Updated Source Event" }
-                .execute(db)
-        }
-        let expectedWorkspaceSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try SourceWorkspaceSummary.query(target: .event(eventID), using: database)
-        }
-        #expect(expectedWorkspaceSummary.availability == .available)
-        #expect(expectedWorkspaceSummary.totalCount == 1)
-        let eventRecord = try #require(
-            expectedWorkspaceSummary.groups
-                .first { $0.id == OME.Event.tableName }?
-                .records
-                .first
-        )
-        let expectedSourceFileAttributions = [
-            SourceFileAttribution(
-                filePath: "events/event-1/event.yml",
-                recordChangeIDs: [eventRecord.id]
-            )
-        ]
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID)
-        let authoringDatabase = try makeAuthoringDatabase(
-            for: eventID,
-            mainDatabase: database,
-            baselineDatabase: baselineDatabase
-        )
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = authoringDatabase
-            $0.useAuthoringContext(
-                workspaceID,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .collaborator([.propose]),
-                        workspaceID: workspaceID
-                    )
-                )
-            )
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(
-                    request == OpenMusicEventCalendarSourcePatchRequest(
-                        calendarID: OME.Calendar.ID(
-                            ownerID: eventID.organizerID,
-                            calendarID: OME.Calendar.defaultID
-                        ),
-                        sourceBaselineID: expectedSourceBaselineID
-                    )
-                )
-                return patch
-            }
-        } operation: {
-            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(.changes(.proposeChangesButtonTapped))
-        await task?.value
-
-        #expect(store.state.changes.sourceProposal?.eventID == eventID)
-        #expect(store.state.changes.sourceProposal?.patch == patch)
-        expectNoDifference(
-            store.state.changes.sourceProposal?.sourceFileAttributions,
-            expectedSourceFileAttributions
-        )
-        expectNoDifference(
-            store.state.changes.sourceProposal?.sourceChangeGroups,
-            expectedWorkspaceSummary.groups
-        )
-        await store.dismount()
-    }
-
-    @Test
-    func proposeChangeButtonRegeneratesPatchAndPreparesInlineProposalFromCurrentDiff() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
-        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
-        try await seedEditingWorkspace(for: eventID, in: database)
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let baselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "baseline.sqlite").path()
-        )
-        try database.backup(to: baselineDatabase.database)
-        try await database.write { db in
-            try OME.Event
-                .find(eventID)
-                .update { $0.name = "Updated Source Event" }
-                .execute(db)
-        }
-        let expectedWorkspaceSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try SourceWorkspaceSummary.query(target: .event(eventID), using: database)
-        }
-        #expect(expectedWorkspaceSummary.availability == .available)
-        #expect(expectedWorkspaceSummary.totalCount == 1)
-        let eventRecord = try #require(
-            expectedWorkspaceSummary.groups
-                .first { $0.id == OME.Event.tableName }?
-                .records
-                .first
-        )
-        let expectedSourceFileAttributions = [
-            SourceFileAttribution(
-                filePath: "events/event-1/event.yml",
-                recordChangeIDs: [eventRecord.id]
-            )
-        ]
-        let stalePatch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let currentPatch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Source Event\n".utf8),
-                    newContents: Data("name: Updated Source Event\n".utf8)
-                )
-            ]
-        )
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID)
-        let authoringDatabase = try makeAuthoringDatabase(
-            for: eventID,
-            mainDatabase: database,
-            baselineDatabase: baselineDatabase
-        )
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = authoringDatabase
-            $0.useAuthoringContext(
-                workspaceID,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .collaborator([.propose]),
-                        workspaceID: workspaceID
-                    )
-                )
-            )
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(
-                    request == OpenMusicEventCalendarSourcePatchRequest(
-                        calendarID: OME.Calendar.ID(
-                            ownerID: eventID.organizerID,
-                            calendarID: OME.Calendar.defaultID
-                        ),
-                        sourceBaselineID: expectedSourceBaselineID
-                    )
-                )
-                return currentPatch
-            }
-        } operation: {
-            var state = EventWorkspace.State(eventID: eventID)
-            state.changes.sourcePatchStatus = .generated(
-                WorkspaceChanges.SourceProposalPreparation(
-                    patch: stalePatch,
-                    sourceWorkspaceSummary: expectedWorkspaceSummary
-                )
-            )
-            return TestStore(initialState: state) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(.changes(.proposeChangesButtonTapped))
-        await task?.value
-        #expect(store.state.changes.sourceProposal?.eventID == eventID)
-        #expect(store.state.changes.sourceProposal?.patch == currentPatch)
-        expectNoDifference(
-            store.state.changes.sourceProposal?.sourceFileAttributions,
-            expectedSourceFileAttributions
-        )
-        expectNoDifference(
-            store.state.changes.sourceProposal?.sourceChangeGroups,
-            expectedWorkspaceSummary.groups
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func proposeChangeButtonAttributesStagePatchFileToCurrentStageDiff() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
-        let stageID = OME.Stage.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            stageID: OME.ID<OME.Stage>(.init("meadow"))
-        )
-        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
-        try await seedEditingWorkspace(for: eventID, in: database)
-        try await database.write { db in
-            try OME.Stage.insert {
-                OME.Stage.Draft(
-                    id: stageID,
-                    name: "Meadow",
-                    color: 0x00bbcc,
-                    sortIndex: 1
-                )
-            }
-            .execute(db)
-        }
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let baselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "baseline.sqlite").path()
-        )
-        try database.backup(to: baselineDatabase.database)
-        try await database.write { db in
-            try OME.Stage
-                .find(stageID)
-                .update { $0.name = "Main Meadow" }
-                .execute(db)
-        }
-        let expectedWorkspaceSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try SourceWorkspaceSummary.query(target: .event(eventID), using: database)
-        }
-        let stageRecord = try #require(
-            expectedWorkspaceSummary.groups
-                .first { $0.id == OME.Stage.tableName }?
-                .records
-                .first
-        )
-        let expectedSourceFileAttributions = [
-            SourceFileAttribution(
-                filePath: "events/event-1/stages/meadow.yml",
-                recordChangeIDs: [stageRecord.id]
-            )
-        ]
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/stages/meadow.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Meadow\n".utf8),
-                    newContents: Data("name: Main Meadow\n".utf8)
-                )
-            ]
-        )
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID)
-        let authoringDatabase = try makeAuthoringDatabase(
-            for: eventID,
-            mainDatabase: database,
-            baselineDatabase: baselineDatabase
-        )
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = authoringDatabase
-            $0.useAuthoringContext(
-                workspaceID,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .collaborator([.propose]),
-                        workspaceID: workspaceID
-                    )
-                )
-            )
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(
-                    request == OpenMusicEventCalendarSourcePatchRequest(
-                        calendarID: OME.Calendar.ID(
-                            ownerID: eventID.organizerID,
-                            calendarID: OME.Calendar.defaultID
-                        ),
-                        sourceBaselineID: expectedSourceBaselineID
-                    )
-                )
-                return patch
-            }
-        } operation: {
-            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(.changes(.proposeChangesButtonTapped))
-        await task?.value
-
-        expectNoDifference(
-            store.state.changes.sourceProposal?.sourceFileAttributions,
-            expectedSourceFileAttributions
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func sourceFileAttributionsCollectMultipleCurrentDiffRecordsForSameFile() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let scheduleID = OME.Schedule.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            scheduleID: OME.Schedule.singletonID
-        )
-        let scheduleDate = try #require(LocalDate("2026-08-01"))
-        try await seedSourceBackedEvent(eventID, in: database)
-        try await seedEditingWorkspace(for: eventID, in: database)
-        try await database.write { db in
-            try OME.Schedule.insert {
-                OME.Schedule.Draft(
-                    id: scheduleID,
-                    date: scheduleDate,
-                    startsAt: nil,
-                    endsAt: nil,
-                    customTitle: "Original Schedule"
-                )
-            }
-            .execute(db)
-        }
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let baselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "baseline.sqlite").path()
-        )
-        try database.backup(to: baselineDatabase.database)
-        try await database.write { db in
-            try OME.Event
-                .find(eventID)
-                .update { $0.name = "Updated Source Event" }
-                .execute(db)
-            try OME.Schedule
-                .find(scheduleID)
-                .update { $0.customTitle = #bind("Updated Schedule") }
-                .execute(db)
-        }
-        let workspaceSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try SourceWorkspaceSummary.query(target: .event(eventID), using: database)
-        }
-        let eventRecord = try #require(
-            workspaceSummary.groups
-                .first { $0.id == OME.Event.tableName }?
-                .records
-                .first
-        )
-        let scheduleRecord = try #require(
-            workspaceSummary.groups
-                .first { $0.id == OME.Schedule.tableName }?
-                .records
-                .first
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Source Event\n".utf8),
-                    newContents: Data("name: Updated Source Event\n".utf8)
-                )
-            ]
-        )
-
-        let attributions = try await database.read { db in
-            try openMusicEventSourceFileAttributions(
-                patch: patch,
-                groups: workspaceSummary.groups,
-                recordComparisons: workspaceSummary.recordComparisons,
-                in: db
-            )
-        }
-
-        expectNoDifference(
-            attributions,
-            [
-                SourceFileAttribution(
-                    filePath: "events/event-1/event.yml",
-                    recordChangeIDs: [
-                        eventRecord.id,
-                        scheduleRecord.id,
-                    ].sorted()
-                )
-            ]
-        )
-    }
-
-    @Test
-    func localProposalAndReviewSemanticDiffUseSameTypedSourceDiff() async throws {
-        let database = try makePreparedDatabase()
-        let baselineDatabase = try defaultBaselineDatabase()
-        let eventID = testEventID("event-1")
-        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
-            kind: .tangled,
-            reference: "tangled.org/woody.fm/wicked-woods-ome",
-            ref: "main"
-        )
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let baselineSource = try makeReviewSourceRepository(
-            eventID: eventID,
-            eventName: "Wicked Woods 2025"
-        )
-        let reviewSource = try makeReviewSourceRepository(
-            eventID: eventID,
-            eventName: "Wicked Woods 2026"
-        )
-        try await withDependencies {
-            $0.context = .test
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-        } operation: {
-            let insertion = try OME.SourceDatabaseInsertion(
-                OME.SourceDatabaseInsertion.Configuration(
-                    source: baselineSource,
-                    organizerID: eventID.organizerID,
-                    sourceProvenance: sourceProvenance
-                )
-            )
-            try await insertion.migrateAndInsert(into: database)
-        }
-        try await database.write { db in
-            try OME.Event
-                .find(eventID)
-                .update { $0.name = "Wicked Woods 2026" }
-                .execute(db)
-        }
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Wicked Woods 2025\n".utf8),
-                    newContents: Data("name: Wicked Woods 2026\n".utf8)
-                )
-            ]
-        )
-        let review = TangledPullReview(
-            author: "did:plc:author123",
-            body: "Hydrate the 2026 event.",
-            commentCount: 0,
-            createdAt: "2026-07-03T12:01:00Z",
-            patchBlobs: [],
-            sourceBranch: "ome/proposal-2026",
-            state: "open",
-            targetBranch: "main",
-            targetRepositoryDID: "did:plc:targetrepo",
-            title: "Hydrate 2026",
-            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
-        )
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
-        let authoringDatabase = try makeAuthoringDatabase(
-            for: eventID,
-            mainDatabase: database,
-            baselineDatabase: baselineDatabase
-        )
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = authoringDatabase
-            $0.useAuthoringContext(
-                workspaceID,
-                grant: SharedReader(
-                    value: AuthoringGrant(
-                        principal: .local,
-                        role: .collaborator([.propose]),
-                        workspaceID: workspaceID
-                    )
-                )
-            )
-            $0.workspaceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(
-                    request == OpenMusicEventCalendarSourcePatchRequest(
-                        calendarID: OME.Calendar.ID(
-                            ownerID: eventID.organizerID,
-                            calendarID: OME.Calendar.defaultID
-                        ),
-                        sourceBaselineID: sourceBaselineID
-                    )
-                )
-                return patch
-            }
-            $0.tangledPullReviewSourceSnapshot = TangledPullReviewSourceSnapshotClient { request in
-                #expect(
-                    request == TangledPullReviewSourceSnapshotRequest(
-                        organizerID: eventID.organizerID,
-                        review: review,
-                        sourceProvenance: sourceProvenance
-                    )
-                )
-                return try OME.SourceDatabaseInsertion(
-                    OME.SourceDatabaseInsertion.Configuration(
-                        source: reviewSource,
-                        organizerID: request.organizerID,
-                        sourceProvenance: request.sourceProvenance
-                    )
-                )
-            }
-            $0.uuid = .incrementing
-        } operation: {
-            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
-                EventWorkspace()
-            }
-        }
-
-        let prepareProposalTask = store.send(.changes(.proposeChangesButtonTapped))
-        await prepareProposalTask?.value
-        guard case let .generated(localPreparation) = store.state.changes.sourcePatchStatus else {
-            Issue.record("Expected local source proposal preparation.")
-            return
-        }
-        let reviewDiffTask = store.send(.reviews(.showChangesButtonTapped(review)))
-        await reviewDiffTask?.value
-        guard case let .loaded(reviewDiff) = store.state.reviews.semanticDiffs[review.id] else {
-            Issue.record("Expected review semantic diff.")
-            return
-        }
-        expectNoDifference(
-            reviewDiff.groups,
-            localPreparation.sourceWorkspaceSummary.groups
-        )
-        expectNoDifference(
-            reviewDiff.recordComparisons,
-            localPreparation.sourceWorkspaceSummary.recordComparisons
-        )
-        expectNoDifference(
-            reviewDiff.sourceFileAttributions,
-            localPreparation.sourceFileAttributions
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func sourceProposalFormTitleAndDescriptionCanBeEdited() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let store = withDependencies {
-            $0.continuousClock = ImmediateClock()
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: SourceProposalFlow.State(
-                    eventID: eventID,
-                    patch: patch
-                )
-            ) {
-                SourceProposalFlow()
-            }
-        }
-
-        store.modify {
-            $0.form.value.title = "Update the event name"
-            $0.form.value.description = "Updated the event name."
-        } changes: {
-            $0.form.value.title = "Update the event name"
-            $0.form.value.description = "Updated the event name."
-        }
-
-        await store.dismount()
-    }
-
-    @Test
-    func createProposalRequiresTitleFormValidation() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let publishRequests = Mutex([SourcePatchPublishRequest]())
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.sourcePatchPublisher = SourcePatchPublisher { request in
-                publishRequests.withLock { $0.append(request) }
-                return SourcePatchPublication()
-            }
-        } operation: {
-            TestStore(
-                initialState: SourceProposalFlow.State(
-                    eventID: eventID,
-                    patch: patch
-                )
-            ) {
-                SourceProposalFlow()
-            }
-        }
-
-        await store.send(.createProposalButtonTapped)?.value
-
-        expectNoDifference(store.state.status, .composing)
-        expectNoDifference(publishRequests.withLock { $0 }, [])
-        expectNoDifference(
-            store.state.form.validation[AnyHashable(\SourceProposalFlow.FormValue.title)]?
-                .errors.map(\.message),
-            ["Enter a title."]
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func createProposalPublishesGeneratedPatchWithResolvedSourceLocation() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let repositoryURL = URL(fileURLWithPath: "/tmp/source-repository")
-        let location = SourcePatchLocation(
-            repositoryURL: repositoryURL,
-            relativePath: "events/event-1"
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let sourceChangeURL = try #require(URL(string: "https://source.woody.fm/events/event-1/proposals/1"))
-        let publication = SourcePatchPublication(sourceChangeURL: sourceChangeURL)
-        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "proposal-workspace")
-        let operations = Mutex<[String]>([])
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.useAuthoringContext(workspaceID, grant: SharedReader(value: nil))
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                prepareSource: { requestedWorkspaceID in
-                    #expect(requestedWorkspaceID == workspaceID)
-                    operations.withLock { $0.append("prepare") }
-                }
-            )
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
-                #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
-                operations.withLock { $0.append("resolve") }
-                return location
-            }
-            $0.sourcePatchPublisher = SourcePatchPublisher { request in
-                operations.withLock { $0.append("publish") }
-                #expect(
-                    request == SourcePatchPublishRequest(
-                        description: "Updated the event name.",
-                        location: location,
-                        patch: patch,
-                        title: "Update the event name"
-                    )
-                )
-                return publication
-            }
-        } operation: {
-            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.description = "Updated the event name."
-            state.title = "Update the event name"
-            return TestStore(initialState: state) {
-                SourceProposalFlow()
-            }
-        }
-
-        let task = store.send(.formSubmitted(store.state.form.value))
-        await task?.value
-        #expect(store.state.status == .created(publication))
-        expectNoDifference(operations.withLock { $0 }, ["prepare", "resolve", "publish"])
-
-        await store.dismount()
-    }
-
-    @Test
-    func createdSourceProposalDismissesToReviewWhenTangledReviewLoads() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        try await seedTangledSourceBackedEvent(eventID, in: database)
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let review = testTangledPullReview()
-        let publication = SourcePatchPublication(
-            sourceChangeID: review.uri,
-            sourceChangeURL: URL(string: "https://tangled.org/woody.fm/wicked-woods/pulls")
-        )
-        let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.defaultDatabase = database
-            $0.openMusicEventSourcePatchLocationResolver =
-                OpenMusicEventSourcePatchLocationResolver { _ in
-                    SourcePatchLocation(
-                        repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
-                        relativePath: "events/event-1"
-                    )
-                }
-            $0.sourcePatchPublisher = SourcePatchPublisher { _ in publication }
-            $0.tangledPullReviewClient = TangledPullReviewClient { request in
-                requests.withLock { $0.append(request) }
-                return [review]
-            }
-        } operation: {
-            var state = EventWorkspace.State(eventID: eventID)
-            state.changes.sourcePatchStatus = .generated(
-                WorkspaceChanges.SourceProposalPreparation(
-                    patch: patch,
-                    sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
-                )
-            )
-            state.changes.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.changes.sourceProposal?.title = "Update the event"
-            return TestStore(initialState: state) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(
-            .changes(
-                .sourceProposal(
-                    .formSubmitted(try #require(store.state.changes.sourceProposal?.form.value))
-                )
-            )
-        )
-        await task?.value
-
-        #expect(store.state.reviews.pendingCreatedReviewID == nil)
-        #expect(store.state.reviews.selectedReview == .loaded(review))
-        #expect(store.state.reviews.reviewsStatus == .loaded([review]))
-        #expect(store.state.changes.sourceProposal == nil)
-
-        expectNoDifference(
-            requests.withLock { $0 },
-            [
-                OpenMusicEventTangledPullReviewRequest(eventID: eventID),
-                OpenMusicEventTangledPullReviewRequest(eventID: eventID),
-            ]
-        )
-        await store.dismount()
-    }
-
-    @Test
-    func dismissedCreatedSourceProposalStopsPendingReviewNavigation() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        try await seedTangledSourceBackedEvent(eventID, in: database)
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let review = testTangledPullReview()
-        let publication = SourcePatchPublication(
-            sourceChangeID: review.uri,
-            sourceChangeURL: URL(string: "https://tangled.org/woody.fm/wicked-woods/pulls")
-        )
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EventWorkspace.State(eventID: eventID)
-            state.changes.sourcePatchStatus = .generated(
-                WorkspaceChanges.SourceProposalPreparation(
-                    patch: patch,
-                    sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
-                )
-            )
-            state.changes.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.changes.sourceProposal?.status = .created(publication)
-            state.reviews.pendingCreatedReviewID = review.uri
-            return TestStore(initialState: state) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(.changes(.sourceProposal(.doneButtonTapped)))
-        await task?.value
-
-        #expect(store.state.reviews.pendingCreatedReviewID == nil)
-        #expect(store.state.changes.sourceProposal == nil)
-        #expect(store.state.reviews.selectedReview == nil)
-        await store.dismount()
-    }
-
-    @Test
-    func failedProposalCanBeRetried() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let location = SourcePatchLocation(
-            repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
-            relativePath: "events/event-1"
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "team.retry")
-        let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(
-                principal: .local,
-                role: .owner,
-                workspaceID: workspaceID
-            )
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
-            $0[AuthoringPolicyClient.self] = .authoring
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
-                location
-            }
-            $0.sourcePatchPublisher = SourcePatchPublisher { _ in
-                throw SourceProposalTestError.failed
-            }
-        } operation: {
-            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.title = "Update the event name"
-            return TestStore(
-                initialState: SourceProposalErrorReportingHost.State(proposal: state)
-            ) {
-                SourceProposalErrorReportingHost()
-            }
-        }
-
-        await withIssueReporters([]) {
-            let task = store.send(.proposal(.formSubmitted(store.state.proposal.form.value)))
-            await task?.value
-        }
-        guard case let .failed(failure) = store.state.proposal.status else {
-            #expect(Bool(false))
-            return
-        }
-        expectNoDifference(failure.message, "Unable to create proposal.")
-        expectNoDifference(
-            store.state.errorNotifications.state.latestError?.message.fallback,
-            "Unable to create proposal."
-        )
-        expectNoDifference(
-            store.state.errorNotifications.state.latestError?.operation.rawValue,
-            "source.proposal.publish"
-        )
-        #expect(grant.wrappedValue != nil)
-
-        await withIssueReporters([]) {
-            let retryTask = store.send(.proposal(.formSubmitted(store.state.proposal.form.value)))
-            await retryTask?.value
-        }
-        guard case let .failed(retryFailure) = store.state.proposal.status else {
-            #expect(Bool(false))
-            return
-        }
-        expectNoDifference(retryFailure.message, "Unable to create proposal.")
-        #expect(grant.wrappedValue != nil)
-
-        await store.dismount()
-    }
-
-    @Test
-    func revokedProposalAccessReturnsToAttendeeWithoutPublishing() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "team.revoked")
-        let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(
-                principal: .actor(try #require(DID("did:plc:revoked"))),
-                role: .collaborator([.propose]),
-                workspaceID: workspaceID
-            )
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: Draft remains\n".utf8)
-                )
-            ]
-        )
-        let publishRequests = Mutex([SourcePatchPublishRequest]())
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
-            $0[AuthoringPolicyClient.self] = .attendee
-            $0.sourcePatchPublisher = SourcePatchPublisher { request in
-                publishRequests.withLock { $0.append(request) }
-                return SourcePatchPublication()
-            }
-        } operation: {
-            var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            proposal.title = "Publish the saved draft"
-            return TestStore(
-                initialState: SourceProposalRevocationHost.State(
-                    grant: grant,
-                    proposal: proposal
-                )
-            ) {
-                SourceProposalRevocationHost()
-            }
-        }
-
-        try await withIssueReporters([]) {
-            let task = store.send(.proposal(.formSubmitted(
-                try #require(store.state.proposal?.form.value)
-            )))
-            await task?.value
-        }
-
-        #expect(store.state.grant == nil)
-        #expect(store.state.proposal == nil)
-        #expect(store.state.didRevokeAuthoring)
-        #expect(store.state.savedPatch == patch)
-        expectNoDifference(publishRequests.withLock { $0 }, [])
-        expectNoDifference(
-            store.state.errorNotifications.state.latestError?.message.fallback,
-            "Your authoring access changed. Your edits remain saved."
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func proposalFailureRechecksRevokedAccessBeforeReportingFailure() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let actor = try #require(DID("did:plc:revoked-after-publish"))
-        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "team.revoked-after-publish")
-        let role = OME.WorkspaceRole.collaborator([.propose])
-        let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(
-                principal: .actor(actor),
-                role: role,
-                workspaceID: workspaceID
-            )
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: Draft remains\n".utf8)
-                )
-            ]
-        )
-        let admissionRequestCount = Mutex(0)
-        let publishRequestCount = Mutex(0)
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
-                #expect(requestedWorkspaceID == workspaceID)
-                let requestNumber = admissionRequestCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                return requestNumber == 1
-                    ? .granted(principal: .actor(actor), role: role)
-                    : .denied
-            }
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
-                SourcePatchLocation(
-                    repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
-                    relativePath: "events/event-1"
-                )
-            }
-            $0.sourcePatchPublisher = SourcePatchPublisher { _ in
-                publishRequestCount.withLock { $0 += 1 }
-                throw SourceProposalTestError.failed
-            }
-        } operation: {
-            var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            proposal.title = "Publish the saved draft"
-            return TestStore(
-                initialState: SourceProposalRevocationHost.State(
-                    grant: grant,
-                    proposal: proposal
-                )
-            ) {
-                SourceProposalRevocationHost()
-            }
-        }
-
-        try await withIssueReporters([]) {
-            let task = store.send(.proposal(.formSubmitted(
-                try #require(store.state.proposal?.form.value)
-            )))
-            await task?.value
-        }
-
-        #expect(store.state.grant == nil)
-        #expect(store.state.proposal == nil)
-        #expect(store.state.didRevokeAuthoring)
-        #expect(store.state.savedPatch == patch)
-        #expect(admissionRequestCount.withLock { $0 } == 2)
-        #expect(publishRequestCount.withLock { $0 } == 1)
-        expectNoDifference(
-            store.state.errorNotifications.state.latestError?.message.fallback,
-            "Your authoring access changed. Your edits remain saved."
-        )
-
-        await store.dismount()
-    }
-
-    @Test
-    func embeddedSourceProposalActionUsesParentAuthorizationBroker() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let location = SourcePatchLocation(
-            repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
-            relativePath: "events/event-1"
-        )
-        let patch = SourcePatch(
-            fileChanges: [
-                SourcePatchFileChange(
-                    path: "events/event-1/event.yml",
-                    kind: .modified,
-                    oldContents: Data("name: Old\n".utf8),
-                    newContents: Data("name: New\n".utf8)
-                )
-            ]
-        )
-        let publication = SourcePatchPublication(
-            sourceChangeURL: URL(string: "https://source.woody.fm/events/event-1/proposals/1")
-        )
-        let requirement = OpenMusicEventOAuth.proposalAuthRequirement
-        let authorizationCenter = AuthorizationRequestCenter()
-        var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
-        proposal.title = "Update the event name"
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
-                center: authorizationCenter
-            )
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
-                location
-            }
-            $0.sourcePatchPublisher = SourcePatchPublisher { _ in
-                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
-                try await authorizationBroker.authorize(requirement)
-                return publication
-            }
-        } operation: {
-            TestStore(
-                initialState: SourceProposalEmbeddedHost.State(proposal: proposal)
-            ) {
-                SourceProposalEmbeddedHost()
-                    .transformDependency(\.oauthAuthorizationBroker) {
-                        $0 = authorizationCenter.broker
-                    }
-            }
-        }
-
-        let proposalForm = try #require(
-            store.state.proposal?.form.value
-        )
-        let task = store.send(
-            .proposal(.formSubmitted(proposalForm))
-        )
-        await fulfillAuthorizationRequest(
-            from: authorizationCenter,
-            requirement: requirement
-        )
-        await task?.value
-        #expect(
-            store.state.proposal?.status
-                == .created(publication)
-        )
+        #expect(store.state.changes.proposalDraft == nil)
         await store.dismount()
     }
 
@@ -1409,7 +225,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             mainDatabase: database,
             baselineDatabase: baselineDatabase
         )
-        let resetRequests = Mutex([SourceProposalTarget]())
+        let resetRequests = Mutex([OpenMusicEventSourceTarget]())
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -1439,7 +255,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                     sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
                 )
             )
-            state.changes.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.changes.proposalDraft = WorkspaceProposalDraft.State(
+                groups: state.changes.sourceWorkspaceSummary.groups,
+                recordComparisons: state.changes.sourceWorkspaceSummary.recordComparisons
+            )
             return TestStore(initialState: state) {
                 EventWorkspace()
             }
@@ -1453,7 +272,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         #expect(store.state.changes.resetStatus == .idle)
         #expect(store.state.changes.sourcePatchStatus.preparation?.patch == SourcePatch())
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
         #expect(resetRequests.withLock { $0 } == [.event(eventID)])
         await store.dismount()
     }
@@ -1604,12 +423,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                     sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
                 )
             )
-            state.changes.sourceProposal = SourceProposalFlow.State(
-                eventID: eventID,
-                patch: originalPatch
+            state.changes.proposalDraft = WorkspaceProposalDraft.State(
+                groups: state.changes.sourceWorkspaceSummary.groups,
+                recordComparisons: state.changes.sourceWorkspaceSummary.recordComparisons
             )
-            state.changes.sourceProposal?.title = "Update the event"
-            state.changes.sourceProposal?.description = "Describe the changes."
+            state.changes.proposalDraft?.title = "Update the event"
+            state.changes.proposalDraft?.description = "Describe the changes."
             return TestStore(initialState: state) {
                 EventWorkspace()
             }
@@ -1619,7 +438,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await task?.value
 
         #expect(store.state.changes.sourcePatchStatus.preparation?.patch == regeneratedPatch)
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
         await store.dismount()
     }
 
@@ -1651,7 +470,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                     sourceWorkspaceSummary: state.changes.sourceWorkspaceSummary
                 )
             )
-            state.changes.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.changes.proposalDraft = WorkspaceProposalDraft.State(
+                groups: state.changes.sourceWorkspaceSummary.groups,
+                recordComparisons: state.changes.sourceWorkspaceSummary.recordComparisons
+            )
             return TestStore(initialState: state) {
                 EventWorkspace()
             }
@@ -1661,7 +483,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await task?.value
 
         #expect(store.state.changes.sourcePatchStatus.preparation?.patch == SourcePatch())
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
         await store.dismount()
     }
 
@@ -1715,7 +537,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await generation.open()
         await task?.value
 
-        #expect(store.state.changes.sourceProposal == nil)
+        #expect(store.state.changes.proposalDraft == nil)
         #expect(store.state.changes.sourcePatchStatus == .needsGeneration)
         await store.dismount()
     }
@@ -2331,13 +1153,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 snapshotRequests.withLock { $0.append(request) }
                 return try OME.SourceDatabaseInsertion(
                     OME.SourceDatabaseInsertion.Configuration(
-                        source: reviewSource,
+                        source: request.ref == review.targetBranch
+                            ? baselineSource
+                            : reviewSource,
                         organizerID: request.organizerID,
                         sourceProvenance: request.sourceProvenance
                     )
                 )
             }
-            $0.uuid = .incrementing
         } operation: {
             TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
                 EventWorkspace()
@@ -2351,7 +1174,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             snapshotRequests.withLock { $0 } == [
                 TangledPullReviewSourceSnapshotRequest(
                     organizerID: eventID.organizerID,
-                    review: review,
+                    ref: review.targetBranch,
+                    sourceProvenance: sourceProvenance
+                ),
+                TangledPullReviewSourceSnapshotRequest(
+                    organizerID: eventID.organizerID,
+                    ref: try #require(review.sourceBranch),
                     sourceProvenance: sourceProvenance
                 )
             ]
@@ -2381,6 +1209,63 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
 
         await store.dismount()
+    }
+
+    @Test
+    func simultaneousReviewDiffsOwnIndependentScratchDatabases() async throws {
+        let eventID = testEventID("event-1")
+        let target = OpenMusicEventSourceTarget.event(eventID)
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods-ome",
+            ref: "main"
+        )
+        let baselineSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2025"
+        )
+        let reviewSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2026"
+        )
+        let review = testTangledPullReview()
+        let firstSnapshotGate = SimultaneousSnapshotGate()
+        let sourceSnapshot = TangledPullReviewSourceSnapshotClient { request in
+            await firstSnapshotGate.arrive()
+            return try OME.SourceDatabaseInsertion(
+                OME.SourceDatabaseInsertion.Configuration(
+                    source: request.ref == review.targetBranch
+                        ? baselineSource
+                        : reviewSource,
+                    organizerID: request.organizerID,
+                    sourceProvenance: request.sourceProvenance
+                )
+            )
+        }
+        let repeatedUUID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        )
+
+        let (first, second) = try await withDependencies {
+            // Deterministic domain UUIDs must not become shared temporary-resource identity.
+            $0.uuid = .constant(repeatedUUID)
+        } operation: {
+            async let first = WorkspaceReviews.SemanticDiff.reviewBranchDiff(
+                target: target,
+                review: review,
+                sourceProvenance: sourceProvenance,
+                sourceSnapshot: sourceSnapshot
+            )
+            async let second = WorkspaceReviews.SemanticDiff.reviewBranchDiff(
+                target: target,
+                review: review,
+                sourceProvenance: sourceProvenance,
+                sourceSnapshot: sourceSnapshot
+            )
+            return try await (first, second)
+        }
+
+        expectNoDifference([first.totalCount, second.totalCount], [1, 1])
     }
 
     private func makePreparedDatabase(
@@ -2692,10 +1577,6 @@ private func testTangledPullReview() -> TangledPullReview {
     )
 }
 
-private enum SourceProposalTestError: Equatable, Error {
-    case failed
-}
-
 @Feature
 private struct EventWorkspaceErrorReportingHost {
     struct State {
@@ -2717,90 +1598,6 @@ private struct EventWorkspaceErrorReportingHost {
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
         }
-    }
-}
-
-@Feature
-private struct SourceProposalErrorReportingHost {
-    struct State {
-        var errorNotifications = Spawn(ErrorNotifications.State())
-        var proposal: SourceProposalFlow.State
-    }
-
-    enum Action {
-        case proposal(SourceProposalFlow.Action)
-    }
-
-    var body: some Feature {
-        Scope(\.proposal, action: \.proposal) {
-            SourceProposalFlow()
-        }
-        .spawn(\.errorNotifications) {
-            ErrorNotifications()
-        }
-        .onEvent(ErrorReported.self) { error, state in
-            state.errorNotifications.state.report(error)
-        }
-    }
-}
-
-@Feature
-private struct SourceProposalEmbeddedHost {
-    struct State {
-        var proposal: SourceProposalFlow.State?
-    }
-
-    enum Action {
-        case proposal(SourceProposalFlow.Action)
-    }
-
-    var body: some Feature {
-        Update { _, _ in }
-            .ifLet(\.proposal, action: \.proposal) {
-                SourceProposalFlow()
-            }
-    }
-}
-
-@Feature
-private struct SourceProposalRevocationHost {
-    struct State {
-        init(
-            grant: Shared<AuthoringGrant?>,
-            proposal: SourceProposalFlow.State
-        ) {
-            self._grant = grant
-            self.proposal = proposal
-            self.savedPatch = proposal.patch
-        }
-
-        @Shared var grant: AuthoringGrant?
-        var proposal: SourceProposalFlow.State?
-        var savedPatch: SourcePatch
-        var didRevokeAuthoring = false
-        var errorNotifications = Spawn(ErrorNotifications.State())
-    }
-
-    enum Action {
-        case proposal(SourceProposalFlow.Action)
-    }
-
-    var body: some Feature {
-        Update { _, _ in }
-            .ifLet(\.proposal, action: \.proposal) {
-                SourceProposalFlow()
-            }
-            .spawn(\.errorNotifications) {
-                ErrorNotifications()
-            }
-            .onEvent(AuthoringAccessRevoked.self) { _, state in
-                state.$grant.withLock { $0 = nil }
-                state.proposal = nil
-                state.didRevokeAuthoring = true
-            }
-            .onEvent(ErrorReported.self) { error, state in
-                state.errorNotifications.state.report(error)
-            }
     }
 }
 
@@ -2827,6 +1624,21 @@ private actor SourcePatchGenerationGate {
         isOpen = true
         openWaiters.forEach { $0.resume() }
         openWaiters.removeAll()
+    }
+}
+
+private actor SimultaneousSnapshotGate {
+    private var arrivalCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func arrive() async {
+        arrivalCount += 1
+        guard arrivalCount < 2 else {
+            waiters.forEach { $0.resume() }
+            waiters.removeAll()
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
     }
 }
 

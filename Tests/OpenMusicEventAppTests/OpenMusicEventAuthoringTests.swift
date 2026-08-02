@@ -173,6 +173,12 @@ struct OpenMusicEventAuthoringTests {
         let database = try makePreparedDatabase()
         let workspace = teamWorkspace("collaborator", ownerID: ownerID)
         try await insert(workspace, into: database)
+        try await insertRelationship(
+            workspace: workspace,
+            actorID: collaboratorID,
+            capabilities: [.propose, .merge],
+            into: database
+        )
 
         let admission = try await withDependencies {
             $0.defaultDatabase = database
@@ -194,11 +200,10 @@ struct OpenMusicEventAuthoringTests {
     }
 
     @Test
-    func tangledCollaboratorDoesNotRequireASourceRosterRelationship() async throws {
+    func tangledMembershipDoesNotReplaceTheWorkspaceRelationship() async throws {
         let session = testSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
-        let collaboratorID = try #require(DID(session.accountID.rawValue.description))
         let database = try makePreparedDatabase()
         let workspace = teamWorkspace(
             "tangled-only",
@@ -216,10 +221,7 @@ struct OpenMusicEventAuthoringTests {
 
         expectNoDifference(
             admission,
-            .granted(
-                principal: .actor(collaboratorID),
-                role: .collaborator([.propose, .merge])
-            )
+            .denied
         )
     }
 
@@ -321,79 +323,6 @@ struct OpenMusicEventAuthoringTests {
         expectNoDifference(recordedRequirements, [])
     }
 
-    @Test
-    func authorizationLossKeepsTheWorkspaceAuthoringGrant() async throws {
-        let database = try makePreparedDatabase()
-        let session = testSession(
-            permissions: OpenMusicEventOAuth
-                .tangledPullRequestWorkflowAuthRequirement
-                .permissions
-        )
-        let actorID = try #require(DID(session.accountID.rawValue.description))
-        let workspace = teamWorkspace("invalidation", ownerID: actorID)
-        try await insert(workspace, into: database)
-        let storage = testStorage(session: session)
-        let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
-        let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(
-                principal: .actor(actorID),
-                role: .owner,
-                workspaceID: workspace.id
-            )
-        )
-        let store = withDependencies {
-            $0.defaultDatabase = database
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
-                admissionRequests.withLock { $0.append(workspaceID) }
-                return .signInRequired
-            }
-        } operation: {
-            Store(
-                initialState: OpenMusicEventAuthoring<AuthoringProbe>.State(
-                    storage: storage
-                ) {
-                    Authoring<AuthoringProbe>.State(
-                        workspaceID: workspace.id,
-                        grant: grant
-                    ) {
-                        AuthoringProbe.State()
-                    }
-                }
-            ) {
-                OpenMusicEventAuthoring(storage: storage) {
-                    Authoring {
-                        AuthoringProbe()
-                    }
-                }
-                .refreshingAuthoringAdmissionWhenAuthorizationChanges()
-            }
-        }
-
-        #expect(store.content.access.canEditContent)
-        await store.send(.authentication(.resetAuthentication))?.value
-        try await waitForCondition {
-            store.authentication.session == nil
-        }
-        #expect(store.content.access.canEditContent)
-        #expect(grant.wrappedValue != nil)
-        expectNoDifference(admissionRequests.withLock { $0 }, [])
-    }
-
-    @Test
-    func authoringWrapperForwardsContentIdentity() throws {
-        let database = try makePreparedDatabase()
-        let workspace = localWorkspace("identity")
-        let state = withDependencies {
-            $0.defaultDatabase = database
-        } operation: {
-            Authoring<AuthoringIdentityProbe>.State(workspaceID: workspace.id) {
-                AuthoringIdentityProbe.State(id: 42)
-            }
-        }
-
-        #expect(state.id == 42)
-    }
-
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
@@ -419,6 +348,27 @@ struct OpenMusicEventAuthoringTests {
                 try SourceBaselineRecord.insert { baseline }.execute(db)
             }
             try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+    }
+
+    private func insertRelationship(
+        workspace: EditingWorkspaceRecord,
+        actorID: DID,
+        capabilities: Set<OME.WorkspaceRole.Capability>,
+        into database: any DatabaseWriter
+    ) async throws {
+        let relationship = WorkspaceRelationshipRecord(
+            id: .init(workspaceID: workspace.id, actorID: actorID),
+            recordKey: WorkspaceRelationshipRecord.recordKey(for: actorID),
+            relationship: OME.Relationship(
+                subject: .identity(did: actorID, handle: nil),
+                role: .collaborator(capabilities),
+                object: .record(try #require(workspace.publicRecord)),
+                createdAt: "2026-08-02T00:00:00Z"
+            )
+        )
+        try await database.write { db in
+            try WorkspaceRelationshipRecord.insert { relationship }.execute(db)
         }
     }
 
@@ -465,21 +415,6 @@ struct OpenMusicEventAuthoringTests {
     }
 }
 
-@Feature
-private struct AuthoringProbe {
-    struct State {}
-    enum Action {}
-}
-
-@Feature
-private struct AuthoringIdentityProbe {
-    struct State: Identifiable {
-        let id: Int
-    }
-
-    enum Action {}
-}
-
 private struct RepositoryMembershipLookupFailure: Error {}
 
 private actor AuthorizationRequirementRecorder {
@@ -501,25 +436,4 @@ private func testSession(permissions: Set<OAuth.Permission>) -> OAuth.Session {
             .joined(separator: " ")
     )
     return session
-}
-
-private func testStorage(session: OAuth.Session) -> OAuthSessionStorage {
-    var sessionStore = OAuth.SessionStore()
-    sessionStore.upsert(session)
-    return OAuthSessionStorage(
-        sessionStore: Shared(value: sessionStore),
-        authFailureMessage: Shared(value: nil),
-        selectedSessionID: Shared(value: session.accountID)
-    )
-}
-
-@MainActor
-private func waitForCondition(
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    for _ in 0..<100 {
-        if condition() { return }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    try #require(condition())
 }

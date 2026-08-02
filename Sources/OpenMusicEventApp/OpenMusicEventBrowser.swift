@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -971,7 +972,7 @@ struct CalendarRowView: View {
 public struct TeamWorkspaceDetail {
     public init() {}
 
-    public struct State: Identifiable {
+    public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
         public init(sourceBaselineID: SourceBaselineRecord.ID) {
             self.sourceBaselineID = sourceBaselineID
             _calendar = FetchOne(
@@ -1016,6 +1017,8 @@ public struct TeamWorkspaceDetail {
         public var sourceBaseline: SourceBaselineRecord?
 
         public let sourceBaselineID: SourceBaselineRecord.ID
+        @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
+        @Trigger public var workspaceSourcePrepared
 
         public var id: SourceBaselineRecord.ID { sourceBaselineID }
 
@@ -1086,6 +1089,8 @@ public struct TeamWorkspaceDetail {
     }
 
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
+    var workspace
     @StoreTaskID var sourceDataRefreshTask
 
     static func sourceBaselineQuery(
@@ -1237,6 +1242,16 @@ public struct TeamWorkspaceDetail {
                 return
 
             case .didPullToRefresh:
+                if workspace.source.wrappedValue != nil {
+                    store.addTask(id: sourceDataRefreshTask) {
+                        let reconciliation = try store.post(
+                            key: WorkspaceReconciliationRequested.self,
+                            value: ()
+                        )
+                        await reconciliation?.value
+                    }
+                    return
+                }
                 let sourceBaselineID = state.sourceBaselineID
                 store.addTask(id: sourceDataRefreshTask) {
                     let _: Void? = await store.withErrorHandling(
@@ -1268,11 +1283,16 @@ public struct TeamWorkspaceDetail {
 
             case .manageSourceButtonTapped:
                 guard let calendarID = state.editableCalendarID,
-                      let sourceBaseline = state.sourceBaseline
+                      let sourceBaseline = state.sourceBaseline,
+                      let source = workspace.source.wrappedValue
                 else { return }
-                state.teamWorkspaceEditor = SourceWorkspace.State(
-                    target: .calendar(calendarID, sourceBaseline.id)
-                )
+                state.teamWorkspaceEditor = withDependencies {
+                    $0.defaultDatabase = source.database
+                } operation: {
+                    SourceWorkspace.State(
+                        target: .calendar(calendarID, sourceBaseline.id)
+                    )
+                }
 
             case let .teamWorkspaceEditor(
                 .delegate(
@@ -1319,6 +1339,7 @@ public struct TeamWorkspaceDetail {
         .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
             SourceWorkspace()
         }
+        .onTrigger(store.workspaceProposalRecorded) { _, _ in }
     }
 }
 

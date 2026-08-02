@@ -12,14 +12,10 @@ struct SourceWorkingTreeMaterializerTests {
         try fixture.writeFile("README.md", contents: "original readme")
         try fixture.writeFile("events/test-event/event.yml", contents: "name: Test")
 
-        let tree = try withDependencies {
-            $0.uuid = .incrementing
-        } operation: {
-            try fixture.materializer.materialize(
-                fixture.repositoryURL,
-                "events/test-event"
-            )
-        }
+        let tree = try fixture.materializer.materialize(
+            fixture.repositoryURL,
+            "events/test-event"
+        )
 
         defer { try? FileManager.default.removeItem(at: tree.workingRepositoryURL) }
         expectNoDifference(tree.originalRepositoryURL, fixture.repositoryURL.standardizedFileURL)
@@ -52,11 +48,7 @@ struct SourceWorkingTreeMaterializerTests {
         defer { fixture.cleanUp() }
         try fixture.writeFile("event.yml", contents: "name: Root")
 
-        let tree = try withDependencies {
-            $0.uuid = .incrementing
-        } operation: {
-            try fixture.materializer.materialize(fixture.repositoryURL, nil)
-        }
+        let tree = try fixture.materializer.materialize(fixture.repositoryURL, nil)
 
         defer { try? FileManager.default.removeItem(at: tree.workingRepositoryURL) }
         expectNoDifference(tree.relativePath, nil)
@@ -71,18 +63,41 @@ struct SourceWorkingTreeMaterializerTests {
         defer { fixture.cleanUp() }
         try fixture.writeFile("events/test-event/event.yml", contents: "name: Test")
 
-        let tree = try withDependencies {
-            $0.uuid = .incrementing
-        } operation: {
-            try fixture.materializer.materialize(
-                fixture.repositoryURL,
-                "events//test-event"
-            )
-        }
+        let tree = try fixture.materializer.materialize(
+            fixture.repositoryURL,
+            "events//test-event"
+        )
 
         defer { try? FileManager.default.removeItem(at: tree.workingRepositoryURL) }
         expectNoDifference(tree.relativePath, "events/test-event")
         #expect(FileManager.default.fileExists(atPath: tree.workingURL.appending(path: "event.yml").path))
+    }
+
+    @Test
+    func repeatedDomainUUIDStillCreatesIndependentWorkingTrees() throws {
+        let fixture = try SourceWorkingTreeMaterializerFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile("event.yml", contents: "name: Root")
+        let repeatedUUID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        )
+
+        let (first, second) = try withDependencies {
+            $0.uuid = .constant(repeatedUUID)
+        } operation: {
+            (
+                try fixture.materializer.materialize(fixture.repositoryURL, nil),
+                try fixture.materializer.materialize(fixture.repositoryURL, nil)
+            )
+        }
+        defer {
+            try? FileManager.default.removeItem(at: first.workingRepositoryURL)
+            try? FileManager.default.removeItem(at: second.workingRepositoryURL)
+        }
+
+        #expect(first.workingRepositoryURL != second.workingRepositoryURL)
+        #expect(FileManager.default.fileExists(atPath: first.workingURL.appending(path: "event.yml").path))
+        #expect(FileManager.default.fileExists(atPath: second.workingURL.appending(path: "event.yml").path))
     }
 
     @Test

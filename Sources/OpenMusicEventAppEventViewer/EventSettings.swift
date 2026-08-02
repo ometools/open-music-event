@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ComposableAuthoring
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -108,12 +109,12 @@ public struct EventSettings {
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
     let authoringAccess: AuthoringAccess
-    let authoringAdmission: AuthoringAdmission?
+    let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
 
     public init(
         store: StoreOf<EventSettings>,
         authoringAccess: AuthoringAccess,
-        authoringAdmission: AuthoringAdmission?
+        authoringAdmission: ComposableAuthoring.AuthoringAdmission?
     ) {
         self.store = store
         self.authoringAccess = authoringAccess
@@ -128,7 +129,7 @@ public struct EventSettingsView: View {
                         store.send(.exitAuthoringButtonTapped)
                     }
                 }
-            } else if case .granted = authoringAdmission {
+            } else if case .available = authoringAdmission {
                 Section("Authoring") {
                     Button("Enter Authoring") {
                         store.send(.enterAuthoringButtonTapped)
