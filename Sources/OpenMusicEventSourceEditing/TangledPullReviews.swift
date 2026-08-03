@@ -12,25 +12,23 @@ import TangledLexicon
 import TangledXRPC
 import XRPCClient
 
+public struct OpenMusicEventSourceTarget: Equatable, Sendable {
+    public var workspace: SourceWorkspace
+
+    public init(workspace: SourceWorkspace) {
+        self.workspace = workspace
+    }
+}
+
 public struct OpenMusicEventTangledPullReviewRequest: Equatable, Sendable {
     public var target: OpenMusicEventSourceTarget
 
-    public init(eventID: OME.Event.ID) {
-        self.init(target: .event(eventID))
-    }
-
-    public init(target: OpenMusicEventSourceTarget) {
-        self.target = target
-    }
+    public init(target: OpenMusicEventSourceTarget) { self.target = target }
 }
 
 public struct OpenMusicEventTangledPullReviewMergeRequest: Equatable, Sendable {
     public var target: OpenMusicEventSourceTarget
     public var review: TangledPullReview
-
-    public init(eventID: OME.Event.ID, review: TangledPullReview) {
-        self.init(target: .event(eventID), review: review)
-    }
 
     public init(target: OpenMusicEventSourceTarget, review: TangledPullReview) {
         self.target = target
@@ -241,25 +239,11 @@ public extension TangledPullReviewClient {
     static var openMusicEvent: Self {
         Self(
             list: { request in
-                @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver)
-                var calendarSourcePatchLocationResolver
-                @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
                 @Dependency(\.tangledPullReviewListSource) var listSource
                 @Dependency(XRPC.Client.self) var xrpcClient
 
-                let location = try await request.target.resolveLocation(
-                    calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
-                    sourcePatchLocationResolver: locationResolver
-                )
-                guard let remote = location.remote else {
-                    throw TangledPullReviewClientError.missingRemote
-                }
-                guard remote.kind == "tangled" else {
-                    throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
-                }
-
                 let repository = try TangledRepositoryReference(
-                    sourceReference: remote.reference
+                    sourceReference: request.target.workspace.repository
                 )
                 let targetRepository = try await TangledWorkspacePublisher()
                     .targetRepository(repository)
@@ -554,23 +538,10 @@ private struct TangledPullReviewMergeRepository: Sendable {
     var repoDID: DID
 
     static func resolve(target: OpenMusicEventSourceTarget) async throws -> Self {
-        @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver)
-        var calendarLocationResolver
-        @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
         @Dependency(XRPC.Client.self) var xrpcClient
-
-        let location = try await target.resolveLocation(
-            calendarSourcePatchLocationResolver: calendarLocationResolver,
-            sourcePatchLocationResolver: locationResolver
+        let repository = try TangledRepositoryReference(
+            sourceReference: target.workspace.repository
         )
-        guard let remote = location.remote else {
-            throw TangledPullReviewClientError.missingRemote
-        }
-        guard remote.kind == "tangled" else {
-            throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
-        }
-
-        let repository = try TangledRepositoryReference(sourceReference: remote.reference)
         let owner = try await TangledPullReviewRepositoryOwner.resolve(repository)
         var cursor: String?
 

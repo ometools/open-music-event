@@ -90,17 +90,6 @@ struct TangledPullReviewClientTests {
         let requests = Mutex<[URL?]>([])
 
         let reviews = try await withDependencies {
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
-                #expect(request.eventID == eventID)
-                return SourcePatchLocation(
-                    repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
-                    remote: SourcePatchLocation.Remote(
-                        kind: "tangled",
-                        reference: "at://did:plc:owner/sh.tangled.repo/wicked-woods-ome",
-                        ref: "main"
-                    )
-                )
-            }
             $0.tangledPullReviewListSource = .tangledXRPCWithConstellationBackfill
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
@@ -235,7 +224,12 @@ struct TangledPullReviewClientTests {
             }
         } operation: {
             try await TangledPullReviewClient.openMusicEvent.list(
-                OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+                OpenMusicEventTangledPullReviewRequest(
+                    target: testSourceTarget(
+                        eventID,
+                        repository: "at://did:plc:owner/sh.tangled.repo/wicked-woods-ome"
+                    )
+                )
             )
         }
 
@@ -281,17 +275,6 @@ struct TangledPullReviewClientTests {
         let requests = Mutex<[URL?]>([])
 
         let reviews = try await withDependencies {
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
-                #expect(request.eventID == eventID)
-                return SourcePatchLocation(
-                    repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
-                    remote: SourcePatchLocation.Remote(
-                        kind: "tangled",
-                        reference: "woody.fm/wicked-woods-ome",
-                        ref: "main"
-                    )
-                )
-            }
             $0.tangledPullReviewListSource = .constellationBackfill
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
@@ -418,7 +401,9 @@ struct TangledPullReviewClientTests {
             }
         } operation: {
             try await TangledPullReviewClient.openMusicEvent.list(
-                OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+                OpenMusicEventTangledPullReviewRequest(
+                    target: testSourceTarget(eventID)
+                )
             )
         }
 
@@ -559,17 +544,6 @@ struct TangledPullReviewClientTests {
         try await withDependencies {
             $0.date = .constant(now)
             $0.defaultPort = 443
-            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
-                #expect(request.eventID == eventID)
-                return SourcePatchLocation(
-                    repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
-                    remote: SourcePatchLocation.Remote(
-                        kind: "tangled",
-                        reference: "woody.fm/wicked-woods-ome",
-                        ref: "main"
-                    )
-                )
-            }
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
                     #expect(handle.rawValue == "woody.fm")
@@ -756,7 +730,7 @@ struct TangledPullReviewClientTests {
         } operation: {
             try await TangledPullReviewClient.openMusicEvent.merge(
                 OpenMusicEventTangledPullReviewMergeRequest(
-                    eventID: eventID,
+                    target: testSourceTarget(eventID),
                     review: review
                 )
             )
@@ -878,18 +852,6 @@ struct TangledPullReviewClientTests {
 
         await #expect(throws: OAuth.AuthorizationRequired.self) {
             try await withDependencies {
-                $0.openMusicEventSourcePatchLocationResolver =
-                    OpenMusicEventSourcePatchLocationResolver { request in
-                        #expect(request.eventID == eventID)
-                        return SourcePatchLocation(
-                            repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
-                            remote: SourcePatchLocation.Remote(
-                                kind: "tangled",
-                                reference: "woody.fm/wicked-woods-ome",
-                                ref: "main"
-                            )
-                        )
-                }
                 $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                     resolveHandle: { handle in
                         (
@@ -1006,7 +968,7 @@ struct TangledPullReviewClientTests {
             } operation: {
                 try await TangledPullReviewClient.openMusicEvent.merge(
                     OpenMusicEventTangledPullReviewMergeRequest(
-                        eventID: eventID,
+                        target: testSourceTarget(eventID),
                         review: review
                     )
                 )
@@ -1221,6 +1183,19 @@ private func testEventID(_ string: String) -> OME.Event.ID {
     OME.Event.ID(
         organizerID: OME.Organizer.ID("did:web:example.com")!,
         eventID: OME.ID<OME.Event>(.init(string))
+    )
+}
+
+private func testSourceTarget(
+    _ eventID: OME.Event.ID,
+    repository: String = "woody.fm/wicked-woods-ome"
+) -> OpenMusicEventSourceTarget {
+    OpenMusicEventSourceTarget(
+        workspace: SourceWorkspace(
+            organizerID: eventID.organizerID,
+            repository: repository,
+            branch: "main"
+        )
     )
 }
 

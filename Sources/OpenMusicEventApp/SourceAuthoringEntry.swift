@@ -4,11 +4,12 @@ import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
-import SQLiteData
 import TangledLexicon
 import TangledXRPC
 import XRPCClient
 
+/// The live network boundary that answers whether an actor can write to a Tangled repository.
+/// No cloned source data or application database state participates in authoring admission.
 struct TangledRepositoryMembershipClient: Sendable {
     var contains: @Sendable (
         _ repository: TangledRepositoryReference,
@@ -53,92 +54,37 @@ extension DependencyValues {
 extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
     static var openMusicEvent: Self {
         Self(
-            admission: { workspaceID in
-                @Dependency(\.defaultDatabase) var database
-
-                let workspace = try await database.read { db in
-                    try EditingWorkspaceRecord
-                        .where { $0.id.eq(workspaceID) }
-                        .fetchOne(db)
+            admission: { workspace in
+                @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+                guard let session = getOptionalDefaultSession() else {
+                    return .signInRequired
                 }
-                guard let workspace else {
-                    throw WorkspacePreparationError.workspaceNotFound(workspaceID)
+                guard let actorID = DID(session.accountID.rawValue.description),
+                      let repository = try? TangledRepositoryReference(
+                          sourceReference: workspace.repository
+                      )
+                else {
+                    return .denied
                 }
 
-                switch workspace.kind {
-                case .local:
-                    return .granted(principal: .local, role: .owner)
-
-                case .team:
-                    guard let workspaceRecord = workspace.publicRecord else {
-                        return .denied
-                    }
-                    @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
-                    guard let session = getOptionalDefaultSession() else {
-                        return .signInRequired
-                    }
-                    guard let actorID = DID(session.accountID.rawValue.description) else {
-                        return .denied
-                    }
-                    guard let workspaceOwnerID = workspaceRecord.author else {
-                        return .denied
-                    }
-
-                    guard let sourceBaselineID = workspace.sourceBaselineID else {
-                        return .denied
-                    }
-                    let sourceBaseline = try await database.read { db in
-                        try SourceBaselineRecord
-                            .where { $0.id.eq(sourceBaselineID) }
-                            .fetchOne(db)
-                    }
-                    guard let sourceBaseline,
-                          sourceBaseline.sourceKind == .tangled
-                    else {
-                        return .denied
-                    }
-                    guard let repository = try? TangledRepositoryReference(
-                        sourceReference: sourceBaseline.sourceReference
-                    ) else {
-                        return .denied
-                    }
-                    @Dependency(\.tangledRepositoryMembership) var membership
-                    guard try await membership.contains(
-                        repository,
-                        workspaceOwnerID,
-                        actorID
-                    ) else {
-                        return .denied
-                    }
-
-                    if workspaceOwnerID == actorID {
-                        return .granted(
-                            principal: .actor(actorID),
-                            role: .owner
-                        )
-                    }
-
-                    let relationship = try await database.read { db in
-                        try WorkspaceRelationshipRecord
-                            .where { $0.id.workspaceID.eq(workspaceID) }
-                            .where { $0.id.actorID.eq(actorID) }
-                            .fetchOne(db)
-                    }
-                    guard case let .collaborator(capabilities)? = relationship?
-                        .relationship
-                        .workspaceRole
-                    else {
-                        return .denied
-                    }
-
-                    return .granted(
-                        principal: .actor(actorID),
-                        role: .collaborator(capabilities)
-                    )
+                @Dependency(\.tangledRepositoryMembership) var membership
+                guard try await membership.contains(
+                    repository,
+                    workspace.organizerID,
+                    actorID
+                ) else {
+                    return .denied
                 }
+
+                let role: OME.WorkspaceRole = workspace.organizerID == actorID
+                    ? .owner
+                    : .collaborator([.propose])
+                return .granted(
+                    principal: AuthoringPrincipal(actorID: actorID),
+                    role: role
+                )
             },
-            authorizeEntry: { _, principal in
-                guard case .actor = principal else { return }
+            authorizeEntry: { _, _ in
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(
                     OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement

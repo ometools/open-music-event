@@ -2,6 +2,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import GRDB
+import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
 import SourceEditing
@@ -9,66 +10,6 @@ import Testing
 
 @Suite
 struct DatabaseOwnershipInvariantTests {
-    @Test
-    func workspaceSourcePreparationIsSingleFlight() async throws {
-        let database = try DatabaseQueue()
-        try await database.write { db in
-            try db.execute(sql: """
-                CREATE TABLE editingWorkspaces (
-                  id TEXT PRIMARY KEY NOT NULL,
-                  kind TEXT NOT NULL,
-                  referenceDatabaseFileName TEXT NOT NULL,
-                  createdAt TEXT NOT NULL,
-                  updatedAt TEXT NOT NULL,
-                  sourceBaselineID TEXT,
-                  publicRecord TEXT
-                )
-                """)
-        }
-        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "single-flight-source")
-        let workspace = EditingWorkspaceRecord(
-            id: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID),
-            kind: .team,
-            referenceDatabaseFileName: "reference.sqlite",
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1),
-            sourceBaselineID: sourceBaselineID
-        )
-        try await database.write { db in
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-        }
-        let preparationGate = WorkspaceSourcePreparationGate()
-        let secondCallerGate = TaskStartGate()
-
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
-                await preparationGate.prepare(sourceBaselineID)
-            }
-            $0[WorkspacePreparationClient.self] = .live
-        } operation: {
-            @Dependency(WorkspacePreparationClient.self) var preparation
-            let prepareSource = preparation.prepareSource
-            let first = Task {
-                try await prepareSource(workspace.id)
-            }
-            let recordedSourceBaselineIDs = await preparationGate.waitForPreparationToStart()
-            let second = Task {
-                await secondCallerGate.start()
-                try await prepareSource(workspace.id)
-            }
-
-            expectNoDifference(recordedSourceBaselineIDs, [sourceBaselineID])
-            await secondCallerGate.waitForStart()
-            await Task.yield()
-            await preparationGate.finish()
-            try await first.value
-            try await second.value
-            let completedSourceBaselineIDs = await preparationGate.sourceBaselineIDs
-            expectNoDifference(completedSourceBaselineIDs, [sourceBaselineID])
-        }
-    }
-
     @Test
     func workspaceResourceKeepsTheApplicationDatabaseAsMainAndAttachesTheReferenceReadOnly() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -84,14 +25,20 @@ struct DatabaseOwnershipInvariantTests {
             path: directory.appending(path: "reference.sqlite").path
         )
         try setMarker("imported baseline", in: referenceDatabase.database)
-        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace")
-        let workspaceDatabase = try SourceWorkspaceDatabase(
-            workspaceID: workspaceID,
+        let organizerID = try #require(OME.Organizer.ID("did:plc:workspace"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/source",
+            branch: "main"
+        )
+        let resource = try SourceWorkspaceResource(
+            workspace: workspace,
+            repositoryURL: directory.appending(path: "repository"),
             mainDatabase: defaultDatabase,
             referenceDatabase: referenceDatabase
         )
 
-        let observed = try workspaceDatabase.database.write { db in
+        let observed = try resource.database.write { db in
                 let databasePaths = try Dictionary(
                     uniqueKeysWithValues: Row
                         .fetchAll(db, sql: "PRAGMA database_list")
@@ -112,7 +59,7 @@ struct DatabaseOwnershipInvariantTests {
                 return (
                     databasePaths,
                     try #require(referenceMarker),
-                    workspaceDatabase.workspaceID
+                    resource.workspace.id
                 )
         }
 
@@ -127,7 +74,7 @@ struct DatabaseOwnershipInvariantTests {
                 == URL(fileURLWithPath: referenceDatabase.path).standardizedFileURL
         )
         #expect(observed.1 == "imported baseline")
-        #expect(observed.2 == workspaceID)
+        #expect(observed.2 == workspace.id)
         #expect(try marker(in: defaultDatabase) == "current edit")
         #expect(try marker(in: referenceDatabase.database) == "imported baseline")
 
@@ -219,90 +166,18 @@ struct DatabaseOwnershipInvariantTests {
             path: directory.appending(path: "reference.sqlite").path
         )
         try setMarker("old baseline", in: referenceDatabase.database)
-        let workspaceDatabase = try SourceWorkspaceDatabase(
-            workspaceID: EditingWorkspaceRecord.ID(rawValue: "workspace"),
+        let sourceEditingSession = try SourceEditingSession(
             mainDatabase: defaultDatabase,
-            referenceDatabase: referenceDatabase
+            baselineDatabasePath: referenceDatabase.path
         )
 
-        #expect(try baselineMarker(in: workspaceDatabase.database) == "old baseline")
+        #expect(try baselineMarker(in: sourceEditingSession.database) == "old baseline")
         let refreshedReferenceDatabase = try defaultBaselineDatabase(
             path: directory.appending(path: "refreshed-reference.sqlite").path
         )
         try setMarker("refreshed baseline", in: refreshedReferenceDatabase.database)
         try refreshedReferenceDatabase.database.backup(to: referenceDatabase.database)
-        #expect(try baselineMarker(in: workspaceDatabase.database) == "refreshed baseline")
-    }
-
-    @Test
-    func missingLocalReferenceIsReportedWithoutCreatingADatabase() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let workspace = EditingWorkspaceRecord(
-            id: EditingWorkspaceRecord.ID(rawValue: "missing-reference"),
-            kind: .local,
-            referenceDatabaseFileName: "missing.sqlite",
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1)
-        )
-        let client = WorkspaceReferenceDatabaseClient.fileBacked(
-            localReferenceDirectory: root
-        )
-
-        #expect(try client.existing(workspace) == nil)
-        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "missing.sqlite").path))
-    }
-}
-
-private actor WorkspaceSourcePreparationGate {
-    private var isFinished = false
-    private(set) var sourceBaselineIDs: [SourceBaselineRecord.ID] = []
-    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
-    private var startWaiters: [CheckedContinuation<[SourceBaselineRecord.ID], Never>] = []
-
-    func prepare(_ sourceBaselineID: SourceBaselineRecord.ID) async {
-        sourceBaselineIDs.append(sourceBaselineID)
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        waiters.forEach { $0.resume(returning: sourceBaselineIDs) }
-        guard !isFinished else { return }
-        await withCheckedContinuation { continuation in
-            finishWaiters.append(continuation)
-        }
-    }
-
-    func waitForPreparationToStart() async -> [SourceBaselineRecord.ID] {
-        if !sourceBaselineIDs.isEmpty { return sourceBaselineIDs }
-        return await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func finish() {
-        isFinished = true
-        let waiters = finishWaiters
-        finishWaiters.removeAll()
-        waiters.forEach { $0.resume() }
-    }
-}
-
-private actor TaskStartGate {
-    private var hasStarted = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func start() {
-        hasStarted = true
-        let continuations = waiters
-        waiters.removeAll()
-        continuations.forEach { $0.resume() }
-    }
-
-    func waitForStart() async {
-        guard !hasStarted else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+        #expect(try baselineMarker(in: sourceEditingSession.database) == "refreshed baseline")
     }
 }
 

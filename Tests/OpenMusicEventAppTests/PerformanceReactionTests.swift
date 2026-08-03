@@ -341,7 +341,7 @@ struct PerformanceReactionTests {
                 date: Date(timeIntervalSince1970: 20),
                 in: db
             )
-            try MyEventsDeletion.deleteCreatedLocalEvents([eventID], in: db)
+            try OMERecord.Event.find(eventID).delete().execute(db)
         }
 
         let result = try await database.read { db in

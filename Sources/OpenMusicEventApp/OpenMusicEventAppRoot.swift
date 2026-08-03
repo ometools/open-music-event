@@ -28,7 +28,6 @@ public struct OpenMusicEventAppRoot {
         public init(
             variant: OpenMusicEventAppVariant = .generic,
             selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
-            whiteLabelLoadedRootAtLaunch: WhiteLabelRoot.LoadedRoot? = nil,
             workspaceRestorationErrorAtLaunch: (any Error)? = nil
         ) {
             self.variant = variant
@@ -37,12 +36,12 @@ public struct OpenMusicEventAppRoot {
                variant.persistsSelectedEvent,
                let selectedEventIDAtLaunch {
                 do {
-                    let workspaceID = try OpenMusicEventAppRoot.workspaceID(
+                    let workspace = try OpenMusicEventAppRoot.workspace(
                         for: selectedEventIDAtLaunch
                     )
                     self.destination = .eventViewer(
                         OpenMusicEventAppRoot.makeWorkspaceEventViewerState(
-                            workspaceID: workspaceID,
+                            workspace: workspace,
                             eventID: selectedEventIDAtLaunch,
                             target: nil,
                             pendingScheduleLaunchAction: .jumpToCurrentTime
@@ -54,10 +53,7 @@ public struct OpenMusicEventAppRoot {
             }
             if case let .whiteLabel(configuration) = variant {
                 self.whiteLabelRoot = Spawn(
-                    WhiteLabelRoot.State(
-                        configuration: configuration,
-                        loadedRootAtLaunch: whiteLabelLoadedRootAtLaunch
-                    )
+                    WhiteLabelRoot.State(configuration: configuration)
                 )
             }
         }
@@ -95,7 +91,6 @@ public struct OpenMusicEventAppRoot {
     public enum Action {
         case destination(Destination.Action)
         case handleNavigationRequest(NavigationRequest)
-        case localEventDeletionRequested(OMERecord.Event.ID)
         case openRoute(AppRoute)
         case openURL(URL)
         case task
@@ -122,9 +117,9 @@ public struct OpenMusicEventAppRoot {
 
         let openEventViewer:
             (OMERecord.Event.ID, EventTarget?, inout State) throws -> Void = { eventID, target, state in
-            let workspaceID = try Self.workspaceID(for: eventID)
+            let workspace = try Self.workspace(for: eventID)
             state.eventViewer = Self.makeWorkspaceEventViewerState(
-                workspaceID: workspaceID,
+                workspace: workspace,
                 eventID: eventID,
                 target: target
             )
@@ -158,29 +153,6 @@ public struct OpenMusicEventAppRoot {
                                 fallbackMessage: .eventWorkspaceRestoreFailed,
                                 operation: .eventWorkspaceRestore
                             )
-                        }
-                    }
-
-                case let .localEventDeletionRequested(eventID):
-                    store.addTask {
-                        let didDelete: Void? = await store.withErrorHandling(
-                            fallbackMessage: .eventDeletionFailed,
-                            operation: .eventDeletion
-                        ) {
-                            try database.write { db in
-                                try MyEventsDeletion.deleteCreatedLocalEvents([eventID], in: db)
-                            }
-                        }
-                        guard didDelete != nil else { return }
-                        try store.modify {
-                            if $0.eventViewer?
-                                .content
-                                .authoring
-                                .content
-                                .content
-                                .id == eventID {
-                                $0.eventViewer = nil
-                            }
                         }
                     }
 
@@ -262,12 +234,6 @@ public struct OpenMusicEventAppRoot {
                 }
             }
         }
-        .onEvent(LocalEventDeletionRequested.self) { eventID, _ in
-            store.addTask {
-                await Task.yield()
-                try store.send(.localEventDeletionRequested(eventID))
-            }
-        }
         .presentReportedErrors()
         .spawn(\.browser) {
             OpenMusicEventBrowser()
@@ -306,7 +272,8 @@ public struct OpenMusicEventAppRootView: View {
             let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
             EventViewerView(
                 store: eventViewerStore,
-                authoringAdmission: authoringStore.admission
+                authoringAdmission: authoringStore.admission,
+                authoringPhase: authoringStore.phase
             )
             .openMusicEventWorkspacePhase(workspaceStore.phase)
             #else
@@ -318,7 +285,8 @@ public struct OpenMusicEventAppRootView: View {
                 let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
                 EventViewerView(
                     store: eventViewerStore,
-                    authoringAdmission: authoringStore.admission
+                    authoringAdmission: authoringStore.admission,
+                    authoringPhase: authoringStore.phase
                 )
                 .openMusicEventWorkspacePhase(workspaceStore.phase)
             }
@@ -377,7 +345,7 @@ struct OpenMusicEventAppSurfaceView: View {
 
 private extension OpenMusicEventAppRoot {
     static func makeWorkspaceEventViewerState(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspace: SourceWorkspace,
         eventID: OMERecord.Event.ID,
         target: EventTarget?,
         pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
@@ -386,7 +354,7 @@ private extension OpenMusicEventAppRoot {
             storage: OpenMusicEventOAuth.storage
         ) {
             OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-                workspaceID: workspaceID
+                workspace: workspace
             ) {
                 EventViewer.State.route(
                     eventID: eventID,
@@ -397,30 +365,23 @@ private extension OpenMusicEventAppRoot {
         }
     }
 
-    static func workspaceID(
+    static func workspace(
         for eventID: OMERecord.Event.ID
-    ) throws -> EditingWorkspaceRecord.ID {
+    ) throws -> SourceWorkspace {
         @Dependency(\.defaultDatabase) var database
         return try database.read { db in
-            if let workspaceID = try (EventEditingWorkspaceRecord
-                    .where { $0.id.eq(eventID) }
-                    .fetchOne(db)?
-                    .workspaceID) {
-                return workspaceID
-            }
-
-            if let sourceBaselineID = try (EventSourceProvenanceRecord
+            guard let workspace = try (EventSourceProvenanceRecord
                 .where { $0.id.eq(eventID) }
                 .fetchOne(db)?
-                .sourceBaselineID) {
-                return EditingWorkspaceRecord.ID(
-                    sourceBaselineID: sourceBaselineID
-                )
-            }
-
-            return EditingWorkspaceRecord.ID(localEventID: eventID)
+                .workspace)
+            else { throw OpenMusicEventAppRootError.eventHasNoSource(eventID) }
+            return workspace
         }
     }
+}
+
+private enum OpenMusicEventAppRootError: Error {
+    case eventHasNoSource(OMERecord.Event.ID)
 }
 
 private extension OpenMusicEventAppRoot.State {

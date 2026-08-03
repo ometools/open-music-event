@@ -818,8 +818,7 @@ public struct ScheduleViewer {
                 state.destination = .performanceDetail(
                     Spawn(
                         PerformanceDetail.State(
-                            performanceID: performanceID,
-                            eventID: state.eventID
+                            performanceID: performanceID
                         )
                     )
                 )

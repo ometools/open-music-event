@@ -3,304 +3,63 @@ import FileTree
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
-import SQLiteData
 import SourceEditing
 
-public struct OpenMusicEventSourcePatchRequest: Equatable, Sendable {
-    public var eventID: OME.Event.ID
+public struct SourceWorkspacePatchRequest: Equatable, Sendable {
+    public var workspace: SourceWorkspace
 
-    public init(eventID: OME.Event.ID) {
-        self.eventID = eventID
+    public init(workspace: SourceWorkspace) {
+        self.workspace = workspace
     }
 }
 
-public struct OpenMusicEventCalendarSourcePatchRequest: Equatable, Sendable {
-    public var calendarID: OME.Calendar.ID
-    public var sourceBaselineID: SourceBaselineRecord.ID
-
-    public init(
-        calendarID: OME.Calendar.ID,
-        sourceBaselineID: SourceBaselineRecord.ID
-    ) {
-        self.calendarID = calendarID
-        self.sourceBaselineID = sourceBaselineID
-    }
-}
-
-public enum OpenMusicEventSourceTarget: Equatable, Hashable, Identifiable, Sendable {
-    case calendar(OME.Calendar.ID, SourceBaselineRecord.ID)
-    case event(OME.Event.ID)
-
-    public var id: String {
-        switch self {
-        case let .calendar(calendarID, sourceBaselineID):
-            "calendar:\(calendarID.ownerID):\(calendarID.calendarID.rawValue.rawValue):\(sourceBaselineID.rawValue)"
-        case let .event(eventID):
-            "event:\(eventID.organizerID):\(eventID.eventID.rawValue.rawValue)"
-        }
-    }
-
-    public var calendarSourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest? {
-        guard case let .calendar(calendarID, sourceBaselineID) = self else { return nil }
-        return OpenMusicEventCalendarSourcePatchRequest(
-            calendarID: calendarID,
-            sourceBaselineID: sourceBaselineID
-        )
-    }
-
-    public var eventID: OME.Event.ID? {
-        guard case let .event(eventID) = self else { return nil }
-        return eventID
-    }
-
-    public var eventSourcePatchRequest: OpenMusicEventSourcePatchRequest? {
-        guard case let .event(eventID) = self else { return nil }
-        return OpenMusicEventSourcePatchRequest(eventID: eventID)
-    }
-
-    public var organizerID: OME.Organizer.ID {
-        switch self {
-        case let .calendar(calendarID, _):
-            calendarID.ownerID
-        case let .event(eventID):
-            eventID.organizerID
-        }
-    }
-
-    public var sourceBaselineID: SourceBaselineRecord.ID? {
-        guard case let .calendar(_, sourceBaselineID) = self else { return nil }
-        return sourceBaselineID
-    }
-}
-
-public enum OpenMusicEventSourcePatchGenerationError: Equatable, Error, Sendable {
-    case notSourceBacked(OME.Event.ID)
-    case sourceBaselineNotFound(SourceBaselineRecord.ID)
-}
-
-public struct OpenMusicEventSourcePatchLocationResolver: Sendable {
-    public var resolve: @Sendable (OpenMusicEventSourcePatchRequest) async throws -> SourcePatchLocation
-
-    public init(
-        resolve: @escaping @Sendable (OpenMusicEventSourcePatchRequest) async throws -> SourcePatchLocation
-    ) {
-        self.resolve = resolve
-    }
-}
-
-public struct OpenMusicEventCalendarSourcePatchLocationResolver: Sendable {
-    public var resolve: @Sendable (OpenMusicEventCalendarSourcePatchRequest) async throws -> SourcePatchLocation
-
-    public init(
-        resolve: @escaping @Sendable (OpenMusicEventCalendarSourcePatchRequest) async throws -> SourcePatchLocation
-    ) {
-        self.resolve = resolve
-    }
-}
-
-public struct OpenMusicEventSourcePatchConversion: Sendable {
-    public var update: @Sendable (
+struct OpenMusicEventSourceEventConversion: Sendable {
+    var update: @Sendable (
         OpenMusicEventSourceEvent,
-        OpenMusicEventSourcePatchRequest
+        OME.Event.ID
     ) async throws -> OpenMusicEventSourceEvent
-
-    public init(
-        update: @escaping @Sendable (
-            OpenMusicEventSourceEvent,
-            OpenMusicEventSourcePatchRequest
-        ) async throws -> OpenMusicEventSourceEvent
-    ) {
-        self.update = update
-    }
 }
 
-public struct OpenMusicEventCalendarSourcePatchConversion: Sendable {
+public struct SourceWorkspacePatchConversion: Sendable {
     public var update: @Sendable (
         OpenMusicEventSourceRepository,
-        OpenMusicEventCalendarSourcePatchRequest
+        SourceWorkspacePatchRequest
     ) async throws -> OpenMusicEventSourceRepository
 
     public init(
         update: @escaping @Sendable (
             OpenMusicEventSourceRepository,
-            OpenMusicEventCalendarSourcePatchRequest
+            SourceWorkspacePatchRequest
         ) async throws -> OpenMusicEventSourceRepository
     ) {
         self.update = update
     }
 }
 
-public extension OpenMusicEventSourcePatchConversion {
-    static var identity: Self {
-        Self { sourceEvent, _ in sourceEvent }
-    }
-}
-
-public extension OpenMusicEventCalendarSourcePatchConversion {
-    static var identity: Self {
-        Self { sourceRepository, _ in sourceRepository }
-    }
-}
-
-public extension OpenMusicEventSourcePatchLocationResolver {
+public extension SourcePatchGenerator where Request == SourceWorkspacePatchRequest {
     static var openMusicEvent: Self {
-        Self { request in
-            @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-
-            let provenance = try await database.read { db in
-                let provenance = try EventSourceProvenanceRecord
-                    .where { $0.id.eq(request.eventID) }
-                    .fetchOne(db)
-                guard let provenance else {
-                    throw OpenMusicEventSourcePatchGenerationError.notSourceBacked(request.eventID)
-                }
-                return provenance
-            }
-            return SourcePatchLocation(
-                repositoryURL: try sourceRepositoryStorage.repositoryURL(provenance.sourceProvenance),
-                relativePath: "events/\(provenance.sourceEventDirectory)",
-                remote: SourcePatchLocation.Remote(
-                    kind: provenance.sourceKind.rawValue,
-                    reference: provenance.sourceReference,
-                    ref: provenance.ref
-                )
-            )
-        }
-    }
-}
-
-public extension OpenMusicEventCalendarSourcePatchLocationResolver {
-    static var openMusicEvent: Self {
-        Self { request in
-            @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-
-            let sourceBaseline = try await database.read { db in
-                try SourceBaselineRecord
-                    .where { $0.id.eq(request.sourceBaselineID) }
-                    .fetchOne(db)
-            }
-            guard let sourceBaseline else {
-                throw OpenMusicEventSourcePatchGenerationError.sourceBaselineNotFound(request.sourceBaselineID)
-            }
-
-            return SourcePatchLocation(
-                repositoryURL: try sourceRepositoryStorage.repositoryURL(sourceBaseline.sourceProvenance),
-                relativePath: nil,
-                remote: SourcePatchLocation.Remote(
-                    kind: sourceBaseline.sourceKind.rawValue,
-                    reference: sourceBaseline.sourceReference,
-                    ref: sourceBaseline.ref
-                )
-            )
-        }
-    }
-}
-
-public extension OpenMusicEventSourceTarget {
-    func resolveLocation(
-        calendarSourcePatchLocationResolver: OpenMusicEventCalendarSourcePatchLocationResolver,
-        sourcePatchLocationResolver: OpenMusicEventSourcePatchLocationResolver
-    ) async throws -> SourcePatchLocation {
-        switch self {
-        case let .calendar(calendarID, sourceBaselineID):
-            try await calendarSourcePatchLocationResolver.resolve(
-                OpenMusicEventCalendarSourcePatchRequest(
-                    calendarID: calendarID,
-                    sourceBaselineID: sourceBaselineID
-                )
-            )
-
-        case let .event(eventID):
-            try await sourcePatchLocationResolver.resolve(
-                OpenMusicEventSourcePatchRequest(eventID: eventID)
-            )
-        }
-    }
-}
-
-public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatchRequest {
-    static var openMusicEvent: Self {
-        Self { request in
-            @Dependency(\.openMusicEventSourcePatchLocationResolver) var resolver
-            @Dependency(\.openMusicEventSourcePatchConversion) var conversion
-            @Dependency(\.sourcePatchDiffer) var sourcePatchDiffer
-            @Dependency(\.sourceWorkingTreeMaterializer) var sourceWorkingTreeMaterializer
-
-            let location = try await resolver.resolve(request)
-            guard let eventRelativePath = location.relativePath else {
-                return try await Self.existingOpenMusicEvent.generate(request)
-            }
-            let existingEventURL = try location.repositoryURL.appendingValidatedRelativePath(eventRelativePath)
-
-            guard !FileManager.default.fileExists(atPath: existingEventURL.path) else {
-                return try await Self.existingOpenMusicEvent.generate(request)
-            }
-
-            let workingTree = try sourceWorkingTreeMaterializer.materialize(
-                location.repositoryURL,
-                nil
-            )
-            defer {
-                try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL)
-            }
-
-            let workingEventURL = try workingTree.workingRepositoryURL
-                .appendingValidatedRelativePath(eventRelativePath)
-            try FileManager.default.createDirectory(
-                at: workingEventURL,
-                withIntermediateDirectories: true
-            )
-            let sourceEvent = try await conversion.update(.emptyForNewSourcePatch, request)
-            let materializedSourceEvent = try sourceEvent
-                .materializingLocalImageFiles(at: workingEventURL)
-            _ = try OpenMusicEventSourceEventFileTree()
-                .write(materializedSourceEvent, to: workingEventURL)
-
-            return try sourcePatchDiffer.diff(
-                workingTree.originalURL,
-                workingTree.workingURL,
-                workingTree.originalRepositoryURL
-            )
-        }
-    }
-
-    private static var existingOpenMusicEvent: Self {
         .live(
             resolveLocation: { request in
-                @Dependency(\.openMusicEventSourcePatchLocationResolver) var resolver
-                return try await resolver.resolve(request)
+                @Dependency(\.sourceWorkspaceStorage) var storage
+                let location = try storage.location(request.workspace.id)
+                return SourcePatchLocation(
+                    repositoryURL: location.repositoryURL,
+                    relativePath: nil,
+                    remote: SourcePatchLocation.Remote(
+                        kind: OME.SourceDatabaseInsertion.SourceKind.tangled.rawValue,
+                        reference: request.workspace.repository,
+                        ref: request.workspace.branch
+                    )
+                )
             },
             read: { sourceURL in
-                try readOpenMusicEventSourceEventForPatch(from: sourceURL)
-            },
-            update: { sourceEvent, request in
-                @Dependency(\.openMusicEventSourcePatchConversion) var conversion
-                return try await conversion.update(sourceEvent, request)
-            },
-            rewrite: { sourceEvent, workingURL in
-                let materializedSourceEvent = try sourceEvent
-                    .materializingLocalImageFiles(at: workingURL)
-                _ = try OpenMusicEventSourceEventFileTree()
-                    .rewrite(materializedSourceEvent, at: workingURL)
-            }
-        )
-    }
-}
-
-public extension SourcePatchGenerator where Request == OpenMusicEventCalendarSourcePatchRequest {
-    static var openMusicEventCalendar: Self {
-        .live(
-            resolveLocation: { request in
-                @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver) var resolver
-                return try await resolver.resolve(request)
-            },
-            read: { sourceURL in
-                try readOpenMusicEventSourceRepositoryForPatch(from: sourceURL)
+                try OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: sourceURL)
+                    .output
+                    .requiredValue
             },
             update: { sourceRepository, request in
-                @Dependency(\.openMusicEventCalendarSourcePatchConversion) var conversion
+                @Dependency(\.sourceWorkspacePatchConversion) var conversion
                 return try await conversion.update(sourceRepository, request)
             },
             rewrite: { sourceRepository, workingURL in
@@ -314,213 +73,16 @@ public extension SourcePatchGenerator where Request == OpenMusicEventCalendarSou
 }
 
 public extension DependencyValues {
-    var openMusicEventSourcePatchLocationResolver: OpenMusicEventSourcePatchLocationResolver {
-        get { self[OpenMusicEventSourcePatchLocationResolverKey.self] }
-        set { self[OpenMusicEventSourcePatchLocationResolverKey.self] = newValue }
-    }
-
-    var openMusicEventSourcePatchConversion: OpenMusicEventSourcePatchConversion {
-        get { self[OpenMusicEventSourcePatchConversionKey.self] }
-        set { self[OpenMusicEventSourcePatchConversionKey.self] = newValue }
-    }
-
-    var openMusicEventCalendarSourcePatchLocationResolver: OpenMusicEventCalendarSourcePatchLocationResolver {
-        get { self[OpenMusicEventCalendarSourcePatchLocationResolverKey.self] }
-        set { self[OpenMusicEventCalendarSourcePatchLocationResolverKey.self] = newValue }
-    }
-
-    var openMusicEventCalendarSourcePatchConversion: OpenMusicEventCalendarSourcePatchConversion {
-        get { self[OpenMusicEventCalendarSourcePatchConversionKey.self] }
-        set { self[OpenMusicEventCalendarSourcePatchConversionKey.self] = newValue }
+    var sourceWorkspacePatchConversion: SourceWorkspacePatchConversion {
+        get { self[SourceWorkspacePatchConversionKey.self] }
+        set { self[SourceWorkspacePatchConversionKey.self] = newValue }
     }
 }
 
-private enum OpenMusicEventSourcePatchLocationResolverKey: DependencyKey {
-    static var liveValue: OpenMusicEventSourcePatchLocationResolver {
-        .openMusicEvent
-    }
-
-    static var testValue: OpenMusicEventSourcePatchLocationResolver {
-        .openMusicEvent
-    }
+private enum SourceWorkspacePatchConversionKey: DependencyKey {
+    static var liveValue: SourceWorkspacePatchConversion { .live }
+    static var testValue: SourceWorkspacePatchConversion { .live }
 }
-
-private enum OpenMusicEventSourcePatchConversionKey: DependencyKey {
-    static var liveValue: OpenMusicEventSourcePatchConversion {
-        .live
-    }
-
-    static var testValue: OpenMusicEventSourcePatchConversion {
-        .identity
-    }
-}
-
-private enum OpenMusicEventCalendarSourcePatchLocationResolverKey: DependencyKey {
-    static var liveValue: OpenMusicEventCalendarSourcePatchLocationResolver {
-        .openMusicEvent
-    }
-
-    static var testValue: OpenMusicEventCalendarSourcePatchLocationResolver {
-        .openMusicEvent
-    }
-}
-
-private enum OpenMusicEventCalendarSourcePatchConversionKey: DependencyKey {
-    static var liveValue: OpenMusicEventCalendarSourcePatchConversion {
-        .live
-    }
-
-    static var testValue: OpenMusicEventCalendarSourcePatchConversion {
-        .identity
-    }
-}
-
-private func readOpenMusicEventSourceEventForPatch(
-    from sourceURL: URL
-) throws -> OpenMusicEventSourceEvent {
-    debugSourcePatchRead(
-        "event-read start url=\(sourceURL.path) raw=\(rawSourcePatchEventDirectorySummary(sourceURL))"
-    )
-    let result = try OpenMusicEventSourceEventFileTree()
-        .read(from: sourceURL)
-    debugSourcePatchDiagnostics(result.diagnostics)
-    switch result.output {
-    case let .value(event):
-        debugSourcePatchRead(
-            "event-read decoded url=\(sourceURL.path) \(decodedSourcePatchEventSummary(event))"
-        )
-        return event
-
-    case .invalid:
-        debugSourcePatchRead("event-read invalid url=\(sourceURL.path)")
-        return try result.output.requiredValue
-    }
-}
-
-private func readOpenMusicEventSourceRepositoryForPatch(
-    from sourceURL: URL
-) throws -> OpenMusicEventSourceRepository {
-    debugSourcePatchRead(
-        "repository-read start url=\(sourceURL.path) rawEvents=\(rawSourcePatchRepositoryEventSummary(sourceURL))"
-    )
-    let result = try OpenMusicEventSourceRepositoryFileTree()
-        .read(from: sourceURL)
-    debugSourcePatchDiagnostics(result.diagnostics)
-    switch result.output {
-    case let .value(repository):
-        debugSourcePatchRead(
-            "repository-read decoded url=\(sourceURL.path) events=\(decodedSourcePatchRepositoryEventSummary(repository))"
-        )
-        return repository
-
-    case .invalid:
-        debugSourcePatchRead("repository-read invalid url=\(sourceURL.path)")
-        return try result.output.requiredValue
-    }
-}
-
-private func rawSourcePatchRepositoryEventSummary(_ sourceURL: URL) -> String {
-    let eventsURL = sourceURL.appending(path: "events", directoryHint: .isDirectory)
-    let eventDirectories: [URL]
-    do {
-        eventDirectories = try FileManager.default
-            .contentsOfDirectory(
-                at: eventsURL,
-                includingPropertiesForKeys: nil,
-                options: .skipsHiddenFiles
-            )
-            .filter(\.hasDirectoryPath)
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-    } catch {
-        return "events:error(\(error))"
-    }
-
-    guard !eventDirectories.isEmpty else { return "events:empty" }
-    return eventDirectories
-        .map { eventURL in
-            "\(eventURL.lastPathComponent):\(rawSourcePatchEventDirectorySummary(eventURL))"
-        }
-        .joined(separator: ",")
-}
-
-private func rawSourcePatchEventDirectorySummary(_ eventURL: URL) -> String {
-    [
-        "contributors=\(rawSourcePatchFileCount(eventURL.appending(path: "contributors", directoryHint: .isDirectory), extension: "md"))",
-        "stages=\(rawSourcePatchFileCount(eventURL.appending(path: "stages", directoryHint: .isDirectory), extension: "yml"))",
-        "schedules=\(rawSourcePatchFileCount(eventURL.appending(path: "schedules", directoryHint: .isDirectory), extension: "yml"))",
-    ]
-    .joined(separator: " ")
-}
-
-private func rawSourcePatchFileCount(
-    _ directoryURL: URL,
-    extension fileExtension: String
-) -> String {
-    var isDirectory = ObjCBool(false)
-    guard FileManager.default.fileExists(
-        atPath: directoryURL.path,
-        isDirectory: &isDirectory
-    ), isDirectory.boolValue
-    else { return "missing" }
-
-    do {
-        let count = try FileManager.default
-            .contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: nil,
-                options: .skipsHiddenFiles
-            )
-            .filter { !$0.hasDirectoryPath && $0.pathExtension == fileExtension }
-            .count
-        return "\(count)"
-    } catch {
-        return "error(\(error))"
-    }
-}
-
-private func decodedSourcePatchRepositoryEventSummary(
-    _ repository: OpenMusicEventSourceRepository
-) -> String {
-    guard !repository.events.isEmpty else { return "empty" }
-    return repository.events
-        .map { event in
-            "\(event.directoryName):\(decodedSourcePatchEventSummary(event.components))"
-        }
-        .joined(separator: ",")
-}
-
-private func decodedSourcePatchEventSummary(
-    _ event: OpenMusicEventSourceEvent
-) -> String {
-    [
-        "contributors=\(event.contributors?.count.description ?? "nil")",
-        "stages=\(event.stages?.count.description ?? "nil")",
-        "schedules=\(event.schedules?.count.description ?? "nil")",
-    ]
-    .joined(separator: " ")
-}
-
-private func debugSourcePatchDiagnostics(
-    _ diagnostics: DiagnosticReport<FileTreeLocation>
-) {
-    guard !diagnostics.isEmpty else { return }
-    debugSourcePatchRead(
-        "diagnostics count=\(diagnostics.diagnostics.count) hasErrors=\(diagnostics.hasErrors)"
-    )
-    for diagnostic in diagnostics.diagnostics {
-        debugSourcePatchRead(
-            "diagnostic severity=\(diagnostic.severity.rawValue) code=\(diagnostic.code.rawValue) path=\(diagnostic.location?.path ?? "nil") message=\(diagnostic.message)"
-        )
-    }
-}
-
-#if DEBUG
-private func debugSourcePatchRead(_ message: @autoclosure () -> String) {
-    print("[OME SourcePatchRead] \(message())")
-}
-#else
-private func debugSourcePatchRead(_ message: @autoclosure () -> String) {}
-#endif
 
 extension OpenMusicEventSourceEvent {
     static var emptyForNewSourcePatch: Self {
@@ -541,28 +103,5 @@ extension OpenMusicEventSourceEvent {
                 categoryConfigs: nil
             )
         )
-    }
-}
-
-private extension URL {
-    func appendingValidatedRelativePath(_ relativePath: String) throws -> URL {
-        guard !relativePath.hasPrefix("/") else {
-            throw SourceWorkingTreeMaterializerError.invalidRelativePath(relativePath)
-        }
-
-        let components = relativePath
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
-        guard !components.isEmpty,
-              !components.contains("."),
-              !components.contains("..")
-        else {
-            throw SourceWorkingTreeMaterializerError.invalidRelativePath(relativePath)
-        }
-
-        return components.reduce(self.standardizedFileURL) { url, component in
-            url.appending(path: component)
-        }
-        .standardizedFileURL
     }
 }

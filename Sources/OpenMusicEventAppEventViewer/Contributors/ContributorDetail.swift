@@ -42,10 +42,10 @@ public struct ContributorDetail {
             contributorID: OMERecord.ID<OMERecord.Contributor>,
             eventID: OMERecord.Event.ID? = nil
         ) {
-            @Dependency(\.defaultEventID) var defaultEventID
+            @Dependency(EventViewerContext.self) var eventViewer
 
             self.contributorID = contributorID
-            self.eventID = eventID ?? defaultEventID
+            self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
                 OMERecord.Event.timeZoneQuery(eventID: self.eventID)
             )
@@ -187,8 +187,7 @@ public struct ContributorDetail {
                     state.destination = .performanceDetail(
                         Spawn(
                             PerformanceDetail.State(
-                                performanceID: performanceID,
-                                eventID: state.eventID
+                                performanceID: performanceID
                             )
                         )
                     )

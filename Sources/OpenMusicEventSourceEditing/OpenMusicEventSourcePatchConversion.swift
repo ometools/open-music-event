@@ -6,18 +6,18 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import SQLiteData
 
-public extension OpenMusicEventSourcePatchConversion {
+extension OpenMusicEventSourceEventConversion {
     static var live: Self {
-        Self { sourceEvent, request in
+        Self { sourceEvent, eventID in
             @Dependency(\.defaultDatabase) var database
 
             let (sourceRecords, event) = try await database.read { db in
                 let sourceRecords = try OpenMusicEventSourceRecords(
-                    eventID: request.eventID,
+                    eventID: eventID,
                     in: db
                 )
                 guard let event = sourceRecords.event else {
-                    throw OpenMusicEventSourcePatchConversionError.eventNotFound(request.eventID)
+                    throw SourceWorkspacePatchConversionError.eventNotFound(eventID)
                 }
                 return (sourceRecords, event)
             }
@@ -30,27 +30,27 @@ public extension OpenMusicEventSourcePatchConversion {
             .preservingSourceImageReferences(
                 from: sourceEvent.event,
                 context: SourceImageReferenceContext(
-                    organizerID: request.eventID.organizerID,
-                    eventID: request.eventID.eventID,
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
                     parentKind: .event,
-                    parentLocalID: request.eventID.eventID.rawValue.rawValue
+                    parentLocalID: eventID.eventID.rawValue.rawValue
                 )
             )
             sourceEvent.stages = try sourceEvent.sourceStageFiles(
                 from: sourceRecords.stages,
-                eventID: request.eventID
+                eventID: eventID
             )
             sourceEvent.contributors = try sourceEvent.sourceContributorFiles(
                 from: sourceRecords.contributors,
-                eventID: request.eventID
+                eventID: eventID
             )
             sourceEvent.posters = try sourceEvent.sourcePosterFiles(
                 from: sourceRecords.posters,
-                eventID: request.eventID
+                eventID: eventID
             )
             sourceEvent.channels = try sourceEvent.sourceChannelFiles(
                 from: sourceRecords.channels,
-                eventID: request.eventID
+                eventID: eventID
             )
             let sourceSchedules = try sourceEvent.sourceScheduleRendering(
                 from: sourceRecords.schedules,
@@ -68,35 +68,36 @@ public extension OpenMusicEventSourcePatchConversion {
     }
 }
 
-public extension OpenMusicEventCalendarSourcePatchConversion {
+public extension SourceWorkspacePatchConversion {
     static var live: Self {
         Self { sourceRepository, request in
             @Dependency(\.defaultDatabase) var database
-            @Dependency(\.openMusicEventSourcePatchConversion) var eventConversion
+            let workspace = request.workspace
+            let calendarID = OME.Calendar.ID(
+                ownerID: workspace.organizerID,
+                calendarID: OME.Calendar.defaultID
+            )
+            let eventConversion = OpenMusicEventSourceEventConversion.live
 
             let (calendar, sourceEvents, collaborators) = try await database.read { db in
                 let calendar = try OME.Calendar
-                    .where { $0.id.eq(request.calendarID) }
+                    .where { $0.id.eq(calendarID) }
                     .fetchOne(db)
                 let sourceEvents = try EventSourceProvenanceRecord
-                    .where { $0.sourceBaselineID.eq(request.sourceBaselineID) }
-                    .where { $0.id.organizerID.eq(request.calendarID.ownerID) }
+                    .where { $0.id.organizerID.eq(workspace.organizerID) }
                     .fetchAll(db)
+                    .filter { $0.workspace?.id == workspace.id }
                     .sorted { lhs, rhs in
                         lhs.sourceEventDirectory < rhs.sourceEventDirectory
                     }
                 let collaborators = try WorkspaceRelationshipRecord
-                    .where {
-                        $0.id.workspaceID.eq(
-                            EditingWorkspaceRecord.ID(sourceBaselineID: request.sourceBaselineID)
-                        )
-                    }
+                    .where { $0.id.workspaceID.eq(workspace.id) }
                     .fetchAll(db)
                     .sorted { $0.recordKey < $1.recordKey }
                 return (calendar, sourceEvents, collaborators)
             }
             guard let calendar else {
-                throw OpenMusicEventCalendarSourcePatchConversionError.calendarNotFound(request.calendarID)
+                throw SourceWorkspacePatchConversionError.calendarNotFound(calendarID)
             }
 
             var sourceRepository = sourceRepository
@@ -105,10 +106,10 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                 .preservingSourceImageReferences(
                     from: sourceCalendar,
                     context: SourceImageReferenceContext(
-                        organizerID: request.calendarID.ownerID,
+                        organizerID: workspace.organizerID,
                         eventID: nil,
                         parentKind: .calendar,
-                        parentLocalID: request.calendarID.calendarID.rawValue.rawValue
+                        parentLocalID: calendarID.calendarID.rawValue.rawValue
                     )
                 )
             let existingCollaborators = Dictionary(
@@ -135,7 +136,7 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                     ?? .emptyForNewSourcePatch
                 let updatedSourceEvent = try await eventConversion.update(
                     existingSourceEvent,
-                    OpenMusicEventSourcePatchRequest(eventID: sourceEvent.id)
+                    sourceEvent.id
                 )
                 eventsByDirectory[sourceEvent.sourceEventDirectory] = DirectoryContent(
                     directoryName: sourceEvent.sourceEventDirectory,
@@ -155,11 +156,8 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
     }
 }
 
-public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable {
+public enum SourceWorkspacePatchConversionError: Equatable, Error, Sendable {
     case eventNotFound(OME.Event.ID)
-}
-
-public enum OpenMusicEventCalendarSourcePatchConversionError: Equatable, Error, Sendable {
     case calendarNotFound(OME.Calendar.ID)
 }
 
@@ -429,8 +427,43 @@ private extension OpenMusicEventSourceEvent {
             )
         }
 
+        var inferredStageNamesByID: [OME.ID<OME.Stage>: String] = [:]
+        if self.stages == nil {
+            let inlineScheduleItems = event.schedule.map { [$0.scheduleItems] } ?? []
+            let scheduleFileItems = schedules?.map(\.data.scheduleItems) ?? []
+            let stageFileNames = Set(
+                (inlineScheduleItems + scheduleFileItems).flatMap(\.keys)
+            )
+            let inferredFileNames = stageFileNames.isEmpty
+                ? [OME.Stage.singletonID.rawValue.rawValue]
+                : stageFileNames.sorted()
+            for fileName in inferredFileNames {
+                let words = fileName
+                    .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                    .map { word in
+                        word.prefix(1).uppercased() + String(word.dropFirst())
+                    }
+                inferredStageNamesByID[OME.ID<OME.Stage>(.init(fileName))] = words.isEmpty
+                    ? OME.Stage.singletonName
+                    : words.joined(separator: " ")
+            }
+        }
+
         let additions = stages
             .filter { !consumedStageIDs.contains($0.id.stageID) }
+            .filter { stage in
+                guard let inferredName = inferredStageNamesByID[stage.id.stageID] else {
+                    return true
+                }
+                return stage.name != inferredName
+                    || stage.color != OME.Stage.singletonColor
+                    || stage.category != nil
+                    || stage.sortIndex != nil
+                    || stage.images != nil
+                    || stage.systemIconName != nil
+                    || stage.iconShortCode != nil
+                    || stage.lineup != nil
+            }
             .sorted { lhs, rhs in
                 lhs.id.stageID.rawValue.rawValue < rhs.id.stageID.rawValue.rawValue
             }

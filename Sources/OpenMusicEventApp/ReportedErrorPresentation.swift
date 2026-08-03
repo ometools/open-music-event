@@ -47,16 +47,16 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
                 _ in
                 guard oldAccountID == nil, accountID != nil else { return }
                 store.addTask {
-                    try store.content.whiteLabelRoot?
-                        .state.teamWorkspaceDetail?
-                        .state.authoring.content.content.authoringAuthorizationInvalidated()
+                    try store.content.eventViewer?
+                        .content.authoring.content.content
+                        .authoringAuthorizationInvalidated()
                 }
             }
             .onEvent(OAuthAuthorizationInvalidated.self) { _, _ in
                 store.addTask {
-                    try store.content.whiteLabelRoot?
-                        .state.teamWorkspaceDetail?
-                        .state.authoring.content.content.authoringAuthorizationInvalidated()
+                    try store.content.eventViewer?
+                        .content.authoring.content.content
+                        .authoringAuthorizationInvalidated()
                 }
             }
     }

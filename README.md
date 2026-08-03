@@ -59,11 +59,37 @@ Workspace owns reference preparation and the durable proposal state machine.
 The Event Viewer owns only editing and presentation.
 
 There is exactly one writable application database: `defaultDatabase`. While a
-workspace is prepared, its `SourceWorkspaceDatabase` exposes that same writer as
-`main` with `source_baseline` already attached read-only. Descendants receive the
-exact prepared database resource from Workspace and issue ordinary live queries
-against it. They must never reopen the workspace, install another writer, attach
-another comparison baseline, or maintain a reload token to make edits visible.
+workspace is prepared, its `SourceWorkspaceResource` exposes that same writer as
+`main` with `source_baseline` already attached read-only. Workspace owns the
+attachment. Only Workspace descendants receive the resource, and they issue
+ordinary live queries against it. They must never reopen the workspace, install
+another writer, attach another comparison baseline, or maintain a reload token
+to make edits visible.
+
+Browsing and authoring have a strict source-storage boundary. Browsing downloads
+a temporary source artifact, imports only the selected event into the persistent
+`defaultDatabase`, persists the event's organization source provenance, and then
+deletes the artifact. The provenance comes from the OME event projection; it is
+not an authoring resource manufactured by the browser. Browsing must not clone,
+open, fetch, or persist a Git repository, and it must not create a reference
+database. The current artifact happens to be a Tangled archive; a future AppView
+artifact replaces that transport without changing the lifecycle.
+
+Explicit authoring entry is the first Git boundary. After authentication and
+authorization succeed, Workspace takes ownership of the organization source. On
+first entry it clones the repository, resolves the exact checked-out Git commit,
+installs the complete organization source into `defaultDatabase`, replaces only
+rows owned by that exact source, builds the reference database from the same
+commit, and attaches it as `source_baseline`. The selected event remains viewer
+focus; it does not narrow or widen Workspace's organization-source ownership.
+
+Durable re-entry is deliberately different from first entry. A new application
+mount opens the existing repository and validates that its checked-out commit,
+installed revision, and reference revision agree. It does not clone, reinstall,
+or implicitly reconcile. After the settled resource is exposed, a background
+fetch may update remote refs, but it cannot change HEAD, the reference database,
+or application rows. Incorporating remote movement is always explicit
+reconciliation.
 
 The first publication freezes the current database difference, creates and
 pushes a proposal branch, records the Tangled proposal, and advances the attached
@@ -73,12 +99,14 @@ later publication adds another commit to the same open proposal branch. Remote
 target movement enters the explicit reconciliation path; preparation never
 silently fetches or advances an existing baseline.
 
-Durable publication progress lives in `workspacePublications`, keyed by the
-workspace ID. Clients are stateless database and network adapters. Losing an
-authoring grant interrupts work that is in flight, but a settled prepared
-workspace and its open proposal survive grant loss and re-entry. Proposal review
-diffs compare the remote target branch with the immutable proposal branch rather
-than the workspace's already-advanced baseline.
+Durable publication progress lives in `sourceWorkspacePublications`, keyed by
+the source workspace ID. Clients are stateless database and network adapters.
+Losing an authoring grant interrupts work that is in flight, but settled
+Workspace state, its prepared resource, and its open proposal survive grant loss
+and re-entry while the feature remains mounted. After an application remount,
+Workspace reconstructs the resource through the durable validation path above.
+Proposal review diffs compare the remote target branch with the immutable
+proposal branch rather than the workspace's already-advanced baseline.
 
 ## Running
 

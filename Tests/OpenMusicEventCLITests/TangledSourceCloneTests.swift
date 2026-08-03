@@ -329,6 +329,7 @@ struct TangledSourceCloneTests {
                 open: { Repository(url: $0) },
                 fetch: { _ in },
                 checkout: { _ in },
+                resolveRevision: { _ in "commit-id" },
                 createBranch: { request in Branch(name: request.name) },
                 status: { _ in [] },
                 stage: { _ in },
@@ -417,6 +418,7 @@ struct TangledSourceCloneTests {
                 checkout: { request in
                     checkoutRequests.withLock { $0.append(request) }
                 },
+                resolveRevision: { _ in "commit-id" },
                 createBranch: { request in Branch(name: request.name) },
                 status: { _ in [] },
                 stage: { _ in },
@@ -525,6 +527,7 @@ struct TangledSourceCloneTests {
                 open: { Repository(url: $0) },
                 fetch: { _ in },
                 checkout: { _ in },
+                resolveRevision: { _ in "commit-id" },
                 createBranch: { request in Branch(name: request.name) },
                 status: { _ in [] },
                 stage: { _ in },

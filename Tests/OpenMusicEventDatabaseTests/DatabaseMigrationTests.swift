@@ -555,170 +555,40 @@ struct DatabaseMigrationTests {
         }
     }
 
+
     @Test
-    func workspaceRelationshipMigrationCreatesPublicIdentityAndRosterStorage() async throws {
+    func canonicalSourceWorkspaceMigrationCreatesOnlyCanonicalStorage() async throws {
         let database = try migratedDatabase()
 
         try await database.read { db in
-            let workspaceColumns = try String.fetchAll(
-                db,
-                sql: #"SELECT "name" FROM pragma_table_info('editingWorkspaces')"#
-            )
-            #expect(workspaceColumns.contains("publicRecord"))
-
-            let relationshipColumns = try String.fetchAll(
-                db,
-                sql: #"SELECT "name" FROM pragma_table_info('workspaceRelationships')"#
-            )
-            #expect(relationshipColumns == [
-                "workspaceID",
-                "actorID",
-                "recordKey",
-                "relationship",
-            ])
-            #expect(
+            let tableNames = Set(
                 try String.fetchAll(
                     db,
-                    sql: """
-                        SELECT "name"
-                        FROM pragma_table_info('workspaceRelationships')
-                        WHERE "pk" > 0
-                        ORDER BY "pk"
-                        """
-                ) == ["workspaceID", "actorID"]
+                    sql: #"SELECT "name" FROM sqlite_master WHERE "type" = 'table'"#
+                )
             )
-        }
-    }
+            #expect(tableNames.contains("sourceWorkspaceRelationships"))
+            #expect(tableNames.contains("sourceWorkspaceAuthoringActivations"))
+            #expect(tableNames.contains("sourceWorkspaceReferences"))
+            #expect(tableNames.contains("sourceWorkspaceInstallations"))
 
-    @Test
-    func editingWorkspaceReferenceDatabaseRenamePreservesTheStoredFileName() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(
-            database,
-            upTo: "Create OpenMusicEvent workspace authoring activation schema"
-        )
-        try await database.write { db in
-            try db.execute(
-                sql: """
-                    INSERT INTO "editingWorkspaces" (
-                      "id", "kind", "databaseFileName", "createdAt", "updatedAt"
-                    ) VALUES (?, 'local', ?, ?, ?)
-                    """,
-                arguments: [
-                    "local.value-preserving-migration",
-                    "reference-before-rename.sqlite",
-                    "2026-07-31T00:00:00Z",
-                    "2026-07-31T00:00:00Z",
-                ]
+            for removedTable in [
+                "workspacePublications",
+                "workspaceAuthoringActivations",
+                "workspaceRelationships",
+                "eventEditingWorkspaces",
+                "editingWorkspaces",
+                "sourceBaselines",
+            ] {
+                #expect(tableNames.contains(removedTable) == false)
+            }
+
+            let provenanceColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('eventSourceProvenances')"#
             )
+            #expect(provenanceColumns.contains("sourceBaselineID") == false)
         }
-
-        try migrator.migrate(database)
-
-        try await database.read { db in
-            expectNoDifference(
-                try String.fetchAll(
-                    db,
-                    sql: #"SELECT "name" FROM pragma_table_info('editingWorkspaces')"#
-                ).filter { $0.contains("DatabaseFileName") },
-                ["referenceDatabaseFileName"]
-            )
-            #expect(
-                try String.fetchOne(
-                    db,
-                    sql: """
-                        SELECT "referenceDatabaseFileName"
-                        FROM "editingWorkspaces"
-                        WHERE "id" = 'local.value-preserving-migration'
-                        """
-                ) == "reference-before-rename.sqlite"
-            )
-        }
-    }
-
-    @Test
-    func workspaceAuthoringActivationMigrationPersistsUpsertsAndCascades() async throws {
-        let database = try migratedDatabase()
-        let workspaceID = EditingWorkspaceRecord.ID(
-            rawValue: "local.persisted-authoring"
-        )
-        let workspace = EditingWorkspaceRecord(
-            id: workspaceID,
-            kind: .local,
-            referenceDatabaseFileName: "persisted-authoring.sqlite",
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1)
-        )
-        try await database.write { db in
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-        }
-
-        let firstActivation = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.date.now = Date(timeIntervalSince1970: 2)
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-            try await activations.activate(
-                workspaceID,
-                .local,
-                .collaborator([.propose])
-            )
-            return try activations.current(workspaceID)
-        }
-        expectNoDifference(
-            firstActivation,
-            WorkspaceAuthoringActivationRecord(
-                id: workspaceID,
-                principal: .local,
-                role: .collaborator([.propose]),
-                activatedAt: Date(timeIntervalSince1970: 2)
-            )
-        )
-
-        let updatedActivation = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.date.now = Date(timeIntervalSince1970: 3)
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-            try await activations.activate(workspaceID, .local, .owner)
-            return try activations.current(workspaceID)
-        }
-        expectNoDifference(
-            updatedActivation,
-            WorkspaceAuthoringActivationRecord(
-                id: workspaceID,
-                principal: .local,
-                role: .owner,
-                activatedAt: Date(timeIntervalSince1970: 3)
-            )
-        )
-
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.date.now = Date(timeIntervalSince1970: 4)
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-            try await activations.deactivate(workspaceID)
-            #expect(try activations.current(workspaceID) == nil)
-            try await activations.activate(workspaceID, .local, .owner)
-        }
-
-        try await database.write { db in
-            try EditingWorkspaceRecord.find(workspaceID).delete().execute(db)
-        }
-        let activationAfterWorkspaceDeletion = try withDependencies {
-            $0.defaultDatabase = database
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-            return try activations.current(workspaceID)
-        }
-        #expect(activationAfterWorkspaceDeletion == nil)
     }
 
     @Test

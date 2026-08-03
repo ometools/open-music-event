@@ -5,30 +5,30 @@ import SourceEditing
 /// The database-layer operation that advances OME's workspace-owned reference copy.
 ///
 /// This seam exists because source parsing owns no SQLite insertion policy. It carries no state;
-/// the durable workflow state remains in `workspacePublications`.
+/// the durable workflow state remains in `sourceWorkspacePublications`.
 public struct WorkspaceReferenceUpdateClient: Sendable {
     public var advance: @Sendable (
-        SourceWorkspaceDatabase,
-        EditingWorkspaceRecord.ID,
+        SourceWorkspaceResource,
+        SourceWorkspace.ID,
         WorkspaceSubmission<SourcePatch>,
         WorkspaceProposal
     ) async throws -> Void
     public var reconcile: @Sendable (
-        SourceWorkspaceDatabase,
-        EditingWorkspaceRecord.ID,
+        SourceWorkspaceResource,
+        SourceWorkspace.ID,
         WorkspaceReconciliation
     ) async throws -> WorkspaceEditingLine
 
     public init(
         advance: @escaping @Sendable (
-            SourceWorkspaceDatabase,
-            EditingWorkspaceRecord.ID,
+            SourceWorkspaceResource,
+            SourceWorkspace.ID,
             WorkspaceSubmission<SourcePatch>,
             WorkspaceProposal
         ) async throws -> Void,
         reconcile: @escaping @Sendable (
-            SourceWorkspaceDatabase,
-            EditingWorkspaceRecord.ID,
+            SourceWorkspaceResource,
+            SourceWorkspace.ID,
             WorkspaceReconciliation
         ) async throws -> WorkspaceEditingLine
     ) {

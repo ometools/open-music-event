@@ -849,10 +849,10 @@ public struct StageDetail {
             stageID: OMERecord.ID<OMERecord.Stage>,
             eventID: OMERecord.Event.ID? = nil
         ) {
-            @Dependency(\.defaultEventID) var defaultEventID
+            @Dependency(EventViewerContext.self) var eventViewer
 
             self.stageID = stageID
-            self.eventID = eventID ?? defaultEventID
+            self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
                 OMERecord.Event.timeZoneQuery(eventID: self.eventID)
             )
@@ -967,13 +967,11 @@ public struct StageDetail {
                 guard state.selectedSchedulePerformances.contains(where: {
                     $0.id.performanceID == performanceID
                 }) else { return }
-                let eventID = state.eventID
                 store.withDependencies {
                     state.destination = .performanceDetail(
                         Spawn(
                             PerformanceDetail.State(
-                                performanceID: performanceID,
-                                eventID: eventID
+                                performanceID: performanceID
                             )
                         )
                     )

@@ -28,10 +28,7 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
         self.recordComparisons = recordComparisons
     }
 
-    public var totalCount: Int {
-        groups.reduce(0) { $0 + $1.totalCount }
-    }
-
+    public var totalCount: Int { groups.reduce(0) { $0 + $1.totalCount } }
     public var badgeCount: Int? {
         guard case .available = availability, totalCount > 0 else { return nil }
         return totalCount
@@ -41,197 +38,97 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
 public extension EventWorkspaceSummary {
     static func query(
         eventID: OME.Event.ID,
-        using database: any DatabaseWriter
-    ) throws -> Self {
-        try query(eventID: eventID, using: database as any DatabaseReader)
-    }
-
-    static func query(
-        eventID: OME.Event.ID,
         using database: any DatabaseReader
     ) throws -> Self {
-        try database.read { db in
-            try query(eventID: eventID, in: db)
-        }
+        try database.read { db in try query(eventID: eventID, in: db) }
     }
 
-    static func query(
-        eventID: OME.Event.ID,
-        in db: Database
-    ) throws -> Self {
-        let eventWorkspace = try EventEditingWorkspaceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        guard let eventWorkspace else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .notInWorkspace,
-                groups: []
-            )
+    static func query(eventID: OME.Event.ID, in db: Database) throws -> Self {
+        guard try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.workspace != nil else {
+            return Self(eventID: eventID, availability: .notInWorkspace, groups: [])
         }
-        let workspace = try EditingWorkspaceRecord
-            .where { $0.id.eq(eventWorkspace.workspaceID) }
-            .fetchOne(db)
-        guard let workspace else {
-            return EventWorkspaceSummary(
+        guard let baseline = try SourceEditingSession.attachedBaselineSchemaName(in: db) else {
+            return Self(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
                 groups: []
             )
         }
-        let sourceProvenance = try EventSourceProvenanceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        guard sourceProvenance?.sourceBaselineID != nil || workspace.kind == .local else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .notInWorkspace,
-                groups: []
-            )
-        }
-        guard let baselineSchemaName = try SourceEditingSession
-            .attachedBaselineSchemaName(in: db)
-        else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .workspaceNeedsPreparation,
-                groups: []
-            )
-        }
-        return Self(
-            eventID: eventID,
-            sourceSummary: try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
+
+        let summary = try sourceSummary(
+            projections: OME.sourceEventProjections,
+            in: db,
+            baselineSchemaName: baseline,
+            scope: { _ in .openMusicEvent(eventID: eventID) }
         )
-    }
-
-    private init(
-        eventID: OME.Event.ID,
-        sourceSummary: SourceChangeSummary
-    ) {
-        switch sourceSummary.availability {
+        switch summary.availability {
         case .available:
-            self.init(
+            return Self(
                 eventID: eventID,
                 availability: .available,
-                groups: sourceSummary.groups,
-                recordComparisons: sourceSummary.recordComparisons
+                groups: summary.groups,
+                recordComparisons: summary.recordComparisons
             )
-
         case let .unavailable(reason):
-            self.init(
-                eventID: eventID,
-                availability: .unavailable(reason),
-                groups: []
-            )
+            return Self(eventID: eventID, availability: .unavailable(reason), groups: [])
         }
     }
 }
 
-public struct SourceEditSummary: Equatable, Sendable {
+public struct SourceWorkspaceEditSummary: Equatable, Sendable {
     public enum Availability: Equatable, Sendable {
         case available
-        case missingBaseline
+        case workspaceNeedsPreparation
         case unavailable(SourceChangeSummary.UnavailableReason)
     }
 
+    public var workspaceID: SourceWorkspace.ID
     public var availability: Availability
     public var groups: [SourceChangeGroup]
     public var recordComparisons: SourceRecordComparisons
-    public var sourceBaselineID: SourceBaselineRecord.ID
 
     public init(
-        sourceBaselineID: SourceBaselineRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         availability: Availability,
         groups: [SourceChangeGroup],
         recordComparisons: SourceRecordComparisons = .empty
     ) {
-        self.sourceBaselineID = sourceBaselineID
+        self.workspaceID = workspaceID
         self.availability = availability
         self.groups = groups
         self.recordComparisons = recordComparisons
     }
 
-    public var totalCount: Int {
-        groups.reduce(0) { $0 + $1.totalCount }
-    }
-
+    public var totalCount: Int { groups.reduce(0) { $0 + $1.totalCount } }
     public var badgeCount: Int? {
         guard case .available = availability, totalCount > 0 else { return nil }
         return totalCount
     }
-}
 
-public extension SourceEditSummary {
-    static func query(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        using database: any DatabaseWriter
-    ) throws -> Self {
-        try query(
-            sourceBaselineID: sourceBaselineID,
-            using: database as any DatabaseReader
-        )
-    }
-
-    static func query(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        using database: any DatabaseReader
-    ) throws -> Self {
-        try database.read { db in
-            try query(sourceBaselineID: sourceBaselineID, in: db)
-        }
-    }
-
-    static func query(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        in db: Database
-    ) throws -> Self {
-        let sourceBaselineExists = try SourceBaselineRecord
-            .where { $0.id.eq(sourceBaselineID) }
-            .fetchCount(db) == 1
-        guard sourceBaselineExists else {
-            return SourceEditSummary(
-                sourceBaselineID: sourceBaselineID,
-                availability: .missingBaseline,
+    public static func query(workspace: SourceWorkspace, in db: Database) throws -> Self {
+        guard let baseline = try SourceEditingSession.attachedBaselineSchemaName(in: db) else {
+            return Self(
+                workspaceID: workspace.id,
+                availability: .workspaceNeedsPreparation,
                 groups: []
             )
         }
-        guard let baselineSchemaName = try SourceEditingSession
-            .attachedBaselineSchemaName(in: db)
-        else {
-            return SourceEditSummary(
-                sourceBaselineID: sourceBaselineID,
-                availability: .missingBaseline,
-                groups: []
-            )
-        }
-        return Self(
-            sourceBaselineID: sourceBaselineID,
-            sourceSummary: try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
+        let summary = try openMusicEventSourceEditSummary(
+            workspace: workspace,
+            in: db,
+            baselineSchemaName: baseline
         )
-    }
-
-    private init(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        sourceSummary: SourceChangeSummary
-    ) {
-        switch sourceSummary.availability {
+        switch summary.availability {
         case .available:
-            self.init(
-                sourceBaselineID: sourceBaselineID,
+            return Self(
+                workspaceID: workspace.id,
                 availability: .available,
-                groups: sourceSummary.groups,
-                recordComparisons: sourceSummary.recordComparisons
+                groups: summary.groups,
+                recordComparisons: summary.recordComparisons
             )
-
         case let .unavailable(reason):
-            self.init(
-                sourceBaselineID: sourceBaselineID,
+            return Self(
+                workspaceID: workspace.id,
                 availability: .unavailable(reason),
                 groups: []
             )
@@ -240,107 +137,84 @@ public extension SourceEditSummary {
 }
 
 public func openMusicEventSourceEditSummary(
+    workspace: SourceWorkspace,
     in db: Database,
     baselineSchemaName: String
 ) throws -> SourceChangeSummary {
-    try SourceEditingComparer().summary(
+    try sourceSummary(
+        projections: OME.sourceProjections,
         in: db,
         baselineSchemaName: baselineSchemaName,
-        recordTypes: OME.sourceDiffRecordTypes
+        scope: { sourceScope(for: $0, workspace: workspace) }
     )
 }
 
-func openMusicEventSourceEventIDs(
+private func sourceSummary(
+    projections: [OpenMusicEventSourceProjection],
     in db: Database,
     baselineSchemaName: String,
-    sourceBaselineID: SourceBaselineRecord.ID,
-    organizerID: OME.Organizer.ID
-) throws -> [OME.Event.ID] {
-    let workingEventIDs = try sourceEventIDs(
-        in: db,
-        sourceBaselineID: sourceBaselineID
-    )
-    let baselineEventIDs = try baselineSourceEventIDs(
-        in: db,
-        baselineSchemaName: baselineSchemaName,
-        sourceBaselineID: sourceBaselineID
-    )
-
-    var seen: Set<OME.Event.ID> = []
-    return (workingEventIDs + baselineEventIDs)
-        .filter { $0.organizerID == organizerID }
-        .sorted { lhs, rhs in
-            lhs.eventID.rawValue.rawValue < rhs.eventID.rawValue.rawValue
-        }
-        .compactMap { eventID in
-            guard seen.insert(eventID).inserted else { return nil }
-            return eventID
-        }
-}
-
-private func sourceEventIDs(
-    in db: Database,
-    sourceBaselineID: SourceBaselineRecord.ID
-) throws -> [OME.Event.ID] {
-    try EventSourceProvenanceRecord
-        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-        .fetchAll(db)
-        .map(\.id)
-}
-
-private func baselineSourceEventIDs(
-    in db: Database,
-    baselineSchemaName: String,
-    sourceBaselineID: SourceBaselineRecord.ID
-) throws -> [OME.Event.ID] {
-    let sql = """
-        SELECT "organizerID", "eventID"
-        FROM \(baselineSchemaName.quotedDatabaseIdentifier)."eventSourceProvenances"
-        WHERE "sourceBaselineID" = ?
-        """
-    return try Row
-        .fetchAll(
-            db,
-            sql: sql,
-            arguments: [sourceBaselineID.rawValue]
+    scope: (OpenMusicEventSourceProjection) -> SourceRecordScope
+) throws -> SourceChangeSummary {
+    var groups: [SourceChangeGroup] = []
+    var comparisons: [AnySourceRecordComparison] = []
+    for projection in projections {
+        let summary = try SourceEditingComparer().summary(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            recordTypes: [projection.recordType],
+            scope: scope(projection)
         )
-        .compactMap { row in
-            let organizerIDString: String = row["organizerID"]
-            let eventIDString: String = row["eventID"]
-            guard let organizerID = OME.Organizer.ID(organizerIDString) else {
-                return nil
-            }
-            return OME.Event.ID(
-                organizerID: organizerID,
-                eventID: OME.ID<OME.Event>(.init(eventIDString))
-            )
-        }
+        guard case .available = summary.availability else { return summary }
+        groups.append(contentsOf: summary.groups)
+        comparisons.append(contentsOf: summary.recordComparisons.values)
+    }
+    return SourceChangeSummary(
+        availability: .available,
+        groups: groups,
+        recordComparisons: SourceRecordComparisons(comparisons)
+    )
+}
+
+func sourceScope(
+    for projection: OpenMusicEventSourceProjection,
+    workspace: SourceWorkspace
+) -> SourceRecordScope {
+    switch projection.fileFamily {
+    case .calendar:
+        .openMusicEventCalendar(organizerID: workspace.organizerID)
+    case .collaborator:
+        .openMusicEventWorkspace(workspace.id)
+    case .event, .stage, .contributor, .schedule, .channel, .poster:
+        .openMusicEventOrganizer(workspace.organizerID)
+    }
 }
 
 public extension SourceRecordScope {
-    static func openMusicEventCalendar(calendarID: OME.Calendar.ID) -> Self {
-        SourceRecordScope(
-            filters: [
-                SourceRecordScope.Filter(
-                    columnName: "ownerID",
-                    value: calendarID.ownerID.queryBinding
-                ),
-                SourceRecordScope.Filter(
-                    columnName: "calendarID",
-                    value: calendarID.calendarID.rawValue.rawValue.queryBinding
-                ),
-            ]
-        )
+    static func openMusicEvent(eventID: OME.Event.ID) -> Self {
+        Self(filters: [
+            .init(columnName: "organizerID", value: eventID.organizerID.queryBinding),
+            .init(
+                columnName: "eventID",
+                value: eventID.eventID.rawValue.rawValue.queryBinding
+            ),
+        ])
     }
 
-    static func openMusicEventWorkspace(_ workspaceID: EditingWorkspaceRecord.ID) -> Self {
-        SourceRecordScope(
-            filters: [
-                SourceRecordScope.Filter(
-                    columnName: "workspaceID",
-                    value: workspaceID.rawValue.queryBinding
-                ),
-            ]
-        )
+    static func openMusicEventOrganizer(_ organizerID: OME.Organizer.ID) -> Self {
+        Self(filters: [.init(columnName: "organizerID", value: organizerID.queryBinding)])
+    }
+
+    static func openMusicEventCalendar(organizerID: OME.Organizer.ID) -> Self {
+        Self(filters: [
+            .init(columnName: "ownerID", value: organizerID.queryBinding),
+            .init(
+                columnName: "calendarID",
+                value: OME.Calendar.defaultID.rawValue.rawValue.queryBinding
+            ),
+        ])
+    }
+
+    static func openMusicEventWorkspace(_ workspaceID: SourceWorkspace.ID) -> Self {
+        Self(filters: [.init(columnName: "workspaceID", value: workspaceID.rawValue.queryBinding)])
     }
 }

@@ -16,7 +16,9 @@ import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
+import SourceControlClient
 import SQLiteData
+import Synchronization
 import Testing
 
 struct EventBrowseStoryTests {
@@ -380,6 +382,8 @@ struct EventBrowseStoryTests {
 
     @Test @MainActor
     func `entering Wicked Woods downloads and installs only that event before opening it`() async throws {
+        struct UnexpectedGitOperation: Error {}
+
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -398,12 +402,29 @@ struct EventBrowseStoryTests {
         let downloadUUID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-000000000026")
         )
+        let gitOperations = Mutex<[String]>([])
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.omeEventInstallation = .liveValue
             $0.uuid = .constant(downloadUUID)
+            $0.sourceControl.clone = { _ in
+                gitOperations.withLock { $0.append("clone") }
+                throw UnexpectedGitOperation()
+            }
+            $0.sourceControl.open = { _ in
+                gitOperations.withLock { $0.append("open") }
+                throw UnexpectedGitOperation()
+            }
+            $0.sourceControl.fetch = { _ in
+                gitOperations.withLock { $0.append("fetch") }
+                throw UnexpectedGitOperation()
+            }
+            $0.sourceControl.checkout = { _ in
+                gitOperations.withLock { $0.append("checkout") }
+                throw UnexpectedGitOperation()
+            }
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 expectNoDifference(
                     request.repository.normalizedReference,
@@ -435,16 +456,22 @@ struct EventBrowseStoryTests {
         }
         expectNoDifference(installedEvents.map(\.id), [eventID])
         expectNoDifference(installedEvents.map(\.name), ["Wicked Woods 2026"])
+        expectNoDifference(gitOperations.withLock { $0 }, [])
 
-        // Attendee installation does not turn the Tangled source into an authoring workspace.
-        let authoringRecordCounts = try await database.read { db in
+        // Browse persists only the neutral source locator carried by the OME record. It does not
+        // prepare a repository, install an organization source, or manufacture publication state.
+        let browseState = try await database.read { db in
             (
-                sourceBaselines: try SourceBaselineRecord.fetchCount(db),
-                editingWorkspaces: try EditingWorkspaceRecord.fetchCount(db)
+                provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
+                installations: try SourceWorkspaceInstallationRecord.fetchCount(db)
             )
         }
-        expectNoDifference(authoringRecordCounts.sourceBaselines, 0)
-        expectNoDifference(authoringRecordCounts.editingWorkspaces, 0)
+        let workspace = try #require(browseState.provenance?.workspace)
+        expectNoDifference(workspace.organizerID, organizerID)
+        expectNoDifference(workspace.repository, "tangled.org/woody.fm/wicked-woods-ome")
+        expectNoDifference(workspace.branch, "main")
+        expectNoDifference(browseState.installations, 0)
+        #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)
     }
 
     @Test @MainActor

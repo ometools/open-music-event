@@ -57,7 +57,11 @@ public extension TangledPullReviewSourceSnapshotClient {
                 sourceReference: request.sourceProvenance.reference
             )
             @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
-            let outputURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: UUID())
+            let outputURL = FileManager.default.temporaryDirectory
+                .appending(
+                    path: "open-music-event-pull-review-\(UUID().uuidString)",
+                    directoryHint: .isDirectory
+                )
             do {
                 _ = try await tangledSourceCheckout.checkout(
                     TangledSourceCheckoutRequest(

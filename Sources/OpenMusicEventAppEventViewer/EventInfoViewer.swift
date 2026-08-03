@@ -40,7 +40,6 @@ public struct EventInfoViewer {
     public enum Action {
         case aboutOpenMusicEventButtonTapped
         case destination(Destination.Action)
-        case didPullToRefresh
         case editButtonTapped
     }
 
@@ -62,18 +61,6 @@ public struct EventInfoViewer {
 
             case .destination:
                 break
-
-            case .didPullToRefresh:
-                guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
-                    return
-                }
-                let request = SourceDataRefreshRequest(
-                    eventID: state.eventID,
-                    sourceBaselineID: sourceBaselineID
-                )
-                store.addTask {
-                    try store.post(key: SourceDataRefreshRequested.self, value: request)
-                }
 
             case .editButtonTapped:
                 let eventID = state.eventID
@@ -178,9 +165,6 @@ public struct EventInfoViewerView: View {
                             }
                         }
                     }
-                }
-                .refreshable {
-                    store.send(.didPullToRefresh)
                 }
                 .navigationDestination(
                     item: $store.scope(\.destination, action: \.destination).aboutOpenMusicEvent

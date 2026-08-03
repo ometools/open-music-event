@@ -16,6 +16,7 @@ struct WorkspaceCollaboratorsTests {
     @Test
     func ownerFindsCollaboratorsWithPredictiveSearchBeforeAddingThem() async throws {
         let database = try makePreparedDatabase()
+        let ownerID = try #require(DID("did:plc:owner"))
         let identity = ActorIdentity(
             did: try #require(DID("did:plc:alice")),
             handle: .init(rawValue: "alice.example"),
@@ -37,7 +38,7 @@ struct WorkspaceCollaboratorsTests {
         } operation: {
             TestStore(
                 initialState: WorkspaceCollaborators.State(
-                    workspaceID: .init(rawValue: "team.workspace"),
+                    workspace: workspace(ownerID: ownerID),
                     role: .owner
                 )
             ) {
@@ -84,7 +85,6 @@ struct WorkspaceCollaboratorsTests {
         let ownerID = try #require(DID("did:plc:owner"))
         let collaboratorID = try #require(DID("did:plc:collaborator"))
         let workspace = workspace(ownerID: ownerID)
-        try await insert(workspace, into: database)
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 1_785_283_200)
@@ -99,7 +99,7 @@ struct WorkspaceCollaboratorsTests {
             }
         } operation: {
             var initialState = WorkspaceCollaborators.State(
-                workspaceID: workspace.id,
+                workspace: workspace,
                 role: .owner
             )
             initialState.actorQuery = "alice.example"
@@ -108,7 +108,6 @@ struct WorkspaceCollaboratorsTests {
             }
         }
 
-        try await waitForCondition { store.workspace == workspace }
         await store.send(.addButtonTapped)?.value
         var stored = try #require(
             try await relationship(
@@ -145,7 +144,6 @@ struct WorkspaceCollaboratorsTests {
         let database = try makePreparedDatabase()
         let ownerID = try #require(DID("did:plc:owner"))
         let workspace = workspace(ownerID: ownerID)
-        try await insert(workspace, into: database)
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.actorIdentityLookup.resolve = { _ in
@@ -154,7 +152,7 @@ struct WorkspaceCollaboratorsTests {
             }
         } operation: {
             var initialState = WorkspaceCollaborators.State(
-                workspaceID: workspace.id,
+                workspace: workspace,
                 role: .collaborator([.merge])
             )
             initialState.actorQuery = "alice.example"
@@ -163,7 +161,6 @@ struct WorkspaceCollaboratorsTests {
             }
         }
 
-        try await waitForCondition { store.workspace == workspace }
         await store.send(.addButtonTapped)?.value
         let count = try await database.read { db in
             try WorkspaceRelationshipRecord.fetchCount(db)
@@ -171,18 +168,11 @@ struct WorkspaceCollaboratorsTests {
         #expect(count == 0)
     }
 
-    private func workspace(ownerID: DID) -> EditingWorkspaceRecord {
-        EditingWorkspaceRecord(
-            id: .init(rawValue: "team.workspace"),
-            kind: .team,
-            referenceDatabaseFileName: "workspace.sqlite",
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1),
-            publicRecord: OME.Relationship.RecordReference(
-                author: ownerID,
-                collection: OME.SourceRecord.nsid,
-                rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
-            )
+    private func workspace(ownerID: DID) -> SourceWorkspace {
+        SourceWorkspace(
+            organizerID: OME.Organizer.ID(ownerID.description)!,
+            repository: "tangled.org/\(ownerID.description)/events",
+            branch: "main"
         )
     }
 
@@ -196,17 +186,8 @@ struct WorkspaceCollaboratorsTests {
         }
     }
 
-    private func insert(
-        _ workspace: EditingWorkspaceRecord,
-        into database: any DatabaseWriter
-    ) async throws {
-        try await database.write { db in
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-        }
-    }
-
     private func relationship(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         actorID: DID,
         in database: any DatabaseWriter
     ) async throws -> WorkspaceRelationshipRecord? {
@@ -218,13 +199,4 @@ struct WorkspaceCollaboratorsTests {
         }
     }
 
-    private func waitForCondition(
-        _ condition: @escaping @MainActor () -> Bool
-    ) async throws {
-        for _ in 0..<100 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(condition())
-    }
 }

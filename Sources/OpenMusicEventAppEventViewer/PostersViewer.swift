@@ -20,8 +20,8 @@ public struct PostersViewer {
             destination: Destination.State? = nil,
             importImages: Spawn<ImportImages>? = nil
         ) {
-            @Dependency(\.defaultEventID) var defaultEventID
-            let eventID = eventID ?? defaultEventID
+            @Dependency(EventViewerContext.self) var eventViewer
+            let eventID = eventID ?? eventViewer.eventID
             self.eventID = eventID
             self.destination = destination
             self.importImages = importImages

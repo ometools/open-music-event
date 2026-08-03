@@ -1,6 +1,5 @@
 import ComposableArchitecture2
 import Foundation
-import OpenMusicEventAuthentication
 import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
@@ -11,290 +10,28 @@ struct MyEventsView: View {
     @Bindable var store: StoreOf<MyEvents>
 
     var body: some View {
-        content
-            .navigationTitle("My Events")
-            .listStyle(.plain)
-            .confirmationDialog(
-                "Delete Created Events?",
-                isPresented: deleteCreatedEventsConfirmationPresented,
-                titleVisibility: .visible
-            ) {
-                Button("Delete Created Events", role: .destructive) {
-                    store.send(.deleteCreatedEventsConfirmationDeleteButtonTapped)
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This permanently deletes the selected event data from this device. Shared workspace source trees can be opened again, but created events are not cached off device.")
-            }
-            .toolbar {
-                toolbarContent
-            }
-            .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
-                NavigationStack {
-                    CreateEventView(store: createEventStore)
-                }
-            }
-            .sheet(item: $store.scope(\.destination, action: \.destination).sourceImport) { downloadStore in
-                NavigationStack {
-                    TangledSourceDownloadView(store: downloadStore)
-                }
-            }
-            .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
-                OrganizerDetailView(store: detailStore)
-            }
-            .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
-                OpenMusicEventAuthorizationView(store: detailStore) { workspaceAuthoringStore in
-                    let authoringStore = workspaceAuthoringStore.scope(
-                        \.authoring,
-                        action: \.authoring
-                    )
-                    let workspaceStore = authoringStore.scope(\.content, action: \.content)
-                    let contentStore = workspaceStore.scope(\.content, action: \.content)
-                    TeamWorkspaceDetailView(
-                        store: contentStore,
-                        showsAuthoringControls: authoringStore.grant?.access.canEditContent == true
-                    )
-                    .openMusicEventWorkspacePhase(workspaceStore.phase)
-                    .toolbar {
-                        if authoringStore.canEnter {
-                            ToolbarItem(placement: .primaryAction) {
-                                Button {
-                                    authoringStore.send(.enterButtonTapped)
-                                } label: {
-                                    Label {
-                                        Text("Enter Authoring")
-                                    } icon: {
-                                        if authoringStore.entry.isRunning {
-                                            ProgressView()
-                                        } else {
-                                            Image(systemName: "square.and.pencil")
-                                        }
-                                    }
-                                }
-                                .disabled(authoringStore.entry.isRunning)
-                            }
-                        }
-                    }
-                }
-            }
-    }
-
-    private var deleteCreatedEventsConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { store.isDeleteCreatedEventsConfirmationPresented },
-            set: { store.send(.deleteCreatedEventsConfirmationPresentedChanged($0)) }
-        )
-    }
-
-    private var content: some View {
         List {
-            errorSection
-            teamWorkspacesSection
-            eventsSection
-        }
-    }
-
-    @ViewBuilder
-    private var errorSection: some View {
-        if let errorMessage = store.errorMessage {
-            Section {
-                Text(errorMessage)
+            if let error = store.$events.loadError {
+                Text("Unable to load installed events: \(error.localizedDescription)")
                     .font(.footnote)
                     .foregroundStyle(.red)
             }
-        }
-        if !store.fetchLoadFailures.isEmpty {
-            FetchLoadErrorSection(failures: store.fetchLoadFailures)
-        }
-    }
 
-    @ViewBuilder
-    private var teamWorkspacesSection: some View {
-        if !store.teamWorkspaces.isEmpty {
-            Section("Shared Workspaces") {
-                ForEach(store.teamWorkspaces) { teamWorkspace in
-                    Button {
-                        store.send(.didTapTeamWorkspace(teamWorkspace.id))
-                    } label: {
-                        TeamWorkspaceRowView(teamWorkspace: teamWorkspace)
-                    }
-                }
-                .onDelete { offsets in
-                    deleteTeamWorkspaces(at: offsets)
+            ForEach(store.events) { event in
+                Button {
+                    store.send(.eventButtonTapped(event.id))
+                } label: {
+                    EventRowView(event: event)
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private var eventsSection: some View {
-        if !store.events.isEmpty {
-            Section("Events") {
-                ForEach(store.events) { event in
-                    Button {
-                        store.send(.didTapEvent(event))
-                    } label: {
-                        EventRowView(event: event)
-                    }
-                    .contextMenu {
-                        Button("Delete Event", role: .destructive) {
-                            confirmDeleteCreatedEvent(event.id)
-                        }
-                    }
-                }
-                .onDelete { offsets in
-                    confirmDeleteCreatedEvents(at: offsets)
-                }
-            }
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            Button {
-                store.send(.didTapImportTeamWorkspace)
-            } label: {
-                Label("Open Shared Workspace", systemImage: "arrow.down.doc")
-                    .labelStyle(.iconOnly)
-            }
-
-            Button {
-                store.send(.didTapCreateEvent)
-            } label: {
-                Label("Create Event", systemImage: "plus")
-                    .labelStyle(.iconOnly)
-            }
-        }
-    }
-
-    func deleteTeamWorkspaces(at offsets: IndexSet) {
-        let sourceBaselineIDs = offsets.compactMap { offset in
-            store.teamWorkspaces.indices.contains(offset)
-                ? store.teamWorkspaces[offset].id
-                : nil
-        }
-        store.send(.deleteTeamWorkspaces(sourceBaselineIDs))
-    }
-
-    func confirmDeleteCreatedEvents(at offsets: IndexSet) {
-        let eventIDs = offsets.compactMap { offset in
-            store.events.indices.contains(offset)
-                ? store.events[offset].id
-                : nil
-        }
-        store.send(.deleteCreatedEventsButtonTapped(eventIDs))
-    }
-
-    func confirmDeleteCreatedEvent(_ eventID: OMERecord.Event.ID) {
-        store.send(.deleteCreatedEventsButtonTapped([eventID]))
-    }
-}
-
-struct FetchLoadErrorSection: View {
-    let failures: [FetchLoadFailure]
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Unable to load data.")
-                if showsTechnicalDetails {
-                    ForEach(failures) { failure in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(failure.label)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(String(describing: failure.error))
-                                .font(.caption)
-                                .myEventsSelectableText()
-                        }
-                    }
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(.red)
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func myEventsSelectableText() -> some View {
-        #if os(Android) && SKIP_BRIDGE
-        self
-        #else
-        self.textSelection(.enabled)
-        #endif
-    }
-}
-
-#if !os(Android)
-#Preview {
-    NavigationStack {
-        MyEventsView(store: Store(initialState: .init(), feature: {
-            MyEvents()
-        }))
-    }
-}
-#endif
-
-struct OrganizerRowView: View {
-    var organizer: OMERecord.Organizer
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "person.crop.circle")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            Text(showsTechnicalDetails ? organizer.id.description : "Organizer")
-                .lineLimit(1)
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
-    }
-}
-
-struct TeamWorkspaceRowView: View {
-    var teamWorkspace: TeamWorkspaceRow
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "folder")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Shared workspace")
-                    .lineLimit(1)
-                Text(
-                    teamWorkspace.eventCount == 1
-                        ? showsTechnicalDetails
-                            ? "1 event · \(teamWorkspace.refTitle)"
-                            : "1 event"
-                        : showsTechnicalDetails
-                            ? "\(teamWorkspace.eventCount) events · \(teamWorkspace.refTitle)"
-                            : "\(teamWorkspace.eventCount) events"
-                )
-                    .lineLimit(1)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
+        .listStyle(.plain)
+        .navigationTitle("My Events")
     }
 }
 
 struct EventRowView: View {
-    var event: OMERecord.Event
+    let event: OMERecord.Event
 
     nonisolated static func imageAssets(
         icon: OME.ImageAsset?,
@@ -311,28 +48,18 @@ struct EventRowView: View {
             .where { $0.id.eventID.eq(eventID.eventID) }
     }
 
-    var eventDateString: String? {
-        event.eventDateText(dateStyle: .long)
-    }
-
     var body: some View {
         HStack(spacing: 10) {
             EventIconImageView(event: event)
                 .frame(width: 60, height: 60)
-            //                    .foregroundColor(.label)
-            //                .invertForLightMode()
-
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(event.name)
-                    if let eventDateString {
-                        Text(eventDateString)
-                            .lineLimit(1)
-                            .font(.caption2)
-                    }
+            VStack(alignment: .leading) {
+                Text(event.name)
+                if let date = event.eventDateText(dateStyle: .long) {
+                    Text(date)
+                        .lineLimit(1)
+                        .font(.caption2)
                 }
             }
-
             Spacer()
         }
         .foregroundStyle(.primary)
@@ -351,10 +78,7 @@ struct EventRowView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.secondary.opacity(0.12))
-
-                EventImageSourceChain(
-                    sources: imageSources[...]
-                ) {
+                EventImageSourceChain(sources: imageSources[...]) {
                     MappedSystemImage(systemName: "music.note")
                         .frame(width: 24, height: 24)
                         .foregroundStyle(.secondary)
@@ -387,10 +111,7 @@ struct EventImageSourceChain<Placeholder: View>: View {
     @ViewBuilder
     var body: some View {
         if let source = sources.first {
-            ImageAssetAsyncImage(
-                image: source,
-                contentMode: .fit
-            ) { reason in
+            ImageAssetAsyncImage(image: source, contentMode: .fit) { reason in
                 switch reason {
                 case .loading:
                     Color.clear
@@ -423,13 +144,10 @@ private extension OMERecord.Event {
                 from: startDate.atStartOfDay(in: timeZone),
                 to: endDate.atStartOfDay(in: timeZone)
             )
-
         case let (.some(startDate), .none):
             return startDate.formatted(dateStyle: dateStyle, in: timeZone)
-
         case let (.none, .some(endDate)):
             return endDate.formatted(dateStyle: dateStyle, in: timeZone)
-
         case (.none, .none):
             return nil
         }

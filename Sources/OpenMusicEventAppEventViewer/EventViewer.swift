@@ -22,13 +22,31 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 #endif
 
-private enum DefaultEventIDKey: DependencyKey {
-    static var liveValue: OMERecord.Event.ID {
-        unimplemented(
-            "DependencyValues.defaultEventID",
-            placeholder: .init(
-                organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                eventID: .init("-1")
+struct EventViewerContext: Sendable {
+    let eventID: OMERecord.Event.ID
+}
+
+extension EventViewerContext: DependencyKey {
+    static var liveValue: Self {
+        Self(
+            eventID: unimplemented(
+                "EventViewerContext.eventID",
+                placeholder: .init(
+                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
+                    eventID: .init("-1")
+                )
+            )
+        )
+    }
+
+    static var testValue: Self {
+        Self(
+            eventID: unimplemented(
+                "EventViewerContext.eventID",
+                placeholder: .init(
+                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
+                    eventID: .init("-1")
+                )
             )
         )
     }
@@ -46,8 +64,8 @@ private enum DefaultEventTimeZoneKey: DependencyKey {
 
 extension DependencyValues {
     var defaultEventID: OMERecord.Event.ID {
-        get { self[DefaultEventIDKey.self] }
-        set { self[DefaultEventIDKey.self] = newValue }
+        get { self[EventViewerContext.self].eventID }
+        set { self[EventViewerContext.self] = EventViewerContext(eventID: newValue) }
     }
 
     var defaultEventTimeZone: SharedReader<TimeZone> {
@@ -58,8 +76,8 @@ extension DependencyValues {
 
 extension OMERecord.Event {
   static var defaultEvent: some SelectStatementOf<OMERecord.Event> {
-    @Dependency(\.defaultEventID) var defaultEventID
-    return Self.where { $0.id.eq(defaultEventID) }
+    @Dependency(EventViewerContext.self) var eventViewer
+    return Self.where { $0.id.eq(eventViewer.eventID) }
   }
 }
 
@@ -109,11 +127,10 @@ public struct EventViewer {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
-    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @Dependency(SourceWorkspaceFetchClient.self) var sourceWorkspaceFetch
     @Dependency(\.uuid) var uuid
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
     var workspace
-    @StoreTaskID var sourceDataRefreshTask
 
     public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
         public init(eventID: OMERecord.Event.ID) {
@@ -225,7 +242,7 @@ public struct EventViewer {
                             ?? Spawn(SiteMapViewer.State(eventID: eventID))
                     case .posters:
                         self.postersViewer = existingPostersViewer
-                            ?? Spawn(PostersViewer.State(eventID: eventID))
+                            ?? Spawn(PostersViewer.State())
                     case .notifications:
                         self.notificationsViewer = existingNotificationsViewer
                             ?? Spawn(NotificationsViewer.State(eventID: eventID))
@@ -331,7 +348,8 @@ public struct EventViewer {
         }
 
         public var authoringAccess: AuthoringAccess {
-            authoringGrant?.access ?? .attendee
+            guard eventWorkspace != nil else { return .attendee }
+            return authoringGrant?.access ?? .attendee
         }
 
         public var showsAuthoringControls: Bool {
@@ -367,8 +385,7 @@ public struct EventViewer {
                     ContributorsViewer.Destination.State.contributorDetail(
                         Spawn(
                             ContributorDetail.State(
-                                contributorID: contributorID,
-                                eventID: eventID
+                                contributorID: contributorID
                             )
                         )
                     )
@@ -394,8 +411,7 @@ public struct EventViewer {
                     StagesViewer.Destination.State.stageDetail(
                         Spawn(
                             StageDetail.State(
-                                stageID: stageID,
-                                eventID: eventID
+                                stageID: stageID
                             )
                         )
                     )
@@ -417,8 +433,7 @@ public struct EventViewer {
                     .performanceDetail(
                         Spawn(
                             PerformanceDetail.State(
-                                performanceID: performanceID,
-                                eventID: eventID
+                                performanceID: performanceID
                             )
                         )
                     )
@@ -720,7 +735,7 @@ public struct EventViewer {
             let eventID = self.eventID
             let eventTimeZone = self.eventTimeZoneReader
             return withDependencies {
-                $0.defaultEventID = eventID
+                $0[EventViewerContext.self] = EventViewerContext(eventID: eventID)
                 $0.defaultEventTimeZone = eventTimeZone
             } operation: {
                 operation()
@@ -824,7 +839,8 @@ public struct EventViewer {
                     let newValue = newGrant?.access ?? .attendee
                     guard oldValue != newValue else { return }
                     state.reloadFeaturesForAuthoringAccess()
-                    guard newValue.canEditContent,
+                    guard state.eventWorkspace != nil,
+                          newValue.canEditContent,
                           let pendingAuthoringEntry = state.pendingAuthoringEntry
                     else { return }
                     enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
@@ -870,24 +886,36 @@ public struct EventViewer {
                     }
                 }
                 .onTrigger(store.workspaceSourcePrepared) { state in
-                    guard state.showsAuthoringControls,
+                    guard state.authoringGrant?.access.canEditContent == true,
                           state.eventWorkspace == nil,
                           let source = workspace.source.wrappedValue
                     else { return }
                     state.eventWorkspace = withDependencies {
                         $0.defaultDatabase = source.database
                     } operation: {
-                        EventWorkspace.State(eventID: state.eventID)
+                        EventWorkspace.State(
+                            workspace: source.workspace,
+                            eventID: state.eventID
+                        )
+                    }
+                    state.reloadFeaturesForAuthoringAccess()
+                    if let pendingAuthoringEntry = state.pendingAuthoringEntry {
+                        enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+                    }
+                    let sourceWorkspaceFetch = sourceWorkspaceFetch
+                    store.addTask {
+                        await withErrorReporting {
+                            try await sourceWorkspaceFetch.fetch(source)
+                        }
                     }
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
                     state.eventWorkspace?.reviews.pendingCreatedReviewID = proposal.id.rawValue
                     store.addTask {
-                        let refresh = try store.send(
+                        try store.send(
                             .eventWorkspace(.reviews(.refreshButtonTapped))
                         )
-                        await refresh?.value
                     }
                 }
             )
@@ -898,28 +926,6 @@ public struct EventViewer {
                         let feature = EventFeature.schedule(division)
                         guard state.installedFeatures.contains(feature) else { return }
                         state.selectedFeature = feature
-                    }
-                    .onEvent(SourceDataRefreshRequested.self) { request, state in
-                        guard request.eventID == state.eventID else { return }
-                        if workspace.source.wrappedValue != nil {
-                            store.addTask(id: sourceDataRefreshTask) {
-                                let reconciliation = try store.post(
-                                    key: WorkspaceReconciliationRequested.self,
-                                    value: ()
-                                )
-                                await reconciliation?.value
-                            }
-                            return
-                        }
-                        store.addTask(id: sourceDataRefreshTask) {
-                            let result: Void? = await store.withErrorHandling(
-                                fallbackMessage: .sourceDataRefreshFailed,
-                                operation: .sourceDataRefresh
-                            ) {
-                                try await sourceDataRefresh.refresh(request.sourceBaselineID)
-                            }
-                            _ = result
-                        }
                     }
             )
 
@@ -994,10 +1000,10 @@ public struct EventViewer {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
-                .dependency(\.defaultEventID, store.eventID)
+                .dependency(EventViewerContext(eventID: store.eventID))
                 .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
         }
-        .dependency(\.defaultEventID, store.eventID)
+        .dependency(EventViewerContext(eventID: store.eventID))
         .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
     }
 }
@@ -1037,16 +1043,19 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
 public struct EventViewerView: View {
     public init(
         store: StoreOf<EventViewer>,
-        authoringAdmission: ComposableAuthoring.AuthoringAdmission? = nil
+        authoringAdmission: ComposableAuthoring.AuthoringAdmission? = nil,
+        authoringPhase: AuthoringPhase<AuthoringGrant>? = nil
     ) {
         self.store = store
         self.authoringAdmission = authoringAdmission
+        self.authoringPhase = authoringPhase
         self.accountStore = store.spawn(\.account)
     }
 
     @Bindable var store: StoreOf<EventViewer>
     @Bindable var accountStore: StoreOf<Account>
     let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
+    let authoringPhase: AuthoringPhase<AuthoringGrant>?
 
     public var body: some View {
         tabContent
@@ -1109,13 +1118,15 @@ public struct EventViewerView: View {
         #if os(Android)
         TabFeaturesViewer(
             store: store,
-            authoringAdmission: authoringAdmission
+            authoringAdmission: authoringAdmission,
+            authoringPhase: authoringPhase
         )
         #elseif os(iOS)
         if #available(iOS 18.0, *) {
             TabFeaturesViewer(
                 store: store,
-                authoringAdmission: authoringAdmission
+                authoringAdmission: authoringAdmission,
+                authoringPhase: authoringPhase
             )
         } else {
             legacyiOSTabView
@@ -1124,7 +1135,8 @@ public struct EventViewerView: View {
         if #available(macOS 15.0, *) {
             TabFeaturesViewer(
                 store: store,
-                authoringAdmission: authoringAdmission
+                authoringAdmission: authoringAdmission,
+                authoringPhase: authoringPhase
             )
         } else {
             defaultTabView
@@ -1140,6 +1152,7 @@ public struct EventViewerView: View {
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
         let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
+        let authoringPhase: AuthoringPhase<AuthoringGrant>?
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
@@ -1297,7 +1310,8 @@ public struct EventViewerView: View {
                         EventSettingsView(
                             store: featureStore,
                             authoringAccess: store.authoringAccess,
-                            authoringAdmission: authoringAdmission
+                            authoringAdmission: authoringAdmission,
+                            authoringPhase: authoringPhase
                         )
                     }
                 }
@@ -1313,7 +1327,6 @@ public struct EventViewerView: View {
                     ) {
                         EventWorkspaceView(
                             store: featureStore,
-                            accountStore: accountStore,
                             authoringAccess: store.authoringAccess
                         )
                     }
@@ -1488,7 +1501,8 @@ public struct EventViewerView: View {
                     EventSettingsView(
                         store: featureStore,
                         authoringAccess: store.authoringAccess,
-                        authoringAdmission: authoringAdmission
+                        authoringAdmission: authoringAdmission,
+                        authoringPhase: authoringPhase
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)
@@ -1498,7 +1512,6 @@ public struct EventViewerView: View {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
-                        accountStore: accountStore,
                         authoringAccess: store.authoringAccess
                     )
                 }
@@ -1610,7 +1623,8 @@ public struct EventViewerView: View {
                     EventSettingsView(
                         store: featureStore,
                         authoringAccess: store.authoringAccess,
-                        authoringAdmission: authoringAdmission
+                        authoringAdmission: authoringAdmission,
+                        authoringPhase: authoringPhase
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)
@@ -1620,7 +1634,6 @@ public struct EventViewerView: View {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
                     EventWorkspaceView(
                         store: featureStore,
-                        accountStore: accountStore,
                         authoringAccess: store.authoringAccess
                     )
                 }

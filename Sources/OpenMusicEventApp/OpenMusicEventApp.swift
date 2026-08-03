@@ -67,65 +67,31 @@ extension OME {
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
 #if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
         dependencies.sourceControl = LibGit2SourceControlClient.live
-        dependencies.tangledSourceCheckout = .git
-#else
-        dependencies.tangledSourceCheckout = .archive
 #endif
-        dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
-        dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
-        dependencies.openMusicEventSourcePatchConversion = .live
-        dependencies.openMusicEventCalendarSourcePatchConversion = .live
+        let resolveRevision: SourceWorkspaceRevisionResolver = { repository, ref in
+            @Dependency(\.sourceControl) var sourceControl
+            return try await sourceControl.resolveRevision(
+                ResolveRevisionRequest(repository: repository, ref: ref)
+            )
+        }
+        dependencies[SourceWorkspacePreparationClient.self] = .openMusicEvent(
+            resolveRevision: resolveRevision
+        )
+        dependencies[WorkspaceReferenceUpdateClient.self] = .openMusicEvent(
+            resolveRevision: resolveRevision
+        )
+        dependencies[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+        dependencies.sourceWorkspacePatchConversion = .live
 
         dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.tangledPullReviewSourceSnapshot = .openMusicEvent
-        dependencies.sourceEditModePreparation = .live
-        dependencies.sourceReferenceDatabase = .live
-        dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
-        dependencies.sourceRepositoryStorage = .live
-        dependencies.tangledSourceImport = .live
+        dependencies.sourceWorkspaceStorage = .live
+        dependencies.sourceWorkspaceReferenceMigrator = .openMusicEvent
+        dependencies.tangledSourceArchiveExtractor = .live
         dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
         dependencies[WorkspaceAuthoringActivationClient.self] = .live
-        dependencies[WorkspacePreparationClient.self] = .live
-        dependencies[WorkspaceReferenceUpdateClient.self] = .openMusicEvent
-        dependencies.whiteLabelSourceImport = .live
-
-        dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
-            @Dependency(\.defaultDatabase) var database
-            @Dependency(\.tangledSourceImport) var tangledSourceImport
-            let (sourceBaseline, organizerID) = try await database.read { db in
-                let fetchedSourceBaseline = try SourceBaselineRecord
-                    .where { $0.id.eq(sourceBaselineID) }
-                    .fetchOne(db)
-                guard let sourceBaseline = fetchedSourceBaseline
-                else {
-                    throw SourceDataRefreshError.sourceBaselineNotFound(sourceBaselineID)
-                }
-                let fetchedOrganizerID = try EventSourceProvenanceRecord
-                    .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                    .fetchOne(db)?
-                    .id
-                    .organizerID
-                guard let organizerID = fetchedOrganizerID
-                else {
-                    throw SourceDataRefreshError.sourceBaselineHasNoEvents(sourceBaselineID)
-                }
-                return (sourceBaseline, organizerID)
-            }
-            _ = try await tangledSourceImport.importSource(
-                OpenMusicEventSourceValidationRequest(
-                    source: sourceBaseline.sourceReference,
-                    organizerID: organizerID,
-                    ref: sourceBaseline.ref ?? "HEAD"
-                )
-            )
-        }
     }
 
-}
-
-private enum SourceDataRefreshError: Error, Equatable, Sendable {
-    case sourceBaselineHasNoEvents(SourceBaselineRecord.ID)
-    case sourceBaselineNotFound(SourceBaselineRecord.ID)
 }
 
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.
@@ -243,7 +209,6 @@ struct SelectedEventRestoration {
                 OpenMusicEventAppRoot.State(
                     variant: variant,
                     selectedEventIDAtLaunch: selectedEventRestoration.eventID,
-                    whiteLabelLoadedRootAtLaunch: whiteLabelLoadedRootAtLaunch(for: variant),
                     workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
                 )
             }
@@ -269,22 +234,6 @@ struct SelectedEventRestoration {
             )
         } catch {
             return SelectedEventRestoration(error: error)
-        }
-    }
-
-    private static func whiteLabelLoadedRootAtLaunch(
-        for variant: OpenMusicEventAppVariant
-    ) -> WhiteLabelRoot.LoadedRoot? {
-        guard case let .whiteLabel(configuration) = variant else { return nil }
-        @Dependency(\.defaultDatabase) var database
-        do {
-            return try WhiteLabelRoot.loadedRootAtLaunch(
-                for: configuration,
-                database: database
-            )
-        } catch {
-            logger.error("Failed to restore white-label event at launch: \(String(describing: error))")
-            return nil
         }
     }
 

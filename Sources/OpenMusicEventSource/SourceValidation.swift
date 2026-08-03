@@ -133,7 +133,6 @@ public struct OpenMusicEventSourceValidator: Sendable {
         if requestedEventID != nil {
             insertion.calendars = []
             insertion.calendarEntries = []
-            insertion.eventSourceProvenances = []
         }
 
         return OpenMusicEventSourceValidationResult(

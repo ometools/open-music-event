@@ -5,6 +5,7 @@ import Dependencies
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import SQLiteData
 
 public struct OMEEventInstallationClient: Sendable {
@@ -30,10 +31,13 @@ extension OMEEventInstallationClient: DependencyKey {
             guard let eventID = OME.Event.ID(eventURI) else {
                 throw OMEEventInstallationError.invalidEventURI(eventURI)
             }
-            let isInstalled = try await database.read { db in
-                try OME.Event.find(eventID).fetchOne(db) != nil
+            let installation = try await database.read { db in
+                (
+                    event: try OME.Event.find(eventID).fetchOne(db),
+                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+                )
             }
-            if isInstalled {
+            if installation.event != nil, installation.provenance != nil {
                 return eventID
             }
 
@@ -52,7 +56,23 @@ extension OMEEventInstallationClient: DependencyKey {
 
             let result = try await OpenMusicEventSourceValidator(installationRequest)
                 .validate(eventID: eventID)
-            try await result.insertion.migrateAndInsert(into: database)
+            if installation.event == nil {
+                try await result.insertion.migrateAndInsert(into: database)
+            } else {
+                guard let provenance = result.insertion.eventSourceProvenances
+                    .first(where: { $0.eventID == eventID })
+                else {
+                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+                }
+                try await database.write { db in
+                    try EventSourceProvenanceRecord.insert {
+                        EventSourceProvenanceRecord(provenance)
+                    } onConflict: {
+                        $0.id
+                    }
+                    .execute(db)
+                }
+            }
             return eventID
         }
     }

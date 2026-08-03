@@ -116,8 +116,9 @@ struct TemporaryOMEBrowseEvent: Decodable {
     var organizerID: String
     var organizerAvatarURL: URL?
     var organizerName: String
-    var source: String?
-    var sourceRef: String?
+    /// The organizer's canonical source record resolved by the AppView for this event.
+    /// The temporary browse catalog carries it inline until the AppView endpoint does.
+    var source: OME.SourceRecord?
     var startDate: LocalDate
     var status: Status
     var timeZone: String
@@ -160,11 +161,11 @@ struct TemporaryOMEBrowseEvent: Decodable {
     func installationRequest(
         organizerID: OME.Organizer.ID
     ) -> OpenMusicEventSourceValidationRequest? {
-        guard let source else { return nil }
+        guard let source, source.kind == .tangled else { return nil }
         return OpenMusicEventSourceValidationRequest(
-            source: source,
+            source: source.reference,
             organizerID: organizerID,
-            ref: sourceRef ?? "HEAD"
+            ref: source.ref ?? "main"
         )
     }
 

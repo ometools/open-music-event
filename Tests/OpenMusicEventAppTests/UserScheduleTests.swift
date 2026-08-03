@@ -366,7 +366,7 @@ struct UserScheduleTests {
             }
             .execute(db)
 
-            try MyEventsDeletion.deleteCreatedLocalEvents([eventID], in: db)
+            try OMERecord.Event.find(eventID).delete().execute(db)
         }
 
         let remainingCounts = try await database.read { db in

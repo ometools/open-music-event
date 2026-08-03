@@ -4,27 +4,24 @@ public import ComposableWorkspace
 
 import ComposableArchitecture2
 import Dependencies
-import Foundation
 import OpenMusicEventLexicon
 import Sharing
 import SourceEditing
-import SQLiteData
 
-/// The parent-to-child trigger used when OME's prepared workspace source becomes available.
 public protocol OpenMusicEventWorkspaceContentState {
     var authoringAuthorizationInvalidated: Trigger<()> { get }
     var workspaceProposalRecorded: Trigger<WorkspaceProposal> { get }
     var workspaceSourcePrepared: Trigger<()> { get }
 }
 
-/// Composes OME authoring and workspace behavior without adding another state or action layer.
+/// The sole OME composition of authorization, source preparation, editing, and publication.
 public struct OpenMusicEventAuthoringWorkspace<Content: FeatureProtocol>: FeatureProtocol
 where Content.State: OpenMusicEventWorkspaceContentState {
     public typealias Feature = ComposableAuthoringWorkspace.AuthoringWorkspace<
         OpenMusicEventWorkspaceContent<Content>,
-        EditingWorkspaceRecord.ID,
+        SourceWorkspace,
         AuthoringGrant,
-        SourceWorkspaceDatabase,
+        SourceWorkspaceResource,
         SourcePatch
     >
     public typealias State = Feature.State
@@ -39,13 +36,13 @@ where Content.State: OpenMusicEventWorkspaceContentState {
     let makeContent: () -> Content
 
     public static func state(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspace: SourceWorkspace,
         grant: Shared<AuthoringGrant?> = Shared(value: nil),
         makeContentState: () -> Content.State
     ) -> State {
-        State(context: workspaceID, grant: grant) {
+        State(context: workspace, grant: grant) {
             WorkspaceFeature.State(
-                workspaceID: WorkspaceID(rawValue: workspaceID.rawValue),
+                workspaceID: WorkspaceID(rawValue: workspace.id.rawValue),
                 makeContentState: makeContentState
             )
         }
@@ -65,7 +62,7 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
     public typealias State = Content.State
     public typealias Action = Content.Action
 
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
     var workspace
 
     let makeContent: () -> Content
@@ -80,25 +77,25 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
 }
 
 public extension ComposableAuthoring.AuthoringClient
-where Context == EditingWorkspaceRecord.ID, Grant == AuthoringGrant {
+where Context == SourceWorkspace, Grant == AuthoringGrant {
     static var openMusicEvent: Self {
         @Dependency(AuthoringPolicyClient.self) var policy
         @Dependency(WorkspaceAuthoringActivationClient.self) var activations
 
         return Self(
-            admission: { workspaceID in
-                switch try await policy.admission(workspaceID) {
+            admission: { workspace in
+                switch try await policy.admission(workspace) {
                 case .granted, .signInRequired:
                     return .available
                 case .denied:
                     return .unavailable
                 }
             },
-            enter: { workspaceID in
-                var admission = try await policy.admission(workspaceID)
+            enter: { workspace in
+                var admission = try await policy.admission(workspace)
                 if case .signInRequired = admission {
                     try await policy.requestSignIn()
-                    admission = try await policy.admission(workspaceID)
+                    admission = try await policy.admission(workspace)
                 }
 
                 let principal: AuthoringPrincipal
@@ -113,38 +110,38 @@ where Context == EditingWorkspaceRecord.ID, Grant == AuthoringGrant {
                     throw AuthoringPolicyError.admissionDenied
                 }
 
-                try await policy.authorizeEntry(workspaceID, principal)
-                try await activations.activate(workspaceID, principal, role)
+                try await policy.authorizeEntry(workspace, principal)
+                try await activations.activate(workspace.id, principal, role)
                 return AuthoringGrant(
                     principal: principal,
                     role: role,
-                    workspaceID: workspaceID
+                    workspaceID: workspace.id
                 )
             },
-            exit: { workspaceID, grant in
-                guard grant.workspaceID == workspaceID else {
+            exit: { workspace, grant in
+                guard grant.workspaceID == workspace.id else {
                     throw OpenMusicEventAuthoringIntegrationError.grantWorkspaceMismatch
                 }
-                try await activations.deactivate(workspaceID)
+                try await activations.deactivate(workspace.id)
             },
-            restore: { workspaceID in
-                guard let activation = try activations.current(workspaceID) else {
+            restore: { workspace in
+                guard let activation = try activations.current(workspace.id) else {
                     return nil
                 }
 
-                switch try await policy.admission(workspaceID) {
+                switch try await policy.admission(workspace) {
                 case let .granted(principal, role)
                     where principal == activation.principal:
-                    try await policy.authorizeEntry(workspaceID, principal)
-                    try await activations.activate(workspaceID, principal, role)
+                    try await policy.authorizeEntry(workspace, principal)
+                    try await activations.activate(workspace.id, principal, role)
                     return AuthoringGrant(
                         principal: principal,
                         role: role,
-                        workspaceID: workspaceID
+                        workspaceID: workspace.id
                     )
 
                 case .granted, .signInRequired, .denied:
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspace.id)
                     return nil
                 }
             }
@@ -153,164 +150,84 @@ where Context == EditingWorkspaceRecord.ID, Grant == AuthoringGrant {
 }
 
 public extension ComposableWorkspace.WorkspaceClient
-where Source == SourceWorkspaceDatabase, ChangeSet == SourcePatch {
+where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
     static var openMusicEvent: Self {
         @Dependency(\.defaultDatabase) var database
-        @Dependency(
-            SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self
-        ) var patchGenerator
-        @Dependency(WorkspacePreparationClient.self) var preparation
+        @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
+        @Dependency(SourceWorkspacePreparationClient.self) var preparation
         @Dependency(WorkspaceReferenceUpdateClient.self) var referenceUpdate
-        @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
         let persistence = WorkspacePublicationPersistence(database: database)
         let publisher = TangledWorkspacePublisher()
 
         return Self(
             updateReference: { source, workspaceID, submission, proposal in
-                let editingWorkspaceID = EditingWorkspaceRecord.ID(
-                    rawValue: workspaceID.rawValue
-                )
+                let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 try await referenceUpdate.advance(
                     source,
-                    editingWorkspaceID,
+                    sourceWorkspaceID,
                     submission,
                     proposal
                 )
-                let line = WorkspaceEditingLine.proposal(proposal)
-                try await persistence.advance(to: line, workspaceID: editingWorkspaceID)
-                return line
+                return .proposal(proposal)
             },
             captureChanges: { source, workspaceID, request in
-                let editingWorkspaceID = EditingWorkspaceRecord.ID(
-                    rawValue: workspaceID.rawValue
-                )
+                let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
+                precondition(source.workspace.id == sourceWorkspaceID)
                 if let capture = try persistence.capture(
-                    workspaceID: editingWorkspaceID,
+                    workspaceID: sourceWorkspaceID,
                     requestID: request.id
                 ) {
                     return capture.isEmpty ? .noChanges : .changes(capture)
                 }
-                let patchRequest = try await workspacePatchRequest(
-                    editingWorkspaceID,
-                    database: database
-                )
                 let capture = try await withDependencies {
                     $0.defaultDatabase = source.database
                 } operation: {
-                    try await patchGenerator.generate(patchRequest)
+                    try await patchGenerator.generate(
+                        SourceWorkspacePatchRequest(workspace: source.workspace)
+                    )
                 }
                 try await persistence.saveCapture(
                     capture,
-                    workspaceID: editingWorkspaceID,
+                    workspaceID: sourceWorkspaceID,
                     requestID: request.id
                 )
                 return capture.isEmpty ? .noChanges : .changes(capture)
             },
             loadSubmission: { workspaceID in
                 try persistence.submission(
-                    EditingWorkspaceRecord.ID(rawValue: workspaceID.rawValue)
+                    SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 )
             },
             prepareSource: { workspaceID in
-                let editingWorkspaceID = EditingWorkspaceRecord.ID(
-                    rawValue: workspaceID.rawValue
+                let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
+                let prepared = try await preparation.prepare(
+                    SourceWorkspace(id: sourceWorkspaceID)
                 )
-                try await preparation.prepareSource(editingWorkspaceID)
-
-                let (workspace, sourceBaseline) = try await database.read { db in
-                    let workspace = try EditingWorkspaceRecord
-                        .where { $0.id.eq(editingWorkspaceID) }
-                        .fetchOne(db)
-                    let sourceBaseline = try workspace?.sourceBaselineID.flatMap {
-                        sourceBaselineID in
-                        try SourceBaselineRecord
-                            .where { $0.id.eq(sourceBaselineID) }
-                            .fetchOne(db)
-                    }
-                    return (workspace, sourceBaseline)
+                guard let proposal = try persistence.openProposal(sourceWorkspaceID) else {
+                    return prepared
                 }
-                guard let workspace else {
-                    throw WorkspacePreparationError.workspaceNotFound(editingWorkspaceID)
+                guard prepared.line.editingReference.revision == proposal.source.revision else {
+                    throw OpenMusicEventAuthoringIntegrationError.openProposalRevisionMismatch
                 }
-                guard let referenceDatabase = try workspaceReferenceDatabase.existing(
-                    workspace,
-                    sourceBaseline: sourceBaseline
-                ) else {
-                    throw OpenMusicEventWorkspaceIntegrationError.referenceNotPrepared
-                }
-
-                let source = try SourceWorkspaceDatabase(
-                    workspaceID: editingWorkspaceID,
-                    mainDatabase: database,
-                    referenceDatabase: referenceDatabase
-                )
-
-                let branch: String
-                let snapshotDate: Date
-                switch workspace.kind {
-                case .local:
-                    branch = "local"
-                    snapshotDate = workspace.updatedAt
-
-                case .team:
-                    guard let sourceBaseline else {
-                        throw WorkspacePreparationError.workspaceMissingSourceBaseline(
-                            editingWorkspaceID
-                        )
-                    }
-                    let ref = sourceBaseline.ref?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if ref.isEmpty || ref == "HEAD" {
-                        branch = "main"
-                    } else if ref.hasPrefix("refs/heads/") {
-                        branch = String(ref.dropFirst("refs/heads/".count))
-                    } else {
-                        branch = ref
-                    }
-                    snapshotDate = sourceBaseline.importedAt
-                }
-
-                let snapshotMilliseconds = Int64(
-                    snapshotDate.timeIntervalSince1970 * 1_000
-                )
-                let line = try await persistence.establish(
-                    .canonical(
-                        WorkspaceBranchReference(
-                            branch: WorkspaceBranch(rawValue: branch),
-                            revision: WorkspaceRevision(
-                                rawValue: "\(editingWorkspaceID.rawValue)@\(snapshotMilliseconds)"
-                            )
-                        )
-                    ),
-                    for: editingWorkspaceID
-                )
-                return WorkspacePreparation(
-                    line: line,
-                    source: source
-                )
+                return WorkspacePreparation(line: .proposal(proposal), source: prepared.source)
             },
             pushCommit: { workspaceID, submission in
                 try await publisher.pushCommit(
-                    workspaceID: EditingWorkspaceRecord.ID(rawValue: workspaceID.rawValue),
+                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     persistence: persistence
                 )
             },
             reconcileSource: { source, workspaceID, reconciliation in
-                let editingWorkspaceID = EditingWorkspaceRecord.ID(
-                    rawValue: workspaceID.rawValue
-                )
-                let line = try await referenceUpdate.reconcile(
+                try await referenceUpdate.reconcile(
                     source,
-                    editingWorkspaceID,
+                    SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     reconciliation
                 )
-                try await persistence.advance(to: line, workspaceID: editingWorkspaceID)
-                return line
             },
             recordProposal: { workspaceID, submission, commit in
                 try await publisher.recordProposal(
-                    workspaceID: EditingWorkspaceRecord.ID(rawValue: workspaceID.rawValue),
+                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     commit: commit,
                     persistence: persistence
@@ -318,52 +235,21 @@ where Source == SourceWorkspaceDatabase, ChangeSet == SourcePatch {
             },
             removeSubmission: { workspaceID, submissionID in
                 try await persistence.removeSubmission(
-                    workspaceID: EditingWorkspaceRecord.ID(rawValue: workspaceID.rawValue),
+                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submissionID: submissionID
                 )
             },
             saveSubmission: { workspaceID, submission in
                 try await persistence.save(
                     submission,
-                    workspaceID: EditingWorkspaceRecord.ID(rawValue: workspaceID.rawValue)
+                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 )
             }
         )
     }
 }
 
-private func workspacePatchRequest(
-    _ workspaceID: EditingWorkspaceRecord.ID,
-    database: any DatabaseReader
-) async throws -> OpenMusicEventCalendarSourcePatchRequest {
-    try await database.read { db in
-        guard let workspace = try EditingWorkspaceRecord.find(workspaceID).fetchOne(db),
-              let sourceBaselineID = workspace.sourceBaselineID
-        else { throw WorkspacePreparationError.workspaceNotFound(workspaceID) }
-        let organizerID = try workspace.publicRecord?.author
-            ?? EventSourceProvenanceRecord
-                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                .fetchOne(db)?
-                .id
-                .organizerID
-        guard let organizerID else {
-            throw OpenMusicEventWorkspaceIntegrationError.organizerNotFound(workspaceID)
-        }
-        return OpenMusicEventCalendarSourcePatchRequest(
-            calendarID: OME.Calendar.ID(
-                ownerID: organizerID,
-                calendarID: OME.Calendar.defaultID
-            ),
-            sourceBaselineID: sourceBaselineID
-        )
-    }
-}
-
 private enum OpenMusicEventAuthoringIntegrationError: Error {
     case grantWorkspaceMismatch
-}
-
-private enum OpenMusicEventWorkspaceIntegrationError: Error {
-    case organizerNotFound(EditingWorkspaceRecord.ID)
-    case referenceNotPrepared
+    case openProposalRevisionMismatch
 }

@@ -342,6 +342,7 @@ var targets: [Target] = [
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+            .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "Tagged", package: "swift-tagged"),
         ]
@@ -528,9 +529,16 @@ var targets: [Target] = [
     .testTarget(
         name: "OpenMusicEventSourceEditingTests",
         dependencies: [
+            "OpenMusicEventDatabase",
+            "OpenMusicEventLexicon",
+            "OpenMusicEventSource",
             "OpenMusicEventSourceEditing",
+            "SourceEditing",
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+            .product(name: "FileTree", package: "swift-file-tree"),
+            .product(name: "GRDB", package: grdbPackageName),
+            .product(name: "SQLiteData", package: "sqlite-data"),
         ]
     ),
     .testTarget(
@@ -824,6 +832,7 @@ targets.append(contentsOf: [
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
+            .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]

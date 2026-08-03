@@ -4,13 +4,16 @@ import ComposableAuthoring
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
-import SourceEditing
 import Sharing
+import SourceEditing
 import SQLiteData
 
-public enum AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
-    case local
-    case actor(DID)
+public struct AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
+    public var actorID: DID
+
+    public init(actorID: DID) {
+        self.actorID = actorID
+    }
 }
 
 public enum AuthoringAccess: Equatable, Sendable {
@@ -43,12 +46,12 @@ public enum AuthoringAccess: Equatable, Sendable {
 public struct AuthoringGrant: Equatable, Sendable {
     public var principal: AuthoringPrincipal
     public var role: OME.WorkspaceRole
-    public var workspaceID: EditingWorkspaceRecord.ID
+    public var workspaceID: SourceWorkspace.ID
 
     public init(
         principal: AuthoringPrincipal,
         role: OME.WorkspaceRole,
-        workspaceID: EditingWorkspaceRecord.ID
+        workspaceID: SourceWorkspace.ID
     ) {
         self.principal = principal
         self.role = role
@@ -62,7 +65,7 @@ public struct AuthoringGrant: Equatable, Sendable {
 
 public extension DependencyValues {
     mutating func useAuthoringContext(
-        _ workspaceID: EditingWorkspaceRecord.ID,
+        _ workspaceID: SourceWorkspace.ID,
         grant: SharedReader<AuthoringGrant?>
     ) {
         if let grantedWorkspaceID = grant.wrappedValue?.workspaceID {
@@ -76,17 +79,15 @@ public extension DependencyValues {
     }
 }
 
-/// The single database resource owned by an editable workspace.
-///
-/// `database` is the writable application database with `source_baseline` already attached as a
-/// read-only schema. No descendant may reopen or independently attach that baseline.
-public final class SourceWorkspaceDatabase: Sendable {
-    public let workspaceID: EditingWorkspaceRecord.ID
+public final class SourceWorkspaceResource: Sendable {
     public let database: any DatabaseWriter
+    public let repositoryURL: URL
     public let sourceEditingSession: SourceEditingSession
+    public let workspace: SourceWorkspace
 
     public init(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspace: SourceWorkspace,
+        repositoryURL: URL,
         mainDatabase: any DatabaseWriter,
         referenceDatabase: SourceBaselineDatabase
     ) throws {
@@ -94,28 +95,25 @@ public final class SourceWorkspaceDatabase: Sendable {
             mainDatabase: mainDatabase,
             baselineDatabasePath: referenceDatabase.path
         )
-        self.workspaceID = workspaceID
+        self.workspace = workspace
+        self.repositoryURL = repositoryURL.standardizedFileURL
         self.database = session.database
         self.sourceEditingSession = session
     }
 }
 
 public struct AuthoringPolicyClient: Sendable {
-    public var admission: @Sendable (
-        EditingWorkspaceRecord.ID
-    ) async throws -> AuthoringAdmission
+    public var admission: @Sendable (SourceWorkspace) async throws -> AuthoringAdmission
     public var authorizeEntry: @Sendable (
-        EditingWorkspaceRecord.ID,
+        SourceWorkspace,
         AuthoringPrincipal
     ) async throws -> Void
     public var requestSignIn: @Sendable () async throws -> Void
 
     public init(
-        admission: @escaping @Sendable (
-            EditingWorkspaceRecord.ID
-        ) async throws -> AuthoringAdmission,
+        admission: @escaping @Sendable (SourceWorkspace) async throws -> AuthoringAdmission,
         authorizeEntry: @escaping @Sendable (
-            EditingWorkspaceRecord.ID,
+            SourceWorkspace,
             AuthoringPrincipal
         ) async throws -> Void = { _, _ in },
         requestSignIn: @escaping @Sendable () async throws -> Void = {}
@@ -138,12 +136,6 @@ public enum AuthoringPolicyError: Error, Equatable, Sendable {
 }
 
 public extension AuthoringPolicyClient {
-    static var authoring: Self {
-        Self { _ in
-            .granted(principal: .local, role: .owner)
-        }
-    }
-
     static var attendee: Self {
         Self { _ in .denied }
     }
@@ -171,6 +163,12 @@ public struct AuthoringAccessRevoked: FeatureEventKey {
 }
 
 public struct AuthoringExitRequested: FeatureEventKey {
+    public typealias Value = Void
+
+    public init() {}
+}
+
+public struct SourceWorkspacePreparationRetryRequested: FeatureEventKey {
     public typealias Value = Void
 
     public init() {}

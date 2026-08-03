@@ -5,7 +5,7 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
 
-public extension SourceReferenceDatabaseMigrator {
+public extension SourceWorkspaceReferenceMigrator {
     static let openMusicEvent = Self { database in
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -26,165 +26,90 @@ public extension OME.SourceDatabaseInsertion {
         try await insert(into: database)
     }
 
-    func migrateAndInsert(
-        rebasedWorkingCopy: OME.SourceDatabaseInsertion,
-        into database: any DatabaseWriter
-    ) async throws {
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
-        try await insert(
-            rebasedWorkingCopy: rebasedWorkingCopy,
-            into: database
-        )
-    }
-
     func insert(into database: any DatabaseWriter) async throws {
         try await database.read { db in
             try validateEventSourceProvenanceConflicts(in: db)
         }
-
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
-            sourceReferenceDatabase: sourceReferenceDatabase
-        )
-        defer {
-            for stagedDatabase in stagedSourceReferenceDatabases.values {
-                try? stagedDatabase.discard()
-            }
-        }
-        let prepared = try await preparedInsertion(
-            stagedSourceReferenceDatabases: stagedSourceReferenceDatabases
-        )
-
-        try insert(
-            prepared,
-            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
+        let prepared = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: self,
+            importedAt: Date()
         )
 
         try await database.write { db in
             try prepared.insert(into: db)
-            for stagedDatabase in stagedSourceReferenceDatabases.values {
-                try stagedDatabase.commit()
-            }
         }
     }
 
-    private func insert(
-        rebasedWorkingCopy: OME.SourceDatabaseInsertion,
-        into database: any DatabaseWriter
+    /// Replaces exactly the rows owned by `workspace`, preserving every unrelated source already
+    /// installed in the writable application database.
+    func replaceSourceWorkspace(
+        _ workspace: SourceWorkspace,
+        revision: String,
+        in database: any DatabaseWriter
     ) async throws {
-        try await database.read { db in
-            try validateEventSourceProvenanceConflicts(in: db)
-            try rebasedWorkingCopy.validateEventSourceProvenanceConflicts(in: db)
+        let incomingProvenances = eventSourceProvenances.map(EventSourceProvenanceRecord.init)
+        guard incomingProvenances.allSatisfy({ $0.workspace?.id == workspace.id }) else {
+            throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
         }
-
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
-            sourceReferenceDatabase: sourceReferenceDatabase
-        )
-        defer {
-            for stagedDatabase in stagedSourceReferenceDatabases.values {
-                try? stagedDatabase.discard()
-            }
-        }
-
-        let importedAt = Date()
-        let baselineDatabaseFileNamesByID = Dictionary(
-            uniqueKeysWithValues: stagedSourceReferenceDatabases.map { baselineID, database in
-                (baselineID, database.databaseFileName)
-            }
-        )
-        let baseline = try await PreparedSourceDatabaseInsertion(
+        let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
-            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
-            importedAt: importedAt
-        )
-        let workingCopy = try await PreparedSourceDatabaseInsertion(
-            sourceInsertion: rebasedWorkingCopy,
-            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
-            importedAt: importedAt
-        )
-
-        try insert(
-            baseline,
-            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
-        )
-        // Current edits live in the one writable default database. The backend insertion becomes
-        // the reference baseline, and the rebased working insertion is applied over it in the same
-        // default-database transaction. No third working database may be introduced here.
-        try await database.write { db in
-            try baseline.insert(into: db)
-            try workingCopy.insert(into: db)
-            for stagedDatabase in stagedSourceReferenceDatabases.values {
-                try stagedDatabase.commit()
-            }
-        }
-    }
-
-    func prepareSourceReferenceDatabases() async throws {
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
-            sourceReferenceDatabase: sourceReferenceDatabase
-        )
-        defer {
-            for stagedDatabase in stagedSourceReferenceDatabases.values {
-                try? stagedDatabase.discard()
-            }
-        }
-        let prepared = try await preparedInsertion(
-            stagedSourceReferenceDatabases: stagedSourceReferenceDatabases
-        )
-        try insert(
-            prepared,
-            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
-        )
-        for stagedDatabase in stagedSourceReferenceDatabases.values {
-            try stagedDatabase.commit()
-        }
-    }
-
-    private func insert(
-        _ prepared: PreparedSourceDatabaseInsertion,
-        intoSourceReferenceDatabases sourceReferenceDatabases: [SourceBaselineDatabase]
-    ) throws {
-        for sourceReferenceDatabase in sourceReferenceDatabases {
-            try sourceReferenceDatabase.write { db in
-                try prepared.insert(into: db)
-            }
-        }
-    }
-
-    private func preparedInsertion(
-        stagedSourceReferenceDatabases: [
-            SourceBaselineRecord.ID: StagedSourceReferenceDatabase
-        ]
-    ) async throws -> PreparedSourceDatabaseInsertion {
-        let baselineDatabaseFileNamesByID = Dictionary(
-            uniqueKeysWithValues: stagedSourceReferenceDatabases.map { baselineID, database in
-                (
-                    baselineID,
-                    database.databaseFileName
-                )
-            }
-        )
-        return try await PreparedSourceDatabaseInsertion(
-            sourceInsertion: self,
-            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
             importedAt: Date()
         )
-    }
+        try await database.write { db in
+            let organizerProvenances = try EventSourceProvenanceRecord
+                .where { $0.id.organizerID.eq(workspace.organizerID) }
+                .fetchAll(db)
+            guard organizerProvenances.allSatisfy({ $0.workspace != nil }) else {
+                throw SourceWorkspaceInstallationError.unscopedOrganizerSource(
+                    workspace.organizerID
+                )
+            }
+            let conflictingWorkspaceIDs = Set(
+                organizerProvenances.compactMap { $0.workspace?.id }
+            )
+            .subtracting([workspace.id])
+            guard conflictingWorkspaceIDs.isEmpty else {
+                throw SourceWorkspaceInstallationError.conflictingOrganizerSource(
+                    organizerID: workspace.organizerID,
+                    existingWorkspaceIDs: conflictingWorkspaceIDs.sorted {
+                        $0.rawValue < $1.rawValue
+                    },
+                    incomingWorkspaceID: workspace.id
+                )
+            }
 
-    private func stagedSourceReferenceDatabasesByBaselineID(
-        sourceReferenceDatabase: SourceReferenceDatabaseClient
-    ) throws -> [SourceBaselineRecord.ID: StagedSourceReferenceDatabase] {
-        var databases: [SourceBaselineRecord.ID: StagedSourceReferenceDatabase] = [:]
-        for sourceProvenance in eventSourceProvenances.map(\.source).uniquedSourceProvenances() {
-            let stagedDatabase = try sourceReferenceDatabase.prepareForImport(sourceProvenance)
-            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(stagedDatabase.database)
-            databases[SourceBaselineRecord.ID(source: sourceProvenance)] = stagedDatabase
+            let existingEventIDs = organizerProvenances
+                .filter { $0.workspace?.id == workspace.id }
+                .map(\.id)
+
+            for eventID in existingEventIDs {
+                try OME.Event.find(eventID).delete().execute(db)
+            }
+            try OME.Calendar
+                .find(
+                    OME.Calendar.ID(
+                        ownerID: workspace.organizerID,
+                        calendarID: OME.Calendar.defaultID
+                    )
+                )
+                .delete()
+                .execute(db)
+            try WorkspaceRelationshipRecord
+                .where { $0.id.workspaceID.eq(workspace.id) }
+                .delete()
+                .execute(db)
+
+            try prepared.insert(into: db)
+            try SourceWorkspaceInstallationRecord.insert {
+                SourceWorkspaceInstallationRecord(
+                    id: workspace.id,
+                    revision: revision
+                )
+            } onConflict: {
+                $0.id
+            }
+            .execute(db)
         }
-        return databases
     }
 
     private func validateEventSourceProvenanceConflicts(in db: Database) throws {
@@ -226,35 +151,18 @@ public extension OME.SourceDatabaseInsertion {
     }
 }
 
-private extension OME.SourceDatabaseInsertion.SourceProvenance {
-    var stableStorageKey: String {
-        [
-            kind.rawValue,
-            reference,
-            ref ?? "",
-        ]
-        .joined(separator: "\u{1F}")
-    }
-}
-
-private extension Sequence where Element == OME.SourceDatabaseInsertion.SourceProvenance {
-    func uniquedSourceProvenances() -> [Element] {
-        var seen: Set<String> = []
-        var result: [Element] = []
-        for element in self where seen.insert(element.stableStorageKey).inserted {
-            result.append(element)
-        }
-        return result
-    }
-}
-
-private enum PreparedSourceDatabaseInsertionError: Error {
-    case missingSourceReferenceDatabase(SourceBaselineRecord.ID)
+private enum SourceWorkspaceInstallationError: Error, Equatable {
+    case conflictingOrganizerSource(
+        organizerID: OME.Organizer.ID,
+        existingWorkspaceIDs: [SourceWorkspace.ID],
+        incomingWorkspaceID: SourceWorkspace.ID
+    )
+    case mismatchedSource(SourceWorkspace.ID)
+    case unscopedOrganizerSource(OME.Organizer.ID)
 }
 
 private struct PreparedSourceDatabaseInsertion {
-    var sourceBaselines: [SourceBaselineRecord]
-    var editingWorkspaces: [EditingWorkspaceRecord]
+    var workspaceIDs: [SourceWorkspace.ID]
     var workspaceRelationships: [WorkspaceRelationshipRecord]
     var organizers: [OME.Organizer.Draft]
     var calendars: [OME.Calendar.Draft]
@@ -262,7 +170,6 @@ private struct PreparedSourceDatabaseInsertion {
     var events: [OME.Event.Draft]
     var eventOrganizers: [OME.EventOrganizer.Draft]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
-    var eventEditingWorkspaces: [EventEditingWorkspaceRecord]
     var stages: [OME.Stage.Draft]
     var schedules: [OME.Schedule.Draft]
     var contributors: [OME.Contributor.Draft]
@@ -277,60 +184,31 @@ private struct PreparedSourceDatabaseInsertion {
 
     init(
         sourceInsertion: OME.SourceDatabaseInsertion,
-        baselineDatabaseFileNamesByID: [SourceBaselineRecord.ID: String],
         importedAt: Date
     ) async throws {
         @Dependency(\.localImageFileStore) var localImageFileStore
 
-        var sourceBaselinesByID: [SourceBaselineRecord.ID: SourceBaselineRecord] = [:]
-        self.eventSourceProvenances = try sourceInsertion.eventSourceProvenances.map { provenance in
-            let baselineID = SourceBaselineRecord.ID(source: provenance.source)
-            guard let databaseFileName = baselineDatabaseFileNamesByID[baselineID] else {
-                throw PreparedSourceDatabaseInsertionError.missingSourceReferenceDatabase(baselineID)
-            }
-            let baseline = SourceBaselineRecord(
-                source: provenance.source,
-                databaseFileName: databaseFileName,
-                importedAt: importedAt
-            )
-            sourceBaselinesByID[baseline.id] = baseline
-            return EventSourceProvenanceRecord(provenance, sourceBaselineID: baseline.id)
-        }
-        self.sourceBaselines = sourceBaselinesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
-        let organizerIDsByBaselineID = Dictionary(
-            sourceInsertion.eventSourceProvenances.map {
-                (SourceBaselineRecord.ID(source: $0.source), $0.eventID.organizerID)
-            },
-            uniquingKeysWith: { first, _ in first }
+        self.eventSourceProvenances = sourceInsertion.eventSourceProvenances.map(
+            EventSourceProvenanceRecord.init
         )
-        self.editingWorkspaces = sourceBaselines.map { sourceBaseline in
-            EditingWorkspaceRecord(
-                teamSourceBaseline: sourceBaseline,
-                organizerID: organizerIDsByBaselineID[sourceBaseline.id]
-            )
-        }
-        self.workspaceRelationships = sourceBaselines.flatMap { sourceBaseline in
+        self.workspaceIDs = Array(
+            Set(eventSourceProvenances.compactMap { $0.workspace?.id })
+        )
+        .sorted { $0.rawValue < $1.rawValue }
+        self.workspaceRelationships = workspaceIDs.flatMap { workspaceID in
             sourceInsertion.workspaceRelationships.compactMap { file in
                 guard case let .known(.identity(identity)) = file.data.subject else {
                     return nil
                 }
                 return WorkspaceRelationshipRecord(
                     id: WorkspaceRelationshipRecord.ID(
-                        workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id),
+                        workspaceID: workspaceID,
                         actorID: identity.did
                     ),
                     recordKey: file.fileName,
                     relationship: file.data
                 )
             }
-        }
-        self.eventEditingWorkspaces = eventSourceProvenances.map { provenance in
-            EventEditingWorkspaceRecord(
-                id: provenance.id,
-                workspaceID: EditingWorkspaceRecord.ID(
-                    sourceBaselineID: provenance.sourceBaselineID!
-                )
-            )
         }
         self.organizers = sourceInsertion.organizers
         self.calendars = sourceInsertion.calendars
@@ -418,22 +296,6 @@ private struct PreparedSourceDatabaseInsertion {
     }
 
     func insert(into db: Database) throws {
-        if !sourceBaselines.isEmpty {
-            try SourceBaselineRecord.insert {
-                sourceBaselines
-            } onConflict: {
-                $0.id
-            }
-            .execute(db)
-        }
-        if !editingWorkspaces.isEmpty {
-            try EditingWorkspaceRecord.insert {
-                editingWorkspaces
-            } onConflict: {
-                $0.id
-            }
-            .execute(db)
-        }
         if !organizers.isEmpty {
             try OME.Organizer.insert {
                 organizers
@@ -474,15 +336,9 @@ private struct PreparedSourceDatabaseInsertion {
             }
             .execute(db)
         }
-        if !eventEditingWorkspaces.isEmpty {
-            try EventEditingWorkspaceRecord.insert {
-                eventEditingWorkspaces
-            }
-            .execute(db)
-        }
-        for workspace in editingWorkspaces {
+        for workspaceID in workspaceIDs {
             try WorkspaceRelationshipRecord
-                .where { $0.id.workspaceID.eq(workspace.id) }
+                .where { $0.id.workspaceID.eq(workspaceID) }
                 .delete()
                 .execute(db)
         }

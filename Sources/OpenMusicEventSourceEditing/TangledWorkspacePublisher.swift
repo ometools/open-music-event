@@ -16,18 +16,19 @@ import XRPCClient
 
 struct TangledWorkspacePublisher: Sendable {
     func pushCommit(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submission: WorkspaceSubmission<SourcePatch>,
         persistence: WorkspacePublicationPersistence
     ) async throws -> WorkspaceCommit {
-        if let (commit, checkoutURL) = try persistence.pushedCommit(
+        if let commit = try persistence.pushedCommit(
             workspaceID: workspaceID,
             submissionID: submission.id
         ) {
             let context = try await PublishingContext.load(workspaceID)
+            @Dependency(\.sourceWorkspaceStorage) var storage
             try await push(
                 commit: commit,
-                checkoutURL: checkoutURL,
+                repositoryURL: storage.location(workspaceID).repositoryURL,
                 context: context
             )
             return commit
@@ -39,36 +40,41 @@ struct TangledWorkspacePublisher: Sendable {
             TangledOAuthRequirements.proposalAuthRequirement
         )
 
-        let branch = submission.sourceBranch
-        let checkoutURL = FileManager.default.temporaryDirectory
-            .appending(
-                path: "ome-workspace-publication-\(submission.id.rawValue.uuidString.lowercased())",
-                directoryHint: .isDirectory
-            )
-            .standardizedFileURL
-        try? FileManager.default.removeItem(at: checkoutURL)
-
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.sourcePatchApplier) var patchApplier
-        let cloneRequest = context.repository.sourceControlCloneRequest(
-            repoDID: context.targetRepository.repositoryDID.description,
-            destinationURL: checkoutURL,
-            ref: submission.base.editingReference.branch.rawValue,
-            credentials: context.credentials
-        )
-        _ = try await TangledWorkspacePublisherDiagnostics.run(
-            operation: "sourceControl.clone",
-            details: [
-                "remote: \(cloneRequest.remote.url.rawValue)",
-                "ref: \(submission.base.editingReference.branch.rawValue)",
-                "destination: \(checkoutURL.path)",
-            ]
-        ) {
-            try await sourceControl.clone(cloneRequest)
+        @Dependency(\.sourceWorkspaceStorage) var storage
+        let repositoryURL = try storage.location(workspaceID).repositoryURL
+        let repository = try await sourceControl.open(repositoryURL)
+        let branch = submission.sourceBranch
+        switch submission.target {
+        case .createProposal:
+            try await sourceControl.checkout(
+                CheckoutRequest(
+                    repository: repository,
+                    ref: RefName(
+                        rawValue: submission.base.editingReference.revision.rawValue
+                    )
+                )
+            )
+            _ = try await sourceControl.createBranch(
+                CreateBranchRequest(
+                    repository: repository,
+                    name: BranchName(rawValue: branch.rawValue),
+                    startPoint: RefName(
+                        rawValue: submission.base.editingReference.revision.rawValue
+                    ),
+                    checkout: true
+                )
+            )
+        case .updateProposal:
+            try await sourceControl.checkout(
+                CheckoutRequest(
+                    repository: repository,
+                    ref: RefName(rawValue: branch.rawValue)
+                )
+            )
         }
-        try patchApplier.apply(submission.changes, checkoutURL)
-
-        let repository = try await sourceControl.open(checkoutURL)
+        try patchApplier.apply(submission.changes, repositoryURL)
         try await sourceControl.stage(
             StageRequest(
                 repository: repository,
@@ -87,17 +93,6 @@ struct TangledWorkspacePublisher: Sendable {
                 )
             )
         )
-        if case .createProposal = submission.target {
-            _ = try await sourceControl.createBranch(
-                CreateBranchRequest(
-                    repository: repository,
-                    name: BranchName(rawValue: branch.rawValue),
-                    startPoint: RefName(rawValue: commit.id.rawValue),
-                    checkout: false
-                )
-            )
-        }
-
         let workspaceCommit = WorkspaceCommit(
             parentRevision: submission.base.editingReference.revision,
             source: WorkspaceBranchReference(
@@ -107,20 +102,19 @@ struct TangledWorkspacePublisher: Sendable {
         )
         try await persistence.savePushedCommit(
             workspaceCommit,
-            checkoutURL: checkoutURL,
             workspaceID: workspaceID,
             submissionID: submission.id
         )
         try await push(
             commit: workspaceCommit,
-            checkoutURL: checkoutURL,
+            repositoryURL: repositoryURL,
             context: context
         )
         return workspaceCommit
     }
 
     func recordProposal(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submission: WorkspaceSubmission<SourcePatch>,
         commit: WorkspaceCommit,
         persistence: WorkspacePublicationPersistence
@@ -274,15 +268,15 @@ enum TangledWorkspacePublisherError: Equatable, Error, Sendable {
 private extension TangledWorkspacePublisher {
     func push(
         commit: WorkspaceCommit,
-        checkoutURL: URL,
+        repositoryURL: URL,
         context: PublishingContext
     ) async throws {
         @Dependency(\.sourceControl) var sourceControl
-        let repository = try await sourceControl.open(checkoutURL)
+        let repository = try await sourceControl.open(repositoryURL)
         try await TangledWorkspacePublisherDiagnostics.run(
             operation: "sourceControl.push",
             details: [
-                "repository: \(checkoutURL.path)",
+                "repository: \(repositoryURL.path)",
                 "branch: \(commit.source.branch.rawValue)",
                 "revision: \(commit.source.revision.rawValue)",
             ]
@@ -301,25 +295,27 @@ private extension TangledWorkspacePublisher {
     }
 
     func patchBlob(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submission: WorkspaceSubmission<SourcePatch>,
         commit: WorkspaceCommit,
         timestamp: String,
         persistence: WorkspacePublicationPersistence
     ) async throws -> ATProto.Blob {
-        guard let (_, checkoutURL) = try persistence.pushedCommit(
+        guard try persistence.pushedCommit(
             workspaceID: workspaceID,
             submissionID: submission.id
-        ) else {
+        ) != nil else {
             throw TangledWorkspacePublisherError.sourceCheckoutMissing(
                 submission.id.rawValue.uuidString
             )
         }
         @Dependency(\.sourceControl) var sourceControl
+        @Dependency(\.sourceWorkspaceStorage) var storage
         @Dependency(XRPC.Client.self) var xrpcClient
+        let repositoryURL = try storage.location(workspaceID).repositoryURL
         let data = try await sourceControl.formatPatch(
             FormatPatchRequest(
-                repository: Repository(url: checkoutURL),
+                repository: Repository(url: repositoryURL),
                 commit: CommitID(rawValue: commit.source.revision.rawValue)
             )
         )
@@ -379,23 +375,11 @@ private struct PublishingContext {
     var repository: TangledRepositoryReference
     var targetRepository: TangledRepositoryTarget
 
-    static func load(_ workspaceID: EditingWorkspaceRecord.ID) async throws -> Self {
-        @Dependency(\.defaultDatabase) var database
+    static func load(_ workspaceID: SourceWorkspace.ID) async throws -> Self {
         @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
-        let sourceBaseline = try await database.read { db in
-            guard let workspace = try EditingWorkspaceRecord.find(workspaceID).fetchOne(db),
-                  let sourceBaselineID = workspace.sourceBaselineID,
-                  let sourceBaseline = try SourceBaselineRecord.find(sourceBaselineID).fetchOne(db)
-            else { throw WorkspacePreparationError.workspaceNotFound(workspaceID) }
-            return sourceBaseline
-        }
-        guard sourceBaseline.sourceKind == .tangled else {
-            throw TangledWorkspacePublisherError.sourceNotTangled(
-                sourceBaseline.sourceKind.rawValue
-            )
-        }
+        let workspace = try SourceWorkspace(id: workspaceID)
         let repository = try TangledRepositoryReference(
-            sourceReference: sourceBaseline.sourceReference
+            sourceReference: workspace.repository
         )
         let targetRepository = try await TangledWorkspacePublisher()
             .targetRepository(repository)

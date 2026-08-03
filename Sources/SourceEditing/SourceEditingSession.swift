@@ -6,12 +6,13 @@ public enum SourceEditingSessionError: Error, Equatable, Sendable {
     case baselineDatabaseMismatch(attachedPath: String, requestedPath: String)
 }
 
-public struct SourceEditingSession: Sendable {
+/// One identity-bearing connection resource for a writable database and its attached baseline.
+public final class SourceEditingSession: Sendable {
     public static let baselineSchemaName = "source_baseline"
 
-    public var mainDatabasePath: String
-    public var baselineDatabasePath: String
-    public var database: any DatabaseWriter
+    public let mainDatabasePath: String
+    public let baselineDatabasePath: String
+    public let database: any DatabaseWriter
 
     public init(
         mainDatabase: any DatabaseWriter,

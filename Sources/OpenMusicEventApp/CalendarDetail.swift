@@ -25,12 +25,6 @@ public struct CalendarDetail {
             _events = FetchAll(CalendarDetail.localEventsQuery)
         }
 
-        var destination: Destination.State?
-        var editCalendar: EditCalendar.State?
-        var deleteEventIDs: [OMERecord.Event.ID] = []
-        var errorMessage: String?
-        var isDeleteEventsConfirmationPresented = false
-
         @DebugSnapshotIgnored
         @FetchOne
         public var calendar: OMERecord.Calendar?
@@ -49,23 +43,9 @@ public struct CalendarDetail {
     }
 
     public enum Action {
-        case addEventButtonTapped
-        case deleteEventsButtonTapped([OMERecord.Event.ID])
-        case deleteEventsConfirmationDeleteButtonTapped
-        case deleteEventsConfirmationPresentedChanged(Bool)
-        case destination(Destination.Action)
-        case editButtonTapped
-        case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
     }
-
-    @Feature
-    public enum Destination {
-        case createEvent(Spawn<CreateEvent>)
-    }
-
-    @Dependency(\.defaultDatabase) var database
 
     static func calendarQuery(
         calendarID: OMERecord.Calendar.ID
@@ -154,56 +134,6 @@ public struct CalendarDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .addEventButtonTapped:
-                state.destination = .createEvent(
-                    Spawn(
-                        CreateEvent.State(
-                            organizerID: state.calendarID.ownerID,
-                            eventOrganizerID: state.calendarID.ownerID
-                        )
-                    )
-                )
-
-            case let .deleteEventsButtonTapped(eventIDs):
-                guard !eventIDs.isEmpty else { return }
-                state.deleteEventIDs = eventIDs.uniqued()
-                state.isDeleteEventsConfirmationPresented = true
-
-            case .deleteEventsConfirmationDeleteButtonTapped:
-                let eventIDs = state.deleteEventIDs
-                store.addTask {
-                    do {
-                        try database.write { db in
-                            try MyEventsDeletion.deleteCreatedLocalEvents(eventIDs, in: db)
-                        }
-                        try store.modify {
-                            $0.deleteEventIDs = []
-                            $0.errorMessage = nil
-                            $0.isDeleteEventsConfirmationPresented = false
-                        }
-                    } catch {
-                        try store.modify {
-                            $0.isDeleteEventsConfirmationPresented = false
-                            $0.errorMessage = "Unable to delete event."
-                        }
-                    }
-                }
-
-            case let .deleteEventsConfirmationPresentedChanged(isPresented):
-                state.isDeleteEventsConfirmationPresented = isPresented
-                if !isPresented {
-                    state.deleteEventIDs = []
-                }
-
-            case .destination:
-                return
-
-            case .editButtonTapped:
-                state.editCalendar = EditCalendar.State(calendarID: state.calendarID)
-
-            case .editCalendar:
-                return
-
             case .eventButtonTapped(let eventID):
                 store.addTask {
                     try store.post(
@@ -216,25 +146,14 @@ public struct CalendarDetail {
                 break
             }
         }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
-        }
-        .ifLet(\.editCalendar, action: \.editCalendar) {
-            EditCalendar()
-        }
     }
 }
 
 public struct CalendarDetailView: View {
     @Bindable var store: StoreOf<CalendarDetail>
-    let whiteLabelRootStore: StoreOf<WhiteLabelRoot>?
 
-    public init(
-        store: StoreOf<CalendarDetail>,
-        whiteLabelRootStore: StoreOf<WhiteLabelRoot>? = nil
-    ) {
+    public init(store: StoreOf<CalendarDetail>) {
         self.store = store
-        self.whiteLabelRootStore = whiteLabelRootStore
     }
 
     public var body: some View {
@@ -256,14 +175,6 @@ public struct CalendarDetailView: View {
                 }
             }
 
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-
             if !entryRows.isEmpty {
                 Section("Events") {
                     calendarEntryRows(entryRows.rows)
@@ -278,43 +189,6 @@ public struct CalendarDetailView: View {
                 )
             }
         }
-        .sheet(item: $store.scope(\.editCalendar, action: \.editCalendar)) { editStore in
-            NavigationStack {
-                EditCalendarView(store: editStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
-            NavigationStack {
-                CreateEventView(store: createEventStore)
-            }
-        }
-        .confirmationDialog(
-            "Delete Event?",
-            isPresented: deleteEventsConfirmationPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Event", role: .destructive) {
-                store.send(.deleteEventsConfirmationDeleteButtonTapped)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
-        }
-        .toolbar {
-            Button {
-                store.send(.addEventButtonTapped)
-            } label: {
-                Label("Add Event", systemImage: "plus")
-                    .labelStyle(.iconOnly)
-            }
-            Button {
-                store.send(.editButtonTapped)
-            } label: {
-                Label("Edit Calendar", systemImage: "pencil")
-                    .labelStyle(.iconOnly)
-            }
-        }
-        .whiteLabelRootToolbar(store: whiteLabelRootStore)
     }
 
     private var calendarTitle: String {
@@ -332,43 +206,20 @@ public struct CalendarDetailView: View {
         CalendarDetail.EntryRows(entries: store.entries, events: store.events)
     }
 
-    private var deleteEventsConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { store.isDeleteEventsConfirmationPresented },
-            set: { store.send(.deleteEventsConfirmationPresentedChanged($0)) }
-        )
-    }
-
-    private var showsAuthoringControls: Bool {
-        whiteLabelRootStore?.showsAuthoringControls ?? false
-    }
-
     @ViewBuilder
     private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
         ForEach(rows) { row in
             CalendarEntryButton(
                 row: row,
-                store: store,
-                showsAuthoringControls: showsAuthoringControls
+                store: store
             )
         }
-        .onDelete { offsets in
-            guard showsAuthoringControls else { return }
-            let eventIDs = offsets.compactMap { offset in
-                rows.indices.contains(offset)
-                    ? rows[offset].eventID
-                    : nil
-            }
-            store.send(.deleteEventsButtonTapped(eventIDs))
-        }
-        .deleteDisabled(!showsAuthoringControls)
     }
 }
 
 struct CalendarEntryButton: View {
     let row: CalendarDetail.EntryRow
     let store: StoreOf<CalendarDetail>
-    let showsAuthoringControls: Bool
 
     var body: some View {
         if let event = row.event {

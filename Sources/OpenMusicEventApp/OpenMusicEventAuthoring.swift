@@ -56,13 +56,13 @@ extension OAuthAuthorization {
             )
             .dependency(
                 ComposableAuthoring.AuthoringClient<
-                    EditingWorkspaceRecord.ID,
+                    SourceWorkspace,
                     AuthoringGrant
                 >.openMusicEvent
             )
             .dependency(
                 ComposableWorkspace.WorkspaceClient<
-                    SourceWorkspaceDatabase,
+                    SourceWorkspaceResource,
                     SourcePatch
                 >.openMusicEvent
             )
@@ -81,13 +81,13 @@ extension OpenMusicEventAuthoringWorkspace {
             )
             .dependency(
                 ComposableAuthoring.AuthoringClient<
-                    EditingWorkspaceRecord.ID,
+                    SourceWorkspace,
                     AuthoringGrant
                 >.openMusicEvent
             )
             .dependency(
                 ComposableWorkspace.WorkspaceClient<
-                    SourceWorkspaceDatabase,
+                    SourceWorkspaceResource,
                     SourcePatch
                 >.openMusicEvent
             )
@@ -140,7 +140,7 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                         .authoring(.authorizationInvalidated)
                     )
                     await invalidation?.value
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspaceID.id)
                     let admission = try store.send(
                         .authoring(.refreshAdmission)
                     )
@@ -163,6 +163,14 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                     await exit?.value
                 }
             }
+            .onEvent(SourceWorkspacePreparationRetryRequested.self) { _, _ in
+                store.addTask {
+                    let retry = try store.send(
+                        .authoring(.content(.sourcePreparationRetryButtonTapped))
+                    )
+                    await retry?.value
+                }
+            }
             .onEvent(AuthoringAccessRevoked.self) { _, state in
                 let workspaceID = state.authoring.context
                 let activations = activations
@@ -171,7 +179,7 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                         .authoring(.authorizationInvalidated)
                     )
                     await invalidation?.value
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspaceID.id)
                     let admission = try store.send(
                         .authoring(.refreshAdmission)
                     )
@@ -225,7 +233,7 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                         .content(.authoring(.authorizationInvalidated))
                     )
                     await invalidation?.value
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspaceID.id)
                     let admission = try store.send(
                         .content(.authoring(.refreshAdmission))
                     )
@@ -248,6 +256,16 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                     await exit?.value
                 }
             }
+            .onEvent(SourceWorkspacePreparationRetryRequested.self) { _, _ in
+                store.addTask {
+                    let retry = try store.send(
+                        .content(
+                            .authoring(.content(.sourcePreparationRetryButtonTapped))
+                        )
+                    )
+                    await retry?.value
+                }
+            }
             .onEvent(AuthoringAccessRevoked.self) { _, state in
                 let workspaceID = state.content.authoring.context
                 let activations = activations
@@ -256,7 +274,7 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                         .content(.authoring(.authorizationInvalidated))
                     )
                     await invalidation?.value
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspaceID.id)
                     let admission = try store.send(
                         .content(.authoring(.refreshAdmission))
                     )
@@ -271,7 +289,7 @@ where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
                         .content(.authoring(.authorizationInvalidated))
                     )
                     await invalidation?.value
-                    try await activations.deactivate(workspaceID)
+                    try await activations.deactivate(workspaceID.id)
                     let admission = try store.send(
                         .content(.authoring(.refreshAdmission))
                     )

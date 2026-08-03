@@ -16,29 +16,26 @@ public struct WorkspaceCollaborators {
 
     public struct State {
         public init(
-            workspaceID: EditingWorkspaceRecord.ID,
+            workspace: SourceWorkspace,
             role: OME.WorkspaceRole
         ) {
-            self.workspaceID = workspaceID
+            self.workspace = workspace
             self.role = role
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
             )
-            self._workspace = FetchOne(
-                EditingWorkspaceRecord.where { $0.id.eq(workspaceID) }
-            )
             self._relationships = FetchAll(
                 WorkspaceRelationshipRecord
-                    .where { $0.id.workspaceID.eq(workspaceID) }
+                    .where { $0.id.workspaceID.eq(workspace.id) }
             )
         }
 
-        public let workspaceID: EditingWorkspaceRecord.ID
+        public let workspace: SourceWorkspace
+        public var workspaceID: SourceWorkspace.ID { workspace.id }
         public let role: OME.WorkspaceRole
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
-        @FetchOne public var workspace: EditingWorkspaceRecord?
         @FetchAll public var relationships: [WorkspaceRelationshipRecord]
         public var actorQuery = ""
         public var actorSearchFailures: [PredictiveSearchFailure] = []
@@ -84,8 +81,7 @@ public struct WorkspaceCollaborators {
             switch action {
             case .addButtonTapped:
                 guard state.role.canManageCollaborators,
-                      !state.isSaving,
-                      let publicRecord = state.workspace?.publicRecord
+                      !state.isSaving
                 else { return }
                 let query = state.actorQuery
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -95,6 +91,7 @@ public struct WorkspaceCollaborators {
                     return
                 }
                 let workspaceID = state.workspaceID
+                let workspaceOwnerID = state.workspace.organizerID
                 var capabilities: Set<OME.WorkspaceRole.Capability> = []
                 if state.draftCanPropose { capabilities.insert(.propose) }
                 if state.draftCanMerge { capabilities.insert(.merge) }
@@ -114,9 +111,16 @@ public struct WorkspaceCollaborators {
                             }
                             identity = resolvedIdentity
                         }
-                        guard identity.did != publicRecord.author else {
+                        guard identity.did != workspaceOwnerID else {
                             throw WorkspaceCollaboratorError.ownerCannotBeCollaborator
                         }
+                        let sourceRecord = OME.Relationship.RecordReference(
+                            author: workspaceOwnerID,
+                            collection: OME.SourceRecord.nsid,
+                            rkey: ATProto.Record.Key(
+                                rawValue: OME.SourceRecord.canonicalRecordKey
+                            )
+                        )
                         let relationship = OME.Relationship(
                             subject: .identity(
                                 did: identity.did,
@@ -124,7 +128,7 @@ public struct WorkspaceCollaborators {
                                 displayName: identity.displayName
                             ),
                             role: .collaborator(capabilities),
-                            object: .record(publicRecord),
+                            object: .record(sourceRecord),
                             createdAt: ISO8601DateFormatter().string(from: now)
                         )
                         let record = WorkspaceRelationshipRecord(
@@ -415,13 +419,7 @@ public struct WorkspaceCollaboratorsView: View {
                         Text("Add Collaborator")
                     }
                 }
-                .disabled(store.isSaving || store.workspace?.publicRecord == nil)
-
-                if store.workspace?.publicRecord == nil {
-                    Text("Collaborators require a published workspace identity.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .disabled(store.isSaving)
                 if let errorMessage = store.errorMessage {
                     Text(errorMessage)
                         .font(.caption)

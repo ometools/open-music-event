@@ -3,108 +3,106 @@ import Foundation
 import SQLiteData
 import SourceEditing
 
-/// Durable publication progress for one editable workspace.
-///
-/// The row deliberately stores only workflow facts. The writable event data remains in
-/// `defaultDatabase`, and the comparison baseline remains the workspace-owned attached database.
-@Table("workspacePublications")
+@Table("sourceWorkspacePublications")
 struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
-    var id: EditingWorkspaceRecord.ID
-    var editingLineData: Data
+    var id: SourceWorkspace.ID
     var captureRequestID: String?
     var capturedChangesData: Data?
     var submissionData: Data?
     var pushedSubmissionID: String?
     var commitData: Data?
-    var checkoutPath: String?
     var recordedSubmissionID: String?
     var mutationData: Data?
     var proposalTimestamp: String?
+    var openProposalData: Data?
 
     init(
-        id: EditingWorkspaceRecord.ID,
-        editingLineData: Data,
+        id: SourceWorkspace.ID,
         captureRequestID: String? = nil,
         capturedChangesData: Data? = nil,
         submissionData: Data? = nil,
         pushedSubmissionID: String? = nil,
         commitData: Data? = nil,
-        checkoutPath: String? = nil,
         recordedSubmissionID: String? = nil,
         mutationData: Data? = nil,
-        proposalTimestamp: String? = nil
+        proposalTimestamp: String? = nil,
+        openProposalData: Data? = nil
     ) {
         self.id = id
-        self.editingLineData = editingLineData
         self.captureRequestID = captureRequestID
         self.capturedChangesData = capturedChangesData
         self.submissionData = submissionData
         self.pushedSubmissionID = pushedSubmissionID
         self.commitData = commitData
-        self.checkoutPath = checkoutPath
         self.recordedSubmissionID = recordedSubmissionID
         self.mutationData = mutationData
         self.proposalTimestamp = proposalTimestamp
+        self.openProposalData = openProposalData
     }
 }
 
 public enum WorkspacePublicationMigrations {
     public static func register(into migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("Create OpenMusicEvent workspace publication schema") { db in
+        migrator.registerMigration("Create canonical OpenMusicEvent workspace publication schema") {
+            db in
             try #sql("""
-                CREATE TABLE IF NOT EXISTS "workspacePublications" (
-                  "id" TEXT PRIMARY KEY NOT NULL
-                    REFERENCES "editingWorkspaces"("id") ON DELETE CASCADE,
-                  "editingLineData" BLOB NOT NULL,
+                CREATE TABLE IF NOT EXISTS "sourceWorkspacePublications" (
+                  "id" TEXT PRIMARY KEY NOT NULL,
                   "captureRequestID" TEXT,
                   "capturedChangesData" BLOB,
                   "submissionData" BLOB,
                   "pushedSubmissionID" TEXT,
                   "commitData" BLOB,
-                  "checkoutPath" TEXT,
                   "recordedSubmissionID" TEXT,
                   "mutationData" BLOB,
-                  "proposalTimestamp" TEXT
+                  "proposalTimestamp" TEXT,
+                  "openProposalData" BLOB
                 ) STRICT
                 """)
                 .execute(db)
         }
+        migrator.registerMigration("Persist canonical OpenMusicEvent open proposal") { db in
+            guard try !db.columns(in: "sourceWorkspacePublications")
+                .contains(where: { $0.name == "openProposalData" })
+            else { return }
+            try #sql(
+                "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"openProposalData\" BLOB"
+            )
+            .execute(db)
+        }
+    }
+}
+
+/// The durable identity of the proposal branch currently owned by a source workspace.
+/// Transient submission retry state remains private to the publication implementation.
+public struct SourceWorkspaceOpenProposalStore: Sendable {
+    public init(database: any DatabaseWriter) {
+        self.persistence = WorkspacePublicationPersistence(database: database)
+    }
+
+    private let persistence: WorkspacePublicationPersistence
+
+    public func load(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceProposal? {
+        try persistence.openProposal(workspaceID)
+    }
+
+    public func save(
+        _ proposal: WorkspaceProposal?,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        try await persistence.saveOpenProposal(proposal, workspaceID: workspaceID)
     }
 }
 
 struct WorkspacePublicationPersistence: Sendable {
     enum Error: Swift.Error {
-        case workspaceNotPrepared(EditingWorkspaceRecord.ID)
+        case workspaceNotPrepared(SourceWorkspace.ID)
     }
 
     let database: any DatabaseWriter
 
-    func line(_ workspaceID: EditingWorkspaceRecord.ID) throws -> WorkspaceEditingLine? {
-        try database.read { db in
-            try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)
-        }
-        .map { try decode(WorkspaceEditingLine.self, from: $0.editingLineData) }
-    }
-
-    func establish(
-        _ line: WorkspaceEditingLine,
-        for workspaceID: EditingWorkspaceRecord.ID
-    ) async throws -> WorkspaceEditingLine {
-        let data = try encode(line)
-        return try await database.write { db in
-            if let existing = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db) {
-                return try decode(WorkspaceEditingLine.self, from: existing.editingLineData)
-            }
-            try WorkspacePublicationRecord.insert {
-                WorkspacePublicationRecord(id: workspaceID, editingLineData: data)
-            }
-            .execute(db)
-            return line
-        }
-    }
-
     func capture(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         requestID: WorkspaceSubmissionID
     ) throws -> SourcePatch? {
         let requestID = requestID.rawValue.uuidString.lowercased()
@@ -119,12 +117,13 @@ struct WorkspacePublicationPersistence: Sendable {
 
     func saveCapture(
         _ changes: SourcePatch,
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         requestID: WorkspaceSubmissionID
     ) async throws {
         let data = try encode(changes)
         let requestID = requestID.rawValue.uuidString.lowercased()
         try await database.write { db in
+            try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
                 $0.captureRequestID = #bind(requestID as String?)
                 $0.capturedChangesData = #bind(data as Data?)
@@ -134,7 +133,7 @@ struct WorkspacePublicationPersistence: Sendable {
     }
 
     func submission(
-        _ workspaceID: EditingWorkspaceRecord.ID
+        _ workspaceID: SourceWorkspace.ID
     ) throws -> WorkspaceSubmission<SourcePatch>? {
         try database.read { db in
             try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)?.submissionData
@@ -144,10 +143,11 @@ struct WorkspacePublicationPersistence: Sendable {
 
     func save(
         _ submission: WorkspaceSubmission<SourcePatch>,
-        workspaceID: EditingWorkspaceRecord.ID
+        workspaceID: SourceWorkspace.ID
     ) async throws {
         let data = try encode(submission)
         try await database.write { db in
+            try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
                 $0.submissionData = #bind(data as Data?)
             }
@@ -156,43 +156,38 @@ struct WorkspacePublicationPersistence: Sendable {
     }
 
     func pushedCommit(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
-    ) throws -> (WorkspaceCommit, URL)? {
+    ) throws -> WorkspaceCommit? {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try database.read { db in
             guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
                   record.pushedSubmissionID == submissionID,
-                  let data = record.commitData,
-                  let path = record.checkoutPath
+                  let data = record.commitData
             else { return nil }
-            return (
-                try decode(WorkspaceCommit.self, from: data),
-                URL(filePath: path, directoryHint: .isDirectory)
-            )
+            return try decode(WorkspaceCommit.self, from: data)
         }
     }
 
     func savePushedCommit(
         _ commit: WorkspaceCommit,
-        checkoutURL: URL,
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
         let data = try encode(commit)
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         try await database.write { db in
+            try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
                 $0.pushedSubmissionID = #bind(submissionID as String?)
                 $0.commitData = #bind(data as Data?)
-                $0.checkoutPath = #bind(checkoutURL.standardizedFileURL.path as String?)
             }
             .execute(db)
         }
     }
 
     func mutation(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) throws -> WorkspaceProposalMutation? {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
@@ -207,12 +202,13 @@ struct WorkspacePublicationPersistence: Sendable {
 
     func saveMutation(
         _ mutation: WorkspaceProposalMutation,
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
         let data = try encode(mutation)
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         try await database.write { db in
+            try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
                 $0.recordedSubmissionID = #bind(submissionID as String?)
                 $0.mutationData = #bind(data as Data?)
@@ -222,7 +218,7 @@ struct WorkspacePublicationPersistence: Sendable {
     }
 
     func proposalTimestamp(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID,
         makeTimestamp: @Sendable () -> String
     ) async throws -> String {
@@ -244,34 +240,11 @@ struct WorkspacePublicationPersistence: Sendable {
         }
     }
 
-    func advance(
-        to line: WorkspaceEditingLine,
-        workspaceID: EditingWorkspaceRecord.ID
-    ) async throws {
-        let data = try encode(line)
-        try await database.write { db in
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.editingLineData = #bind(data)
-            }
-            .execute(db)
-        }
-    }
-
     func removeSubmission(
-        workspaceID: EditingWorkspaceRecord.ID,
+        workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
-        let checkoutPath: String? = try await database.read { db -> String? in
-            let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)
-            guard record?.pushedSubmissionID == submissionID else { return nil }
-            return record?.checkoutPath
-        }
-        if let checkoutPath {
-            try? FileManager.default.removeItem(
-                at: URL(filePath: checkoutPath, directoryHint: .isDirectory)
-            )
-        }
+        _ = submissionID
         try await database.write { db in
             try WorkspacePublicationRecord.find(workspaceID).update {
                 $0.captureRequestID = #bind(nil as String?)
@@ -279,7 +252,6 @@ struct WorkspacePublicationPersistence: Sendable {
                 $0.submissionData = #bind(nil as Data?)
                 $0.pushedSubmissionID = #bind(nil as String?)
                 $0.commitData = #bind(nil as Data?)
-                $0.checkoutPath = #bind(nil as String?)
                 $0.recordedSubmissionID = #bind(nil as String?)
                 $0.mutationData = #bind(nil as Data?)
                 $0.proposalTimestamp = #bind(nil as String?)
@@ -287,14 +259,45 @@ struct WorkspacePublicationPersistence: Sendable {
             .execute(db)
         }
     }
+
+    func openProposal(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceProposal? {
+        try database.read { db in
+            try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)?.openProposalData
+        }
+        .map { try decode(WorkspaceProposal.self, from: $0) }
+    }
+
+    func saveOpenProposal(
+        _ proposal: WorkspaceProposal?,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        let data = try proposal.map(encode)
+        try await database.write { db in
+            try ensureRecord(workspaceID, in: db)
+            try WorkspacePublicationRecord.find(workspaceID).update {
+                $0.openProposalData = #bind(data as Data?)
+            }
+            .execute(db)
+        }
+    }
+
+    func ensureRecord(_ workspaceID: SourceWorkspace.ID, in db: Database) throws {
+        guard try WorkspacePublicationRecord.find(workspaceID).fetchCount(db) == 0 else {
+            return
+        }
+        try WorkspacePublicationRecord.insert {
+            WorkspacePublicationRecord(id: workspaceID)
+        }
+        .execute(db)
+    }
 }
 
-private func encode<Value: Encodable>(_ value: Value) throws -> Data {
+func encode<Value: Encodable>(_ value: Value) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     return try encoder.encode(value)
 }
 
-private func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
+func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
     try JSONDecoder().decode(type, from: data)
 }

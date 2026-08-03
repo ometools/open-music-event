@@ -1,9 +1,8 @@
 import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
+import Dependencies
 import Foundation
-import OpenMusicEventDatabase
-import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
@@ -17,162 +16,101 @@ import SwiftUI
 public struct WorkspaceChanges {
     public init() {}
 
-    public enum PatchPurpose: Equatable, Sendable {
-        case checkChanges
-    }
-
-    public enum SourcePatchStatus: Equatable, Sendable {
-        case failed(PatchPurpose, SourcePatchGenerationFailure)
-        case generated(SourceProposalPreparation)
-        case generating(PatchPurpose)
+    public enum PatchStatus: Equatable, Sendable {
+        case failed(String)
+        case generated(SourcePatch)
+        case generating
         case needsGeneration
         case notGenerated
     }
 
-    public struct SourcePatchGenerationFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-
-        public init(message: String) {
-            self.message = message
-        }
-    }
-
-    public struct SourceProposalPreparation: Equatable, Sendable {
-        public var patch: SourcePatch
-        public var sourceFileAttributions: [SourceFileAttribution]
-        public var sourceWorkspaceSummary: SourceWorkspaceSummary
-
-        public init(
-            patch: SourcePatch,
-            sourceFileAttributions: [SourceFileAttribution] = [],
-            sourceWorkspaceSummary: SourceWorkspaceSummary
-        ) {
-            self.patch = patch
-            self.sourceFileAttributions = sourceFileAttributions
-            self.sourceWorkspaceSummary = sourceWorkspaceSummary
-        }
-    }
-
-    public struct ResetEditsFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
     public enum ResetStatus: Equatable, Sendable {
-        case failed(ResetEditsFailure)
+        case failed(String)
         case idle
         case resetting
     }
 
     public struct State {
-        public init(target: OpenMusicEventSourceTarget) {
-            self.target = target
-            self._sourceWorkspaceSummary = Fetch(
-                wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
-                SourceWorkspaceSummaryRequest(target: target)
-            )
-            self._sourceProvenance = FetchOne(
-                Self.sourceProvenanceQuery(target: target)
-            )
-            self._sourceBaseline = FetchOne(
-                Self.sourceBaselineQuery(target: target)
+        public init(workspace: SourceWorkspace) {
+            self.workspace = workspace
+            self._summary = Fetch(
+                wrappedValue: SourceWorkspaceEditSummary(
+                    workspaceID: workspace.id,
+                    availability: .workspaceNeedsPreparation,
+                    groups: []
+                ),
+                SourceWorkspaceEditSummaryRequest(workspace: workspace)
             )
         }
 
-        public let target: OpenMusicEventSourceTarget
-        public var resetStatus: ResetStatus = .idle
-        public var sourcePatchStatus: SourcePatchStatus = .notGenerated
+        public let workspace: SourceWorkspace
+        @DebugSnapshotIgnored
+        @Fetch public var summary: SourceWorkspaceEditSummary
+        public var patchStatus: PatchStatus = .notGenerated
         public var proposalDraft: WorkspaceProposalDraft.State?
-        @DebugSnapshotIgnored
-        @FetchOne public var sourceBaseline: SourceBaselineRecord?
-        @DebugSnapshotIgnored
-        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
-        @DebugSnapshotIgnored
-        @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
+        public var resetStatus: ResetStatus = .idle
+
+        public var changeCount: Int {
+            guard case .available = summary.availability else { return 0 }
+            return summary.groups.reduce(0) { $0 + $1.totalCount }
+        }
+
+        public var badgeCount: Int? { changeCount == 0 ? nil : changeCount }
+
+        public var canInspectChanges: Bool {
+            guard case .available = summary.availability,
+                  patchStatus != .generating
+            else { return false }
+            return true
+        }
+
+        public var canResetChanges: Bool {
+            canInspectChanges && changeCount > 0 && resetStatus != .resetting
+        }
     }
 
     public enum Action {
         case checkChangesButtonTapped
-        case proposeChangesButtonTapped
+        case proposalActionButtonTapped
         case proposalDraft(WorkspaceProposalDraft.Action)
         case resetChangesButtonTapped
     }
 
-    @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
-    var calendarSourcePatchGenerator
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
+    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
+    var patchGenerator
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
-    var workspace
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    var workspaceContext
 
     public var body: some Feature {
-        let _ = Self._logChanges()
         Update { state, action in
             switch action {
             case .checkChangesButtonTapped:
-                guard state.canGenerateSourcePatch,
-                      let sourcePatchRequest = state.workspaceSourcePatchRequest
-                else { return }
-
-                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
-                let database = database
-                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
-                state.sourcePatchStatus = .generating(.checkChanges)
+                guard state.canInspectChanges else { return }
+                let request = SourceWorkspacePatchRequest(workspace: state.workspace)
+                let patchGenerator = patchGenerator
+                state.patchStatus = .generating
                 store.addTask {
                     do {
-                        let patch = try await calendarSourcePatchGenerator.generate(
-                            sourcePatchRequest
-                        )
-                        let sourceFileAttributions = try await database.read { db in
-                            try openMusicEventSourceFileAttributions(
-                                patch: patch,
-                                groups: sourceWorkspaceSummary.groups,
-                                recordComparisons: sourceWorkspaceSummary.recordComparisons,
-                                in: db
-                            )
-                        }
-                        let preparation = SourceProposalPreparation(
-                            patch: patch,
-                            sourceFileAttributions: sourceFileAttributions,
-                            sourceWorkspaceSummary: sourceWorkspaceSummary
-                        )
-                        try store.modify {
-                            guard $0.sourceWorkspaceSummary == sourceWorkspaceSummary else {
-                                $0.sourcePatchStatus = .needsGeneration
-                                return
-                            }
-                            $0.sourcePatchStatus = .generated(preparation)
-                            $0.proposalDraft = nil
-                        }
+                        let patch = try await patchGenerator.generate(request)
+                        try store.modify { $0.patchStatus = .generated(patch) }
                     } catch {
-                        try store.modify {
-                            $0.sourcePatchStatus = .failed(
-                                .checkChanges,
-                                SourcePatchGenerationFailure(error)
-                            )
-                            $0.proposalDraft = nil
-                        }
+                        try store.modify { $0.patchStatus = .failed(String(describing: error)) }
                     }
                 }
 
-            case .proposeChangesButtonTapped:
-                guard state.canProposeChanges(
-                    authoringAccess: authoring.grant.wrappedValue?.access ?? .attendee
-                ) else { return }
-                switch workspace.phase.wrappedValue {
+            case .proposalActionButtonTapped:
+                guard authoring.grant.wrappedValue?.access.canPropose == true,
+                      state.changeCount > 0
+                else { return }
+                switch workspaceContext.phase.wrappedValue {
                 case .ready(.canonical):
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        groups: state.sourceWorkspaceSummary.groups,
-                        recordComparisons: state.sourceWorkspaceSummary.recordComparisons
+                        groups: state.summary.groups,
+                        recordComparisons: state.summary.recordComparisons
                     )
 
                 case .ready(.proposal):
@@ -208,28 +146,20 @@ public struct WorkspaceChanges {
                 }
 
             case .resetChangesButtonTapped:
-                guard state.canResetEdits else { return }
-                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
-                let target = state.target
+                guard state.canResetChanges else { return }
+                let workspace = state.workspace
                 let workspaceResetter = workspaceResetter
                 state.resetStatus = .resetting
                 store.addTask {
                     do {
-                        try workspaceResetter.resetSourceChanges(target)
+                        try workspaceResetter.resetWorkspace(workspace)
                         try store.modify {
                             $0.resetStatus = .idle
-                            $0.sourcePatchStatus = .generated(
-                                SourceProposalPreparation(
-                                    patch: SourcePatch(),
-                                    sourceWorkspaceSummary: sourceWorkspaceSummary
-                                )
-                            )
+                            $0.patchStatus = .needsGeneration
                             $0.proposalDraft = nil
                         }
                     } catch {
-                        try store.modify {
-                            $0.resetStatus = .failed(ResetEditsFailure(error))
-                        }
+                        try store.modify { $0.resetStatus = .failed(String(describing: error)) }
                     }
                 }
 
@@ -248,11 +178,11 @@ public struct WorkspaceChanges {
             state.proposalDraft = nil
             return .continue
         }
-        .onChange(of: store.sourceWorkspaceSummary) { oldSummary, summary, state in
+        .onChange(of: store.summary) { oldSummary, summary, state in
             guard oldSummary != summary else { return }
-            switch state.sourcePatchStatus {
+            switch state.patchStatus {
             case .generated, .generating:
-                state.sourcePatchStatus = .needsGeneration
+                state.patchStatus = .needsGeneration
             case .failed, .needsGeneration, .notGenerated:
                 break
             }
@@ -261,130 +191,17 @@ public struct WorkspaceChanges {
     }
 }
 
-extension WorkspaceChanges.State {
-    static func sourceBaselineQuery(
-        target: OpenMusicEventSourceTarget
-    ) -> some SelectStatementOf<SourceBaselineRecord> {
-        switch target {
-        case let .calendar(_, sourceBaselineID):
-            SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
+    var workspace: SourceWorkspace
 
-        case let .event(eventID):
-            SourceBaselineRecord.where { sourceBaseline in
-                EventSourceProvenanceRecord
-                    .where { $0.id.eq(eventID) }
-                    .where { $0.sourceBaselineID.eq(sourceBaseline.id) }
-                    .exists()
-            }
-        }
-    }
-
-    static func sourceProvenanceQuery(
-        target: OpenMusicEventSourceTarget
-    ) -> some SelectStatementOf<EventSourceProvenanceRecord> {
-        switch target {
-        case let .calendar(calendarID, sourceBaselineID):
-            EventSourceProvenanceRecord
-                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                .where { $0.id.organizerID.eq(calendarID.ownerID) }
-
-        case let .event(eventID):
-            EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
-        }
-    }
-
-    public var sourceBaselineID: SourceBaselineRecord.ID? {
-        switch target {
-        case let .calendar(_, sourceBaselineID):
-            sourceBaselineID
-        case .event:
-            sourceProvenance?.sourceBaselineID
-        }
-    }
-
-    public var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind? {
-        sourceBaseline?.sourceKind ?? sourceProvenance?.sourceKind
-    }
-
-    public var workspaceSourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest? {
-        switch target {
-        case let .calendar(calendarID, sourceBaselineID):
-            OpenMusicEventCalendarSourcePatchRequest(
-                calendarID: calendarID,
-                sourceBaselineID: sourceBaselineID
-            )
-
-        case let .event(eventID):
-            sourceBaselineID.map {
-                OpenMusicEventCalendarSourcePatchRequest(
-                    calendarID: OMERecord.Calendar.ID(
-                        ownerID: eventID.organizerID,
-                        calendarID: OMERecord.Calendar.defaultID
-                    ),
-                    sourceBaselineID: $0
-                )
-            }
-        }
-    }
-
-    public var canGenerateSourcePatch: Bool {
-        sourceBaselineID != nil && !sourcePatchStatus.isGenerating
-    }
-
-    public var canPublishSourceProposal: Bool {
-        sourceKind == .tangled && sourceBaselineID != nil
-    }
-
-    public func canProposeChanges(authoringAccess: AuthoringAccess) -> Bool {
-        sourceWorkspaceSummary.totalCount > 0
-            && canPublishSourceProposal
-            && authoringAccess.canPropose
-            && !sourcePatchStatus.isGenerating
-            && proposalDraft == nil
-    }
-
-    public var canResetEdits: Bool {
-        guard resetStatus != .resetting,
-              sourceWorkspaceSummary.totalCount > 0,
-              case .available = sourceWorkspaceSummary.availability
-        else { return false }
-        return true
-    }
-}
-
-extension WorkspaceChanges.SourcePatchStatus {
-    public var isGenerating: Bool {
-        if case .generating = self { return true }
-        return false
-    }
-
-    var preparation: WorkspaceChanges.SourceProposalPreparation? {
-        guard case let .generated(preparation) = self else { return nil }
-        return preparation
-    }
-
-    var proposeButtonTitle: String {
-        switch self {
-        case .failed, .generated, .generating, .needsGeneration, .notGenerated:
-            "Propose"
-        }
-    }
-
-    var requiresAttention: Bool {
-        switch self {
-        case .failed, .generating:
-            true
-        case let .generated(preparation):
-            preparation.patch.isEmpty
-        case .needsGeneration, .notGenerated:
-            false
-        }
+    func fetch(_ db: Database) throws -> SourceWorkspaceEditSummary {
+        try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
     }
 }
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
-    @Environment(\.openMusicEventWorkspacePhase) var workspacePhase
+    @Environment(\.openMusicEventWorkspacePhase) var phase
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
@@ -395,108 +212,103 @@ public struct WorkspaceChangesView: View {
     public var body: some View {
         List {
             SourceChangeSummarySection(
-                groups: store.sourceWorkspaceSummary.groups,
-                recordComparisons: store.sourceWorkspaceSummary.recordComparisons
+                groups: store.summary.groups,
+                recordComparisons: store.summary.recordComparisons
             )
 
-            if store.sourceWorkspaceSummary.totalCount == 0
-                || !store.canPublishSourceProposal
-                || store.sourcePatchStatus.requiresAttention
-                || workspacePhase.activity != nil
-                || workspacePhase.failure != nil
-                || workspacePhase.proposal != nil
-            {
-                Section("Your changes") {
-                    switch store.sourcePatchStatus {
-                    case .generating(.checkChanges):
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Checking changes")
-                        }
+            Section("Workspace") {
+                WorkspacePublicationStatusView(phase: phase)
+
+                if store.changeCount == 0 {
+                    Text("No local changes")
                         .foregroundStyle(.secondary)
-
-                    case let .failed(_, failure):
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(
-                                "Changes could not be prepared",
-                                systemImage: "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
-                            if showsTechnicalDetails {
-                                Text(failure.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .selectableText()
-                            }
-                        }
-
-                    case let .generated(preparation) where preparation.patch.isEmpty:
-                        Text("No changes to send")
-                            .foregroundStyle(.secondary)
-
-                    case .generated:
-                        EmptyView()
-
-                    case .needsGeneration, .notGenerated:
-                        if store.sourceWorkspaceSummary.totalCount == 0 {
-                            Text("No local changes")
-                                .foregroundStyle(.secondary)
-                        } else if !store.canPublishSourceProposal {
-                            Text("These changes stay on this device and won’t create a proposal.")
-                                .foregroundStyle(.secondary)
-                        }
+                } else {
+                    Button("Check changes") {
+                        store.send(.checkChangesButtonTapped)
                     }
+                    .disabled(!store.canInspectChanges)
 
-                    WorkspacePublicationStatusView(phase: workspacePhase)
+                    Button(phase.proposalActionTitle) {
+                        store.send(.proposalActionButtonTapped)
+                    }
+                    .disabled(!phase.canRequestProposalAction)
+                }
+
+                switch store.patchStatus {
+                case .generating:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Checking source changes")
+                    }
+                case let .failed(message):
+                    if showsTechnicalDetails {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("Changes could not be prepared")
+                            .foregroundStyle(.secondary)
+                    }
+                case let .generated(patch) where patch.isEmpty:
+                    Text("No source patch is needed")
+                        .foregroundStyle(.secondary)
+                case .generated, .needsGeneration, .notGenerated:
+                    EmptyView()
                 }
             }
 
-            if store.canResetEdits || store.resetStatus != .idle {
+            if store.canResetChanges || store.resetStatus != .idle {
                 Section {
-                    switch store.resetStatus {
-                    case .idle, .failed:
-                        Button(role: .destructive) {
-                            isResetConfirmationPresented = true
-                        } label: {
-                            Label("Reset changes", systemImage: "arrow.counterclockwise")
-                        }
-                        .disabled(!store.canResetEdits)
-
-                    case .resetting:
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Resetting edits")
-                        }
+                    Button("Reset source changes", role: .destructive) {
+                        isResetConfirmationPresented = true
                     }
+                    .disabled(!store.canResetChanges)
 
-                    if case let .failed(failure) = store.resetStatus {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Edits could not be reset")
-                            if showsTechnicalDetails {
-                                Text(failure.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .selectableText()
-                            }
-                        }
+                    switch store.resetStatus {
+                    case .resetting:
+                        ProgressView("Resetting source changes")
+                    case let .failed(message):
+                        Text(showsTechnicalDetails ? message : "Source changes could not be reset")
+                            .foregroundStyle(.secondary)
+                    case .idle:
+                        EmptyView()
                     }
                 }
             }
         }
-        .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) {
-            draftStore in
+        .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
             WorkspaceProposalDraftView(store: draftStore)
         }
-        .alert(
-            "Reset local changes?",
-            isPresented: $isResetConfirmationPresented
-        ) {
-            Button("Reset changes", role: .destructive) {
+        .alert("Reset all source changes?", isPresented: $isResetConfirmationPresented) {
+            Button("Reset", role: .destructive) {
                 store.send(.resetChangesButtonTapped)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will discard all local changes in this workspace.")
+            Text("This restores every record owned by this organization source to its reference copy.")
+        }
+    }
+}
+
+extension WorkspacePhase where ChangeSet == SourcePatch {
+    var proposalActionTitle: String {
+        switch self {
+        case .ready(.canonical): "Create proposal"
+        case .ready(.proposal): "Update proposal"
+        case .publicationFailed, .publicationInterrupted: "Retry publication"
+        case .reconciliationFailed, .stale: "Reconcile source"
+        case .capturingSubmission, .inactive, .preparingSource, .publishing,
+             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
+            "Working"
+        }
+    }
+
+    var canRequestProposalAction: Bool {
+        switch self {
+        case .ready, .publicationFailed, .publicationInterrupted,
+             .reconciliationFailed, .stale:
+            true
+        case .capturingSubmission, .inactive, .preparingSource, .publishing,
+             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
+            false
         }
     }
 }

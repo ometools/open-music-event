@@ -62,7 +62,7 @@ enum UserStory {
             .execute(db)
 
             try OMERecord.Event.insert {
-                CreateEvent.makeEventDraft(
+                testEventDraft(
                     id: eventID,
                     name: "Testival 2026",
                     startDate: nil,

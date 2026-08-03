@@ -339,7 +339,7 @@ private func insertEvent(
     name: String
 ) throws {
     try OMERecord.Event.insert {
-        CreateEvent.makeEventDraft(
+        testEventDraft(
             id: eventID,
             name: name,
             timeZone: TimeZone(identifier: "America/Denver")!

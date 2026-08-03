@@ -3,9 +3,9 @@ import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
 
-@Table("workspaceAuthoringActivations")
+@Table("sourceWorkspaceAuthoringActivations")
 public struct WorkspaceAuthoringActivationRecord: Equatable, Sendable, Identifiable {
-    public var id: EditingWorkspaceRecord.ID
+    public var id: SourceWorkspace.ID
     @Column(as: AuthoringPrincipal.JSONRepresentation.self)
     public var principal: AuthoringPrincipal
     @Column(as: OME.WorkspaceRole.JSONRepresentation.self)
@@ -13,7 +13,7 @@ public struct WorkspaceAuthoringActivationRecord: Equatable, Sendable, Identifia
     public var activatedAt: Date
 
     public init(
-        id: EditingWorkspaceRecord.ID,
+        id: SourceWorkspace.ID,
         principal: AuthoringPrincipal,
         role: OME.WorkspaceRole,
         activatedAt: Date
@@ -27,28 +27,28 @@ public struct WorkspaceAuthoringActivationRecord: Equatable, Sendable, Identifia
 
 public struct WorkspaceAuthoringActivationClient: Sendable {
     public var current: @Sendable (
-        EditingWorkspaceRecord.ID
+        SourceWorkspace.ID
     ) throws -> WorkspaceAuthoringActivationRecord?
     public var activate: @Sendable (
-        EditingWorkspaceRecord.ID,
+        SourceWorkspace.ID,
         AuthoringPrincipal,
         OME.WorkspaceRole
     ) async throws -> Void
     public var deactivate: @Sendable (
-        EditingWorkspaceRecord.ID
+        SourceWorkspace.ID
     ) async throws -> Void
 
     public init(
         current: @escaping @Sendable (
-            EditingWorkspaceRecord.ID
+            SourceWorkspace.ID
         ) throws -> WorkspaceAuthoringActivationRecord?,
         activate: @escaping @Sendable (
-            EditingWorkspaceRecord.ID,
+            SourceWorkspace.ID,
             AuthoringPrincipal,
             OME.WorkspaceRole
         ) async throws -> Void,
         deactivate: @escaping @Sendable (
-            EditingWorkspaceRecord.ID
+            SourceWorkspace.ID
         ) async throws -> Void
     ) {
         self.current = current

@@ -483,11 +483,17 @@ public struct TangledSourceArchiveExtractorClient: Sendable {
     }
 }
 
-private enum TangledSourceArchiveExtractorKey: DependencyKey {
-    static var liveValue: TangledSourceArchiveExtractorClient {
-        TangledSourceArchiveExtractorClient { archiveData, outputURL in
+public extension TangledSourceArchiveExtractorClient {
+    static var live: Self {
+        Self { archiveData, outputURL in
             try TangledSourceArchiveExtractor().extract(archiveData, to: outputURL)
         }
+    }
+}
+
+private enum TangledSourceArchiveExtractorKey: DependencyKey {
+    static var liveValue: TangledSourceArchiveExtractorClient {
+        .live
     }
 }
 
