@@ -1,6 +1,6 @@
 import Clocks
 import ATProto
-import ATProtoOAuth
+@testable import ATProtoOAuth
 @preconcurrency import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
@@ -135,7 +135,7 @@ extension UserStoryTests {
             let task = store.send(.reviews(.showChangesButtonTapped(review))) {
                 $0.reviews.semanticDiffs[review.id] = .loading
             }
-            await task?.value
+            await waitForTask(task)
 
             // The real snapshot client checks out the review branch and compares it to HEAD.
             guard case let .loaded(diff) = store.state.reviews.semanticDiffs[review.id] else {
@@ -146,8 +146,16 @@ extension UserStoryTests {
             }
             receivedDiff.withLock { $0 = diff }
             #expect(diff.totalCount == 2)
-            #expect(diff.groups.contains { $0.id == "events" && $0.added == 1 })
-            #expect(diff.groups.contains { $0.id == "stages" && $0.added == 1 })
+            #expect(
+                diff.groups.contains {
+                    $0.id == "app.openmusicevent.event" && $0.added == 1
+                }
+            )
+            #expect(
+                diff.groups.contains {
+                    $0.id == "app.openmusicevent.stage" && $0.added == 1
+                }
+            )
 
             let requests = checkoutRequests.withLock { $0 }
             #expect(requests.count == 2)
@@ -165,10 +173,10 @@ extension UserStoryTests {
             expectNoDifference(requests.map(\.ref), ["main", review.sourceBranch!])
             let semanticDiff = try #require(receivedDiff.withLock { $0 })
             let eventGroup = try #require(
-                semanticDiff.groups.first { $0.id == "events" }
+                semanticDiff.groups.first { $0.id == "app.openmusicevent.event" }
             )
             let stageGroup = try #require(
-                semanticDiff.groups.first { $0.id == "stages" }
+                semanticDiff.groups.first { $0.id == "app.openmusicevent.stage" }
             )
             let eventChange = try #require(eventGroup.records.first)
             let stageChange = try #require(stageGroup.records.first)
@@ -192,7 +200,179 @@ extension UserStoryTests {
                 ]
             )
 
-            await store.dismount()
+            await store.dismount(timeout: .seconds(1))
+        }
+
+        @available(macOS 26, *)
+        @MainActor
+        @Test
+        func `entering authoring shows progress while the app upgrades authorization`() async throws {
+            @Dependency(\.uuid) var uuid
+            let databaseURL = FileManager.default.temporaryDirectory
+                .appending(path: "testival-authoring-entry-\(uuid().uuidString).sqlite")
+            try? FileManager.default.removeItem(at: databaseURL)
+            let database = try UserStory.makePreparedStoryDatabase(at: databaseURL)
+            let backend = try TestivalPullRequestBackend(database: database)
+            let baseSession = try testivalOwnerSession(grantedPermissions: [.atproto])
+            let upgradedSession = try testivalOwnerSession()
+            let authorization = AuthoringOAuthUpgradeGate()
+            let originalSessionStore = OpenMusicEventOAuth.sessionStore.wrappedValue
+            let originalSelectedSessionID = OpenMusicEventOAuth.selectedSessionID.wrappedValue
+            defer {
+                OpenMusicEventOAuth.sessionStore.withLock { $0 = originalSessionStore }
+                OpenMusicEventOAuth.selectedSessionID.withLock {
+                    $0 = originalSelectedSessionID
+                }
+            }
+            var sessionStore = OAuth.SessionStore()
+            sessionStore.upsert(baseSession)
+            OpenMusicEventOAuth.sessionStore.withLock { $0 = sessionStore }
+            OpenMusicEventOAuth.selectedSessionID.withLock { $0 = baseSession.accountID }
+
+            var oauthClient = OAuth.Client()
+            oauthClient.beginAuthorizationWithPermissions = { loginHint, permissions in
+                await authorization.begin(loginHint: loginHint.description, permissions: permissions)
+                return (
+                    URL(string: "https://publisher.pds.example/oauth/authorize")!,
+                    try testivalPendingSession()
+                )
+            }
+            oauthClient.exchangeCode = { _, _, _, _ in upgradedSession }
+
+            try await withDependencies {
+                $0.context = .test
+                $0.defaultPort = 443
+                $0.sourceRepositoryStorageRoot = backend.sourceRepositoryStorageRoot
+                OME.prepareDependencies(&$0, database: database)
+                $0.continuousClock = ImmediateClock()
+                $0.date = .constant(Date(timeIntervalSince1970: 1_784_169_600))
+                $0.defaultEventID = UserStory.eventID
+                $0[Atmosphere.Account.Client.self] = backend.accountClient
+                $0[OAuth.Client.self] = oauthClient
+                $0[XRPC.Client.self] = .liveValue
+                $0.httpClient = backend.httpClient
+                $0.pdsHost = baseSession.pdsHost
+                $0.sourceControl = backend.sourceControl
+                $0.tangledSSHCredentials = backend.tangledSSHCredentials
+                $0.tangledRepositoryMembership = backend.tangledRepositoryMembership
+                $0.tangledSourceCheckout = backend.tangledSourceCheckout
+                $0.tangledPullReviewClient = backend.tangledPullReviewClient
+                $0.webAuthenticationSession.open = { _, redirectURI in
+                    expectNoDifference(redirectURI, OpenMusicEventOAuth.redirectURL)
+                    return OAuth.App.CallbackURI(
+                        URL(
+                            string: "app.openmusicevent:/oauth/callback?code=test-code&state=test-state&iss=https://publisher.pds.example"
+                        )!
+                    )
+                }
+                $0.whiteLabelSourceRegistry = backend.whiteLabelSourceRegistry
+            } operation: {
+                let store = OpenMusicEventApplicationRootView.makeStore(
+                    variant: .whiteLabel(backend.appConfiguration)
+                )
+
+                // The signed-in festival owner launches the actual white-label application stack.
+                await waitUntil {
+                    await backend.firstLaunch.hasReachedSourceRegistryLookup()
+                }
+                let sourceRegistryReached = await backend.firstLaunch
+                    .hasReachedSourceRegistryLookup()
+                if !sourceRegistryReached {
+                    await backend.firstLaunch.releaseSourceRegistryLookup()
+                }
+                try #require(sourceRegistryReached)
+                await backend.firstLaunch.releaseSourceRegistryLookup()
+                await waitUntil {
+                    await backend.firstLaunch.hasReachedSourceImport()
+                }
+                let sourceImportReached = await backend.firstLaunch.hasReachedSourceImport()
+                if !sourceImportReached {
+                    await backend.firstLaunch.releaseSourceImport()
+                }
+                try #require(sourceImportReached)
+                await backend.firstLaunch.releaseSourceImport()
+                await waitUntil {
+                    store.content.whiteLabelRoot?.state.teamWorkspaceDetail?.state
+                        .authoring.admission == .available
+                }
+
+                let rootStore = store.scope(\.content, action: \.content)
+                let whiteLabelStore = try #require(rootStore.spawn(\.whiteLabelRoot))
+                let authoringWorkspaceStore = try #require(
+                    whiteLabelStore.spawn(\.teamWorkspaceDetail)
+                )
+                let authoringStore = authoringWorkspaceStore.scope(
+                    \.authoring,
+                    action: \.authoring
+                )
+                let workspaceStore = authoringStore.scope(
+                    \.content,
+                    action: \.content
+                )
+
+                try #require(authoringStore.canEnter)
+                #expect(authoringStore.grant == nil)
+
+                // The user taps Enter Authoring through the mounted application feature.
+                let entryTask = authoringStore.send(.enterButtonTapped)
+                await waitUntil {
+                    await authorization.currentRequest() != nil
+                }
+                let pendingAuthorizationRequest = await authorization.currentRequest()
+                if let error = authoringStore.entry.taskError {
+                    Issue.record("Authoring entry failed before OAuth presentation: \(error)")
+                }
+                #expect(authoringStore.entry.isRunning)
+                #expect(store.authentication.directAuthorization?.isLoading == true)
+                let request = try #require(pendingAuthorizationRequest)
+
+                // The app requests the missing workflow permissions from the current account.
+                expectNoDifference(request.loginHint, UserStory.organizerID.description)
+                #expect(request.permissions.contains(.atproto))
+                #expect(
+                    request.permissions.missing(
+                        OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+                    ).isEmpty
+                )
+
+                // Entry remains visibly in progress while the outer OAuth coordinator is suspended.
+                #expect(authoringStore.entry.isRunning)
+                #expect(!authoringStore.canEnter)
+                #expect(authoringStore.grant == nil)
+                #expect(store.authentication.directAuthorization?.isLoading == true)
+
+                // Completing outer authorization resumes the same entry task; no feature is remounted.
+                await authorization.finish()
+                await waitForTask(entryTask)
+                try #require(!authoringStore.entry.isRunning)
+
+                let grant = try #require(authoringStore.grant)
+                expectNoDifference(grant.principal, .actor(UserStory.organizerID))
+                expectNoDifference(grant.role, .owner)
+                #expect(!authoringStore.entry.isRunning)
+                #expect(store.authentication.directAuthorization == nil)
+                expectNoDifference(OpenMusicEventOAuth.session.wrappedValue, upgradedSession)
+
+                // The live activation client persists the editing session before Workspace prepares.
+                let activation = try await database.read { db in
+                    try WorkspaceAuthoringActivationRecord
+                        .find(grant.workspaceID)
+                        .fetchOne(db)
+                }
+                expectNoDifference(activation?.principal, grant.principal)
+                expectNoDifference(activation?.role, grant.role)
+
+                await waitUntil {
+                    if case .ready = workspaceStore.phase { return true }
+                    return false
+                }
+                guard case .ready(.canonical) = workspaceStore.phase else {
+                    throw WorkspaceStoryError.unexpectedWorkspacePhase(
+                        String(customDumping: workspaceStore.phase)
+                    )
+                }
+
+            }
         }
 
         @available(macOS 26, *)
@@ -278,14 +458,29 @@ extension UserStoryTests {
         ) async throws {
             // The user launches the Testival app for the first time, and the
             // mounted root asks the source registry where Testival lives.
-            await backend.firstLaunch.waitForSourceRegistryLookup()
+            await waitUntil {
+                await backend.firstLaunch.hasReachedSourceRegistryLookup()
+            }
+            let sourceRegistryReached = await backend.firstLaunch
+                .hasReachedSourceRegistryLookup()
+            if !sourceRegistryReached {
+                await backend.firstLaunch.releaseSourceRegistryLookup()
+            }
+            try #require(sourceRegistryReached)
             #expect(store.whiteLabelRoot?.loadingPhase == .locatingSource)
 
             // The registry resolves Testival to its Tangled source.
             await backend.firstLaunch.releaseSourceRegistryLookup()
 
             // The app begins importing the configured source into the local database.
-            await backend.firstLaunch.waitForSourceImport()
+            await waitUntil {
+                await backend.firstLaunch.hasReachedSourceImport()
+            }
+            let sourceImportReached = await backend.firstLaunch.hasReachedSourceImport()
+            if !sourceImportReached {
+                await backend.firstLaunch.releaseSourceImport()
+            }
+            try #require(sourceImportReached)
             await waitUntil {
                 store.whiteLabelRoot?.loadingPhase == .importingSource
             }
@@ -332,7 +527,7 @@ extension UserStoryTests {
             stageURL: URL
         ) async throws -> StageEditStoryResult {
             // The user opens Meadow from a Testival stage link.
-            await store.send(.openURL(stageURL))?.value
+            await waitForTask(store.send(.openURL(stageURL)))
 
             // The app routes into Meadow with authoring controls available.
             await waitUntil {
@@ -353,7 +548,7 @@ extension UserStoryTests {
                     )
                 )
             )
-            await enterAuthoringTask?.value
+            await waitForTask(enterAuthoringTask)
 
             // A validated grant prepares the existing source exactly once and leaves the
             // package Workspace on its canonical editing line.
@@ -404,7 +599,7 @@ extension UserStoryTests {
                     .wrappedValue
             )
             let editTask = stageDetailStore.send(.editButtonTapped)
-            await editTask?.value
+            await waitForTask(editTask)
 
             // Mount the presented child exactly as EventViewerView does. Its on-mount query then
             // loads Meadow from the workspace-provided database.
@@ -439,7 +634,7 @@ extension UserStoryTests {
                 "https://cdn.example.com/stages/meadow-workshop-hero.png"
 
             // The user saves the edit into the local workspace database.
-            await stageForm.send(.saveButtonTapped)?.value
+            await waitForTask(stageForm.send(.saveButtonTapped))
 
             // The saved row is immediately visible from the application default database.
             let savedStage = try await backend.stage(stageID)
@@ -464,7 +659,7 @@ extension UserStoryTests {
                 .eventWorkspace(.changes(.checkChangesButtonTapped))
             )
 
-            await generateSourcePatchTask?.value
+            await waitForTask(generateSourcePatchTask)
             await flushNestedSpawnEffects()
 
             // The generated patch is the source-level view of the same workspace diff.
@@ -509,7 +704,7 @@ extension UserStoryTests {
                 .eventWorkspace(.changes(.proposeChangesButtonTapped))
             )
 
-            await proposeChangeTask?.value
+            await waitForTask(proposeChangeTask)
             await flushNestedSpawnEffects()
             #expect(
                 eventViewerStore.eventWorkspace?.changes.sourcePatchStatus
@@ -534,14 +729,14 @@ extension UserStoryTests {
             )
 
             // The user writes a clear PR title and description.
-            await eventViewerStore.send(
+            await waitForTask(eventViewerStore.send(
                 .eventWorkspace(
                     .changes(
                         .proposalDraft(.titleChanged("Update Meadow stage details"))
                     )
                 )
-            )?.value
-            await eventViewerStore.send(
+            ))
+            await waitForTask(eventViewerStore.send(
                 .eventWorkspace(
                     .changes(
                         .proposalDraft(
@@ -551,7 +746,7 @@ extension UserStoryTests {
                         )
                     )
                 )
-            )?.value
+            ))
             expectNoDifference(
                 eventViewerStore.eventWorkspace?.changes.proposalDraft?.title,
                 "Update Meadow stage details"
@@ -567,7 +762,7 @@ extension UserStoryTests {
             )
 
             // Tangled creates a pull request from the generated source patch.
-            await publishProposalTask?.value
+            await waitForTask(publishProposalTask)
             await flushNestedSpawnEffects()
             await waitUntil {
                 guard case .ready(.proposal) = mounted.workspace.phase else { return false }
@@ -612,7 +807,22 @@ extension UserStoryTests {
                 )
             )
 
-            await reviewSemanticDiffTask?.value
+            await waitUntil {
+                guard let status = eventViewerStore.eventWorkspace?
+                    .reviews.semanticDiffs[backend.createdReview.id]
+                else { return false }
+                switch status {
+                case .failed, .loaded:
+                    return true
+                case .loading, .notLoaded:
+                    return false
+                }
+            }
+            if eventViewerStore.eventWorkspace?
+                .reviews.semanticDiffs[backend.createdReview.id] == .loading
+            {
+                reviewSemanticDiffTask?.cancel()
+            }
             await flushNestedSpawnEffects()
 
             // The review diff shows the same stage change that came from the local edit.
@@ -640,7 +850,7 @@ extension UserStoryTests {
             )
 
             // The merged review is removed from the review list.
-            await mergePullReviewTask?.value
+            await waitForTask(mergePullReviewTask)
             await flushNestedSpawnEffects()
             await waitUntil {
                 eventViewerStore.eventWorkspace?
@@ -747,11 +957,11 @@ private extension OpenMusicEventAppRoot.State {
 
     var storyTeamWorkspaceDetail: TeamWorkspaceDetail.State? {
         get {
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.authoring.content.content
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.authoring.content.content
         }
         set {
             guard let newValue else { return }
-            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.authoring.content.content =
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.authoring.content.content =
                 newValue
         }
     }
@@ -873,10 +1083,11 @@ private func flushNestedSpawnEffects() async {
     await Task.yield()
 }
 
-private func testivalOwnerSession() throws -> OAuth.Session {
+private func testivalOwnerSession(
+    grantedPermissions: Set<OAuth.Permission>? = nil
+) throws -> OAuth.Session {
     let organizerID = UserStory.organizerID
-    var grantedPermissions: Set<OAuth.Permission> = [.atproto]
-    grantedPermissions.formUnion(
+    let grantedPermissions = grantedPermissions ?? Set([.atproto]).union(
         OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
     )
     return OAuth.Session(
@@ -897,16 +1108,111 @@ private func testivalOwnerSession() throws -> OAuth.Session {
     )
 }
 
+private func testivalPendingSession() throws -> OAuth.Session.Pending {
+    let metadata = try JSONDecoder().decode(
+        OAuth.AuthorizationServer.Metadata.self,
+        from: Data(
+            """
+            {
+              "issuer": "https://publisher.pds.example",
+              "authorization_endpoint": "https://publisher.pds.example/oauth/authorize",
+              "token_endpoint": "https://publisher.pds.example/oauth/token",
+              "response_types_supported": ["code"],
+              "grant_types_supported": ["authorization_code", "refresh_token"],
+              "code_challenge_methods_supported": ["S256"],
+              "token_endpoint_auth_methods_supported": ["none"],
+              "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
+              "scopes_supported": ["atproto"],
+              "authorization_response_iss_parameter_supported": true,
+              "require_pushed_authorization_requests": true,
+              "pushed_authorization_request_endpoint": "https://publisher.pds.example/oauth/par",
+              "dpop_signing_alg_values_supported": ["ES256"],
+              "require_request_uri_registration": true,
+              "client_id_metadata_document_supported": true
+            }
+            """.utf8
+        )
+    )
+    return OAuth.Session.Pending(
+        pkceChallenge: OAuth.PKCE.Challenge(
+            verifier: OAuth.PKCE.CodeVerifier("testival-verifier")
+        ),
+        state: OAuth.Nonce(rawValue: "test-state"),
+        redirectURI: OpenMusicEventOAuth.appConfiguration.redirectURI,
+        authServer: metadata,
+        accountID: Atmosphere.Account.ID(UserStory.organizerID),
+        pdsHost: "publisher.pds.example",
+        dpopKey: OAuth.DPOP.Key()
+    )
+}
+
+private actor AuthoringOAuthUpgradeGate {
+    struct Request: Sendable {
+        var loginHint: String
+        var permissions: OAuth.GrantedPermissions
+    }
+
+    private let finishes: AsyncStream<Void>
+    private let finishContinuation: AsyncStream<Void>.Continuation
+    private var request: Request?
+
+    init() {
+        (finishes, finishContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+    }
+
+    func begin(loginHint: String, permissions: OAuth.GrantedPermissions) async {
+        let request = Request(loginHint: loginHint, permissions: permissions)
+        self.request = request
+        for await _ in finishes { break }
+    }
+
+    func currentRequest() -> Request? {
+        request
+    }
+
+    func finish() {
+        finishContinuation.yield(())
+    }
+}
+
 @MainActor
 private func waitUntil(
     _ condition: @escaping () async -> Bool,
     sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-    for _ in 0..<1_000 {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(1))
+    while clock.now < deadline {
         if await condition() { return }
-        try? await Task.sleep(for: .milliseconds(1))
+        try? await clock.sleep(for: .milliseconds(1))
     }
-    Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
+    Issue.record(
+        "Condition was not satisfied within one second",
+        sourceLocation: sourceLocation
+    )
+}
+
+@MainActor
+private func waitForTask(
+    _ task: Task<Void, Never>?,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    guard let task else { return }
+    let completed = LockIsolated(false)
+    let completion = Task {
+        await task.value
+        completed.withValue { $0 = true }
+    }
+    await waitUntil(
+        { completed.value },
+        sourceLocation: sourceLocation
+    )
+    guard !completed.value else { return }
+    task.cancel()
+    completion.cancel()
 }
 
 private enum WorkspaceStoryError: Error {
@@ -914,85 +1220,56 @@ private enum WorkspaceStoryError: Error {
 }
 
 private actor TestivalFirstLaunch {
+    private let sourceImportReleases: AsyncStream<Void>
+    private let sourceImportRelease: AsyncStream<Void>.Continuation
     private var sourceImportReached = false
     private var sourceImportReleased = false
-    private var sourceImportCompleted = false
-    private var sourceImportCompletionWaiters: [CheckedContinuation<Void, Never>] = []
-    private var sourceImportReleaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var sourceImportWaiters: [CheckedContinuation<Void, Never>] = []
 
+    private let sourceRegistryLookupReleases: AsyncStream<Void>
+    private let sourceRegistryLookupRelease: AsyncStream<Void>.Continuation
     private var sourceRegistryLookupReached = false
     private var sourceRegistryLookupReleased = false
-    private var sourceRegistryLookupReleaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var sourceRegistryLookupWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init() {
+        (sourceImportReleases, sourceImportRelease) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        (sourceRegistryLookupReleases, sourceRegistryLookupRelease) =
+            AsyncStream.makeStream(
+                of: Void.self,
+                bufferingPolicy: .bufferingNewest(1)
+            )
+    }
 
     func reachSourceImport() async {
         sourceImportReached = true
-        sourceImportWaiters.forEach { $0.resume() }
-        sourceImportWaiters.removeAll()
-        await waitForSourceImportRelease()
+        guard !sourceImportReleased else { return }
+        for await _ in sourceImportReleases { break }
     }
 
     func reachSourceRegistryLookup() async {
         sourceRegistryLookupReached = true
-        sourceRegistryLookupWaiters.forEach { $0.resume() }
-        sourceRegistryLookupWaiters.removeAll()
-        await waitForSourceRegistryLookupRelease()
+        guard !sourceRegistryLookupReleased else { return }
+        for await _ in sourceRegistryLookupReleases { break }
     }
 
-    func finishSourceImport() {
-        sourceImportCompleted = true
-        sourceImportCompletionWaiters.forEach { $0.resume() }
-        sourceImportCompletionWaiters.removeAll()
+    func hasReachedSourceImport() -> Bool {
+        sourceImportReached
     }
 
-    func releaseSourceImport() async {
+    func hasReachedSourceRegistryLookup() -> Bool {
+        sourceRegistryLookupReached
+    }
+
+    func releaseSourceImport() {
         sourceImportReleased = true
-        sourceImportReleaseWaiters.forEach { $0.resume() }
-        sourceImportReleaseWaiters.removeAll()
-        await waitForSourceImportCompletion()
-        await Task.yield()
+        sourceImportRelease.yield(())
     }
 
     func releaseSourceRegistryLookup() {
         sourceRegistryLookupReleased = true
-        sourceRegistryLookupReleaseWaiters.forEach { $0.resume() }
-        sourceRegistryLookupReleaseWaiters.removeAll()
-    }
-
-    func waitForSourceImport() async {
-        guard !sourceImportReached else { return }
-        await withCheckedContinuation {
-            sourceImportWaiters.append($0)
-        }
-    }
-
-    func waitForSourceRegistryLookup() async {
-        guard !sourceRegistryLookupReached else { return }
-        await withCheckedContinuation {
-            sourceRegistryLookupWaiters.append($0)
-        }
-    }
-
-    private func waitForSourceImportRelease() async {
-        guard !sourceImportReleased else { return }
-        await withCheckedContinuation {
-            sourceImportReleaseWaiters.append($0)
-        }
-    }
-
-    private func waitForSourceImportCompletion() async {
-        guard !sourceImportCompleted else { return }
-        await withCheckedContinuation {
-            sourceImportCompletionWaiters.append($0)
-        }
-    }
-
-    private func waitForSourceRegistryLookupRelease() async {
-        guard !sourceRegistryLookupReleased else { return }
-        await withCheckedContinuation {
-            sourceRegistryLookupReleaseWaiters.append($0)
-        }
+        sourceRegistryLookupRelease.yield(())
     }
 }
 
@@ -1238,9 +1515,6 @@ private struct TestivalPullRequestBackend {
                 source,
                 to: request.outputURL
             )
-            if request.ref == "main" {
-                await firstLaunch.finishSourceImport()
-            }
             return TangledSourceCheckout(repositoryURL: request.outputURL)
         }
         self.tangledPullReviewClient = TangledPullReviewClient(

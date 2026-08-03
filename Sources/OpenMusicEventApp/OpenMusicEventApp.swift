@@ -1,6 +1,7 @@
 import Foundation
 import SkipFuse
 import SwiftUI
+import ATProtoOAuth
 import BlueskyActorCache
 import ComposableCalendarEvents
 import Dependencies
@@ -130,7 +131,50 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
-public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAppRoot>
+struct OpenMusicEventAuthorizationContext: FeatureEnvironmentKey {
+    var broker: OAuth.AuthorizationBroker
+
+    static let liveValue = Self(
+        broker: OAuth.AuthorizationBroker { requirement in
+            throw OAuth.AuthorizationRequired.signIn(requirement)
+        }
+    )
+    static let testValue = liveValue
+}
+
+public struct OpenMusicEventApplication: FeatureProtocol {
+    public typealias State = OAuthAuthorization<OpenMusicEventAppRoot>.State
+    public typealias Action = OAuthAuthorization<OpenMusicEventAppRoot>.Action
+
+    private let authorization: OpenMusicEventAuthorizationContext
+    private let makeContent: @Sendable () -> OpenMusicEventAppRoot
+    private let requestCenter: AuthorizationRequestCenter
+    private let storage: OAuthSessionStorage
+
+    public init(
+        storage: OAuthSessionStorage,
+        requestCenter: AuthorizationRequestCenter = AuthorizationRequestCenter(),
+        makeContent: @escaping @Sendable () -> OpenMusicEventAppRoot
+    ) {
+        self.storage = storage
+        self.requestCenter = requestCenter
+        self.makeContent = makeContent
+        self.authorization = OpenMusicEventAuthorizationContext(
+            broker: OAuthAuthorizationRequests(center: requestCenter)
+                .automaticallyUpgradingCurrentAccount(storage: storage)
+                .broker()
+        )
+    }
+
+    public var body: some FeatureProtocol<State, Action> {
+        OAuthAuthorization(
+            storage: storage,
+            requestCenter: requestCenter,
+            makeContent: makeContent
+        )
+        .environment(authorization)
+    }
+}
 
 struct SelectedEventRestoration {
     var eventID: OMERecord.Event.ID?
@@ -208,6 +252,7 @@ struct SelectedEventRestoration {
                 OpenMusicEventAppRoot()
             }
             .presentAuthorizationFailures()
+            .deliverAuthoringAuthorizationChanges()
         }
     }
 

@@ -93,7 +93,7 @@ struct AuthenticationRootTests {
                 )
             )
         )
-        await task?.value
+        try await waitForTask(task)
 
         #expect(store.content.eventViewer == nil)
     }
@@ -162,9 +162,9 @@ struct AuthenticationRootTests {
             }
         }
 
-        await withIssueReporters([]) {
+        try await withIssueReporters([]) {
             let task = store.send(.authentication(.directAuthorization(.submit)))
-            await task?.value
+            try await waitForTask(task)
         }
 
         try await waitForCondition {
@@ -227,9 +227,28 @@ private func failingOAuthClient(_ failure: any Error) -> OAuth.Client {
 private func waitForCondition(
     _ condition: @escaping @MainActor () -> Bool
 ) async throws {
-    for _ in 0..<100 {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(1))
+    while clock.now < deadline {
         if condition() { return }
-        try await Task.sleep(for: .milliseconds(10))
+        try await clock.sleep(for: .milliseconds(1))
     }
     try #require(condition())
+}
+
+@MainActor
+private func waitForTask(_ task: Task<Void, Never>?) async throws {
+    guard let task else { return }
+    let completed = LockIsolated(false)
+    let completion = Task {
+        await task.value
+        completed.withValue { $0 = true }
+    }
+    do {
+        try await waitForCondition { completed.value }
+    } catch {
+        task.cancel()
+        completion.cancel()
+        throw error
+    }
 }

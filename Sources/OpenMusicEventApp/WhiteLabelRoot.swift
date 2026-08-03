@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ComposableAuthoringWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -28,7 +29,7 @@ private typealias _SwiftUIForm = SwiftUI.Form
 public struct WhiteLabelRoot {
     public init() {}
 
-    public typealias TeamWorkspace = OpenMusicEventWorkspaceAuthoring<TeamWorkspaceDetail>
+    public typealias TeamWorkspace = OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>
 
     public struct State {
         public init(
@@ -54,7 +55,7 @@ public struct WhiteLabelRoot {
         public var teamWorkspaceDetail: Spawn<TeamWorkspace>?
 
         public var showsAuthoringControls: Bool {
-            teamWorkspaceDetail?.state.content.authoring.grant?.access.canEditContent == true
+            teamWorkspaceDetail?.state.authoring.grant?.access.canEditContent == true
         }
 
         public enum LoadingPhase: Equatable, Sendable {
@@ -126,10 +127,8 @@ public struct WhiteLabelRoot {
             OrganizationRoot()
         }
         .ifLet(\.teamWorkspaceDetail) {
-            TeamWorkspace(storage: OpenMusicEventOAuth.storage) {
-                OpenMusicEventAuthoringWorkspace {
-                    TeamWorkspaceDetail()
-                }
+            TeamWorkspace {
+                TeamWorkspaceDetail()
             }
             .openMusicEventWorkspaceLifecycle()
         }
@@ -363,9 +362,7 @@ public struct WhiteLabelRootView: View {
 
     public var body: some View {
         Group {
-            if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
-                #if os(Android)
-                let workspaceAuthoringStore = authorizationStore.scope(\.content, action: \.content)
+            if let workspaceAuthoringStore = store.spawn(\.teamWorkspaceDetail) {
                 let authoringStore = workspaceAuthoringStore.scope(
                     \.authoring,
                     action: \.authoring
@@ -386,30 +383,6 @@ public struct WhiteLabelRootView: View {
                     .openMusicEventWorkspacePhase(workspaceStore.phase)
                     .whiteLabelRootToolbar(store: store)
                 }
-                #else
-                OpenMusicEventAuthorizationView(store: authorizationStore) { workspaceAuthoringStore in
-                    let authoringStore = workspaceAuthoringStore.scope(
-                        \.authoring,
-                        action: \.authoring
-                    )
-                    let workspaceStore = authoringStore.scope(
-                        \.content,
-                        action: \.content
-                    )
-                    let teamWorkspaceDetailStore = workspaceStore.scope(
-                        \.content,
-                        action: \.content
-                    )
-                    NavigationStack {
-                        TeamWorkspaceDetailView(
-                            store: teamWorkspaceDetailStore,
-                            showsAuthoringControls: authoringStore.grant?.access.canEditContent == true
-                        )
-                        .openMusicEventWorkspacePhase(workspaceStore.phase)
-                        .whiteLabelRootToolbar(store: store)
-                    }
-                }
-                #endif
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
                 OrganizationRootView(
                     store: organizationRootStore,
@@ -548,17 +521,8 @@ struct WhiteLabelRootActionsMenu: View {
                 Button {
                     store.send(.enterButtonTapped)
                 } label: {
-                    Label {
-                        Text("Enter Authoring")
-                    } icon: {
-                        if store.entry.isRunning {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "square.and.pencil")
-                        }
-                    }
+                    Label("Enter Authoring", systemImage: "square.and.pencil")
                 }
-                .disabled(store.entry.isRunning)
             } else if store.grant?.access.canEditContent == true {
                 let workspaceStore = store.scope(\.content, action: \.content)
                 let teamWorkspaceDetailStore = workspaceStore.scope(
@@ -599,16 +563,17 @@ extension View {
                 }
                 #endif
 
-                if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
-                    let workspaceAuthoringStore = authorizationStore.scope(
-                        \.content,
-                        action: \.content
-                    )
+                if let workspaceAuthoringStore = store.spawn(\.teamWorkspaceDetail) {
                     let authoringStore = workspaceAuthoringStore.scope(
                         \.authoring,
                         action: \.authoring
                     )
-                    if authoringStore.canEnter
+                    if authoringStore.entry.isRunning {
+                        ToolbarItem(placement: .primaryAction) {
+                            ProgressView()
+                                .accessibilityLabel(Text("Entering Authoring"))
+                        }
+                    } else if authoringStore.canEnter
                         || authoringStore.grant?.access.canEditContent == true
                     {
                         ToolbarItem(placement: .primaryAction) {
@@ -628,23 +593,18 @@ private extension WhiteLabelRoot.State {
     ) {
         if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
             organizationRoot = nil
-            if teamWorkspaceDetail?.state.content.authoring.content.content
+            if teamWorkspaceDetail?.state.authoring.content.content
                 .sourceBaselineID != sourceBaselineID
             {
                 teamWorkspaceDetail = Spawn(
-                    WhiteLabelRoot.TeamWorkspace.State(
-                        storage: OpenMusicEventOAuth.storage
-                    ) {
-                        let workspaceID = EditingWorkspaceRecord.ID(
+                    WhiteLabelRoot.TeamWorkspace.state(
+                        workspaceID: EditingWorkspaceRecord.ID(
                             sourceBaselineID: sourceBaselineID
                         )
-                        return OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
-                            workspaceID: workspaceID
-                        ) {
-                            TeamWorkspaceDetail.State(
-                                sourceBaselineID: sourceBaselineID
-                            )
-                        }
+                    ) {
+                        TeamWorkspaceDetail.State(
+                            sourceBaselineID: sourceBaselineID
+                        )
                     }
                 )
             }

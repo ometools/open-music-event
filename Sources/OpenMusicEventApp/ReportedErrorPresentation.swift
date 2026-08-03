@@ -13,9 +13,52 @@ public extension FeatureProtocol where State: ErrorNotificationRootState {
     }
 }
 
-public extension OAuthAuthorization where Content == OpenMusicEventAppRoot {
+public extension FeatureProtocol
+where
+    State == OAuthAuthorization<OpenMusicEventAppRoot>.State,
+    Action == OAuthAuthorization<OpenMusicEventAppRoot>.Action
+{
     func presentAuthorizationFailures() -> some Feature {
         self.modifier(OAuthAuthorizationFailurePresentationModifier())
+    }
+}
+
+public extension FeatureProtocol
+where
+    State == OAuthAuthorization<OpenMusicEventAppRoot>.State,
+    Action == OAuthAuthorization<OpenMusicEventAppRoot>.Action
+{
+    func deliverAuthoringAuthorizationChanges() -> some Feature {
+        self.modifier(AuthoringAuthorizationDeliveryModifier())
+    }
+}
+
+struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
+    typealias State = OAuthAuthorization<OpenMusicEventAppRoot>.State
+    typealias Action = OAuthAuthorization<OpenMusicEventAppRoot>.Action
+
+    let store = FeatureStore<State, Action>()
+
+    func body(content: Content) -> some FeatureProtocol<State, Action> {
+        content
+            .onChange(of: store.authentication.session?.accountID) {
+                oldAccountID,
+                accountID,
+                _ in
+                guard oldAccountID == nil, accountID != nil else { return }
+                store.addTask {
+                    try store.content.whiteLabelRoot?
+                        .state.teamWorkspaceDetail?
+                        .state.authoring.content.content.authoringAuthorizationInvalidated()
+                }
+            }
+            .onEvent(OAuthAuthorizationInvalidated.self) { _, _ in
+                store.addTask {
+                    try store.content.whiteLabelRoot?
+                        .state.teamWorkspaceDetail?
+                        .state.authoring.content.content.authoringAuthorizationInvalidated()
+                }
+            }
     }
 }
 

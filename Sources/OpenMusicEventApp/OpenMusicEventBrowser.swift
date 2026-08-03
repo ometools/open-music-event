@@ -1927,6 +1927,7 @@ public struct TeamWorkspaceDetail {
         public var sourceBaseline: SourceBaselineRecord?
 
         public let sourceBaselineID: SourceBaselineRecord.ID
+        @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
         @Trigger public var workspaceSourcePrepared
 
@@ -2249,6 +2250,10 @@ public struct TeamWorkspaceDetail {
         .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
             SourceWorkspace()
         }
+        // Team workspace details query the writable application database directly. Preparing the
+        // source only attaches its read-only baseline for editing descendants, so there is no
+        // summary state to reload here.
+        .onTrigger(store.workspaceSourcePrepared) { _ in }
         .onTrigger(store.workspaceProposalRecorded) { _, _ in }
     }
 }

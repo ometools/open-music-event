@@ -12,6 +12,7 @@ import SQLiteData
 
 /// The parent-to-child trigger used when OME's prepared workspace source becomes available.
 public protocol OpenMusicEventWorkspaceContentState {
+    var authoringAuthorizationInvalidated: Trigger<()> { get }
     var workspaceProposalRecorded: Trigger<WorkspaceProposal> { get }
     var workspaceSourcePrepared: Trigger<()> { get }
 }

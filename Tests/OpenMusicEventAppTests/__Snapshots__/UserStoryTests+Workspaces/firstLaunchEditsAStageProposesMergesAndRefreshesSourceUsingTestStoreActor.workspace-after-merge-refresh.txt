@@ -2,7 +2,7 @@ SourceWorkspaceSummary(
   availability: .available,
   groups: [
     [0]: SourceChangeGroup(
-      id: "calendars",
+      id: "app.openmusicevent.calendar",
       displayName: "Calendar",
       added: 0,
       modified: 0,
@@ -18,7 +18,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [2]: SourceChangeGroup(
-      id: "events",
+      id: "app.openmusicevent.event",
       displayName: "Event",
       added: 0,
       modified: 0,
@@ -26,7 +26,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [3]: SourceChangeGroup(
-      id: "stages",
+      id: "app.openmusicevent.stage",
       displayName: "Stage",
       added: 0,
       modified: 0,
@@ -34,7 +34,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [4]: SourceChangeGroup(
-      id: "contributors",
+      id: "app.openmusicevent.contributor",
       displayName: "Contributor",
       added: 0,
       modified: 0,
@@ -42,7 +42,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [5]: SourceChangeGroup(
-      id: "schedules",
+      id: "app.openmusicevent.schedule",
       displayName: "Schedule",
       added: 0,
       modified: 0,
@@ -74,7 +74,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [9]: SourceChangeGroup(
-      id: "channels",
+      id: "app.openmusicevent.channel",
       displayName: "Channel",
       added: 0,
       modified: 0,
@@ -82,7 +82,7 @@ SourceWorkspaceSummary(
       records: []
     ),
     [10]: SourceChangeGroup(
-      id: "posters",
+      id: "app.openmusicevent.poster",
       displayName: "Poster",
       added: 0,
       modified: 0,

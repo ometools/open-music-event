@@ -69,6 +69,118 @@ extension OAuthAuthorization {
     }
 }
 
+extension OpenMusicEventAuthoringWorkspace {
+    func openMusicEventWorkspaceLifecycle(
+        requestsEntry: @escaping (Content.State) -> Bool = { _ in false }
+    ) -> some FeatureProtocol<State, Action> {
+        self
+            .modifier(
+                OpenMusicEventBareWorkspaceLifecycleModifier(
+                    requestsEntry: requestsEntry
+                )
+            )
+            .dependency(
+                ComposableAuthoring.AuthoringClient<
+                    EditingWorkspaceRecord.ID,
+                    AuthoringGrant
+                >.openMusicEvent
+            )
+            .dependency(
+                ComposableWorkspace.WorkspaceClient<
+                    SourceWorkspaceDatabase,
+                    SourcePatch
+                >.openMusicEvent
+            )
+    }
+}
+
+struct OpenMusicEventBareWorkspaceLifecycleModifier<WorkspaceContent: FeatureProtocol>:
+    FeatureModifier
+where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {
+    typealias WorkspaceAuthoring = OpenMusicEventAuthoringWorkspace<WorkspaceContent>
+    typealias State = WorkspaceAuthoring.State
+    typealias Action = WorkspaceAuthoring.Action
+
+    @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+    @FeatureEnvironment(OpenMusicEventAuthorizationContext.self) var authorization
+    let store = FeatureStore<State, Action>()
+    let requestsEntry: (WorkspaceContent.State) -> Bool
+
+    func body(content: Content) -> some FeatureProtocol<State, Action> {
+        content
+            .transformDependency(\.oauthAuthorizationBroker) {
+                $0 = authorization.broker
+            }
+            .onMount { state in
+                let requestsEntry = requestsEntry(
+                    state.authoring.content.content
+                )
+                store.addTask {
+                    let restoration = try store.send(
+                        .authoring(.restoreAuthorization)
+                    )
+                    await restoration?.value
+                    guard requestsEntry,
+                          store.state.authoring.grant == nil,
+                          store.state.authoring.canEnter
+                    else { return }
+                    let entry = try store.send(
+                        .authoring(.enterButtonTapped)
+                    )
+                    await entry?.value
+                }
+            }
+            .onTrigger(
+                store.authoring.content.content.authoringAuthorizationInvalidated
+            ) { state in
+                let workspaceID = state.authoring.context
+                let activations = activations
+                store.addTask {
+                    let invalidation = try store.send(
+                        .authoring(.authorizationInvalidated)
+                    )
+                    await invalidation?.value
+                    try await activations.deactivate(workspaceID)
+                    let admission = try store.send(
+                        .authoring(.refreshAdmission)
+                    )
+                    await admission?.value
+                }
+            }
+            .onEvent(AuthoringRequested.self) { _, _ in
+                store.addTask {
+                    let entry = try store.send(
+                        .authoring(.enterButtonTapped)
+                    )
+                    await entry?.value
+                }
+            }
+            .onEvent(AuthoringExitRequested.self) { _, _ in
+                store.addTask {
+                    let exit = try store.send(
+                        .authoring(.exitButtonTapped)
+                    )
+                    await exit?.value
+                }
+            }
+            .onEvent(AuthoringAccessRevoked.self) { _, state in
+                let workspaceID = state.authoring.context
+                let activations = activations
+                store.addTask {
+                    let invalidation = try store.send(
+                        .authoring(.authorizationInvalidated)
+                    )
+                    await invalidation?.value
+                    try await activations.deactivate(workspaceID)
+                    let admission = try store.send(
+                        .authoring(.refreshAdmission)
+                    )
+                    await admission?.value
+                }
+            }
+    }
+}
+
 struct OpenMusicEventWorkspaceLifecycleModifier<WorkspaceContent: FeatureProtocol>:
     FeatureModifier
 where WorkspaceContent.State: OpenMusicEventWorkspaceContentState {

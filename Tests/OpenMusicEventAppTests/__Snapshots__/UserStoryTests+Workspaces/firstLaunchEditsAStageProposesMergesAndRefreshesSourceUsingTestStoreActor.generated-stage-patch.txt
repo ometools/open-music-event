@@ -14,7 +14,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
       [0]: SourceFileAttribution(
         filePath: "events/testival-2026/stages/meadow.yml",
         recordChangeIDs: [
-          [0]: #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
+          [0]: #"app.openmusicevent.stage:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
         ]
       )
     ],
@@ -22,7 +22,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
       availability: .available,
       groups: [
         [0]: SourceChangeGroup(
-          id: "calendars",
+          id: "app.openmusicevent.calendar",
           displayName: "Calendar",
           added: 0,
           modified: 0,
@@ -38,7 +38,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
           records: []
         ),
         [2]: SourceChangeGroup(
-          id: "events",
+          id: "app.openmusicevent.event",
           displayName: "Event",
           added: 0,
           modified: 0,
@@ -46,14 +46,14 @@ WorkspaceChanges.SourcePatchStatus.generated(
           records: []
         ),
         [3]: SourceChangeGroup(
-          id: "stages",
+          id: "app.openmusicevent.stage",
           displayName: "Stage",
           added: 0,
           modified: 1,
           deleted: 0,
           records: [
             [0]: SourceRecordChange(
-              tableID: "stages",
+              tableID: "app.openmusicevent.stage",
               kind: .modified,
               primaryKeyValues: [
                 [0]: SourceColumnValue(
@@ -210,7 +210,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
           ]
         ),
         [4]: SourceChangeGroup(
-          id: "contributors",
+          id: "app.openmusicevent.contributor",
           displayName: "Contributor",
           added: 0,
           modified: 0,
@@ -218,7 +218,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
           records: []
         ),
         [5]: SourceChangeGroup(
-          id: "schedules",
+          id: "app.openmusicevent.schedule",
           displayName: "Schedule",
           added: 0,
           modified: 0,
@@ -250,7 +250,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
           records: []
         ),
         [9]: SourceChangeGroup(
-          id: "channels",
+          id: "app.openmusicevent.channel",
           displayName: "Channel",
           added: 0,
           modified: 0,
@@ -258,7 +258,7 @@ WorkspaceChanges.SourcePatchStatus.generated(
           records: []
         ),
         [10]: SourceChangeGroup(
-          id: "posters",
+          id: "app.openmusicevent.poster",
           displayName: "Poster",
           added: 0,
           modified: 0,
@@ -268,9 +268,9 @@ WorkspaceChanges.SourcePatchStatus.generated(
       ],
       recordComparisons: SourceRecordComparisons(
         comparisonsByChangeID: [
-          #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#: AnySourceRecordComparison(
+          #"app.openmusicevent.stage:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#: AnySourceRecordComparison(
             change: SourceRecordChange(
-              tableID: "stages",
+              tableID: "app.openmusicevent.stage",
               kind: .modified,
               primaryKeyValues: [
                 [0]: SourceColumnValue(

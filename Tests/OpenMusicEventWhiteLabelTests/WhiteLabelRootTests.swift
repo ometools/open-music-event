@@ -62,13 +62,19 @@ struct WhiteLabelRootTests {
       )
     }
 
-    await refreshGate.waitForRefreshToStart()
+    let refreshStarted = await waitUntil {
+      await refreshGate.hasStarted()
+    }
+    if !refreshStarted {
+      await refreshGate.finish(succeeding: false)
+    }
+    try #require(refreshStarted)
 
     // The cached team workspace is mounted while that refresh is still blocked.
     let whiteLabelRoot = try #require(appStore.content.whiteLabelRoot)
     #expect(whiteLabelRoot.state.loadingPhase == .importingSource)
     #expect(
-      whiteLabelRoot.state.teamWorkspaceDetail?.state.content.authoring.content.content
+      whiteLabelRoot.state.teamWorkspaceDetail?.state.authoring.content.content
         .sourceBaselineID
         == sourceBaselineID
     )
@@ -120,22 +126,33 @@ struct WhiteLabelRootTests {
       defer { IssueReporters.current = reporters }
 
       let loadTask = store.send(.task)
-      await refreshGate.waitForRefreshToStart()
+      let refreshStarted = await waitUntil {
+        await refreshGate.hasStarted()
+      }
+      if !refreshStarted {
+        await refreshGate.finish(succeeding: false)
+        loadTask?.cancel()
+      }
+      try #require(refreshStarted)
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+        store.state.teamWorkspaceDetail?.state.authoring.content.content
           .sourceBaselineID
           == sourceBaselineID
       )
 
       await refreshGate.finish(succeeding: false)
-      await loadTask?.value
+      let loadSettled = await waitForLoad(toFinishIn: store)
+      if !loadSettled {
+        loadTask?.cancel()
+      }
+      try #require(loadSettled)
       store.expect {
         $0.errorMessage = "Unable to refresh Wicked Woods."
       }
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+        store.state.teamWorkspaceDetail?.state.authoring.content.content
           .sourceBaselineID
           == sourceBaselineID
       )
@@ -400,7 +417,7 @@ struct WhiteLabelRootTests {
       await load(store)
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+        store.state.teamWorkspaceDetail?.state.authoring.content.content
           .sourceBaselineID
           == sourceBaselineID
       )
@@ -454,7 +471,7 @@ struct WhiteLabelRootTests {
       #expect(store.state.errorMessage == nil)
       #expect(provenanceSourceBaselineIDs == [sourceBaselineID])
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.context
+        store.state.teamWorkspaceDetail?.state.authoring.context
           == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
       )
       #expect(accountPermissions == requiredPermissions)
@@ -499,12 +516,12 @@ struct WhiteLabelRootTests {
       await load(store)
       await waitForAuthoringEligibility(in: store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.context == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.authoring.context == workspaceID)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+        store.state.teamWorkspaceDetail?.state.authoring.grant?.access
           ?? .attendee == .attendee
       )
-      #expect(store.state.teamWorkspaceDetail?.state.content.canEnter == true)
+      #expect(store.state.teamWorkspaceDetail?.state.authoring.canEnter == true)
       #expect(!store.state.showsAuthoringControls)
       let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(workspaceIDs, [workspaceID])
@@ -552,36 +569,49 @@ struct WhiteLabelRootTests {
       }
 
       await load(store)
+      await waitForAuthoringEligibility(in: store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.context == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.authoring.context == workspaceID)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+        store.state.teamWorkspaceDetail?.state.authoring.grant?.access
           ?? .attendee == .attendee
       )
       #expect(!store.state.showsAuthoringControls)
 
       let entryTask = store.send(
         to: \.teamWorkspaceDetail!,
-        .content(.authoring(.enterButtonTapped))
+        .authoring(.enterButtonTapped)
       )
-      let preparedWorkspaceIDs = await preparationGate.waitForPreparationToStart()
+      let preparationStarted = await waitUntil {
+        !(await preparationGate.workspaceIDs()).isEmpty
+      }
+      if !preparationStarted {
+        await preparationGate.finish()
+        entryTask?.cancel()
+      }
+      try #require(preparationStarted)
+      let preparedWorkspaceIDs = await preparationGate.workspaceIDs()
       expectNoDifference(
         preparedWorkspaceIDs,
         [workspaceID]
       )
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee
+        store.state.teamWorkspaceDetail?.state.authoring.grant?.access ?? .attendee
           == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.entry.isRunning == false)
+      #expect(store.state.teamWorkspaceDetail?.state.authoring.entry.isRunning == true)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.content.phase
+        store.state.teamWorkspaceDetail?.state.authoring.content.phase
           == .preparingSource
       )
 
       await preparationGate.finish()
-      await entryTask?.value
+      let preparationSettled = await waitForTask(entryTask)
+      if !preparationSettled {
+        entryTask?.cancel()
+      }
+      try #require(preparationSettled)
 
       let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(
@@ -589,13 +619,13 @@ struct WhiteLabelRootTests {
         [workspaceID, workspaceID]
       )
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee
+        store.state.teamWorkspaceDetail?.state.authoring.grant?.access ?? .attendee
           == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.content.authoring.entry.isRunning == false)
+      #expect(store.state.teamWorkspaceDetail?.state.authoring.entry.isRunning == false)
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.authoring.content.phase
+        store.state.teamWorkspaceDetail?.state.authoring.content.phase
           != .preparingSource
       )
     }
@@ -998,33 +1028,57 @@ struct WhiteLabelRootTests {
   }
 
   private func performLoad(_ store: TestStore<WhiteLabelRoot>) async {
-    await store.send(WhiteLabelRoot.Action.task)?.value
-    await waitForLoad(toFinishIn: store)
+    let task = store.send(WhiteLabelRoot.Action.task)
+    let loadSettled = await waitForLoad(toFinishIn: store)
+    if !loadSettled {
+      task?.cancel()
+    }
+    #expect(loadSettled)
   }
 
-  private func waitForLoad(toFinishIn store: TestStore<WhiteLabelRoot>) async {
+  private func waitForLoad(toFinishIn store: TestStore<WhiteLabelRoot>) async -> Bool {
+    await waitUntil {
+      store.state.loadingPhase == .idle
+        && (store.state.errorMessage != nil || store.state.organizerID != nil)
+    }
+  }
+
+  private func waitUntil(
+    _ condition: @escaping () async -> Bool
+  ) async -> Bool {
     let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(60))
-    while !loadIsSettled(store.state) && clock.now < deadline {
+    let deadline = clock.now.advanced(by: .seconds(1))
+    while clock.now < deadline {
+      if await condition() { return true }
       try? await Task.sleep(for: .milliseconds(10))
     }
-    #expect(loadIsSettled(store.state))
+    return await condition()
+  }
+
+  private func waitForTask(_ task: Task<Void, Never>?) async -> Bool {
+    guard let task else { return true }
+    let completed = LockIsolated(false)
+    let completion = Task {
+      await task.value
+      completed.withValue { $0 = true }
+    }
+    let didComplete = await waitUntil { completed.value }
+    if !didComplete {
+      task.cancel()
+      completion.cancel()
+    }
+    return didComplete
   }
 
   private func waitForAuthoringEligibility(in store: TestStore<WhiteLabelRoot>) async {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(1))
-    while store.state.teamWorkspaceDetail?.state.content.canEnter != true,
+    while store.state.teamWorkspaceDetail?.state.authoring.canEnter != true,
       clock.now < deadline
     {
       try? await Task.sleep(for: .milliseconds(10))
     }
-    #expect(store.state.teamWorkspaceDetail?.state.content.canEnter == true)
-  }
-
-  private func loadIsSettled(_ state: WhiteLabelRoot.State) -> Bool {
-    state.loadingPhase == .idle
-      && (state.errorMessage != nil || state.organizerID != nil)
+    #expect(store.state.teamWorkspaceDetail?.state.authoring.canEnter == true)
   }
 
 }
@@ -1034,41 +1088,30 @@ private struct RegistryShouldNotBeCalled: Error {}
 private actor WhiteLabelRefreshGate {
   struct RefreshFailed: Error {}
 
-  private var result: Bool?
+  private let finishes: AsyncStream<Bool>
+  private let finishContinuation: AsyncStream<Bool>.Continuation
   private var refreshStarted = false
-  private var finishWaiters: [CheckedContinuation<Bool, Never>] = []
-  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+  init() {
+    (finishes, finishContinuation) = AsyncStream.makeStream(
+      of: Bool.self,
+      bufferingPolicy: .bufferingNewest(1)
+    )
+  }
 
   func finish(succeeding: Bool) {
-    result = succeeding
-    let waiters = finishWaiters
-    finishWaiters.removeAll()
-    waiters.forEach { $0.resume(returning: succeeding) }
+    finishContinuation.yield(succeeding)
   }
 
   func refresh(eventID: OMERecord.Event.ID) async throws -> [OMERecord.Event.ID] {
     refreshStarted = true
-    let waiters = startWaiters
-    startWaiters.removeAll()
-    waiters.forEach { $0.resume() }
-
-    let succeeded: Bool
-    if let result {
-      succeeded = result
-    } else {
-      succeeded = await withCheckedContinuation { continuation in
-        finishWaiters.append(continuation)
-      }
-    }
+    let succeeded = await finishes.first { _ in true } ?? false
     guard succeeded else { throw RefreshFailed() }
     return [eventID]
   }
 
-  func waitForRefreshToStart() async {
-    guard !refreshStarted else { return }
-    await withCheckedContinuation { continuation in
-      startWaiters.append(continuation)
-    }
+  func hasStarted() -> Bool {
+    refreshStarted
   }
 }
 
@@ -1204,36 +1247,31 @@ private struct PublicWhiteLabelImportRequestedSSHCredentials: Error {}
 private struct PublicWhiteLabelImportRequestedAccountResolution: Error {}
 
 private actor AuthoringPreparationGate {
+  private let finishes: AsyncStream<Void>
+  private let finishContinuation: AsyncStream<Void>.Continuation
   private var isFinished = false
-  private var workspaceIDs: [EditingWorkspaceRecord.ID] = []
-  private var finishWaiters: [CheckedContinuation<Void, Never>] = []
-  private var startWaiters: [CheckedContinuation<[EditingWorkspaceRecord.ID], Never>] = []
+  private var requestedWorkspaceIDs: [EditingWorkspaceRecord.ID] = []
+
+  init() {
+    (finishes, finishContinuation) = AsyncStream.makeStream(
+      of: Void.self,
+      bufferingPolicy: .bufferingNewest(1)
+    )
+  }
 
   func finish() {
     isFinished = true
-    let waiters = finishWaiters
-    finishWaiters.removeAll()
-    waiters.forEach { $0.resume() }
+    finishContinuation.yield(())
   }
 
   func prepare(_ workspaceID: EditingWorkspaceRecord.ID) async {
-    workspaceIDs.append(workspaceID)
-    let startWaiters = startWaiters
-    self.startWaiters.removeAll()
-    startWaiters.forEach { $0.resume(returning: workspaceIDs) }
+    requestedWorkspaceIDs.append(workspaceID)
     guard !isFinished else { return }
-    await withCheckedContinuation { continuation in
-      finishWaiters.append(continuation)
-    }
+    for await _ in finishes { break }
   }
 
-  func waitForPreparationToStart() async -> [EditingWorkspaceRecord.ID] {
-    if !workspaceIDs.isEmpty {
-      return workspaceIDs
-    }
-    return await withCheckedContinuation { continuation in
-      startWaiters.append(continuation)
-    }
+  func workspaceIDs() -> [EditingWorkspaceRecord.ID] {
+    requestedWorkspaceIDs
   }
 }
 private func validationResult(

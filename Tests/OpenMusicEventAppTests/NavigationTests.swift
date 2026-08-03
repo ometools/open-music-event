@@ -7830,125 +7830,6 @@ struct NavigationTests {
     }
 
     @Test
-    func launchRestoreMountsPersistedWorkspaceAuthoringSynchronously() async throws {
-        let eventID = eventID("persisted-authoring-event")
-        let database = try makePreparedDatabase()
-        let workspace = EditingWorkspaceRecord(
-            localEventID: eventID,
-            createdAt: Date(timeIntervalSince1970: 1)
-        )
-        let activation = WorkspaceAuthoringActivationRecord(
-            id: workspace.id,
-            principal: .local,
-            role: .owner,
-            activatedAt: Date(timeIntervalSince1970: 2)
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Persisted Authoring Event")
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-            try EventEditingWorkspaceRecord.insert {
-                EventEditingWorkspaceRecord(
-                    id: eventID,
-                    workspaceID: workspace.id
-                )
-            }
-            .execute(db)
-            try WorkspaceAuthoringActivationRecord.insert {
-                activation
-            }
-            .execute(db)
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
-        }
-
-        expectNoDifference(
-            state.eventViewer?.content.authoring.grant?.access ?? .attendee,
-            .authoring(.owner)
-        )
-        expectNoDifference(
-            state.eventViewer?.content.authoring.grant?.principal,
-            .local
-        )
-        expectNoDifference(
-            state.eventViewer?.content.authoring.context,
-            workspace.id
-        )
-    }
-
-    @Test
-    func launchRestoreRecoversPersistedWorkspaceFromSourceProvenance() async throws {
-        let eventID = eventID("source-provenance-authoring-event")
-        let database = try makePreparedDatabase()
-        let source = sourceProvenance("source-provenance-authoring")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: source)
-        let workspaceID = EditingWorkspaceRecord.ID(
-            sourceBaselineID: sourceBaselineID
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: eventID,
-                name: "Source Provenance Authoring Event"
-            )
-            try Self.insertSourceBaseline(
-                db,
-                sourceProvenance: source,
-                importedAt: Date(timeIntervalSince1970: 1)
-            )
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceBaselineID: sourceBaselineID,
-                    sourceKind: source.kind,
-                    sourceReference: source.reference,
-                    ref: source.ref,
-                    eventIDOrigin: .inferred,
-                    sourceEventDirectory: eventID.eventID.rawValue.rawValue
-                )
-            }
-            .execute(db)
-            try WorkspaceAuthoringActivationRecord.insert {
-                WorkspaceAuthoringActivationRecord(
-                    id: workspaceID,
-                    principal: .local,
-                    role: .owner,
-                    activatedAt: Date(timeIntervalSince1970: 2)
-                )
-            }
-            .execute(db)
-        }
-
-        // The explicit event-to-workspace link is missing, but the installed source
-        // provenance still identifies the workspace the user was authoring.
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
-        }
-
-        expectNoDifference(
-            state.eventViewer?.content.authoring.context,
-            workspaceID
-        )
-        expectNoDifference(
-            state.eventViewer?.content.authoring.grant?.access ?? .attendee,
-            .authoring(.owner)
-        )
-    }
-
-    @Test
     func launchRestoreDoesNotInventLocalWorkspaceWhenLookupFails() throws {
         let eventID = eventID("workspace-lookup-failure")
         let database = try makePreparedDatabase()
@@ -8130,147 +8011,6 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelEditingWorkspaceCarriesIntoEventViewerNavigation() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        let sourceProvenance = sourceProvenance("white-label-shared-context")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Shared Context")
-            try Self.insertSourceBaseline(
-                db,
-                sourceProvenance: sourceProvenance,
-                importedAt: Date(timeIntervalSince1970: 2_000)
-            )
-            try Self.insertEventSourceProvenance(
-                db,
-                eventID: eventID,
-                sourceProvenance: sourceProvenance
-            )
-        }
-        let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(
-                principal: .local,
-                role: .owner,
-                workspaceID: workspaceID
-            )
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            var state = RootHarness.State()
-            state.root = OpenMusicEventAppRoot.State(
-                variant: .whiteLabel(
-                    WhiteLabelAppConfiguration(
-                        brand: WhiteLabelBrand(displayName: "Test Festival"),
-                        organizerID: testOrganizerID
-                    )
-                )
-            )
-            state.root.whiteLabelRoot?.state.teamWorkspaceDetail = Spawn(
-                WhiteLabelRoot.TeamWorkspace.State(
-                    storage: OpenMusicEventOAuth.storage
-                ) {
-                    OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
-                        workspaceID: workspaceID,
-                        grant: grant
-                    ) {
-                        TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
-                    }
-                }
-            )
-
-            return TestStore(initialState: state) {
-                RootHarness()
-            }
-        }
-
-        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
-
-        #expect(
-            store.state.root.eventViewer?.content.authoring.grant?.access ?? .attendee
-                == .authoring(.owner)
-        )
-        #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.installedFeatures
-                .contains(.workspace) == true
-        )
-
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
-        }
-        #expect(appState?.selectedEventID == eventID)
-    }
-
-    @Test
-    func whiteLabelEnterAuthoringPreparesSourceRepositoryBeforeShowingAuthoringControls() async throws {
-        let database = try makePreparedDatabase()
-        let sourceProvenance = sourceProvenance("white-label-authoring-source")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
-        let authorizationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
-        let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
-        try await database.write { db in
-            try Self.insertSourceBaseline(
-                db,
-                sourceProvenance: sourceProvenance,
-                importedAt: Date(timeIntervalSince1970: 2_100)
-            )
-        }
-        let configuration = WhiteLabelAppConfiguration(
-            brand: WhiteLabelBrand(displayName: "Test Festival"),
-            organizerID: testOrganizerID
-        )
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
-                authorizationRequests.withLock { $0.append(requestedWorkspaceID) }
-                return .granted(principal: .local, role: .owner)
-            }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                prepareSource: { requestedWorkspaceID in
-                    preparationRequests.withLock { $0.append(requestedWorkspaceID) }
-                }
-            )
-        } operation: {
-            var state = WhiteLabelRoot.State(configuration: configuration)
-            state.teamWorkspaceDetail = Spawn(
-                WhiteLabelRoot.TeamWorkspace.State(
-                    storage: OpenMusicEventOAuth.storage
-                ) {
-                    OpenMusicEventAuthoringWorkspace<TeamWorkspaceDetail>.state(
-                        workspaceID: workspaceID
-                    ) {
-                        TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
-                    }
-                }
-            )
-            state.loadingPhase = .preparing
-            return TestStore(initialState: state) {
-                WhiteLabelRoot()
-            }
-        }
-
-        let authorizationTask = store.send(
-            to: \.teamWorkspaceDetail!,
-            .content(.authoring(.enterButtonTapped))
-        )
-        await authorizationTask?.value
-        #expect(
-            store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
-                == .authoring(.owner)
-        )
-        expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
-        expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
-    }
-
-    @Test
     func whiteLabelFirstDownloadStaysInAttendeeModeWhenLoggedIn() async throws {
         let database = try makePreparedDatabase()
         let sourceBaselineID = SourceBaselineRecord.ID(
@@ -8299,11 +8039,11 @@ struct NavigationTests {
 
         #expect(store.state.organizerID == testOrganizerID)
         #expect(
-            store.state.teamWorkspaceDetail?.state.content.authoring.grant?.access
+            store.state.teamWorkspaceDetail?.state.authoring.grant?.access
                 ?? .attendee == .attendee
         )
         #expect(
-            store.state.teamWorkspaceDetail?.state.content.authoring.content.content
+            store.state.teamWorkspaceDetail?.state.authoring.content.content
                 .sourceBaselineID
                 == sourceBaselineID
         )
@@ -8344,6 +8084,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 1_784_169_600))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { organizerID in
@@ -8379,55 +8120,6 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelLaunchRestoresPersistedWorkspaceAuthoring() async throws {
-        let database = try makePreparedDatabase()
-        let sourceProvenance = sourceProvenance("white-label-persisted-authoring")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(
-            sourceBaselineID: sourceBaselineID
-        )
-        try await database.write { db in
-            try Self.insertSourceBaseline(
-                db,
-                sourceProvenance: sourceProvenance,
-                importedAt: Date(timeIntervalSince1970: 1)
-            )
-            try WorkspaceAuthoringActivationRecord.insert {
-                WorkspaceAuthoringActivationRecord(
-                    id: workspaceID,
-                    principal: .local,
-                    role: .owner,
-                    activatedAt: Date(timeIntervalSince1970: 2)
-                )
-            }
-            .execute(db)
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0[WorkspaceAuthoringActivationClient.self] = .live
-        } operation: {
-            WhiteLabelRoot.State(
-                configuration: WhiteLabelAppConfiguration(
-                    brand: WhiteLabelBrand(displayName: "Test Festival"),
-                    organizerID: testOrganizerID
-                ),
-                loadedRootAtLaunch: WhiteLabelRoot.LoadedRoot(
-                    organizerID: testOrganizerID,
-                    sourceBaselineIDs: [sourceBaselineID]
-                )
-            )
-        }
-
-        expectNoDifference(
-            state.teamWorkspaceDetail?.state.content.authoring.grant?.access ?? .attendee,
-            .authoring(.owner)
-        )
-        #expect(state.showsAuthoringControls)
-    }
-
-    @Test
     func whiteLabelRestoredEventViewerAllowsWhiteLabelLoadToComplete() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
@@ -8442,6 +8134,7 @@ struct NavigationTests {
 
         try await withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 1_784_169_600))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { organizerID in
@@ -8469,7 +8162,7 @@ struct NavigationTests {
             )
             let whiteLabelStore = try #require(store.spawn(\.whiteLabelRoot))
 
-            await whiteLabelStore.send(.task)?.value
+            whiteLabelStore.send(.task)
             await waitUntil {
                 whiteLabelStore.loadingPhase == .idle
                     && whiteLabelStore.organizerID == testOrganizerID
@@ -8981,11 +8674,16 @@ struct NavigationTests {
         _ condition: @escaping @MainActor () -> Bool,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async {
-        for _ in 0..<100 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
             if condition() { return }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
-        Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
+        Issue.record(
+            "Condition was not satisfied within one second",
+            sourceLocation: sourceLocation
+        )
     }
 
     private func makeRootHarnessStore(

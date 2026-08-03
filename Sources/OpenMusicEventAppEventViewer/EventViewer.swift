@@ -288,6 +288,7 @@ public struct EventViewer {
         }
 
         @SharedReader public var authoringGrant: AuthoringGrant?
+        @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
         @Trigger public var workspaceSourcePrepared
         public let eventID: OMERecord.Event.ID
