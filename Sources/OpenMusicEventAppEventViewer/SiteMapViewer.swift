@@ -119,23 +119,19 @@ struct SwiftUISiteMapZoomView: View {
                 viewportSize: geometry.size
             )
 
-            ZStack {
-                Color.clear
-                ImageAssetAsyncImage(
-                    asset: asset,
-                    cacheContext: .init(eventID: eventID),
-                    contentMode: .fit,
-                    onIntrinsicSizeLoaded: { size in
-                        intrinsicImageSize = size
-                    }
-                ) {
-                    SiteMapPlaceholderView(eventWasLoaded: true)
+            ImageAssetAsyncImage(
+                asset: asset,
+                cacheContext: .init(eventID: eventID),
+                contentMode: .fit,
+                onIntrinsicSizeLoaded: { size in
+                    intrinsicImageSize = size
                 }
-                .frame(width: fittedSize.width, height: fittedSize.height)
-                .scaleEffect(magnification)
-                .offset(offset)
+            ) {
+                SiteMapPlaceholderView(eventWasLoaded: true)
             }
-            .clipped()
+            .frame(width: fittedSize.width, height: fittedSize.height)
+            .scaleEffect(magnification)
+            .offset(offset)
             .gesture(
                 MagnifyGesture()
                     .simultaneously(with: DragGesture())

@@ -163,6 +163,8 @@ struct LocationInfoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             MappedSystemImage(systemName: systemImage)
                 .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
