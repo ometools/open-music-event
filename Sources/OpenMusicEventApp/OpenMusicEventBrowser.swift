@@ -953,7 +953,10 @@ public struct EventBrowseDetail {
                 state.errorMessage = nil
                 state.isEnteringEvent = true
                 store.addTask {
-                    do {
+                    let _: Void? = await store.withErrorHandling(
+                        fallbackMessage: .eventInstallationFailed,
+                        operation: .eventInstallation
+                    ) {
                         let eventID = try await eventInstallation.ensureInstalled(eventURI)
                         try store.modify {
                             $0.isEnteringEvent = false
@@ -962,13 +965,8 @@ public struct EventBrowseDetail {
                             key: NavigationRequested.self,
                             value: .event(eventID, nil)
                         )
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        try store.modify {
-                            $0.errorMessage = "Unable to enter this event."
-                            $0.isEnteringEvent = false
-                        }
+                    } cleanup: {
+                        $0.isEnteringEvent = false
                     }
                 }
 

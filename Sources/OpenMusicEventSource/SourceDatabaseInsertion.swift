@@ -279,21 +279,19 @@ public extension OME {
             resolvedEventIDs: inout Set<OME.Event.ID>
         ) throws {
             let eventIDOrigin: EventIDOrigin
-            let localEventID: OME.ID<OME.Event>
-            if let explicitEventID = sourceEvent.event.id?.eventID {
+            let explicitLocalEventID = sourceEvent.event.id?.eventID
+            if explicitLocalEventID != nil {
                 eventIDOrigin = .explicit
-                localEventID = explicitEventID
             } else {
                 eventIDOrigin = .inferred
-                localEventID = Self.inferredEventID(
-                    eventDirectoryName: eventDirectoryName,
-                    sourceProvenance: sourceProvenance
-                )
             }
-            let eventID = OME.Event.ID(
+            let eventID = Self.resolvedEventID(
                 organizerID: organizerID,
-                eventID: localEventID
+                explicitLocalEventID: explicitLocalEventID,
+                eventDirectoryName: eventDirectoryName,
+                sourceProvenance: sourceProvenance
             )
+            let localEventID = eventID.eventID
             let eventDirectoryURL = sourceRootURL?
                 .appending(path: "events", directoryHint: .isDirectory)
                 .appending(path: eventDirectoryName, directoryHint: .isDirectory)
@@ -1058,6 +1056,21 @@ public extension OME {
 
         private static func localID<Record>(_ string: String) -> OME.ID<Record> {
             OME.ID<Record>(.init(string))
+        }
+
+        public static func resolvedEventID(
+            organizerID: OME.Organizer.ID,
+            explicitLocalEventID: OME.ID<OME.Event>?,
+            eventDirectoryName: String,
+            sourceProvenance: SourceProvenance?
+        ) -> OME.Event.ID {
+            OME.Event.ID(
+                organizerID: organizerID,
+                eventID: explicitLocalEventID ?? inferredEventID(
+                    eventDirectoryName: eventDirectoryName,
+                    sourceProvenance: sourceProvenance
+                )
+            )
         }
 
         public static func inferredEventID(

@@ -79,6 +79,18 @@ public struct OpenMusicEventSourceValidator: Sendable {
     }
 
     public func validate() async throws -> OpenMusicEventSourceValidationResult {
+        try await validate(eventID: nil)
+    }
+
+    public func validate(
+        eventID: OME.Event.ID
+    ) async throws -> OpenMusicEventSourceValidationResult {
+        try await validate(eventID: Optional(eventID))
+    }
+
+    private func validate(
+        eventID requestedEventID: OME.Event.ID?
+    ) async throws -> OpenMusicEventSourceValidationResult {
         let location = try SourceRepositoryLocation(parsing: request.source)
         let organizerID = try await resolvedOrganizerID(for: location)
         let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL(for: location)
@@ -93,8 +105,24 @@ public struct OpenMusicEventSourceValidator: Sendable {
         }
 
         let sourceResult = try OpenMusicEventSourceRepositoryFileTree().read(from: repositoryURL)
-        let source = try sourceResult.output.requiredValue
-        let insertion = try OME.SourceDatabaseInsertion(
+        let downloadedSource = try sourceResult.output.requiredValue
+        let source: OpenMusicEventSourceRepository
+        if let requestedEventID {
+            guard let requestedEvent = downloadedSource.events.first(where: { sourceEvent in
+                OME.SourceDatabaseInsertion.resolvedEventID(
+                    organizerID: organizerID,
+                    explicitLocalEventID: sourceEvent.components.event.id?.eventID,
+                    eventDirectoryName: sourceEvent.directoryName,
+                    sourceProvenance: sourceProvenance
+                ) == requestedEventID
+            }) else {
+                throw OpenMusicEventSourceValidationError.eventNotFound(requestedEventID)
+            }
+            source = OpenMusicEventSourceRepository(events: [requestedEvent])
+        } else {
+            source = downloadedSource
+        }
+        var insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
                 organizerID: organizerID,
@@ -102,6 +130,11 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 sourceRootURL: repositoryURL
             )
         )
+        if requestedEventID != nil {
+            insertion.calendars = []
+            insertion.calendarEntries = []
+            insertion.eventSourceProvenances = []
+        }
 
         return OpenMusicEventSourceValidationResult(
             repositoryURL: repositoryURL,
@@ -216,6 +249,7 @@ private extension OME.SourceDatabaseInsertion.SourceProvenance {
 }
 
 public enum OpenMusicEventSourceValidationError: Equatable, LocalizedError, Sendable {
+    case eventNotFound(OME.Event.ID)
     case invalidOrganizerID(String)
     case invalidResolvedOrganizerID(String)
     case missingOrganizerIDForLocalSource
@@ -223,6 +257,9 @@ public enum OpenMusicEventSourceValidationError: Equatable, LocalizedError, Send
 
     public var errorDescription: String? {
         switch self {
+        case let .eventNotFound(eventID):
+            return "Downloaded source does not contain event: \(eventID)"
+
         case let .invalidOrganizerID(organizerID):
             return "Invalid organizer ID: \(organizerID)"
 

@@ -1,8 +1,10 @@
 import ATProto
 import ComposableArchitecture2
+import ComposableCalendarEvents
 import Dependencies
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import SQLiteData
 
 public struct OMEEventInstallationClient: Sendable {
@@ -18,6 +20,7 @@ public struct OMEEventInstallationClient: Sendable {
 public enum OMEEventInstallationError: Error, Equatable {
     case invalidEventURI(ATProto.URI)
     case eventIsNotInstalled(ATProto.URI)
+    case installationSourceUnavailable(ATProto.URI)
 }
 
 extension OMEEventInstallationClient: DependencyKey {
@@ -30,9 +33,26 @@ extension OMEEventInstallationClient: DependencyKey {
             let isInstalled = try await database.read { db in
                 try OME.Event.find(eventID).fetchOne(db) != nil
             }
-            guard isInstalled else {
-                throw OMEEventInstallationError.eventIsNotInstalled(eventURI)
+            if isInstalled {
+                return eventID
             }
+
+            guard let catalogEvent = try CalendarEventsClient
+                .temporaryOpenMusicEventRecords()
+                .first(where: { record in
+                    record.organizerID == eventID.organizerID.description
+                        && record.eventID == eventID.eventID.rawValue.rawValue
+                }),
+                let installationRequest = catalogEvent.installationRequest(
+                    organizerID: eventID.organizerID
+                )
+            else {
+                throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+            }
+
+            let result = try await OpenMusicEventSourceValidator(installationRequest)
+                .validate(eventID: eventID)
+            try await result.insertion.migrateAndInsert(into: database)
             return eventID
         }
     }

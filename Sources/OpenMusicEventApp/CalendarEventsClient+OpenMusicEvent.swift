@@ -3,6 +3,7 @@ import ComposableCalendarEvents
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import SQLiteData
 
 extension CalendarEventsClient {
@@ -82,6 +83,10 @@ extension CalendarEventsClient {
     }
 
     static func temporaryOpenMusicEvents() throws -> [CalendarEvent] {
+        try temporaryOpenMusicEventRecords().map { try $0.calendarEvent }
+    }
+
+    static func temporaryOpenMusicEventRecords() throws -> [TemporaryOMEBrowseEvent] {
         guard let resourceURL = Bundle.module.url(
             forResource: "TemporaryOMEBrowseCatalog",
             withExtension: "json"
@@ -90,7 +95,6 @@ extension CalendarEventsClient {
         }
         return try JSONDecoder()
             .decode([TemporaryOMEBrowseEvent].self, from: Data(contentsOf: resourceURL))
-            .map { try $0.calendarEvent }
     }
 }
 
@@ -112,6 +116,8 @@ struct TemporaryOMEBrowseEvent: Decodable {
     var organizerID: String
     var organizerAvatarURL: URL?
     var organizerName: String
+    var source: String?
+    var sourceRef: String?
     var startDate: LocalDate
     var status: Status
     var timeZone: String
@@ -149,6 +155,17 @@ struct TemporaryOMEBrowseEvent: Decodable {
                 timeZoneIdentifier: timeZone.identifier
             )
         }
+    }
+
+    func installationRequest(
+        organizerID: OME.Organizer.ID
+    ) -> OpenMusicEventSourceValidationRequest? {
+        guard let source else { return nil }
+        return OpenMusicEventSourceValidationRequest(
+            source: source,
+            organizerID: organizerID,
+            ref: sourceRef ?? "HEAD"
+        )
     }
 
     struct Media: Decodable {

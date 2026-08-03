@@ -4,11 +4,17 @@ import ComposableCalendarEvents
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
+import ErrorHandling
+import FileTree
 import Foundation
+import IssueReporting
 @testable import OpenMusicEventApp
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
+import OpenMusicEventSource
+import OpenMusicEventSourceClone
+import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import SQLiteData
 import Testing
@@ -373,12 +379,79 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `entering an OME event installs it before opening the event viewer`() async throws {
-        let organizerID = try #require(DID("did:plc:organizer"))
+    func `entering Wicked Woods downloads and installs only that event before opening it`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
         let eventID = OME.Event.ID(
             organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "festival")
+            eventID: OME.ID<OME.Event>(rawValue: "wicked-woods-ome-2026")
         )
+        let wickedWoods = try #require(
+            try CalendarEventsClient.temporaryOpenMusicEvents().first {
+                $0.uri == OME.Event.reference(id: eventID).uri
+            }
+        )
+        let downloadUUID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000026")
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .constant(downloadUUID)
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                expectNoDifference(
+                    request.repository.normalizedReference,
+                    "tangled.org/woody.fm/wicked-woods-ome"
+                )
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                try writeWickedWoodsSourceWithTwoEvents(to: request.outputURL)
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            Store(
+                initialState: EnterEventStory.State(event: wickedWoods)
+            ) {
+                EnterEventStory()
+            }
+        }
+
+        // Entering starts from the temporary browse identity and uses the existing viewer route.
+        await store.send(.detail(.enterEventButtonTapped))?.value
+        expectNoDifference(store.lastRequest, .event(eventID, nil))
+        #expect(!store.detail.isEnteringEvent)
+
+        // The downloaded source contained 2025 and 2026, but this installation is event-scoped.
+        let installedEvents = try await database.read { db in
+            try OME.Event.fetchAll(db)
+        }
+        expectNoDifference(installedEvents.map(\.id), [eventID])
+        expectNoDifference(installedEvents.map(\.name), ["Wicked Woods 2026"])
+
+        // Attendee installation does not turn the Tangled source into an authoring workspace.
+        let authoringRecordCounts = try await database.read { db in
+            (
+                sourceBaselines: try SourceBaselineRecord.fetchCount(db),
+                editingWorkspaces: try EditingWorkspaceRecord.fetchCount(db)
+            )
+        }
+        expectNoDifference(authoringRecordCounts.sourceBaselines, 0)
+        expectNoDifference(authoringRecordCounts.editingWorkspaces, 0)
+    }
+
+    @Test @MainActor
+    func `a failed event installation is reported without becoming detail state`() async throws {
+        struct InstallationFailure: Error {}
+
+        let organizerID = try #require(DID("did:plc:organizer"))
         let omeEvent = try event(
             uri: "at://did:plc:organizer/app.openmusicevent.event/festival",
             name: "Summer Festival",
@@ -386,24 +459,26 @@ struct EventBrowseStoryTests {
             startsAt: Date(timeIntervalSince1970: 100),
             collection: OME.Event.nsid
         )
-
-        await withDependencies {
-            $0.omeEventInstallation = OMEEventInstallationClient { eventURI in
-                #expect(eventURI == omeEvent.uri)
-                return eventID
+        let store = withDependencies {
+            $0.context = .test
+            $0.omeEventInstallation = OMEEventInstallationClient { _ in
+                throw InstallationFailure()
             }
         } operation: {
-            let store = Store(
-                initialState: EnterEventStory.State(event: omeEvent)
-            ) {
+            Store(initialState: EnterEventStory.State(event: omeEvent)) {
                 EnterEventStory()
             }
-
-            // Entering installs exactly the selected URI, then uses the existing viewer route.
-            await store.send(.detail(.enterEventButtonTapped))?.value
-            expectNoDifference(store.lastRequest, .event(eventID, nil))
-            #expect(!store.detail.isEnteringEvent)
         }
+
+        await withIssueReporters([]) {
+            await store.send(.detail(.enterEventButtonTapped))?.value
+        }
+
+        #expect(!store.detail.isEnteringEvent)
+        #expect(store.detail.errorMessage == nil)
+        #expect(store.lastError?.message.fallback == "Unable to enter this event.")
+        #expect(store.lastError?.operation.rawValue == "event.install")
+        #expect(store.lastRequest == nil)
     }
 
     func event(
@@ -434,6 +509,7 @@ struct EnterEventStory {
         }
 
         var detail: EventBrowseDetail.State
+        var lastError: HandledError?
         var lastRequest: NavigationRequest?
     }
 
@@ -445,8 +521,57 @@ struct EnterEventStory {
         Scope(\.detail, action: \.detail) {
             EventBrowseDetail()
         }
+        .onEvent(ErrorReported.self) { error, state in
+            state.lastError = error
+        }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request
         }
     }
+}
+
+private func writeWickedWoodsSourceWithTwoEvents(to repositoryURL: URL) throws {
+    let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+    let source = OpenMusicEventSourceRepository(
+        events: [
+            wickedWoodsSourceEvent(
+                directoryName: "2025",
+                name: "Wicked Woods 2025",
+                timeZone: timeZone
+            ),
+            wickedWoodsSourceEvent(
+                directoryName: "2026",
+                name: "Wicked Woods 2026",
+                timeZone: timeZone
+            ),
+        ]
+    )
+    _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
+}
+
+private func wickedWoodsSourceEvent(
+    directoryName: String,
+    name: String,
+    timeZone: TimeZone
+) -> DirectoryContent<OpenMusicEventSourceEvent> {
+    DirectoryContent(
+        directoryName: directoryName,
+        components: OpenMusicEventSourceEvent(
+            event: EventDTO(
+                id: nil,
+                name: name,
+                description: nil,
+                startDate: nil,
+                endDate: nil,
+                status: nil,
+                mode: nil,
+                locations: nil,
+                uris: nil,
+                timeZone: timeZone,
+                images: nil,
+                contactNumbers: nil,
+                categoryConfigs: nil
+            )
+        )
+    )
 }
