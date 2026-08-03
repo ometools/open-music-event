@@ -610,8 +610,7 @@ struct BrowseCalendarEventRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            BrowseEventArtwork(event: event)
-                .frame(width: 60, height: 60)
+            BrowseEventArtwork(event: event, size: 60)
 
             VStack(alignment: .leading, spacing: 4) {
                 if let dateText {
@@ -657,6 +656,7 @@ struct BrowseCalendarEventRow: View {
 
 struct BrowseEventArtwork: View {
     let event: CalendarEvent
+    let size: CGFloat
 
     var body: some View {
         ZStack {
@@ -664,11 +664,13 @@ struct BrowseEventArtwork: View {
                 .fill(.secondary.opacity(0.12))
 
             BrowseEventArtworkSourceChain(
-                sources: event.artworkSources[...]
+                sources: event.artworkSources[...],
+                renderedImageSize: CGSize(width: size, height: size)
             ) {
                 BrowseEventArtworkPlaceholder()
             }
         }
+        .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel(event.name)
     }
@@ -685,6 +687,7 @@ struct BrowseEventArtworkPlaceholder: View {
 
 struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
     let sources: ArraySlice<HeroImageSource>
+    let renderedImageSize: CGSize
     @ViewBuilder var placeholder: () -> Placeholder
 
     @ViewBuilder
@@ -694,7 +697,8 @@ struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
             case .primaryImage:
                 ImageAssetAsyncImage(
                     image: source.image,
-                    contentMode: .fill
+                    contentMode: .fill,
+                    renderedImageSize: renderedImageSize
                 ) { reason in
                     fallback(for: reason)
                 }
@@ -702,7 +706,8 @@ struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
             case .logo:
                 ImageAssetAsyncImage(
                     image: source.image,
-                    contentMode: .fit
+                    contentMode: .fit,
+                    renderedImageSize: renderedImageSize
                 ) { reason in
                     fallback(for: reason)
                 }
@@ -721,6 +726,7 @@ struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
         case .failure, .unavailable:
             BrowseEventArtworkSourceChain(
                 sources: sources.dropFirst(),
+                renderedImageSize: renderedImageSize,
                 placeholder: placeholder
             )
         }
