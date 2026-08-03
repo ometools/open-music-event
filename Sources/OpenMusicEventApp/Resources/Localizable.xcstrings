@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "@%@" : {
+
+    },
     "%lld events" : {
 
     },
@@ -90,6 +93,9 @@
     "Add Event" : {
 
     },
+    "All formats" : {
+
+    },
     "Appearance" : {
       "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
       "localizations" : {
@@ -123,9 +129,6 @@
 
     },
     "Browse" : {
-
-    },
-    "Browse feature stub." : {
 
     },
     "Calendars" : {
@@ -275,6 +278,9 @@
     "Edit Calendar" : {
 
     },
+    "Ends" : {
+
+    },
     "Enter a Tangled repository, not a local source path." : {
 
     },
@@ -290,6 +296,9 @@
     "Enter Authoring" : {
 
     },
+    "Enter Event" : {
+
+    },
     "Error Handling" : {
 
     },
@@ -303,6 +312,9 @@
 
     },
     "Events" : {
+
+    },
+    "Events Unavailable" : {
 
     },
     "Favorite" : {
@@ -335,6 +347,9 @@
       }
     },
     "festival-source" : {
+
+    },
+    "Filter and sort" : {
 
     },
     "Folk Fest" : {
@@ -410,7 +425,13 @@
     "https://tangled.org/owner/repo" : {
 
     },
+    "Hybrid" : {
+
+    },
     "Imported" : {
+
+    },
+    "In person" : {
 
     },
     "Light" : {
@@ -442,7 +463,16 @@
         }
       }
     },
+    "Links" : {
+
+    },
+    "Loading events" : {
+
+    },
     "Loading previous events…" : {
+
+    },
+    "Location" : {
 
     },
     "main" : {
@@ -455,6 +485,9 @@
 
     },
     "Messages, announcements, and alert history are never carried forward." : {
+
+    },
+    "More Events" : {
 
     },
     "My Events" : {
@@ -501,6 +534,9 @@
     "No Events" : {
 
     },
+    "No events match the current browse selection." : {
+
+    },
     "No Previous Events" : {
 
     },
@@ -543,6 +579,9 @@
 
     },
     "Open Shared Workspace" : {
+
+    },
+    "Organizer" : {
 
     },
     "Pine Creek Lodge" : {
@@ -589,6 +628,9 @@
     "Retry" : {
 
     },
+    "RSVP" : {
+
+    },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
       "extractionState" : "stale",
@@ -623,9 +665,6 @@
 
     },
     "Search events or organizers" : {
-
-    },
-    "Search feature stub." : {
 
     },
     "Send Test Error" : {
@@ -672,6 +711,9 @@
     "Site map and theme/branding" : {
 
     },
+    "Soonest first" : {
+
+    },
     "Source import output can only be used with Tangled repositories." : {
 
     },
@@ -688,6 +730,9 @@
 
     },
     "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
+
+    },
+    "Starts" : {
 
     },
     "System" : {
@@ -887,6 +932,9 @@
           }
         }
       }
+    },
+    "Virtual" : {
+
     },
     "Welcome" : {
       "comment" : "Tab bar item title for the Welcome tab",
