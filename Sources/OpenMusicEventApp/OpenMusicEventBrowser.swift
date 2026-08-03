@@ -1056,6 +1056,14 @@ public struct EventBrowseDetailView: View {
             ) {
                 MappedSystemImage(systemName: "music.note")
                     .frame(width: 56, height: 56)
+            } chromeTrailingContent: {
+                if store.event.source.collection == OME.Event.nsid {
+                    Button("Enter Event") {
+                        store.send(.enterEventButtonTapped)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.isEnteringEvent)
+                }
             }
         } content: {
             Section {
@@ -1124,16 +1132,6 @@ public struct EventBrowseDetailView: View {
                     ForEach(Array(store.event.links.enumerated()), id: \.offset) { _, link in
                         Link(link.name ?? link.uri.host() ?? "Event link", destination: link.uri)
                     }
-                }
-            }
-
-            if store.event.source.collection == OME.Event.nsid {
-                Section {
-                    Button("Enter Event") {
-                        store.send(.enterEventButtonTapped)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(store.isEnteringEvent)
                 }
             }
         }

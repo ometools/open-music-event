@@ -22,13 +22,13 @@ extension View {
     }
 }
 
-public struct HeroImage<Placeholder: View, Overlay: View>: View {
+public struct HeroImage<Placeholder: View, ChromeTrailingContent: View>: View {
     let title: Text
     let sources: [HeroImageSource]
     let titleSources: [HeroImageTitleSource]
     let tint: Color
     @ViewBuilder var placeholder: () -> Placeholder
-    @ViewBuilder var overlay: () -> Overlay
+    @ViewBuilder var chromeTrailingContent: () -> ChromeTrailingContent
     @State var bottomChromeHeight: CGFloat = 148
 
     public init(
@@ -37,13 +37,13 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         titleSources: [HeroImageTitleSource],
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder
-    ) where Overlay == EmptyView {
+    ) where ChromeTrailingContent == EmptyView {
         self.title = title
         self.sources = sources
         self.titleSources = titleSources
         self.tint = tint
         self.placeholder = placeholder
-        self.overlay = { EmptyView() }
+        self.chromeTrailingContent = { EmptyView() }
     }
 
     public init(
@@ -52,14 +52,14 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         titleSources: [HeroImageTitleSource],
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder,
-        @ViewBuilder overlay: @escaping () -> Overlay
+        @ViewBuilder chromeTrailingContent: @escaping () -> ChromeTrailingContent
     ) {
         self.title = title
         self.sources = sources
         self.titleSources = titleSources
         self.tint = tint
         self.placeholder = placeholder
-        self.overlay = overlay
+        self.chromeTrailingContent = chromeTrailingContent
     }
 
     public init(
@@ -71,7 +71,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         titleSources: [HeroImageTitleSource],
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder
-    ) where Overlay == EmptyView {
+    ) where ChromeTrailingContent == EmptyView {
         self.init(
             title: title,
             asset: asset,
@@ -81,7 +81,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
             titleSources: titleSources,
             tint: tint,
             placeholder: placeholder,
-            overlay: { EmptyView() }
+            chromeTrailingContent: { EmptyView() }
         )
     }
 
@@ -94,7 +94,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         titleSources: [HeroImageTitleSource],
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder,
-        @ViewBuilder overlay: @escaping () -> Overlay
+        @ViewBuilder chromeTrailingContent: @escaping () -> ChromeTrailingContent
     ) {
         let logoImage = logoAsset.map {
             DisplayImageAsset(asset: $0, cacheContext: logoCacheContext ?? cacheContext)
@@ -109,7 +109,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         self.titleSources = titleSources
         self.tint = tint
         self.placeholder = placeholder
-        self.overlay = overlay
+        self.chromeTrailingContent = chromeTrailingContent
     }
 
     public var body: some View {
@@ -128,7 +128,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
                     title: title,
                     titleSources: titleSources,
                     tint: tint,
-                    overlay: overlay
+                    chromeTrailingContent: chromeTrailingContent
                 )
                 .frame(width: geometry.size.width, alignment: .leading)
                 .background(HeroImageBottomChromeHeightReader())
@@ -473,23 +473,23 @@ struct HeroImageFallback<Content: View>: View {
     }
 }
 
-struct HeroImageBottomChrome<Overlay: View>: View {
+struct HeroImageBottomChrome<ChromeTrailingContent: View>: View {
     let title: Text
     let titleSources: [HeroImageTitleSource]
     let tint: Color
-    @ViewBuilder var overlay: () -> Overlay
+    @ViewBuilder var chromeTrailingContent: () -> ChromeTrailingContent
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            overlay()
+        HStack(alignment: .bottom, spacing: 12) {
+            HeroImageTitleSourceChain(
+                title: title,
+                sources: titleSources[...]
+            )
 
-            HStack {
-                HeroImageTitleSourceChain(
-                    title: title,
-                    sources: titleSources[...]
-                )
-            }
+            Spacer(minLength: 12)
+
+            chromeTrailingContent()
         }
         .padding(.horizontal, 16)
         .padding(.top, 56)
