@@ -830,6 +830,141 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Create OpenMusicEvent local RSVP records") { db in
+                // There is deliberately no event foreign key. A catalog refresh or a later
+                // transactional event installation must not erase the attendee's local choice.
+                try #sql("""
+                    CREATE TABLE "app.openmusicevent.rsvp" (
+                      "eventURI" TEXT NOT NULL,
+                      "consumer" TEXT NOT NULL,
+                      "eventCID" TEXT,
+                      "status" TEXT NOT NULL,
+                      "createdAt" TEXT NOT NULL,
+                      PRIMARY KEY ("eventURI", "consumer") ON CONFLICT REPLACE
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Name OpenMusicEvent record tables after their lexicons") { db in
+                // These are record stores, so their database names are their collection NSIDs.
+                // SQLite updates the existing foreign-key references as each table is renamed.
+                try #sql("PRAGMA legacy_alter_table = OFF").execute(db)
+                try #sql("ALTER TABLE \"organizers\" RENAME TO \"app.openmusicevent.organizer\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"events\" RENAME TO \"app.openmusicevent.event\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"calendars\" RENAME TO \"app.openmusicevent.calendar\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"calendarEntries\" RENAME TO \"app.openmusicevent.calendar.entry\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"eventOrganizers\" RENAME TO \"app.openmusicevent.event.organizer\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"stages\" RENAME TO \"app.openmusicevent.stage\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"schedules\" RENAME TO \"app.openmusicevent.schedule\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"contributors\" RENAME TO \"app.openmusicevent.contributor\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"contributorClaims\" RENAME TO \"app.openmusicevent.contributor.claim\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"channels\" RENAME TO \"app.openmusicevent.channel\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"posters\" RENAME TO \"app.openmusicevent.poster\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"relationships\" RENAME TO \"app.openmusicevent.relationship\"")
+                    .execute(db)
+                try #sql("ALTER TABLE \"relationshipConfirmations\" RENAME TO \"app.openmusicevent.relationship.confirmation\"")
+                    .execute(db)
+
+                // Performance remains a compatibility projection over schedule-item storage.
+                // Recreate only its public record view; its internal join tables keep local names.
+                try #sql("DROP TRIGGER \"performances_insert\"").execute(db)
+                try #sql("DROP TRIGGER \"performances_update\"").execute(db)
+                try #sql("DROP TRIGGER \"performances_delete\"").execute(db)
+                try #sql("DROP VIEW \"performances\"").execute(db)
+
+                try #sql("""
+                    CREATE VIEW "app.openmusicevent.performance" AS
+                    SELECT
+                      "scheduleItems"."organizerID",
+                      "scheduleItems"."eventID",
+                      "scheduleItems"."scheduleItemID" AS "performanceID",
+                      "scheduleItems"."stageID",
+                      "scheduleItems"."scheduleID",
+                      "scheduleItems"."startTime",
+                      "scheduleItems"."endTime",
+                      "scheduleItems"."title",
+                      "scheduleItems"."description",
+                      "scheduleItemPerformanceDetails"."recordings"
+                    FROM "scheduleItems"
+                    JOIN "scheduleItemPerformanceDetails" USING (
+                      "organizerID", "eventID", "scheduleItemID"
+                    )
+                    WHERE "scheduleItems"."kind" = 'performance'
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_insert"
+                    INSTEAD OF INSERT ON "app.openmusicevent.performance"
+                    BEGIN
+                      INSERT OR REPLACE INTO "scheduleItems" (
+                        "organizerID", "eventID", "scheduleItemID", "stageID", "scheduleID",
+                        "kind", "startTime", "endTime", "title", "description"
+                      ) VALUES (
+                        NEW."organizerID", NEW."eventID", NEW."performanceID", NEW."stageID",
+                        NEW."scheduleID", 'performance', NEW."startTime", NEW."endTime",
+                        NEW."title", NEW."description"
+                      );
+
+                      INSERT OR REPLACE INTO "scheduleItemPerformanceDetails" (
+                        "organizerID", "eventID", "scheduleItemID", "recordings"
+                      ) VALUES (
+                        NEW."organizerID", NEW."eventID", NEW."performanceID", NEW."recordings"
+                      );
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_update"
+                    INSTEAD OF UPDATE ON "app.openmusicevent.performance"
+                    BEGIN
+                      UPDATE "scheduleItems"
+                      SET
+                        "stageID" = NEW."stageID",
+                        "scheduleID" = NEW."scheduleID",
+                        "startTime" = NEW."startTime",
+                        "endTime" = NEW."endTime",
+                        "title" = NEW."title",
+                        "description" = NEW."description"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+
+                      UPDATE "scheduleItemPerformanceDetails"
+                      SET "recordings" = NEW."recordings"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_delete"
+                    INSTEAD OF DELETE ON "app.openmusicevent.performance"
+                    BEGIN
+                      DELETE FROM "scheduleItems"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+                    END
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

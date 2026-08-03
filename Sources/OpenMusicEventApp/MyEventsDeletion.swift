@@ -86,7 +86,7 @@ enum MyEventsDeletion {
 
             try db.execute(
                 sql: #"""
-                DELETE FROM "calendarEntries"
+                DELETE FROM "app.openmusicevent.calendar.entry"
                 WHERE json_extract("event", '$.uri') = ?
                 """#,
                 arguments: [OMERecord.Event.reference(id: eventID).uri.description]
@@ -206,7 +206,7 @@ enum MyEventsDeletion {
         for recordURI in recordURIs.uniqued() {
             try db.execute(
                 sql: #"""
-                DELETE FROM "relationships"
+                DELETE FROM "app.openmusicevent.relationship"
                 WHERE json_extract("subject", '$.uri') = ?
                    OR json_extract("object", '$.uri') = ?
                 """#,

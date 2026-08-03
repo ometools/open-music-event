@@ -74,7 +74,7 @@ public enum ChannelEventSearchSource: EventSearchSource {
               'channel announcements updates communications',
               json_object('channel', json_object('_0', "channelID")),
               700
-            FROM "channels"
+            FROM "app.openmusicevent.channel"
             """).execute(db)
     }
 
@@ -234,7 +234,7 @@ public enum ContributorEventSearchSource: EventSearchSource {
               'artist contributor performer lineup',
               json_object('contributor', json_object('_0', "contributorID")),
               850
-            FROM "contributors"
+            FROM "app.openmusicevent.contributor"
             """).execute(db)
     }
 
@@ -610,7 +610,7 @@ public enum PerformanceEventSearchSource: EventSearchSource {
               'performance set show music lineup',
               json_object('performance', json_object('_0', "performanceID")),
               950
-            FROM "performances"
+            FROM "app.openmusicevent.performance"
             """).execute(db)
     }
 }

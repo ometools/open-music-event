@@ -1026,7 +1026,7 @@ fileprivate enum EditPerformanceDrafts {
         let recordURI = OMERecord.Relationship.RecordReference(performanceID: performanceID).uri.description
         try db.execute(
             sql: #"""
-            DELETE FROM "relationships"
+            DELETE FROM "app.openmusicevent.relationship"
             WHERE json_extract("object", '$.uri') = ?
             """#,
             arguments: [recordURI]

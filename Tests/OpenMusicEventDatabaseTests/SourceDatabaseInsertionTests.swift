@@ -2062,18 +2062,18 @@ struct SourceDatabaseInsertionTests {
         // These pairs decode to identical values, but their JSON object keys are ordered differently.
         try baselineDatabase.write { db in
             try db.execute(
-                sql: #"UPDATE events SET locations = '[{"address":"Meadow","coordinates":{"latitude":50,"longitude":-115}}]', contactNumbers = '[{"phoneNumber":"555-0100","title":"Info","description":"Help"}]'"#
+                sql: #"UPDATE "app.openmusicevent.event" SET locations = '[{"address":"Meadow","coordinates":{"latitude":50,"longitude":-115}}]', contactNumbers = '[{"phoneNumber":"555-0100","title":"Info","description":"Help"}]'"#
             )
             try db.execute(
-                sql: #"UPDATE contributors SET links = '[{"url":"https://instagram.com/artist-one","platform":"instagram"}]'"#
+                sql: #"UPDATE "app.openmusicevent.contributor" SET links = '[{"url":"https://instagram.com/artist-one","platform":"instagram"}]'"#
             )
         }
         try await database.write { db in
             try db.execute(
-                sql: #"UPDATE events SET locations = '[{"coordinates":{"longitude":-115,"latitude":50},"address":"Meadow"}]', contactNumbers = '[{"description":"Help","title":"Info","phoneNumber":"555-0100"}]'"#
+                sql: #"UPDATE "app.openmusicevent.event" SET locations = '[{"coordinates":{"longitude":-115,"latitude":50},"address":"Meadow"}]', contactNumbers = '[{"description":"Help","title":"Info","phoneNumber":"555-0100"}]'"#
             )
             try db.execute(
-                sql: #"UPDATE contributors SET links = '[{"platform":"instagram","url":"https://instagram.com/artist-one"}]'"#
+                sql: #"UPDATE "app.openmusicevent.contributor" SET links = '[{"platform":"instagram","url":"https://instagram.com/artist-one"}]'"#
             )
         }
 

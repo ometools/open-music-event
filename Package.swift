@@ -122,6 +122,10 @@ products.append(contentsOf: [
 #endif
 
 var dependencies: [Package.Dependency] = [
+    .package(
+        name: "composable-calendar-events",
+        path: workspacePackagePath("composable-calendar-events")
+    ),
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
@@ -590,6 +594,7 @@ if !isAndroidAppBuild {
 #if os(macOS)
 var openMusicEventAppDependencies: [Target.Dependency] = [
     "BlueskyActorCache",
+    .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
     "ErrorHandling",
     "OpenMusicEventAppEventViewer",
     "OpenMusicEventAuthentication",
@@ -751,11 +756,13 @@ targets.append(contentsOf: [
         name: "OpenMusicEventAppTests",
         dependencies: [
             "BlueskyActorCache",
+            .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             "ErrorHandling",
             "OpenMusicEventApp",
             "OpenMusicEventAuthentication",
             "OpenMusicEventImages",
             "OpenMusicEventLexicon",
+            "OpenMusicEventViewers",
             "OpenMusicEventWhiteLabel",
             "OpenMusicEventSourceEditing",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),

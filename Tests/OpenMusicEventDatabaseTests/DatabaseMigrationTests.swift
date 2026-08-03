@@ -82,16 +82,19 @@ struct DatabaseMigrationTests {
             #expect(!(try db.tableExists("performances")))
             #expect(!(try db.tableExists("performanceContributors")))
 
-            let legacyObjectTypes = try String.fetchAll(
+            let recordProjectionTypes = try String.fetchAll(
                 db,
                 sql: """
                     SELECT "type"
                     FROM "sqlite_schema"
-                    WHERE "name" IN ('performances', 'performanceContributors')
+                    WHERE "name" IN (
+                      'app.openmusicevent.performance',
+                      'performanceContributors'
+                    )
                     ORDER BY "name"
                     """
             )
-            expectNoDifference(legacyObjectTypes, ["view", "view"])
+            expectNoDifference(recordProjectionTypes, ["view", "view"])
 
             let scheduleItem = try String.fetchOne(
                 db,
@@ -158,7 +161,7 @@ struct DatabaseMigrationTests {
 
             // The current app can keep using its shipped performance model while call sites migrate.
             try db.execute(sql: """
-                UPDATE "performances"
+                UPDATE "app.openmusicevent.performance"
                 SET
                   "title" = 'The Example Band - Updated',
                   "recordings" = '[{"url":"https://example.com/encore"}]'
@@ -187,7 +190,7 @@ struct DatabaseMigrationTests {
             )
 
             try db.execute(sql: """
-                DELETE FROM "performances"
+                DELETE FROM "app.openmusicevent.performance"
                 WHERE "organizerID" = 'did:plc:festival'
                   AND "eventID" = 'summer-2026'
                   AND "performanceID" = 'friday-main-1900'
@@ -278,11 +281,11 @@ struct DatabaseMigrationTests {
         try await database.read { db in
             let type = try String.fetchOne(
                 db,
-                sql: #"SELECT "type" FROM pragma_table_info('events') WHERE "name" = 'reportingLink'"#
+                sql: #"SELECT "type" FROM pragma_table_info('app.openmusicevent.event') WHERE "name" = 'reportingLink'"#
             )
             let isNotNull = try Int.fetchOne(
                 db,
-                sql: #"SELECT "notnull" FROM pragma_table_info('events') WHERE "name" = 'reportingLink'"#
+                sql: #"SELECT "notnull" FROM pragma_table_info('app.openmusicevent.event') WHERE "name" = 'reportingLink'"#
             )
 
             #expect(type == "TEXT")
@@ -301,11 +304,11 @@ struct DatabaseMigrationTests {
         try await database.read { db in
             let type = try String.fetchOne(
                 db,
-                sql: #"SELECT "type" FROM pragma_table_info('events') WHERE "name" = 'reportingLinks'"#
+                sql: #"SELECT "type" FROM pragma_table_info('app.openmusicevent.event') WHERE "name" = 'reportingLinks'"#
             )
             let isNotNull = try Int.fetchOne(
                 db,
-                sql: #"SELECT "notnull" FROM pragma_table_info('events') WHERE "name" = 'reportingLinks'"#
+                sql: #"SELECT "notnull" FROM pragma_table_info('app.openmusicevent.event') WHERE "name" = 'reportingLinks'"#
             )
 
             #expect(type == "TEXT")
@@ -491,12 +494,12 @@ struct DatabaseMigrationTests {
         let database = try migratedDatabase()
 
         try await database.write { db in
-            #expect(try db.tableExists("relationships"))
-            #expect(try db.tableExists("relationshipConfirmations"))
+            #expect(try db.tableExists("app.openmusicevent.relationship"))
+            #expect(try db.tableExists("app.openmusicevent.relationship.confirmation"))
 
             let relationshipColumns = try String.fetchAll(
                 db,
-                sql: #"SELECT "name" FROM pragma_table_info('relationships')"#
+                sql: #"SELECT "name" FROM pragma_table_info('app.openmusicevent.relationship')"#
             )
             #expect(relationshipColumns == [
                 "type",
@@ -509,7 +512,7 @@ struct DatabaseMigrationTests {
 
             let confirmationColumns = try String.fetchAll(
                 db,
-                sql: #"SELECT "name" FROM pragma_table_info('relationshipConfirmations')"#
+                sql: #"SELECT "name" FROM pragma_table_info('app.openmusicevent.relationship.confirmation')"#
             )
             #expect(confirmationColumns == [
                 "type",
@@ -1609,6 +1612,64 @@ struct DatabaseMigrationTests {
             #expect(performanceContributorColumns.contains("billing"))
             #expect(performanceContributorColumns.contains("role"))
             #expect(performanceContributorColumns.contains("sortIndex"))
+        }
+    }
+
+    @Test
+    func `existing event records keep their identity when record tables adopt lexicon names`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:festival"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: localID("summer-2026")
+        )
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(
+            database,
+            upTo: "Create OpenMusicEvent local RSVP records"
+        )
+
+        try await database.write { db in
+            try db.execute(
+                sql: #"INSERT INTO "organizers" ("id") VALUES (?)"#,
+                arguments: [organizerID.description]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO "events" (
+                      "organizerID", "eventID", "name", "timeZone"
+                    ) VALUES (?, ?, 'Summer Festival', 'America/Denver')
+                    """,
+                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+            )
+        }
+
+        // A normal app migration moves the records; it does not rebuild their identity.
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            #expect(!(try db.tableExists("events")))
+            #expect(try db.tableExists(OME.Event.nsid.rawValue))
+            #expect(try db.tableExists(OME.Organizer.nsid.rawValue))
+
+            let event = try #require(try OME.Event.find(eventID).fetchOne(db))
+            expectNoDifference(event.id, eventID)
+            expectNoDifference(event.name, "Summer Festival")
+
+            let referencedRecordTables = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT DISTINCT "table"
+                    FROM pragma_foreign_key_list('scheduleItems')
+                    ORDER BY "table"
+                    """
+            )
+            expectNoDifference(
+                referencedRecordTables,
+                [OME.Event.nsid, OME.Schedule.nsid, OME.Stage.nsid].map(\.rawValue)
+            )
         }
     }
 

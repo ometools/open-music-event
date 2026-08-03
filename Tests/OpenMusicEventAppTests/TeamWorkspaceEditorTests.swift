@@ -305,7 +305,7 @@ struct TeamWorkspaceEditorTests {
         try await workingDatabase.write { db in
             try db.execute(
                 sql: """
-                UPDATE "calendars"
+                UPDATE "app.openmusicevent.calendar"
                 SET "name" = ?
                 WHERE "ownerID" = ?
                   AND "calendarID" = ?
@@ -537,7 +537,7 @@ struct TeamWorkspaceEditorTests {
         try await workingDatabase.write { db in
             try db.execute(
                 sql: """
-                UPDATE "calendars"
+                UPDATE "app.openmusicevent.calendar"
                 SET "name" = ?
                 WHERE "ownerID" = ?
                   AND "calendarID" = ?
@@ -704,7 +704,7 @@ struct TeamWorkspaceEditorTests {
         try await workingDatabase.write { db in
             try db.execute(
                 sql: """
-                UPDATE "contributors"
+                UPDATE "app.openmusicevent.contributor"
                 SET "did" = ?
                 WHERE "organizerID" = ?
                   AND "eventID" = ?

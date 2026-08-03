@@ -194,19 +194,19 @@ struct PerformanceReactionTests {
 
         try await database.write { db in
             try db.execute(
-                sql: "INSERT INTO organizers (id) VALUES (?)",
+                sql: #"INSERT INTO "app.openmusicevent.organizer" (id) VALUES (?)"#,
                 arguments: [organizerID.description]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO events (organizerID, eventID, name, timeZone)
+                    INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
                     VALUES (?, ?, 'Sentinel Event', 'America/Denver')
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO schedules (organizerID, eventID, scheduleID, date, customTitle)
+                    INSERT INTO "app.openmusicevent.schedule" (organizerID, eventID, scheduleID, date, customTitle)
                     VALUES (?, ?, 'sentinel-schedule', '2026-07-28', 'Sentinel Schedule')
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
@@ -241,8 +241,8 @@ struct PerformanceReactionTests {
                 try db.tableExists("performanceReactionEmojiUsage"),
                 try db.tableExists("performancePreferences"),
                 scheduleViewerColumns,
-                try String.fetchOne(db, sql: "SELECT name FROM events"),
-                try String.fetchOne(db, sql: "SELECT customTitle FROM schedules"),
+                try String.fetchOne(db, sql: #"SELECT name FROM "app.openmusicevent.event""#),
+                try String.fetchOne(db, sql: #"SELECT customTitle FROM "app.openmusicevent.schedule""#),
                 try Int.fetchOne(db, sql: "SELECT isFavorite FROM contributorPreferences")
             )
         }
@@ -260,10 +260,10 @@ struct PerformanceReactionTests {
     func failedMigrationLeavesInstalledDatabaseIntact() async throws {
         let database = try preparedDatabase()
         try await database.write { db in
-            try db.execute(sql: "INSERT INTO organizers (id) VALUES (?)", arguments: [organizerID.description])
+            try db.execute(sql: #"INSERT INTO "app.openmusicevent.organizer" (id) VALUES (?)"#, arguments: [organizerID.description])
             try db.execute(
                 sql: """
-                    INSERT INTO events (organizerID, eventID, name, timeZone)
+                    INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
                     VALUES (?, ?, 'Before Failure', 'America/Denver')
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
@@ -274,7 +274,7 @@ struct PerformanceReactionTests {
         OMERecord.DatabaseMigrations.register(into: &failingMigrator)
         OpenMusicEventAppDatabaseMigrations.register(into: &failingMigrator)
         failingMigrator.registerMigration("Expected reaction migration failure") { db in
-            try db.execute(sql: "UPDATE events SET name = 'Damaged'")
+            try db.execute(sql: #"UPDATE "app.openmusicevent.event" SET name = 'Damaged'"#)
             try db.execute(sql: "CREATE TABLE shouldRollBack (id INTEGER)")
             throw ExpectedMigrationError()
         }
@@ -285,7 +285,7 @@ struct PerformanceReactionTests {
 
         let installedState = try await database.read { db in
             (
-                try String.fetchOne(db, sql: "SELECT name FROM events"),
+                try String.fetchOne(db, sql: #"SELECT name FROM "app.openmusicevent.event""#),
                 try db.tableExists("shouldRollBack")
             )
         }
@@ -307,7 +307,7 @@ struct PerformanceReactionTests {
             )
             try db.execute(
                 sql: """
-                    INSERT OR REPLACE INTO performances
+                    INSERT OR REPLACE INTO "app.openmusicevent.performance"
                       (organizerID, eventID, performanceID, stageID, scheduleID,
                        startTime, endTime, title, recordings)
                     VALUES (?, ?, ?, 'stage', 'schedule', ?, ?, 'Refreshed', '[]')
@@ -420,31 +420,31 @@ struct PerformanceReactionTests {
         title: String
     ) async throws {
         try await database.write { db in
-            try db.execute(sql: "INSERT INTO organizers (id) VALUES (?)", arguments: [organizerID.description])
+            try db.execute(sql: #"INSERT INTO "app.openmusicevent.organizer" (id) VALUES (?)"#, arguments: [organizerID.description])
             try db.execute(
                 sql: """
-                    INSERT INTO events (organizerID, eventID, name, timeZone)
+                    INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
                     VALUES (?, ?, 'Reaction Event', 'America/Denver')
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO stages (organizerID, eventID, stageID, name, color)
+                    INSERT INTO "app.openmusicevent.stage" (organizerID, eventID, stageID, name, color)
                     VALUES (?, ?, 'stage', 'Stage', 0)
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO schedules (organizerID, eventID, scheduleID, date)
+                    INSERT INTO "app.openmusicevent.schedule" (organizerID, eventID, scheduleID, date)
                     VALUES (?, ?, 'schedule', '2026-07-28')
                     """,
                 arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO performances
+                    INSERT INTO "app.openmusicevent.performance"
                       (organizerID, eventID, performanceID, stageID, scheduleID,
                        startTime, endTime, title, recordings)
                     VALUES (?, ?, ?, 'stage', 'schedule', ?, ?, ?, '[]')

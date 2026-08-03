@@ -2,6 +2,7 @@ import Foundation
 import SkipFuse
 import SwiftUI
 import BlueskyActorCache
+import ComposableCalendarEvents
 import Dependencies
 import SQLiteData
 import ComposableArchitecture2
@@ -59,7 +60,7 @@ extension OME {
         database: any DatabaseWriter
     ) {
         dependencies.defaultDatabase = database
-
+        dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)

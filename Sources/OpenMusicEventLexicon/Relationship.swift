@@ -65,7 +65,7 @@ extension OpenMusicEvent {
 }
 
 extension OpenMusicEvent {
-    @Table("relationships")
+    @Table("app.openmusicevent.relationship")
     public struct Relationship: Codable, Equatable, Sendable {
         public static let collection = RelationshipCollection.relationship
         public static let nsid = collection.nsid
@@ -193,7 +193,7 @@ extension OpenMusicEvent {
         }
     }
 
-    @Table("relationshipConfirmations")
+    @Table("app.openmusicevent.relationship.confirmation")
     public struct RelationshipConfirmation: Codable, Equatable, Sendable {
         public static let collection = RelationshipCollection.confirmation
         public static let nsid = collection.nsid

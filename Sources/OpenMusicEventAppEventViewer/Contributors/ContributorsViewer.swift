@@ -122,7 +122,7 @@ public struct ContributorsViewer {
 
                                 try db.execute(
                                     sql: #"""
-                                    DELETE FROM "relationships"
+                                    DELETE FROM "app.openmusicevent.relationship"
                                     WHERE json_extract("subject", '$.uri') = ?
                                        OR json_extract("object", '$.uri') = ?
                                     """#,

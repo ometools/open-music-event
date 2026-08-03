@@ -554,7 +554,7 @@ extension ContributorListRow {
                     """
                     EXISTS (
                       SELECT 1
-                      FROM "performances"
+                      FROM "app.openmusicevent.performance" AS "performances"
                       JOIN "performanceContributors"
                         ON "performanceContributors"."organizerID" = "performances"."organizerID"
                         AND "performanceContributors"."eventID" = "performances"."eventID"

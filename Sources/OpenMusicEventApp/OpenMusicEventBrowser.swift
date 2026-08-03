@@ -1,4 +1,6 @@
+import ATProto
 import ComposableArchitecture2
+import ComposableCalendarEvents
 import ComposableWorkspace
 import Dependencies
 import ErrorHandling
@@ -39,10 +41,10 @@ public struct OpenMusicEventBrowser {
     public struct State {
         public init() {}
 
-        public var selectedTab: Tab = .myEvents
+        public var selectedTab: Tab = .browse
         public var browse = Spawn(Browse.State())
         public var following = Spawn(Following.State())
-        public var search = Spawn(Search.State())
+        public var search = Spawn(Browse.State())
         public var settings = Spawn(Settings.State())
         public var myEvents = Spawn(MyEvents.State())
     }
@@ -67,7 +69,7 @@ public struct OpenMusicEventBrowser {
             Following()
         }
         .spawn(\.search) {
-            Search()
+            Browse()
         }
         .spawn(\.settings) {
             Settings()
@@ -145,7 +147,9 @@ public struct OpenMusicEventBrowserView: View {
             }
 
             TabFeature(.search, role: .search) {
-                SearchView(store: store.spawn(\.search))
+                NavigationStack {
+                    BrowseView(store: store.spawn(\.search))
+                }
             }
         }
     }
@@ -185,7 +189,9 @@ public struct OpenMusicEventBrowserView: View {
             }
             .tag(OpenMusicEventBrowser.Tab.settings)
 
-            SearchView(store: store.spawn(\.search))
+            NavigationStack {
+                BrowseView(store: store.spawn(\.search))
+            }
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
                 }
@@ -229,7 +235,7 @@ public struct OpenMusicEventBrowserView: View {
             .tag(OpenMusicEventBrowser.Tab.settings)
 
             NavigationStack {
-                SearchView(store: store.spawn(\.search))
+                BrowseView(store: store.spawn(\.search))
             }
             .tabItem {
                 Label("Search", systemImage: "magnifyingglass")
@@ -244,23 +250,136 @@ public struct Browse {
     public init() {}
 
     public struct State {
-        public init() {}
+        public init(
+            catalog: EventCatalog = .openMusicEvent,
+            events: [CalendarEvent] = []
+        ) {
+            self.catalog = catalog
+            self.events = events
+        }
 
-        public var events: [BrowseEventRow] = []
+        public var catalog: EventCatalog
+        public var errorMessage: String?
+        public var eventDetail: EventBrowseDetail.State?
+        public var events: [CalendarEvent]
         public var isLoading = false
+        public var searchText = ""
+        public var selectedDay: CalendarEvent.Day?
+        public var selectedMode: CalendarEvent.Mode?
+        public var sort = Sort.soonest
+
+        public var days: [CalendarEvent.Day] {
+            Array(Set(events.compactMap(\.localStartDay))).sorted()
+        }
+
+        public var visibleEvents: [CalendarEvent] {
+            events
+                .filter { event in
+                    guard let selectedDay else { return true }
+                    return event.localStartDay == selectedDay
+                }
+                .filter { event in
+                    guard let selectedMode else { return true }
+                    return event.mode == selectedMode
+                }
+                .filter { event in
+                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !query.isEmpty else { return true }
+                    return event.name.localizedCaseInsensitiveContains(query)
+                        || event.organizer.name.localizedCaseInsensitiveContains(query)
+                        || (event.description?.localizedCaseInsensitiveContains(query) ?? false)
+                }
+                .sorted { lhs, rhs in
+                    switch sort {
+                    case .name:
+                        lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                    case .soonest:
+                        switch (lhs.startsAt, rhs.startsAt) {
+                        case let (.some(lhsDate), .some(rhsDate)):
+                            lhsDate == rhsDate
+                                ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                                : lhsDate < rhsDate
+                        case (.some, .none):
+                            true
+                        case (.none, .some):
+                            false
+                        case (.none, .none):
+                            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                        }
+                    }
+                }
+        }
     }
 
     public enum Action {
-        case browseResponse([BrowseEventRow])
+        case catalogSelected(EventCatalog)
+        case browseEventButtonTapped(ATProto.URI)
+        case daySelected(CalendarEvent.Day?)
         case didPullToRefresh
         case eventButtonTapped(OMERecord.Event.ID)
+        case eventDetail(EventBrowseDetail.Action)
+        case modeSelected(CalendarEvent.Mode?)
+        case searchTextChanged(String)
+        case sortSelected(Sort)
         case task
     }
 
+    public enum Sort: Equatable, Sendable {
+        case name
+        case soonest
+    }
+
+    @Dependency(\.calendarEvents) var calendarEvents
+
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
-            case .eventButtonTapped(let eventID):
+            case let .catalogSelected(catalog):
+                guard state.catalog != catalog else { return }
+                state.catalog = catalog
+                state.events = []
+                state.selectedDay = nil
+                state.selectedMode = nil
+                fallthrough
+
+            case .didPullToRefresh, .task:
+                let catalog = state.catalog
+                state.errorMessage = nil
+                state.isLoading = true
+                store.addTask {
+                    do {
+                        let page = try await calendarEvents.browse(
+                            CalendarEvent.PageRequest(collection: catalog.collection)
+                        )
+                        try store.modify {
+                            guard $0.catalog == catalog else { return }
+                            $0.events = page.events
+                            $0.isLoading = false
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        try store.modify {
+                            guard $0.catalog == catalog else { return }
+                            $0.errorMessage = "Unable to load \(catalog.title.lowercased())."
+                            $0.isLoading = false
+                        }
+                    }
+                }
+
+            case let .browseEventButtonTapped(uri):
+                guard let event = state.events.first(where: { $0.uri == uri }) else { return }
+                state.eventDetail = EventBrowseDetail.State(
+                    event: event,
+                    organizerEvents: state.events.filter {
+                        $0.organizer.id == event.organizer.id && $0.uri != event.uri
+                    }
+                )
+
+            case let .daySelected(day):
+                state.selectedDay = day
+
+            case let .eventButtonTapped(eventID):
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
@@ -268,15 +387,52 @@ public struct Browse {
                     )
                 }
 
-            case .browseResponse, .didPullToRefresh, .task:
-                break
+            case .eventDetail:
+                return
+
+            case let .modeSelected(mode):
+                state.selectedMode = mode
+
+            case let .searchTextChanged(searchText):
+                state.searchText = searchText
+
+            case let .sortSelected(sort):
+                state.sort = sort
             }
+        }
+        .ifLet(\.eventDetail, action: \.eventDetail) {
+            EventBrowseDetail()
+        }
+    }
+}
+
+public enum EventCatalog: String, CaseIterable, Equatable, Identifiable, Sendable {
+    case openMusicEvent
+    case communityCalendar
+
+    public var id: Self { self }
+
+    public var collection: ATProto.NSID {
+        switch self {
+        case .openMusicEvent:
+            OME.Event.nsid
+        case .communityCalendar:
+            "community.lexicon.calendar.event"
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .openMusicEvent:
+            "Open Music Events"
+        case .communityCalendar:
+            "Calendar Events"
         }
     }
 }
 
 public struct BrowseView: View {
-    let store: StoreOf<Browse>
+    @Bindable var store: StoreOf<Browse>
 
     public init(store: StoreOf<Browse>) {
         self.store = store
@@ -284,13 +440,446 @@ public struct BrowseView: View {
 
     public var body: some View {
         List {
-            EmptyBrowserState(
-                title: "Browse",
-                systemImage: "sparkles",
-                message: "Browse feature stub."
-            )
+            if !store.days.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        BrowseDayButton(
+                            title: "All",
+                            isSelected: store.selectedDay == nil
+                        ) {
+                            store.send(.daySelected(nil))
+                        }
+                        ForEach(store.days) { day in
+                            BrowseDayButton(
+                                title: "\(day.month)/\(day.day)",
+                                isSelected: store.selectedDay == day
+                            ) {
+                                store.send(.daySelected(day))
+                            }
+                        }
+                    }
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+
+            if let errorMessage = store.errorMessage {
+                ContentUnavailableView(
+                    "Events Unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage)
+                )
+            } else if store.isLoading && store.events.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView("Loading events")
+                    Spacer()
+                }
+            } else if store.visibleEvents.isEmpty {
+                EmptyBrowserState(
+                    title: "No Events",
+                    systemImage: "calendar",
+                    message: "No events match the current browse selection."
+                )
+            } else {
+                ForEach(store.visibleEvents) { event in
+                    Button {
+                        store.send(.browseEventButtonTapped(event.uri))
+                    } label: {
+                        BrowseCalendarEventRow(event: event)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .navigationTitle("Browse")
+        .navigationDestination(
+            item: $store.scope(\.eventDetail, action: \.eventDetail)
+        ) { detailStore in
+            EventBrowseDetailView(store: detailStore)
+        }
+        .searchable(
+            text: Binding(
+                get: { store.searchText },
+                set: { store.send(.searchTextChanged($0)) }
+            ),
+            prompt: "Search events or organizers"
+        )
+        .refreshable {
+            await store.send(.didPullToRefresh)?.value
+        }
+        .task {
+            await store.send(.task)?.value
+        }
+        .toolbar {
+            ToolbarItemGroup {
+                Menu {
+                    ForEach(EventCatalog.allCases) { catalog in
+                        Button {
+                            store.send(.catalogSelected(catalog))
+                        } label: {
+                            if store.catalog == catalog {
+                                Label(catalog.title, systemImage: "checkmark")
+                            } else {
+                                Text(catalog.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(store.catalog.title, systemImage: "calendar")
+                }
+
+                Menu {
+                    Button("All formats") { store.send(.modeSelected(nil)) }
+                    Button("In person") { store.send(.modeSelected(.inPerson)) }
+                    Button("Virtual") { store.send(.modeSelected(.virtual)) }
+                    Button("Hybrid") { store.send(.modeSelected(.hybrid)) }
+                    Divider()
+                    Button("Soonest first") { store.send(.sortSelected(.soonest)) }
+                    Button("Name") { store.send(.sortSelected(.name)) }
+                } label: {
+                    Label("Filter and sort", systemImage: "line.3.horizontal.decrease.circle")
+                }
+            }
+        }
+    }
+}
+
+struct BrowseDayButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .background {
+                    Capsule()
+                        .fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct BrowseCalendarEventRow: View {
+    let event: CalendarEvent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(event.name)
+                .font(.headline)
+            Text(event.organizer.name)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if let startsAt = event.startsAt {
+                Text(
+                    startsAt.formatted(
+                        date: .abbreviated,
+                        time: .shortened
+                    )
+                )
+                .font(.subheadline)
+            }
+            if let location = event.locations.first?.summary {
+                Label(location, systemImage: "mappin")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+}
+
+@Feature
+public struct EventBrowseDetail {
+    public init() {}
+
+    public struct State: Identifiable {
+        public init(event: CalendarEvent, organizerEvents: [CalendarEvent] = []) {
+            self.event = event
+            self.organizerEvents = organizerEvents
+        }
+
+        public var errorMessage: String?
+        public var event: CalendarEvent
+        public var isEnteringEvent = false
+        public var isSavingRSVP = false
+        public var organizerDetail: CalendarEvent.Organizer?
+        public var organizerEvents: [CalendarEvent]
+        public var rsvpStatus: OME.RSVP.Status?
+
+        public var id: ATProto.URI { event.uri }
+    }
+
+    public enum Action {
+        case enterEventButtonTapped
+        case organizerButtonTapped
+        case rsvpButtonTapped(OME.RSVP.Status)
+        case task
+    }
+
+    @Dependency(\.date.now) var now
+    @Dependency(\.calendarEvents) var calendarEvents
+    @Dependency(\.defaultDatabase) var database
+    @Dependency(\.getSelectedOAuthSessionID) var selectedAccountID
+    @Dependency(\.omeEventInstallation) var eventInstallation
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .enterEventButtonTapped:
+                let eventURI = state.event.uri
+                state.errorMessage = nil
+                state.isEnteringEvent = true
+                store.addTask {
+                    do {
+                        let eventID = try await eventInstallation.ensureInstalled(eventURI)
+                        try store.modify {
+                            $0.isEnteringEvent = false
+                        }
+                        try store.post(
+                            key: NavigationRequested.self,
+                            value: .event(eventID, nil)
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to enter this event."
+                            $0.isEnteringEvent = false
+                        }
+                    }
+                }
+
+            case .organizerButtonTapped:
+                state.organizerDetail = state.event.organizer
+
+            case let .rsvpButtonTapped(status):
+                let event = state.event
+                let consumer = EventRSVP.Consumer(
+                    accountDID: selectedAccountID()?.rawValue
+                )
+                state.errorMessage = nil
+                state.isSavingRSVP = true
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            try EventRSVP.save(
+                                eventURI: event.uri,
+                                eventCID: event.cid,
+                                consumer: consumer,
+                                status: status,
+                                createdAt: now,
+                                in: db
+                            )
+                        }
+                        try store.modify {
+                            $0.isSavingRSVP = false
+                            $0.rsvpStatus = status
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to save your RSVP."
+                            $0.isSavingRSVP = false
+                        }
+                    }
+                }
+
+            case .task:
+                let eventURI = state.event.uri
+                let consumer = EventRSVP.Consumer(
+                    accountDID: selectedAccountID()?.rawValue
+                )
+                store.addTask {
+                    do {
+                        let event = try await calendarEvents.event(eventURI)
+                        let record = try await database.read { db in
+                            try EventRSVP.forEvent(eventURI, consumer: consumer).fetchOne(db)
+                        }
+                        try store.modify {
+                            $0.event = event
+                            $0.rsvpStatus = record?.status
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to load all event details."
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+public struct EventBrowseDetailView: View {
+    @Bindable var store: StoreOf<EventBrowseDetail>
+
+    public init(store: StoreOf<EventBrowseDetail>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        List {
+            if let media = store.event.media.first {
+                AsyncImage(url: media.url) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } placeholder: {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                }
+                .accessibilityLabel(media.alt ?? store.event.name)
+            }
+
+            Section {
+                Button {
+                    store.send(.organizerButtonTapped)
+                } label: {
+                    LabeledContent("Organizer", value: store.event.organizer.name)
+                }
+
+                if let startsAt = store.event.startsAt {
+                    LabeledContent(
+                        "Starts",
+                        value: startsAt.formatted(date: .long, time: .shortened)
+                    )
+                }
+                if let endsAt = store.event.endsAt {
+                    LabeledContent(
+                        "Ends",
+                        value: endsAt.formatted(date: .long, time: .shortened)
+                    )
+                }
+                if let location = store.event.locations.first?.summary {
+                    LabeledContent("Location", value: location)
+                }
+            }
+
+            if let description = store.event.description, !description.isEmpty {
+                Section("About") {
+                    Text(description)
+                }
+            }
+
+            Section("RSVP") {
+                RSVPStatusButton(
+                    title: "Going",
+                    status: .going,
+                    selectedStatus: store.rsvpStatus,
+                    disabled: store.isSavingRSVP
+                ) {
+                    store.send(.rsvpButtonTapped(.going))
+                }
+                RSVPStatusButton(
+                    title: "Interested",
+                    status: .interested,
+                    selectedStatus: store.rsvpStatus,
+                    disabled: store.isSavingRSVP
+                ) {
+                    store.send(.rsvpButtonTapped(.interested))
+                }
+                RSVPStatusButton(
+                    title: "Not Going",
+                    status: .notGoing,
+                    selectedStatus: store.rsvpStatus,
+                    disabled: store.isSavingRSVP
+                ) {
+                    store.send(.rsvpButtonTapped(.notGoing))
+                }
+                if let errorMessage = store.errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            if !store.event.links.isEmpty {
+                Section("Links") {
+                    ForEach(Array(store.event.links.enumerated()), id: \.offset) { _, link in
+                        Link(link.name ?? link.uri.host() ?? "Event link", destination: link.uri)
+                    }
+                }
+            }
+
+            if store.event.source.collection == OME.Event.nsid {
+                Section {
+                    Button("Enter Event") {
+                        store.send(.enterEventButtonTapped)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.isEnteringEvent)
+                }
+            }
+        }
+        .navigationTitle(store.event.name)
+        .navigationDestination(item: $store.organizerDetail) { organizer in
+            BrowseOrganizerDetailView(
+                organizer: organizer,
+                events: store.organizerEvents
+            )
+        }
+        .task {
+            await store.send(.task)?.value
+        }
+    }
+}
+
+struct RSVPStatusButton: View {
+    let title: String
+    let status: OME.RSVP.Status
+    let selectedStatus: OME.RSVP.Status?
+    let disabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if selectedStatus == status {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+        .disabled(disabled)
+    }
+}
+
+struct BrowseOrganizerDetailView: View {
+    let organizer: CalendarEvent.Organizer
+    let events: [CalendarEvent]
+
+    var body: some View {
+        List {
+            Section {
+                Text(organizer.name)
+                    .font(.title2.weight(.semibold))
+                if let handle = organizer.handle {
+                    Text("@\(handle)")
+                        .foregroundStyle(.secondary)
+                }
+                if let description = organizer.description, !description.isEmpty {
+                    Text(description)
+                }
+            }
+
+            if !events.isEmpty {
+                Section("More Events") {
+                    ForEach(events) { event in
+                        BrowseCalendarEventRow(event: event)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Organizer")
     }
 }
 
@@ -1579,113 +2168,6 @@ private extension OMERecord.Event {
     var sortDate: LocalDate? {
         startDate ?? endDate
     }
-}
-
-@Feature
-public struct Search {
-    public init() {}
-
-    public struct State {
-        public init() {}
-
-        public var isSearching = false
-        public var query = ""
-        public var results: [BrowseEventRow] = []
-    }
-
-    public enum Action {
-        case didPullToRefresh
-        case eventButtonTapped(OMERecord.Event.ID)
-        case queryEdited(String)
-        case searchResponse([BrowseEventRow])
-        case task
-    }
-
-    public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .eventButtonTapped(let eventID):
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
-
-            case .queryEdited(let query):
-                state.query = query
-
-            case .didPullToRefresh,
-                 .searchResponse,
-                 .task:
-                break
-            }
-        }
-    }
-}
-
-public struct SearchView: View {
-    @Bindable var store: StoreOf<Search>
-
-    public init(store: StoreOf<Search>) {
-        self.store = store
-    }
-
-    public var body: some View {
-        content
-    }
-
-    private var content: some View {
-        NavigationStack {
-            List {
-                EmptyBrowserState(
-                    title: "Search",
-                    systemImage: "magnifyingglass",
-                    message: "Search feature stub."
-                )
-            }
-            .navigationTitle("Search")
-        }
-        .searchable(
-            text: $store.query,
-            prompt: "Search events or organizers"
-        )
-    }
-
-    @ViewBuilder
-    private var searchField: some View {
-        #if os(iOS)
-        TextField("Search events or organizers", text: $store.query)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        #else
-        TextField("Search events or organizers", text: $store.query)
-        #endif
-    }
-}
-
-public struct BrowseEventRow: Equatable, Identifiable, Sendable {
-    public let eventID: OMERecord.Event.ID
-    public let eventName: String
-    public let startsAt: Date?
-    public let endsAt: Date?
-    public let organizerIDs: [OMERecord.Organizer.ID]
-
-    public init(
-        eventID: OMERecord.Event.ID,
-        eventName: String,
-        startsAt: Date?,
-        endsAt: Date?,
-        organizerIDs: [OMERecord.Organizer.ID]
-    ) {
-        self.eventID = eventID
-        self.eventName = eventName
-        self.startsAt = startsAt
-        self.endsAt = endsAt
-        self.organizerIDs = organizerIDs
-    }
-
-    public var id: OMERecord.Event.ID { eventID }
 }
 
 public struct FollowedOrganizerRow: Equatable, Identifiable, Sendable {
