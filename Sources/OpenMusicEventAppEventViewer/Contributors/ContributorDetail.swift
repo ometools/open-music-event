@@ -16,6 +16,7 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
+import Sharing
 import SQLiteData
 import Tagged
 #if os(Android)
@@ -46,7 +47,7 @@ public struct ContributorDetail {
 
             self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(self.eventID) }
             )
@@ -73,7 +74,8 @@ public struct ContributorDetail {
 
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
-        @DebugSnapshotIgnored public var timeZone: TimeZone
+        @DebugSnapshotIgnored
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: timeZone)
         }

@@ -3297,7 +3297,7 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             ScheduleViewer.State(eventID: eventID)
         }
@@ -3343,7 +3343,7 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = selectedEventID
-            $0.defaultEventTimeZone = eventTimeZone
+            $0.defaultEventTimeZone = SharedReader(value: eventTimeZone)
         } operation: {
             ScheduleViewer.State(eventID: selectedEventID)
         }
@@ -3407,6 +3407,71 @@ struct NavigationTests {
             ),
             "6:00 pm (MDT)"
         )
+    }
+
+    @Test
+    func eventTimeZoneRefreshUpdatesEveryMountedScheduleSurface() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-time-zone-refresh")
+        let contributorID = contributorLocalID("artist")
+        let performanceID = performanceLocalID("evening-set")
+        let denver = try #require(TimeZone(identifier: "America/Denver"))
+        let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(
+                db,
+                id: selectedEventID,
+                name: "Event Time Zone Refresh",
+                timeZone: denver
+            )
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = selectedEventID
+        } operation: {
+            var state = EventViewer.State(
+                eventID: selectedEventID,
+                authoringGrant: SharedReader(value: nil),
+                features: [.schedule(.schedule), .contributors]
+            )
+
+            // The attendee opens a performance and contributor while the event uses Denver time.
+            state.navigate(to: .performance(performanceID))
+            let performanceDetail = try #require(
+                state.scheduleViewers.first?.state.destination?.performanceDetail
+            )
+            state.navigate(to: .contributor(contributorID))
+            let contributorDetail = try #require(
+                state.contributorsViewer?.state.destination?.contributorDetail
+            )
+
+            // A source refresh changes the event's canonical time zone while those features remain mounted.
+            try await database.write { db in
+                try OMERecord.Event
+                    .find(selectedEventID)
+                    .update { $0.timeZone = losAngeles }
+                    .execute(db)
+            }
+            state.reloadAfterSourceDataRefresh()
+
+            // Every attendee-facing renderer follows the refreshed event record together.
+            expectNoDifference(
+                [
+                    state.scheduleViewers.first?.state.timeZone.identifier,
+                    performanceDetail.state.timeZone.identifier,
+                    contributorDetail.state.timeZone.identifier,
+                ],
+                [
+                    losAngeles.identifier,
+                    losAngeles.identifier,
+                    losAngeles.identifier,
+                ]
+            )
+        }
     }
 
     @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
@@ -4413,7 +4478,7 @@ struct NavigationTests {
             $0.date = .constant(now)
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             EventViewer.State(eventID: eventID)
         }
@@ -4424,7 +4489,7 @@ struct NavigationTests {
             $0.date = .constant(now)
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             state.handleEditingIntent(.addSchedule(eventID))
         }
@@ -5412,7 +5477,7 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             PerformanceDetail.State(
                 performanceID: performanceLocalID("stylust-set"),
@@ -5434,7 +5499,7 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
                 initialState: PerformanceDetail.State(
@@ -5488,7 +5553,7 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
                 initialState: ContributorDetail.State(

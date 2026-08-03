@@ -4,6 +4,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import ScheduleComponents
+import Sharing
 import SQLiteData
 import Testing
 import XRPCClient
@@ -397,7 +398,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             EventViewer.State(eventID: eventID)
         }
@@ -406,7 +407,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             state.handleEditingIntent(
                 .addPerformance(
@@ -1440,7 +1441,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = fixture.eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             EventViewer.State(eventID: fixture.eventID)
         }
@@ -1450,7 +1451,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = fixture.eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             state.handleEditingIntent(
                 .editPerformance(
@@ -1486,7 +1487,7 @@ struct ScheduleAuthoringTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
                 initialState: PerformanceDetail.State(
@@ -1528,7 +1529,7 @@ struct ScheduleAuthoringTests {
         await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             let store = Store(initialState: ScheduleViewer.State(eventID: fixture.eventID)) {
                 ScheduleViewer()
@@ -1656,7 +1657,7 @@ struct ScheduleAuthoringTests {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
@@ -1675,7 +1676,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             EventViewer.State(eventID: eventID)
         }
@@ -1684,7 +1685,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = timeZone
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             state.handleEditingIntent(
                 .addPerformance(

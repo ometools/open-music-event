@@ -835,7 +835,7 @@ public struct StageDetail {
 
         public var destination: Destination.State?
         @DebugSnapshotIgnored
-        public var timeZone: TimeZone
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: timeZone)
         }
@@ -855,7 +855,7 @@ public struct StageDetail {
 
             self.stageID = stageID
             self.eventID = eventID ?? defaultEventID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             eventViewerState = EventViewerState(id: self.eventID)
             _persistedEventViewerState = FetchOne(
                 wrappedValue: nil,

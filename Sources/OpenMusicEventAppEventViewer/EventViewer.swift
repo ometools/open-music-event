@@ -33,11 +33,13 @@ private enum DefaultEventIDKey: DependencyKey {
 }
 
 private enum DefaultEventTimeZoneKey: DependencyKey {
-    static var liveValue: TimeZone {
-        .current
+    static var liveValue: SharedReader<TimeZone> {
+        SharedReader(value: .current)
     }
 
-    static let testValue = TimeZone(secondsFromGMT: 0)!
+    static var testValue: SharedReader<TimeZone> {
+        SharedReader(value: TimeZone(secondsFromGMT: 0)!)
+    }
 }
 
 extension DependencyValues {
@@ -46,7 +48,7 @@ extension DependencyValues {
         set { self[DefaultEventIDKey.self] = newValue }
     }
 
-    var defaultEventTimeZone: TimeZone {
+    var defaultEventTimeZone: SharedReader<TimeZone> {
         get { self[DefaultEventTimeZoneKey.self] }
         set { self[DefaultEventTimeZoneKey.self] = newValue }
     }
@@ -126,11 +128,11 @@ public struct EventViewer {
             pendingAuthoringEntry: EditorEntry? = nil,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
-            let eventTimeZone = Self.eventTimeZone(eventID: eventID)
-
             self._authoringGrant = authoringGrant
             self.eventID = eventID
-            self.eventTimeZone = eventTimeZone
+            self._event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) }
+            )
             self.eventViewerState = EventViewerState(id: eventID)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
@@ -256,7 +258,6 @@ public struct EventViewer {
 
         mutating func reloadAfterSourceDataRefresh() {
             let selectedFeature = self.selectedFeature
-            self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {
                 EventFeature.features(
                     eventID: eventID,
@@ -296,7 +297,7 @@ public struct EventViewer {
 
         @SharedReader public var authoringGrant: AuthoringGrant?
         public let eventID: OMERecord.Event.ID
-        public var eventTimeZone: TimeZone
+        @FetchOne public var event: OMERecord.Event?
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchAll public var stages: [OMERecord.Stage]
@@ -323,6 +324,14 @@ public struct EventViewer {
         public var pendingScheduleLaunchAction: ScheduleLaunchAction?
 
         public var id: OMERecord.Event.ID { eventID }
+
+        public var eventTimeZone: TimeZone {
+            event?.timeZone ?? .current
+        }
+
+        var eventTimeZoneReader: SharedReader<TimeZone> {
+            $event.sharedReader.read { $0?.timeZone ?? .current }
+        }
 
         public var authoringAccess: AuthoringAccess {
             authoringGrant?.access ?? .attendee
@@ -722,25 +731,13 @@ public struct EventViewer {
 
         private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
             let eventID = self.eventID
-            let eventTimeZone = self.eventTimeZone
+            let eventTimeZone = self.eventTimeZoneReader
             return withDependencies {
                 $0.defaultEventID = eventID
                 $0.defaultEventTimeZone = eventTimeZone
             } operation: {
                 operation()
             }
-        }
-
-        private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
-            @Dependency(\.defaultDatabase) var database
-            return (
-                try? database.read { db in
-                    try OMERecord.Event
-                        .where { $0.id.eq(eventID) }
-                        .fetchOne(db)?
-                        .timeZone
-                }
-            ) ?? .current
         }
 
         private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
@@ -940,10 +937,10 @@ public struct EventViewer {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
                 .dependency(\.defaultEventID, store.eventID)
-                .dependency(\.defaultEventTimeZone, store.eventTimeZone)
+                .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
         }
         .dependency(\.defaultEventID, store.eventID)
-        .dependency(\.defaultEventTimeZone, store.eventTimeZone)
+        .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
     }
 }
 

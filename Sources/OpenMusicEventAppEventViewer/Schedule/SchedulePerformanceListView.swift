@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import ScheduleComponents
+import Sharing
 import SQLiteData
 import SwiftUI
 
@@ -17,7 +18,7 @@ public struct SchedulePerformanceList {
             @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.eventID = eventID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             self.scheduleDivision = scheduleDivision
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
@@ -32,7 +33,7 @@ public struct SchedulePerformanceList {
 
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
-        public var timeZone: TimeZone
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: timeZone)
         }

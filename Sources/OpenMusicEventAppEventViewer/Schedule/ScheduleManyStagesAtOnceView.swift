@@ -18,7 +18,7 @@ public struct ScheduleManyStagesAtOnce {
             @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.eventID = eventID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             self.scheduleDivision = scheduleDivision
             self.scheduleViewerState = ScheduleViewerState(
                 eventID: eventID,
@@ -41,7 +41,7 @@ public struct ScheduleManyStagesAtOnce {
 
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
-        public var timeZone: TimeZone
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: timeZone)
         }

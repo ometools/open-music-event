@@ -4,6 +4,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import ScheduleComponents
+import Sharing
 import SQLiteData
 import SwiftUITabFeatures
 #if os(Android)
@@ -30,7 +31,7 @@ public struct EventSearch {
             @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.eventID = eventID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
             _contributors = FetchAll(
@@ -52,7 +53,7 @@ public struct EventSearch {
 
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
-        public var timeZone: TimeZone
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: event?.timeZone ?? timeZone)
         }

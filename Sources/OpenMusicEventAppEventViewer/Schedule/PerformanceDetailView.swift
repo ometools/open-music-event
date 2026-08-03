@@ -27,7 +27,7 @@ public struct PerformanceDetail {
 
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
-            self.timeZone = defaultEventTimeZone
+            self._timeZone = defaultEventTimeZone
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
                 EventViewerState.none
@@ -79,7 +79,7 @@ public struct PerformanceDetail {
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
         @DebugSnapshotIgnored
-        public let timeZone: TimeZone
+        @SharedReader public var timeZone: TimeZone
         var eventTimePresentation: EventTimePresentation {
             EventTimePresentation(timeZone: timeZone)
         }
