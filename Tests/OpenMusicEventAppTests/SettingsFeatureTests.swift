@@ -1,20 +1,26 @@
+import ATProto
+import BlueskyActorCache
 import Clocks
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import ErrorHandling
 import Foundation
+import HTTPClient
+import HTTPTypes
 import IssueReporting
 import Lexicon
 import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
 import SQLiteData
+import Synchronization
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
 #endif
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -511,6 +517,459 @@ struct SettingsFeatureTests {
             event.policies,
             contributorPolicies(profile: expectedProfile)
         )
+    }
+}
+
+@MainActor
+@Suite("About OpenMusicEvent", .tcaExhaustivity(.off))
+struct AboutOpenMusicEventTests {
+    @Test
+    func loadsContributorsOnMountWithoutAResultAction() async throws {
+        let contribution = try contribution()
+        let store = withDependencies {
+            $0.appContributors = AppContributorsClient {
+                [contribution]
+            }
+        } operation: {
+            TestStore(initialState: AboutOpenMusicEvent.State()) {
+                AboutOpenMusicEvent()
+            }
+        }
+
+        await waitUntil {
+            store.state.contributors == .loaded([contribution])
+        }
+
+        expectNoDifference(store.state.contributors, .loaded([contribution]))
+    }
+
+    @Test
+    func failedContributorLoadCanBeRetried() async throws {
+        let contribution = try contribution()
+        let loader = ScriptedAppContributorsLoader(contribution: contribution)
+        let store = withDependencies {
+            $0.appContributors = AppContributorsClient {
+                try await loader.load()
+            }
+        } operation: {
+            TestStore(initialState: AboutOpenMusicEvent.State()) {
+                AboutOpenMusicEvent()
+            }
+        }
+
+        await waitUntil {
+            store.state.contributors == .failed
+        }
+        #expect(store.state.contributors == .failed)
+
+        await store.send(.retryButtonTapped)?.value
+        await waitUntil {
+            store.state.contributors == .loaded([contribution])
+        }
+
+        expectNoDifference(store.state.contributors, .loaded([contribution]))
+        #expect(await loader.attemptCount == 2)
+    }
+
+    @Test
+    func settingsPresentsAboutWithoutEventContext() async throws {
+        let database = try makePreparedDatabase()
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.appContributors = AppContributorsClient { [] }
+        } operation: {
+            TestStore(initialState: Settings.State()) {
+                Settings()
+            }
+        }
+
+        await store.send(.aboutOpenMusicEventButtonTapped)?.value
+
+        #expect(store.state.destination?.aboutOpenMusicEvent?.eventID == nil)
+        #expect(store.state.destination?.aboutOpenMusicEvent?.sourceProvenance == nil)
+    }
+
+    @Test
+    func eventAboutPresentsAboutWithEventProvenance() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID()
+        let provenance = EventSourceProvenanceRecord(
+            id: eventID,
+            sourceKind: .tangled,
+            sourceReference: "tangled.org/woody.fm/open-music-event",
+            ref: "main",
+            eventIDOrigin: .explicit,
+            sourceEventDirectory: "event-1"
+        )
+        try await insertEvent(eventID, into: database)
+        try await database.write { db in
+            try EventSourceProvenanceRecord.insert { provenance }
+                .execute(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.appContributors = AppContributorsClient { [] }
+        } operation: {
+            TestStore(initialState: EventInfoViewer.State(eventID: eventID)) {
+                EventInfoViewer()
+            }
+        }
+
+        await store.send(.aboutOpenMusicEventButtonTapped)?.value
+
+        #expect(store.state.destination?.aboutOpenMusicEvent?.eventID == eventID)
+        expectNoDifference(
+            store.state.destination?.aboutOpenMusicEvent?.sourceProvenance,
+            provenance
+        )
+    }
+
+    @Test
+    func contributorFilterAcceptsOnlyDeveloperAssertionsByTheApp() throws {
+        let appDID = try #require(DID("did:plc:openmusicevent"))
+        let woodyDID = try #require(DID("did:plc:woody"))
+        let otherDID = try #require(DID("did:plc:other"))
+        let subject = OMERecord.Relationship.IdentityReference(
+            did: woodyDID,
+            handle: "woody.fm",
+            displayName: "Woodrow Melling"
+        )
+
+        let accepted = listedRelationship(
+            author: appDID,
+            subject: .identity(subject),
+            role: .developer,
+            object: .identity(did: appDID)
+        )
+        let wrongAuthor = listedRelationship(
+            author: otherDID,
+            subject: .identity(subject),
+            role: .developer,
+            object: .identity(did: appDID)
+        )
+        let wrongRole = listedRelationship(
+            author: appDID,
+            subject: .identity(subject),
+            role: .maintainer,
+            object: .identity(did: appDID)
+        )
+        let wrongObject = listedRelationship(
+            author: appDID,
+            subject: .identity(subject),
+            role: .developer,
+            object: .identity(did: otherDID)
+        )
+
+        expectNoDifference(
+            [accepted, wrongAuthor, wrongRole, wrongObject].compactMap {
+                AppContributorsClient.developerIdentity(from: $0, appDID: appDID)
+            },
+            [subject]
+        )
+    }
+
+    @Test
+    func liveContributorClientReadsPublicPaginatedRelationshipsAndHydratesProfiles() async throws {
+        let appDID = try #require(DID("did:plc:openmusicevent"))
+        let requests = Mutex<[URL?]>([])
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice",
+            handle: "alice.dev",
+            displayName: "Alice Hydrated",
+            description: "Open-source contributor.",
+            avatar: URL(string: "https://cdn.example/alice.jpg")
+        )
+
+        let contributions = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    #expect(handle.rawValue == "openmusicevent.app")
+                    return (
+                        Atmosphere.Account(id: .init(appDID), handle: handle),
+                        try aboutDIDDocument(
+                            did: appDID,
+                            handle: handle,
+                            pdsHost: "pds.openmusicevent.app"
+                        )
+                    )
+                },
+                resolveDID: { did in
+                    Issue.record("Did not expect DID resolution for \(did)")
+                    throw AppContributorsClientError.unimplemented
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                requests.withLock { $0.append(request.url) }
+                #expect(request.url?.host == "pds.openmusicevent.app")
+                #expect(request.url?.path.hasSuffix("/com.atproto.repo.listRecords") == true)
+                #expect(request.headerFields[.authorization] == nil)
+                #expect(request.url?.aboutQueryValue(named: "repo") == appDID.description)
+                #expect(
+                    request.url?.aboutQueryValue(named: "collection")
+                        == "app.openmusicevent.relationship"
+                )
+
+                if request.url?.aboutQueryValue(named: "cursor") == nil {
+                    return Data(
+                        """
+                        {
+                          "cursor": "page-2",
+                          "records": [
+                            {
+                              "uri": "at://did:plc:openmusicevent/app.openmusicevent.relationship/woody",
+                              "cid": "bafywoody",
+                              "value": {
+                                "$type": "app.openmusicevent.relationship",
+                                "subject": {
+                                  "$type": "app.openmusicevent.relationship#identity",
+                                  "did": "did:plc:woody",
+                                  "handle": "woody.fm",
+                                  "displayName": "Woodrow Melling"
+                                },
+                                "role": "developer",
+                                "object": {
+                                  "$type": "app.openmusicevent.relationship#identity",
+                                  "did": "did:plc:openmusicevent"
+                                },
+                                "createdAt": "2026-08-03T00:00:00Z"
+                              }
+                            },
+                            {
+                              "uri": "at://did:plc:other/app.openmusicevent.relationship/wrong-author",
+                              "cid": "bafywrongauthor",
+                              "value": {
+                                "$type": "app.openmusicevent.relationship",
+                                "subject": {
+                                  "$type": "app.openmusicevent.relationship#identity",
+                                  "did": "did:plc:other-developer"
+                                },
+                                "role": "developer",
+                                "object": {
+                                  "$type": "app.openmusicevent.relationship#identity",
+                                  "did": "did:plc:openmusicevent"
+                                },
+                                "createdAt": "2026-08-03T00:00:00Z"
+                              }
+                            }
+                          ]
+                        }
+                        """
+                        .utf8
+                    )
+                }
+
+                #expect(request.url?.aboutQueryValue(named: "cursor") == "page-2")
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:openmusicevent/app.openmusicevent.relationship/alice",
+                          "cid": "bafyalice",
+                          "value": {
+                            "$type": "app.openmusicevent.relationship",
+                            "subject": {
+                              "$type": "app.openmusicevent.relationship#identity",
+                              "did": "did:plc:alice",
+                              "handle": "stale.example",
+                              "displayName": "Stale Alice"
+                            },
+                            "role": "developer",
+                            "object": {
+                              "$type": "app.openmusicevent.relationship#identity",
+                              "did": "did:plc:openmusicevent"
+                            },
+                            "createdAt": "2026-08-03T00:00:00Z"
+                          }
+                        },
+                        {
+                          "uri": "at://did:plc:openmusicevent/app.openmusicevent.relationship/wrong-object",
+                          "cid": "bafywrongobject",
+                          "value": {
+                            "$type": "app.openmusicevent.relationship",
+                            "subject": {
+                              "$type": "app.openmusicevent.relationship#identity",
+                              "did": "did:plc:ignored"
+                            },
+                            "role": "developer",
+                            "object": {
+                              "$type": "app.openmusicevent.relationship#identity",
+                              "did": "did:plc:other-app"
+                            },
+                            "createdAt": "2026-08-03T00:00:00Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
+                )
+            }
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { actor in
+                    guard actor == profile.did else {
+                        throw AppContributorsClientError.unimplemented
+                    }
+                    return profile
+                },
+                refreshProfileIfNeeded: { actor, _, _ in
+                    guard actor == profile.did else {
+                        throw AppContributorsClientError.unimplemented
+                    }
+                    return profile
+                }
+            )
+        } operation: {
+            try await AppContributorsClient.live.load()
+        }
+
+        #expect(requests.withLock { $0.count } == 2)
+        #expect(contributions.count == 2)
+        let alice = try #require(contributions.first)
+        #expect(alice.displayName == "Alice Hydrated")
+        #expect(alice.handle == "alice.dev")
+        #expect(alice.bio == "Open-source contributor.")
+        #expect(alice.avatarURL == URL(string: "https://cdn.example/alice.jpg"))
+        let woody = try #require(contributions.last)
+        #expect(woody.displayName == "Woodrow Melling")
+        #expect(woody.handle == "woody.fm")
+        #expect(woody.bio == nil)
+        #expect(woody.avatarURL == nil)
+    }
+
+    @Test
+    func provenanceDescriptionsCoverGlobalTangledLocalAndMissingSources() throws {
+        let eventID = testEventID()
+        let global = AboutOpenMusicEvent.State()
+        let missing = AboutOpenMusicEvent.State(eventID: eventID)
+        let tangled = AboutOpenMusicEvent.State(
+            eventID: eventID,
+            sourceProvenance: EventSourceProvenanceRecord(
+                id: eventID,
+                sourceKind: .tangled,
+                sourceReference: "tangled.org/woody.fm/open-music-event",
+                ref: "main",
+                eventIDOrigin: .explicit,
+                sourceEventDirectory: "event-1"
+            )
+        )
+        let localPath = "/Users/woody/private/local-event"
+        let local = AboutOpenMusicEvent.State(
+            eventID: eventID,
+            sourceProvenance: EventSourceProvenanceRecord(
+                id: eventID,
+                sourceKind: .local,
+                sourceReference: localPath,
+                ref: nil,
+                eventIDOrigin: .explicit,
+                sourceEventDirectory: "event-1"
+            )
+        )
+
+        #expect(global.eventInformationProviderDescription.contains("event organizers"))
+        #expect(missing.eventInformationProviderDescription.contains("No external source"))
+        #expect(tangled.eventInformationProviderDescription.contains("tangled.org/woody.fm/open-music-event"))
+        #expect(local.eventInformationProviderDescription.contains("created or imported locally"))
+        #expect(!local.eventInformationProviderDescription.contains(localPath))
+    }
+
+    private func contribution() throws -> AppContribution {
+        AppContribution(
+            id: "at://did:plc:openmusicevent/app.openmusicevent.relationship/developer",
+            bio: "Independent developer and open-source advocate.",
+            did: try #require(DID("did:plc:woody")),
+            displayName: "Woodrow Melling",
+            handle: "woody.fm",
+            role: .developer
+        )
+    }
+
+    private func listedRelationship(
+        author: DID,
+        subject: OMERecord.Relationship.Entity,
+        role: OMERecord.Relationship.Role,
+        object: OMERecord.Relationship.Entity?
+    ) -> ATProto.Repository.ListedRecord<OMERecord.Relationship> {
+        ATProto.Repository.ListedRecord(
+            uri: ATProto.URI(
+                authority: .did(author),
+                collection: OMERecord.Relationship.nsid,
+                rkey: ATProto.Record.Key(rawValue: UUID().uuidString.lowercased())
+            ),
+            value: OMERecord.Relationship(
+                subject: subject,
+                role: role,
+                object: object,
+                createdAt: "2026-08-03T00:00:00Z"
+            )
+        )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !condition(), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+private func aboutDIDDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle,
+    pdsHost: String
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+              "id": "\(did.description)",
+              "alsoKnownAs": ["at://\(handle.rawValue)"],
+              "verificationMethod": [],
+              "service": [
+                {
+                  "id": "#atproto_pds",
+                  "type": "AtprotoPersonalDataServer",
+                  "serviceEndpoint": "https://\(pdsHost)"
+                }
+              ]
+            }
+            """
+            .utf8
+        )
+    )
+}
+
+private extension URL {
+    func aboutQueryValue(named name: String) -> String? {
+        URLComponents(url: self, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == name })?
+            .value
+    }
+}
+
+private actor ScriptedAppContributorsLoader {
+    let contribution: AppContribution
+    private(set) var attemptCount = 0
+
+    init(contribution: AppContribution) {
+        self.contribution = contribution
+    }
+
+    func load() throws -> [AppContribution] {
+        attemptCount += 1
+        if attemptCount == 1 {
+            throw AppContributorsClientError.unimplemented
+        }
+        return [contribution]
     }
 }
 

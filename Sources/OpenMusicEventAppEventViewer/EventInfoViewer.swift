@@ -21,6 +21,7 @@ public struct EventInfoViewer {
         @FetchOne public var event: OMERecord.Event?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
         @FetchAll public var posters: [OMERecord.Poster]
+        public var destination: Destination.State?
 
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
@@ -37,13 +38,31 @@ public struct EventInfoViewer {
     }
 
     public enum Action {
+        case aboutOpenMusicEventButtonTapped
+        case destination(Destination.Action)
         case didPullToRefresh
         case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case aboutOpenMusicEvent(AboutOpenMusicEvent)
     }
 
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .aboutOpenMusicEventButtonTapped:
+                state.destination = .aboutOpenMusicEvent(
+                    AboutOpenMusicEvent.State(
+                        eventID: state.eventID,
+                        sourceProvenance: state.sourceProvenance
+                    )
+                )
+
+            case .destination:
+                break
+
             case .didPullToRefresh:
                 guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
                     return
@@ -66,6 +85,9 @@ public struct EventInfoViewer {
                     await task?.value
                 }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
     }
 }
@@ -137,6 +159,13 @@ public struct EventInfoViewerView: View {
                             }
                         }
                     }
+
+                    Section {
+                        Button("About OpenMusicEvent") {
+                            store.send(.aboutOpenMusicEventButtonTapped)
+                        }
+                        .navigationLinkListRowStyle()
+                    }
                 }
                 .toolbar {
                     if showsAuthoringControls {
@@ -152,6 +181,11 @@ public struct EventInfoViewerView: View {
                 }
                 .refreshable {
                     store.send(.didPullToRefresh)
+                }
+                .navigationDestination(
+                    item: $store.scope(\.destination, action: \.destination).aboutOpenMusicEvent
+                ) { aboutStore in
+                    AboutOpenMusicEventView(store: aboutStore)
                 }
             } else {
                 ViewerPlaceholderView(

@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import ErrorHandling
 import OpenMusicEventAuthentication
+import OpenMusicEventAppEventViewer
 import OpenMusicEventComponents
 import SwiftUI
 
@@ -14,19 +15,35 @@ private typealias _SwiftUIForm = SwiftUI.Form
 public struct Settings {
     public init() {}
 
-    public struct State: Equatable {
+    public struct State {
         public init() {}
 
         public var account = Spawn(Account.State())
+        public var destination: Destination.State?
     }
 
     public enum Action {
+        case aboutOpenMusicEventButtonTapped
+        case destination(Destination.Action)
         case testErrorButtonTapped
     }
 
+    @Feature
+    public enum Destination {
+        case aboutOpenMusicEvent(AboutOpenMusicEvent)
+    }
+
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
+            case .aboutOpenMusicEventButtonTapped:
+                state.destination = .aboutOpenMusicEvent(
+                    AboutOpenMusicEvent.State()
+                )
+
+            case .destination:
+                break
+
             case .testErrorButtonTapped:
                 store.addTask {
                     _ = await store.withErrorHandling(
@@ -41,11 +58,14 @@ public struct Settings {
         .spawn(\.account) {
             Account()
         }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
     }
 }
 
 public struct SettingsFeatureView: View {
-    let store: StoreOf<Settings>
+    @Bindable var store: StoreOf<Settings>
     @Bindable var accountStore: StoreOf<Account>
 
     public init(store: StoreOf<Settings>) {
@@ -56,6 +76,13 @@ public struct SettingsFeatureView: View {
     public var body: some View {
         _SwiftUIForm {
             AccountView(store: accountStore)
+
+            Section("About") {
+                Button("About OpenMusicEvent") {
+                    store.send(.aboutOpenMusicEventButtonTapped)
+                }
+                .navigationLinkListRowStyle()
+            }
 
             TechnicalDetailsSettingsSection()
 
@@ -76,6 +103,11 @@ public struct SettingsFeatureView: View {
             onDismiss: { accountStore.send(.accountPresentationDismissed) }
         ) { _ in
             AccountPresentationView(store: accountStore)
+        }
+        .navigationDestination(
+            item: $store.scope(\.destination, action: \.destination).aboutOpenMusicEvent
+        ) { aboutStore in
+            AboutOpenMusicEventView(store: aboutStore)
         }
         .navigationTitle("Settings")
     }
