@@ -13,17 +13,27 @@ extension CalendarEventsClient {
                 guard request.collection == OME.Event.nsid else {
                     return try await atmo.browse(request)
                 }
-                let events = try await database.read { db in
-                    try OME.Event
+                let installedEvents = try await database.read { db in
+                    let events = try OME.Event
                         .order { ($0.startDate.asc(), $0.name) }
                         .fetchAll(db)
+                    let posters = try OME.Poster.fetchAll(db)
+                    let postersByEventID = Dictionary(grouping: posters) { poster in
+                        OME.Event.ID(
+                            organizerID: poster.id.organizerID,
+                            eventID: poster.id.eventID
+                        )
+                    }
+                    return events.map { event in
+                        event.calendarEvent(posters: postersByEventID[event.id] ?? [])
+                    }
                 }
                 var eventsByURI = Dictionary(
                     uniqueKeysWithValues: try Self.temporaryOpenMusicEvents().map {
                         ($0.uri, $0)
                     }
                 )
-                for event in events.map(\.calendarEvent) {
+                for event in installedEvents {
                     eventsByURI[event.uri] = event
                 }
                 return CalendarEvent.Page(
@@ -41,10 +51,17 @@ extension CalendarEventsClient {
                 guard let eventID = OME.Event.ID(uri) else {
                     throw CalendarEventsClientError.invalidEventURI(uri.description)
                 }
-                if let event = try await database.read({ db in
-                    try OME.Event.find(eventID).fetchOne(db)
+                if let event = try await database.read({ db -> CalendarEvent? in
+                    guard let event = try OME.Event.find(eventID).fetchOne(db) else {
+                        return nil
+                    }
+                    let posters = try OME.Poster
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db)
+                    return event.calendarEvent(posters: posters)
                 }) {
-                    return event.calendarEvent
+                    return event
                 }
                 guard let event = try Self.temporaryOpenMusicEvents().first(where: {
                     $0.uri == uri
@@ -89,9 +106,11 @@ struct TemporaryOMEBrowseEvent: Decodable {
     var endDate: LocalDate
     var eventID: String
     var location: String?
+    var media: [Media]
     var mode: Mode
     var name: String
     var organizerID: String
+    var organizerAvatarURL: URL?
     var organizerName: String
     var startDate: LocalDate
     var status: Status
@@ -118,14 +137,24 @@ struct TemporaryOMEBrowseEvent: Decodable {
                 status: status.calendarEventStatus,
                 mode: mode.calendarEventMode,
                 locations: location.map { [CalendarEvent.Location(name: $0)] } ?? [],
+                media: media.map {
+                    CalendarEvent.Media(url: $0.url, alt: $0.alt, role: $0.role)
+                },
                 organizer: CalendarEvent.Organizer(
                     id: organizerID,
-                    displayName: organizerName
+                    displayName: organizerName,
+                    avatarURL: organizerAvatarURL
                 ),
                 source: CalendarEvent.Source(collection: OME.Event.nsid),
                 timeZoneIdentifier: timeZone.identifier
             )
         }
+    }
+
+    struct Media: Decodable {
+        var alt: String?
+        var role: String?
+        var url: URL
     }
 
     enum Mode: String, Decodable {
@@ -192,7 +221,7 @@ extension OME.Event.ID {
 }
 
 extension OME.Event {
-    var calendarEvent: CalendarEvent {
+    func calendarEvent(posters: [OME.Poster] = []) -> CalendarEvent {
         CalendarEvent(
             uri: OME.Event.reference(id: id).uri,
             name: name,
@@ -208,10 +237,62 @@ extension OME.Event {
             links: (uris ?? []).map {
                 CalendarEvent.Link(name: $0.name, uri: $0.uri)
             },
+            media: calendarMedia(posters: posters),
             organizer: CalendarEvent.Organizer(id: id.organizerID),
             source: CalendarEvent.Source(collection: OME.Event.nsid),
             timeZoneIdentifier: timeZone.identifier
         )
+    }
+
+    private func calendarMedia(posters: [OME.Poster]) -> [CalendarEvent.Media] {
+        let posterMedia = posters
+            .sorted { lhs, rhs in
+                lhs.id.posterID.rawValue.rawValue.localizedStandardCompare(
+                    rhs.id.posterID.rawValue.rawValue
+                ) == .orderedAscending
+            }
+            .compactMap { poster -> CalendarEvent.Media? in
+                guard let url = poster.image.url else { return nil }
+                return CalendarEvent.Media(
+                    url: url,
+                    alt: poster.title ?? name,
+                    role: OME.ImageAsset.Role.poster.rawValue
+                )
+            }
+        let eventMedia = (images ?? [])
+            .enumerated()
+            .filter { _, image in image.role != .siteMap }
+            .sorted { lhs, rhs in
+                let lhsPriority = Self.calendarMediaPriority(lhs.element.role)
+                let rhsPriority = Self.calendarMediaPriority(rhs.element.role)
+                return lhsPriority == rhsPriority
+                    ? lhs.offset < rhs.offset
+                    : lhsPriority < rhsPriority
+            }
+            .compactMap { _, image -> CalendarEvent.Media? in
+                guard let url = image.url else { return nil }
+                return CalendarEvent.Media(
+                    url: url,
+                    alt: name,
+                    role: image.role.rawValue
+                )
+            }
+
+        var seenURLs = Set<URL>()
+        return (posterMedia + eventMedia).filter { media in
+            seenURLs.insert(media.url).inserted
+        }
+    }
+
+    private static func calendarMediaPriority(_ role: OME.ImageAsset.Role) -> Int {
+        switch role {
+        case .poster: 0
+        case .hero: 1
+        case .photo: 2
+        case .icon: 3
+        case .logo: 4
+        case .siteMap: 5
+        }
     }
 
     var calendarEventStatus: CalendarEvent.Status? {

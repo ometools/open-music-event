@@ -10,6 +10,18 @@
     "status": "planned",
     "mode": "inPerson",
     "location": "3901 Kootenay Hwy, BC-93, Fairmont Hot Springs, BC V0A 1K4",
+    "media": [
+      {
+        "url": "https://res.cloudinary.com/dhh19fozh/q_auto:good,f_auto,dpr_1.0/w_auto:breakpoints_85_850_10_10:768/jb7production-uploads/2024/03/wicked-woods-music-festival-2024-featured-e1710945659862-1200x675.jpg",
+        "alt": "Wicked Woods Music Festival",
+        "role": "hero"
+      },
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F6D9DD348-26B0-481D-8E0B-200901A57F5A.png?alt=media&token=847204e2-2df4-49e1-ac9e-bcfc1c95835a",
+        "alt": "Wicked Woods",
+        "role": "icon"
+      }
+    ],
     "timeZone": "America/Denver"
   },
   {
@@ -22,6 +34,8 @@
     "status": "planned",
     "mode": "inPerson",
     "location": "Salmo River Ranch, Salmo, British Columbia",
+    "media": [],
+    "organizerAvatarURL": "https://firebasestorage.googleapis.com/v0/b/festivl.appspot.com/o/userContent%2Flogo_small.png?alt=media&token=7766fa90-6591-4e25-92b4-2ff354cb970d",
     "timeZone": "America/Vancouver"
   },
   {
@@ -35,6 +49,18 @@
     "status": "scheduled",
     "mode": "inPerson",
     "location": "2496 East River Road, Livingston, MT 59047",
+    "media": [
+      {
+        "url": "https://images.squarespace-cdn.com/content/v1/56315d57e4b04936602bc354/1773195314101-XO5A0T6U13ZHER1YV0CE/ddcc.jpg",
+        "alt": "Daniel Donato’s Cosmic Country poster",
+        "role": "poster"
+      },
+      {
+        "url": "https://images.squarespace-cdn.com/content/v1/56315d57e4b04936602bc354/1457397760469-D1L7P6BVV8PKIR6ILAD5/Logos_Icon.png",
+        "alt": "Pine Creek Lodge",
+        "role": "icon"
+      }
+    ],
     "timeZone": "America/Denver"
   },
   {
@@ -48,6 +74,18 @@
     "status": "scheduled",
     "mode": "inPerson",
     "location": "Uptown Butte, Butte, MT",
+    "media": [
+      {
+        "url": "https://montanafolkfestival.com/wp-content/uploads/2018/09/Montana-Folk-Festival-Logo-Text-Horiz-White-350.png",
+        "alt": "Montana Folk Festival",
+        "role": "hero"
+      },
+      {
+        "url": "https://montanafolkfestival.com/wp-content/uploads/2019/05/cropped-No-Photo4-192x192.jpg",
+        "alt": "Montana Folk Festival",
+        "role": "icon"
+      }
+    ],
     "timeZone": "America/Denver"
   }
 ]

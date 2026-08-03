@@ -610,8 +610,8 @@ struct BrowseCalendarEventRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            BrowseEventArtworkPlaceholder()
-                .frame(width: 72, height: 72)
+            BrowseEventArtwork(event: event)
+                .frame(width: 60, height: 60)
 
             VStack(alignment: .leading, spacing: 4) {
                 if let dateText {
@@ -624,12 +624,6 @@ struct BrowseCalendarEventRow: View {
                 Text(event.organizer.name)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let location = event.locations.first?.summary {
-                    Label(location, systemImage: "mappin")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -661,16 +655,187 @@ struct BrowseCalendarEventRow: View {
     }
 }
 
-struct BrowseEventArtworkPlaceholder: View {
+struct BrowseEventArtwork: View {
+    let event: CalendarEvent
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(.secondary.opacity(0.12))
-            MappedSystemImage(systemName: "music.note")
-                .font(.title2)
-                .foregroundStyle(.secondary)
+
+            BrowseEventArtworkSourceChain(
+                sources: event.artworkSources[...]
+            ) {
+                BrowseEventArtworkPlaceholder()
+            }
         }
-        .accessibilityHidden(true)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel(event.name)
+    }
+}
+
+struct BrowseEventArtworkPlaceholder: View {
+    var body: some View {
+        MappedSystemImage(systemName: "music.note")
+            .frame(width: 18, height: 18)
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+    }
+}
+
+struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
+    let sources: ArraySlice<HeroImageSource>
+    @ViewBuilder var placeholder: () -> Placeholder
+
+    @ViewBuilder
+    var body: some View {
+        if let source = sources.first {
+            switch source.kind {
+            case .primaryImage:
+                ImageAssetAsyncImage(
+                    image: source.image,
+                    contentMode: .fill
+                ) { reason in
+                    fallback(for: reason)
+                }
+
+            case .logo:
+                ImageAssetAsyncImage(
+                    image: source.image,
+                    contentMode: .fit
+                ) { reason in
+                    fallback(for: reason)
+                }
+                .padding(10)
+            }
+        } else {
+            placeholder()
+        }
+    }
+
+    @ViewBuilder
+    private func fallback(for reason: ImageAssetPlaceholderReason) -> some View {
+        switch reason {
+        case .loading:
+            Color.clear
+        case .failure, .unavailable:
+            BrowseEventArtworkSourceChain(
+                sources: sources.dropFirst(),
+                placeholder: placeholder
+            )
+        }
+    }
+}
+
+extension CalendarEvent {
+    var artworkSources: [HeroImageSource] {
+        var seenURLs = Set<URL>()
+        var sources = semanticallyOrderedMedia.compactMap { media -> HeroImageSource? in
+            guard seenURLs.insert(media.url).inserted else { return nil }
+            return media.artworkSource
+        }
+        if let avatarURL = organizer.avatarURL,
+           seenURLs.insert(avatarURL).inserted {
+            sources.append(
+                .logo(
+                    DisplayImageAsset(
+                        asset: OME.ImageAsset(
+                            source: .url(avatarURL),
+                            role: .logo,
+                            renderKind: .transparent,
+                            materializationPolicy: .lazy
+                        )
+                    )
+                )
+            )
+        }
+        return sources
+    }
+
+    var heroTitleSources: [HeroImageTitleSource] {
+        let logo = semanticallyOrderedMedia.first { media in
+            let role = media.normalizedRole
+            return role == "icon" || role == "logo"
+        }
+        return [
+            logo.map { .logo($0.artworkSource.image) },
+            .title,
+        ].compactMap { $0 }
+    }
+
+    var semanticallyOrderedMedia: [Media] {
+        media.enumerated()
+            .filter { $0.element.normalizedRole != "sitemap" }
+            .sorted { lhs, rhs in
+                let lhsPriority = lhs.element.artworkPriority
+                let rhsPriority = rhs.element.artworkPriority
+                return lhsPriority == rhsPriority
+                    ? lhs.offset < rhs.offset
+                    : lhsPriority < rhsPriority
+            }
+            .map(\.element)
+    }
+}
+
+private extension CalendarEvent.Media {
+    var normalizedRole: String? {
+        guard let role else { return nil }
+        return role
+            .split(separator: "#")
+            .last
+            .map(String.init)?
+            .lowercased()
+    }
+
+    var artworkPriority: Int {
+        switch normalizedRole {
+        case "poster": 0
+        case "hero": 1
+        case "photo": 2
+        case nil: 3
+        case "icon": 4
+        case "logo": 5
+        default: 3
+        }
+    }
+
+    var artworkSource: HeroImageSource {
+        let role: OME.ImageAsset.Role
+        let renderKind: OME.ImageAsset.RenderKind
+        let kind: HeroImageSource.Kind
+        switch normalizedRole {
+        case "poster":
+            role = .poster
+            renderKind = .fullImage
+            kind = .primaryImage
+        case "hero":
+            role = .hero
+            renderKind = .fullImage
+            kind = .primaryImage
+        case "icon":
+            role = .icon
+            renderKind = .transparent
+            kind = .logo
+        case "logo":
+            role = .logo
+            renderKind = .transparent
+            kind = .logo
+        default:
+            role = .photo
+            renderKind = .fullImage
+            kind = .primaryImage
+        }
+        return HeroImageSource(
+            kind,
+            image: DisplayImageAsset(
+                asset: OME.ImageAsset(
+                    source: .url(url),
+                    role: role,
+                    renderKind: renderKind,
+                    materializationPolicy: .lazy
+                )
+            )
+        )
     }
 }
 
@@ -873,19 +1038,20 @@ public struct EventBrowseDetailView: View {
     }
 
     public var body: some View {
-        List {
-            if let media = store.event.media.first {
-                AsyncImage(url: media.url) { image in
-                    image
-                        .resizable()
-                        .scaledToFit()
-                } placeholder: {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 180)
-                }
-                .accessibilityLabel(media.alt ?? store.event.name)
+        let titleSources = store.event.heroTitleSources
+        HeroImageList(
+            title: Text(store.event.name),
+            showsNavigationTitleBeforeScroll: titleSources.containsLogo
+        ) {
+            HeroImage(
+                title: Text(store.event.name),
+                sources: store.event.artworkSources,
+                titleSources: titleSources
+            ) {
+                MappedSystemImage(systemName: "music.note")
+                    .frame(width: 56, height: 56)
             }
-
+        } content: {
             Section {
                 Button {
                     store.send(.organizerButtonTapped)
@@ -896,13 +1062,13 @@ public struct EventBrowseDetailView: View {
                 if let startsAt = store.event.startsAt {
                     LabeledContent(
                         "Starts",
-                        value: startsAt.formatted(date: .long, time: .shortened)
+                        value: store.event.detailDateText(startsAt)
                     )
                 }
                 if let endsAt = store.event.endsAt {
                     LabeledContent(
                         "Ends",
-                        value: endsAt.formatted(date: .long, time: .shortened)
+                        value: store.event.detailDateText(endsAt)
                     )
                 }
                 if let location = store.event.locations.first?.summary {
@@ -965,7 +1131,6 @@ public struct EventBrowseDetailView: View {
                 }
             }
         }
-        .navigationTitle(store.event.name)
         .navigationDestination(item: $store.organizerDetail) { organizer in
             BrowseOrganizerDetailView(
                 organizer: organizer,
@@ -975,6 +1140,16 @@ public struct EventBrowseDetailView: View {
         .task {
             await store.send(.task)?.value
         }
+    }
+}
+
+private extension CalendarEvent {
+    func detailDateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = eventTimeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 

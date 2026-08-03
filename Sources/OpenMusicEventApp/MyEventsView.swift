@@ -300,7 +300,7 @@ struct EventRowView: View {
         icon: OME.ImageAsset?,
         poster: OME.ImageAsset?
     ) -> [OME.ImageAsset] {
-        [icon, poster].compactMap { $0 }
+        [poster, icon].compactMap { $0 }
     }
 
     static func posterQuery(

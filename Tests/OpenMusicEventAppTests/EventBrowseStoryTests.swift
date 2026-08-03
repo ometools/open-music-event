@@ -7,6 +7,7 @@ import DependenciesTestSupport
 import Foundation
 @testable import OpenMusicEventApp
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import OpenMusicEventLexicon
 import OpenMusicEventViewers
 import SQLiteData
@@ -36,6 +37,15 @@ struct EventBrowseStoryTests {
             ]
         )
 
+        // The checked-in OME source catalog carries its real semantic artwork.
+        let danielDonato = try #require(
+            page.events.first { $0.name == "Daniel Donato’s Cosmic Country" }
+        )
+        expectNoDifference(
+            danielDonato.media.map(\.role),
+            ["poster", "icon"]
+        )
+
         // The same URI hydrates detail without inventing a second identity.
         let wickedWoods = try #require(
             page.events.first { $0.name == "Wicked Woods 2026" }
@@ -43,6 +53,126 @@ struct EventBrowseStoryTests {
         let detail = try await client.event(wickedWoods.uri)
         expectNoDifference(detail.uri, wickedWoods.uri)
         expectNoDifference(detail.name, wickedWoods.name)
+    }
+
+    @Test
+    func `an installed OME poster is the first browse image`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:artfestival"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "summer-art-festival")
+        )
+        let posterURL = try #require(URL(string: "https://example.com/poster.jpg"))
+        let heroURL = try #require(URL(string: "https://example.com/hero.jpg"))
+        let iconURL = try #require(URL(string: "https://example.com/icon.png"))
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Summer Art Festival",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone.current,
+                    images: [
+                        OME.ImageAsset(
+                            source: .url(iconURL),
+                            role: .icon,
+                            renderKind: .transparent,
+                            materializationPolicy: .lazy
+                        ),
+                        OME.ImageAsset(
+                            source: .url(heroURL),
+                            role: .hero,
+                            renderKind: .fullImage,
+                            materializationPolicy: .lazy
+                        ),
+                    ],
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Poster.insert {
+                OME.Poster.Draft(
+                    id: OME.Poster.ID(
+                        organizerID: organizerID,
+                        eventID: eventID.eventID,
+                        posterID: OME.ID<OME.Poster>(rawValue: "main-poster")
+                    ),
+                    title: "Summer Art Festival poster",
+                    image: OME.ImageAsset(
+                        source: .url(posterURL),
+                        role: .poster,
+                        renderKind: .fullImage,
+                        materializationPolicy: .lazy
+                    )
+                )
+            }
+            .execute(db)
+        }
+
+        let client = CalendarEventsClient.openMusicEventAndAtmo(database: database)
+        let page = try await client.browse(
+            CalendarEvent.PageRequest(collection: OME.Event.nsid)
+        )
+        let event = try #require(page.events.first { $0.name == "Summer Art Festival" })
+
+        // Poster is the primary visual; hero and icon remain useful failure fallbacks.
+        expectNoDifference(event.media.map(\.role), ["poster", "hero", "icon"])
+        expectNoDifference(event.media.map(\.url), [posterURL, heroURL, iconURL])
+    }
+
+    @Test
+    func `event artwork falls back through every semantic image`() throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+        let posterURL = try #require(URL(string: "https://example.com/poster.jpg"))
+        let heroURL = try #require(URL(string: "https://example.com/hero.jpg"))
+        let photoURL = try #require(URL(string: "https://example.com/photo.jpg"))
+        let iconURL = try #require(URL(string: "https://example.com/icon.png"))
+        let organizerURL = try #require(URL(string: "https://example.com/organizer.png"))
+        let calendarEvent = CalendarEvent(
+            uri: try #require(
+                ATProto.URI("at://did:plc:organizer/app.openmusicevent.event/festival")
+            ),
+            name: "Summer Festival",
+            startsAt: nil,
+            media: [
+                CalendarEvent.Media(url: iconURL, role: "icon"),
+                CalendarEvent.Media(url: photoURL, role: "photo"),
+                CalendarEvent.Media(url: posterURL, role: "poster"),
+                CalendarEvent.Media(url: heroURL, role: "hero"),
+            ],
+            organizer: CalendarEvent.Organizer(
+                id: organizerID,
+                avatarURL: organizerURL
+            ),
+            source: CalendarEvent.Source(collection: OME.Event.nsid)
+        )
+
+        // The renderer tries event-specific art first and organizer identity last.
+        expectNoDifference(
+            calendarEvent.artworkSources.map(\.image.asset.url),
+            [posterURL, heroURL, photoURL, iconURL, organizerURL]
+        )
+        expectNoDifference(
+            calendarEvent.artworkSources.map(\.kind),
+            [.primaryImage, .primaryImage, .primaryImage, .logo, .logo]
+        )
     }
 
     @Test
