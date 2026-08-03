@@ -5,7 +5,7 @@ import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
-import OpenMusicEventApp
+@testable import OpenMusicEventApp
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventViewers
@@ -13,6 +13,75 @@ import SQLiteData
 import Testing
 
 struct EventBrowseStoryTests {
+    @Test
+    func `an empty app still browses the temporary OME catalog`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let client = CalendarEventsClient.openMusicEventAndAtmo(database: database)
+
+        // Browse is useful before the attendee has installed an event.
+        let page = try await client.browse(
+            CalendarEvent.PageRequest(collection: OME.Event.nsid)
+        )
+        expectNoDifference(
+            Set(page.events.map(\.name)),
+            [
+                "Daniel Donato’s Cosmic Country",
+                "Montana Folk Festival 2026",
+                "Shambhala 2026",
+                "Wicked Woods 2026",
+            ]
+        )
+
+        // The same URI hydrates detail without inventing a second identity.
+        let wickedWoods = try #require(
+            page.events.first { $0.name == "Wicked Woods 2026" }
+        )
+        let detail = try await client.event(wickedWoods.uri)
+        expectNoDifference(detail.uri, wickedWoods.uri)
+        expectNoDifference(detail.name, wickedWoods.name)
+    }
+
+    @Test
+    func `browse starts with happening now and keeps later events upcoming`() throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+        let happeningNow = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/happening",
+            name: "Happening Now",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 100),
+            endsAt: Date(timeIntervalSince1970: 300),
+            collection: OME.Event.nsid
+        )
+        let upcoming = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/upcoming",
+            name: "Upcoming",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 400),
+            collection: OME.Event.nsid
+        )
+        let past = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/past",
+            name: "Past",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 10),
+            endsAt: Date(timeIntervalSince1970: 90),
+            collection: OME.Event.nsid
+        )
+
+        let browse = Browse.State(
+            events: [upcoming, past, happeningNow],
+            referenceDate: Date(timeIntervalSince1970: 200)
+        )
+
+        expectNoDifference(browse.happeningNowEvents.map(\.name), ["Happening Now"])
+        expectNoDifference(browse.upcomingEvents.map(\.name), ["Upcoming"])
+        expectNoDifference(browse.pastEvents.map(\.name), ["Past"])
+    }
+
     @Test @MainActor
     func `the browser opens on OME and can switch to community calendar events`() async throws {
         let organizerID = try #require(DID("did:plc:organizer"))
@@ -32,6 +101,7 @@ struct EventBrowseStoryTests {
         )
 
         await withDependencies {
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.calendarEvents = CalendarEventsClient(
                 browse: { request in
                     switch request.collection {
@@ -211,12 +281,14 @@ struct EventBrowseStoryTests {
         name: String,
         organizerID: DID,
         startsAt: Date,
+        endsAt: Date? = nil,
         collection: ATProto.NSID
     ) throws -> CalendarEvent {
         CalendarEvent(
             uri: try #require(ATProto.URI(uri)),
             name: name,
             startsAt: startsAt,
+            endsAt: endsAt,
             organizer: CalendarEvent.Organizer(id: organizerID),
             source: CalendarEvent.Source(collection: collection),
             timeZoneIdentifier: "America/Denver"

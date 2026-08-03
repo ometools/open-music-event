@@ -252,10 +252,12 @@ public struct Browse {
     public struct State {
         public init(
             catalog: EventCatalog = .openMusicEvent,
-            events: [CalendarEvent] = []
+            events: [CalendarEvent] = [],
+            referenceDate: Date = .distantPast
         ) {
             self.catalog = catalog
             self.events = events
+            self.referenceDate = referenceDate
         }
 
         public var catalog: EventCatalog
@@ -263,17 +265,14 @@ public struct Browse {
         public var eventDetail: EventBrowseDetail.State?
         public var events: [CalendarEvent]
         public var isLoading = false
+        public var referenceDate: Date
         public var searchText = ""
         public var selectedDay: CalendarEvent.Day?
         public var selectedMode: CalendarEvent.Mode?
         public var sort = Sort.soonest
 
-        public var days: [CalendarEvent.Day] {
-            Array(Set(events.compactMap(\.localStartDay))).sorted()
-        }
-
         public var visibleEvents: [CalendarEvent] {
-            events
+            let filteredEvents = events
                 .filter { event in
                     guard let selectedDay else { return true }
                     return event.localStartDay == selectedDay
@@ -289,25 +288,43 @@ public struct Browse {
                         || event.organizer.name.localizedCaseInsensitiveContains(query)
                         || (event.description?.localizedCaseInsensitiveContains(query) ?? false)
                 }
-                .sorted { lhs, rhs in
-                    switch sort {
-                    case .name:
-                        lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                    case .soonest:
-                        switch (lhs.startsAt, rhs.startsAt) {
-                        case let (.some(lhsDate), .some(rhsDate)):
-                            lhsDate == rhsDate
-                                ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                                : lhsDate < rhsDate
-                        case (.some, .none):
-                            true
-                        case (.none, .some):
-                            false
-                        case (.none, .none):
-                            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                        }
-                    }
+
+            switch sort {
+            case .name:
+                return filteredEvents.sorted {
+                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
                 }
+            case .soonest:
+                return filteredEvents.sorted(by: CalendarEvent.isSooner)
+            }
+        }
+
+        public var happeningNowEvents: [CalendarEvent] {
+            visibleEvents.filter { event in
+                guard let startsAt = event.startsAt,
+                      let endsAt = event.endsAt
+                else { return false }
+                return startsAt <= referenceDate && referenceDate <= endsAt
+            }
+        }
+
+        public var upcomingEvents: [CalendarEvent] {
+            visibleEvents.filter { event in
+                guard let startsAt = event.startsAt else { return false }
+                return startsAt > referenceDate
+            }
+        }
+
+        public var pastEvents: [CalendarEvent] {
+            visibleEvents.filter { event in
+                guard let startsAt = event.startsAt else { return false }
+                let lastInstant = event.endsAt ?? startsAt
+                return lastInstant < referenceDate
+            }
+        }
+
+        public var undatedEvents: [CalendarEvent] {
+            visibleEvents.filter { $0.startsAt == nil }
         }
     }
 
@@ -330,6 +347,7 @@ public struct Browse {
     }
 
     @Dependency(\.calendarEvents) var calendarEvents
+    @Dependency(\.date.now) var now
 
     public var body: some Feature {
         Update { state, action in
@@ -346,6 +364,7 @@ public struct Browse {
                 let catalog = state.catalog
                 state.errorMessage = nil
                 state.isLoading = true
+                state.referenceDate = now
                 store.addTask {
                     do {
                         let page = try await calendarEvents.browse(
@@ -433,6 +452,7 @@ public enum EventCatalog: String, CaseIterable, Equatable, Identifiable, Sendabl
 
 public struct BrowseView: View {
     @Bindable var store: StoreOf<Browse>
+    @State var isDatePickerPresented = false
 
     public init(store: StoreOf<Browse>) {
         self.store = store
@@ -440,29 +460,6 @@ public struct BrowseView: View {
 
     public var body: some View {
         List {
-            if !store.days.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        BrowseDayButton(
-                            title: "All",
-                            isSelected: store.selectedDay == nil
-                        ) {
-                            store.send(.daySelected(nil))
-                        }
-                        ForEach(store.days) { day in
-                            BrowseDayButton(
-                                title: "\(day.month)/\(day.day)",
-                                isSelected: store.selectedDay == day
-                            ) {
-                                store.send(.daySelected(day))
-                            }
-                        }
-                    }
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
-
             if let errorMessage = store.errorMessage {
                 ContentUnavailableView(
                     "Events Unavailable",
@@ -481,14 +478,37 @@ public struct BrowseView: View {
                     systemImage: "calendar",
                     message: "No events match the current browse selection."
                 )
+            } else if let selectedDay = store.selectedDay {
+                Section(selectedDay.formatted(in: .current)) {
+                    browseEventRows(store.visibleEvents)
+                }
             } else {
-                ForEach(store.visibleEvents) { event in
-                    Button {
-                        store.send(.browseEventButtonTapped(event.uri))
-                    } label: {
-                        BrowseCalendarEventRow(event: event)
+                Section("Happening Now") {
+                    if store.happeningNowEvents.isEmpty {
+                        Text("Nothing is happening right now.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        browseEventRows(store.happeningNowEvents)
                     }
-                    .buttonStyle(.plain)
+                }
+
+                if !store.upcomingEvents.isEmpty {
+                    Section("Upcoming") {
+                        browseEventRows(store.upcomingEvents)
+                    }
+                }
+
+                if !store.undatedEvents.isEmpty {
+                    Section("More Events") {
+                        browseEventRows(store.undatedEvents)
+                    }
+                }
+
+                if !store.pastEvents.isEmpty {
+                    Section("Past Events") {
+                        browseEventRows(store.pastEvents)
+                    }
                 }
             }
         }
@@ -498,13 +518,7 @@ public struct BrowseView: View {
         ) { detailStore in
             EventBrowseDetailView(store: detailStore)
         }
-        .searchable(
-            text: Binding(
-                get: { store.searchText },
-                set: { store.send(.searchTextChanged($0)) }
-            ),
-            prompt: "Search events or organizers"
-        )
+        .searchable(text: $store.searchText, prompt: "Search events or organizers")
         .refreshable {
             await store.send(.didPullToRefresh)?.value
         }
@@ -513,6 +527,18 @@ public struct BrowseView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                Button {
+                    isDatePickerPresented = true
+                } label: {
+                    Label("Choose a date", systemImage: "calendar")
+                }
+                .popover(isPresented: $isDatePickerPresented) {
+                    BrowseDatePicker(
+                        selectedDay: store.selectedDay,
+                        daySelected: { store.send(.daySelected($0)) }
+                    )
+                }
+
                 Menu {
                     ForEach(EventCatalog.allCases) { catalog in
                         Button {
@@ -525,44 +551,57 @@ public struct BrowseView: View {
                             }
                         }
                     }
-                } label: {
-                    Label(store.catalog.title, systemImage: "calendar")
-                }
-
-                Menu {
-                    Button("All formats") { store.send(.modeSelected(nil)) }
-                    Button("In person") { store.send(.modeSelected(.inPerson)) }
-                    Button("Virtual") { store.send(.modeSelected(.virtual)) }
-                    Button("Hybrid") { store.send(.modeSelected(.hybrid)) }
                     Divider()
-                    Button("Soonest first") { store.send(.sortSelected(.soonest)) }
-                    Button("Name") { store.send(.sortSelected(.name)) }
+                    browseModeButton("All formats", mode: nil)
+                    browseModeButton("In person", mode: .inPerson)
+                    browseModeButton("Virtual", mode: .virtual)
+                    browseModeButton("Hybrid", mode: .hybrid)
+                    Divider()
+                    browseSortButton("Soonest first", sort: .soonest)
+                    browseSortButton("Name", sort: .name)
                 } label: {
                     Label("Filter and sort", systemImage: "line.3.horizontal.decrease.circle")
                 }
             }
         }
     }
-}
 
-struct BrowseDayButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
-                .background {
-                    Capsule()
-                        .fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
-                }
+    @ViewBuilder
+    func browseEventRows(_ events: [CalendarEvent]) -> some View {
+        ForEach(events) { event in
+            Button {
+                store.send(.browseEventButtonTapped(event.uri))
+            } label: {
+                BrowseCalendarEventRow(event: event)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    func browseModeButton(_ title: String, mode: CalendarEvent.Mode?) -> some View {
+        Button {
+            store.send(.modeSelected(mode))
+        } label: {
+            if store.selectedMode == mode {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    @ViewBuilder
+    func browseSortButton(_ title: String, sort: Browse.Sort) -> some View {
+        Button {
+            store.send(.sortSelected(sort))
+        } label: {
+            if store.sort == sort {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 }
 
@@ -570,29 +609,134 @@ struct BrowseCalendarEventRow: View {
     let event: CalendarEvent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(event.name)
-                .font(.headline)
-            Text(event.organizer.name)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if let startsAt = event.startsAt {
-                Text(
-                    startsAt.formatted(
-                        date: .abbreviated,
-                        time: .shortened
-                    )
-                )
-                .font(.subheadline)
-            }
-            if let location = event.locations.first?.summary {
-                Label(location, systemImage: "mappin")
-                    .font(.caption)
+        HStack(alignment: .top, spacing: 12) {
+            BrowseEventArtworkPlaceholder()
+                .frame(width: 72, height: 72)
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let dateText {
+                    Text(dateText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(event.name)
+                    .font(.headline)
+                Text(event.organizer.name)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if let location = event.locations.first?.summary {
+                    Label(location, systemImage: "mappin")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 4)
+    }
+
+    var dateText: String? {
+        guard let startsAt = event.startsAt else { return nil }
+        if event.source.collection == OME.Event.nsid {
+            let formatter = DateIntervalFormatter()
+            formatter.timeZone = event.eventTimeZone
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            if let endsAt = event.endsAt,
+               event.localStartDay != CalendarEvent.Day(
+                   endsAt,
+                   timeZone: event.eventTimeZone
+               ) {
+                return formatter.string(from: startsAt, to: endsAt)
+            }
+            return formatter.string(from: startsAt, to: startsAt)
+        } else {
+            let formatter = DateFormatter()
+            formatter.timeZone = event.eventTimeZone
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: startsAt)
+        }
+    }
+}
+
+struct BrowseEventArtworkPlaceholder: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.secondary.opacity(0.12))
+            MappedSystemImage(systemName: "music.note")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct BrowseDatePicker: View {
+    @Environment(\.dismiss) var dismiss
+    @State var selection: Date
+    let daySelected: (CalendarEvent.Day?) -> Void
+
+    init(
+        selectedDay: CalendarEvent.Day?,
+        daySelected: @escaping (CalendarEvent.Day?) -> Void
+    ) {
+        _selection = State(
+            initialValue: selectedDay?.date(in: .current) ?? Date()
+        )
+        self.daySelected = daySelected
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            #if os(Android)
+            DatePicker("Date", selection: $selection, displayedComponents: .date)
+            #else
+            DatePicker("Date", selection: $selection, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+            #endif
+            HStack {
+                Button("All Dates") {
+                    daySelected(nil)
+                    dismiss()
+                }
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        .padding()
+        .frame(minWidth: 320)
+        .onChange(of: selection) { _, selection in
+            daySelected(CalendarEvent.Day(selection, timeZone: .current))
+        }
+    }
+}
+
+extension CalendarEvent.Day {
+    func date(in timeZone: TimeZone) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.date(
+            from: DateComponents(
+                timeZone: timeZone,
+                year: year,
+                month: month,
+                day: day
+            )
+        )!
+    }
+
+    func formatted(in timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter.string(from: date(in: timeZone))
     }
 }
 

@@ -1,0 +1,53 @@
+[
+  {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "wicked-woods-ome-2026",
+    "name": "Wicked Woods 2026",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2026-09-04",
+    "endDate": "2026-09-07",
+    "status": "planned",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, BC-93, Fairmont Hot Springs, BC V0A 1K4",
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+    "organizerName": "Shambhala Music Festival",
+    "eventID": "shambhala-ome-2026",
+    "name": "Shambhala 2026",
+    "startDate": "2026-07-24",
+    "endDate": "2026-07-27",
+    "status": "planned",
+    "mode": "inPerson",
+    "location": "Salmo River Ranch, Salmo, British Columbia",
+    "timeZone": "America/Vancouver"
+  },
+  {
+    "organizerID": "did:plc:pinecreeklodge",
+    "organizerName": "Pine Creek Lodge",
+    "eventID": "pine-creek-lodge-ome-2026-08-05-daniel-donato-s-cosmic-country",
+    "name": "Daniel Donato’s Cosmic Country",
+    "description": "Public Pine Creek Lodge 2026 event listing.",
+    "startDate": "2026-08-05",
+    "endDate": "2026-08-05",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "2496 East River Road, Livingston, MT 59047",
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:montanafolkfestival",
+    "organizerName": "Montana Folk Festival",
+    "eventID": "montana-folk-festival-ome-2026",
+    "name": "Montana Folk Festival 2026",
+    "description": "A free outdoor folk music and folklife festival in Uptown Butte, Montana.",
+    "startDate": "2026-07-10",
+    "endDate": "2026-07-12",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "Uptown Butte, Butte, MT",
+    "timeZone": "America/Denver"
+  }
+]
