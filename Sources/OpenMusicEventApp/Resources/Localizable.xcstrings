@@ -93,6 +93,9 @@
     "Add Event" : {
 
     },
+    "All Dates" : {
+
+    },
     "All formats" : {
 
     },
@@ -170,6 +173,9 @@
 
     },
     "Channel definitions" : {
+
+    },
+    "Choose a date" : {
 
     },
     "Connection details" : {
@@ -359,6 +365,9 @@
 
     },
     "Following feature stub." : {
+
+    },
+    "Happening Now" : {
 
     },
     "HEAD" : {
@@ -569,6 +578,9 @@
         }
       }
     },
+    "Nothing is happening right now." : {
+
+    },
     "Now" : {
 
     },
@@ -582,6 +594,9 @@
 
     },
     "Organizer" : {
+
+    },
+    "Past Events" : {
 
     },
     "Pine Creek Lodge" : {
