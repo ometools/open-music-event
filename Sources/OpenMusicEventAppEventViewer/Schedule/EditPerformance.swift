@@ -1132,7 +1132,7 @@ public struct EditPerformanceView: View {
             if store.schedules.count > 1 {
                 Picker("Schedule", selection: $store.selectedScheduleID) {
                     ForEach(store.schedules) { schedule in
-                        Text(ScheduleViewer.scheduleTitle(schedule))
+                        Text(ScheduleViewer.scheduleTitle(schedule, in: store.timeZone))
                             .tag(schedule.id.scheduleID)
                     }
                 }

@@ -147,6 +147,16 @@ struct EventTimePresentation: Equatable, Sendable {
     }
 }
 
+extension OMERecord.Event {
+    static func timeZoneQuery(
+        eventID: OMERecord.Event.ID
+    ) -> some PartialSelectStatement<TimeZone> {
+        OMERecord.Event
+            .where { $0.id.eq(eventID) }
+            .select(\.timeZone)
+    }
+}
+
 @Feature
 public struct ScheduleViewer {
     public init() {}
@@ -164,10 +174,10 @@ public struct ScheduleViewer {
             eventID: OMERecord.Event.ID,
             scheduleDivision: ScheduleDivision = .schedule
         ) {
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: eventID)
+            )
             self.scheduleDivision = scheduleDivision
             let scheduleViewerState = ScheduleViewerState(
                 eventID: eventID,
@@ -229,10 +239,9 @@ public struct ScheduleViewer {
         }
 
         public let eventID: OMERecord.Event.ID
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State? = nil
@@ -371,8 +380,10 @@ public struct ScheduleViewer {
         func selectedScheduleTitle(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> String {
-            selectedSchedule(selectedScheduleID: selectedScheduleID)
-                .map(ScheduleViewer.scheduleTitle) ?? "Select Schedule"
+            guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
+                  let timeZone
+            else { return "Select Schedule" }
+            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
         }
 
         var selectedStage: OMERecord.Stage? {
@@ -476,12 +487,15 @@ public struct ScheduleViewer {
             .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
     }
 
-    static func scheduleTitle(_ schedule: OMERecord.Schedule) -> String {
+    static func scheduleTitle(
+        _ schedule: OMERecord.Schedule,
+        in timeZone: TimeZone
+    ) -> String {
         if let customTitle = schedule.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
            !customTitle.isEmpty {
             return customTitle
         }
-        return schedule.date.formatted(dateFormat: "EEEE")
+        return schedule.date.formatted(dateFormat: "EEEE", in: timeZone)
     }
 
     static func emptyStageTitle(
@@ -1018,19 +1032,11 @@ extension OMERecord.Performance {
 }
 
 private extension LocalDate {
-    func formatted(dateFormat: String) -> String {
+    func formatted(dateFormat: String, in timeZone: TimeZone) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = dateFormat
-        formatter.timeZone = .current
-        return formatter.string(from: atStartOfDay(in: .current))
-    }
-
-    func formatted(dateStyle: DateFormatter.Style) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = dateStyle
-        formatter.timeStyle = .none
-        formatter.timeZone = .current
-        return formatter.string(from: atStartOfDay(in: .current))
+        formatter.timeZone = timeZone
+        return formatter.string(from: atStartOfDay(in: timeZone))
     }
 }
 

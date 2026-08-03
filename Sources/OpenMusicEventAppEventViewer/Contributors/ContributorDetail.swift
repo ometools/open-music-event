@@ -43,11 +43,12 @@ public struct ContributorDetail {
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+            )
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(self.eventID) }
             )
@@ -74,10 +75,9 @@ public struct ContributorDetail {
 
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public var destination: Destination.State?
         @FetchAll public var lineupStages: [OMERecord.Stage]
@@ -230,13 +230,14 @@ public struct ContributorDetailView: View {
 
     public var body: some View {
         Group {
-            if let profile = store.profile {
+            if let profile = store.profile,
+               let eventTimePresentation = store.state.eventTimePresentation {
                 ContributorDetailContentView(
                     profile: profile,
                     heroImageSources: store.heroImageSources,
                     stageContext: store.state.stageContext,
                     performanceRows: store.performanceRows,
-                    eventTimePresentation: store.state.eventTimePresentation,
+                    eventTimePresentation: eventTimePresentation,
                     showsAuthoringControls: showsAuthoringControls,
                     performanceButtonTapped: { performanceID in
                         store.send(.performanceButtonTapped(performanceID))

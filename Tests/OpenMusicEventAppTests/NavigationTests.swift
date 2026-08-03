@@ -3301,25 +3301,26 @@ struct NavigationTests {
         } operation: {
             ScheduleViewer.State(eventID: eventID)
         }
+        let eventTimePresentation = try #require(state.eventTimePresentation)
 
         expectNoDifference(
-            state.eventTimePresentation.performanceRowTimeRange(for: eveningPerformance),
+            eventTimePresentation.performanceRowTimeRange(for: eveningPerformance),
             "6:00 - 7:00 pm"
         )
         expectNoDifference(
-            state.eventTimePresentation.daySegment(for: eveningPerformance.startTime),
+            eventTimePresentation.daySegment(for: eveningPerformance.startTime),
             "Friday Evening"
         )
         expectNoDifference(
-            state.eventTimePresentation.performanceRowTimeRange(for: afterMidnightPerformance),
+            eventTimePresentation.performanceRowTimeRange(for: afterMidnightPerformance),
             "1:30 - 2:30 am"
         )
         expectNoDifference(
-            state.eventTimePresentation.daySegment(for: afterMidnightPerformance.startTime),
+            eventTimePresentation.daySegment(for: afterMidnightPerformance.startTime),
             "Friday Night"
         )
         #expect(
-            state.eventTimePresentation.formattedTimeRange(
+            eventTimePresentation.formattedTimeRange(
                 start: try #require(friday.at(hour: 23, minute: 30, in: timeZone)),
                 end: try #require(saturday.at(hour: 1, minute: 15, in: timeZone))
             ) == "11:30 pm - 1:15 am"
@@ -3328,8 +3329,6 @@ struct NavigationTests {
 
     @Test
     func eventTimeZoneDisclosureUsesTheEffectiveOffsetAndSeasonalAbbreviation() throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
         let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
         let matchingDeviceTimeZone = try #require(TimeZone(identifier: "America/Edmonton"))
         let differentDeviceTimeZone = try #require(TimeZone(identifier: "America/Vancouver"))
@@ -3339,18 +3338,11 @@ struct NavigationTests {
         let summerEnd = try #require(summer.at(hour: 19, in: eventTimeZone))
         let winterStart = try #require(winter.at(hour: 18, in: eventTimeZone))
         let winterEnd = try #require(winter.at(hour: 19, in: eventTimeZone))
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = selectedEventID
-            $0.defaultEventTimeZone = SharedReader(value: eventTimeZone)
-        } operation: {
-            ScheduleViewer.State(eventID: selectedEventID)
-        }
+        let eventTimePresentation = EventTimePresentation(timeZone: eventTimeZone)
 
         // A visitor whose device clock disagrees sees the event's current abbreviation.
         expectNoDifference(
-            state.eventTimePresentation.formattedTimeRange(
+            eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
                 disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
@@ -3360,7 +3352,7 @@ struct NavigationTests {
 
         // Different zone identifiers do not add noise when both clocks agree.
         expectNoDifference(
-            state.eventTimePresentation.formattedTimeRange(
+            eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
                 disclosure: .whenDeviceClockDiffers(matchingDeviceTimeZone)
@@ -3370,7 +3362,7 @@ struct NavigationTests {
 
         // The event abbreviation follows daylight-saving rules at the performance date.
         expectNoDifference(
-            state.eventTimePresentation.formattedTimeRange(
+            eventTimePresentation.formattedTimeRange(
                 start: winterStart,
                 end: winterEnd,
                 disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
@@ -3380,7 +3372,7 @@ struct NavigationTests {
 
         // Dense schedule surfaces still render the event clock without repeating a suffix.
         expectNoDifference(
-            state.eventTimePresentation.formattedTimeRange(
+            eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
                 disclosure: .never
@@ -3390,18 +3382,18 @@ struct NavigationTests {
 
         // The feature supplies event-clock labels to the reusable timeline components.
         expectNoDifference(
-            state.eventTimePresentation.hourLabel(for: summerStart),
+            eventTimePresentation.hourLabel(for: summerStart),
             "6pm"
         )
         expectNoDifference(
-            state.eventTimePresentation.currentTimeLabel(
+            eventTimePresentation.currentTimeLabel(
                 for: summerStart,
                 disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
             "6:00p (MDT)"
         )
         expectNoDifference(
-            state.eventTimePresentation.formattedTime(
+            eventTimePresentation.formattedTime(
                 for: summerStart,
                 disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
@@ -3461,15 +3453,169 @@ struct NavigationTests {
             // Every attendee-facing renderer follows the refreshed event record together.
             expectNoDifference(
                 [
-                    state.scheduleViewers.first?.state.timeZone.identifier,
-                    performanceDetail.state.timeZone.identifier,
-                    contributorDetail.state.timeZone.identifier,
+                    state.scheduleViewers.first?.state.timeZone?.identifier,
+                    performanceDetail.state.timeZone?.identifier,
+                    contributorDetail.state.timeZone?.identifier,
                 ],
                 [
                     losAngeles.identifier,
                     losAngeles.identifier,
                     losAngeles.identifier,
                 ]
+            )
+        }
+    }
+
+    @Test
+    func coldLaunchHydrationKeepsDeviceTimeZoneOutOfNewPerformanceDetail() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("cold-launch-time-zone")
+        let contributorID = contributorLocalID("woofax")
+        let performanceID = performanceLocalID("evening-set")
+        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let deviceTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let friday = try #require(LocalDate("2026-08-07"))
+        let startTime = try #require(friday.at(hour: 15, in: eventTimeZone))
+        let endTime = try #require(friday.at(hour: 16, in: eventTimeZone))
+
+        try await withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+            $0.defaultEventID = selectedEventID
+            $0.defaultEventTimeZone = SharedReader(value: deviceTimeZone)
+        } operation: {
+            let store = Store(
+                initialState: EventViewer.State(
+                    eventID: selectedEventID,
+                    authoringGrant: SharedReader(value: nil),
+                    features: [.schedule(.schedule), .contributors, .stages]
+                )
+            ) {
+                EventViewer()
+            }
+            let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
+            let singleStageStore: StoreOf<ScheduleSingleStageAtOnce> =
+                scheduleStore.spawn(\.singleStageAtOnce)
+            let manyStagesStore: StoreOf<ScheduleManyStagesAtOnce> =
+                scheduleStore.spawn(\.manyStagesAtOnce)
+            let performanceListStore: StoreOf<SchedulePerformanceList> =
+                scheduleStore.spawn(\.performanceList)
+            let eventSearchStore: StoreOf<EventSearch> = store.spawn(\.eventSearch)
+
+            // An unavailable event row never turns the device zone into an event-time fallback.
+            expectNoDifference(
+                [
+                    scheduleStore.timeZone?.identifier,
+                    singleStageStore.timeZone?.identifier,
+                    manyStagesStore.timeZone?.identifier,
+                    performanceListStore.timeZone?.identifier,
+                    eventSearchStore.timeZone?.identifier,
+                ],
+                Array<String?>(repeating: nil, count: 5)
+            )
+
+            // A restored shell can mount before its observed event row has hydrated.
+            try await database.write { db in
+                try Self.insertOrganizer(db, id: testOrganizerID)
+                try Self.insertEvent(
+                    db,
+                    id: selectedEventID,
+                    name: "Cold Launch Time Zone",
+                    timeZone: eventTimeZone
+                )
+                try Self.insertSchedule(
+                    db,
+                    eventID: selectedEventID,
+                    scheduleID: "friday",
+                    date: friday
+                )
+                try Self.insertStage(
+                    db,
+                    eventID: selectedEventID,
+                    stageID: "hallow",
+                    name: "The Hallow"
+                )
+                try Self.insertContributor(
+                    db,
+                    eventID: selectedEventID,
+                    contributorID: "woofax",
+                    name: "Woofax"
+                )
+                try Self.insertPerformance(
+                    db,
+                    eventID: selectedEventID,
+                    performanceID: "evening-set",
+                    stageID: "hallow",
+                    scheduleID: "friday",
+                    startTime: startTime,
+                    endTime: endTime,
+                    title: "Woofax"
+                )
+                try Self.insertPerformanceContributor(
+                    db,
+                    eventID: selectedEventID,
+                    performanceID: "evening-set",
+                    contributorID: "woofax"
+                )
+            }
+            try await store.state.$event.load()
+
+            expectNoDifference(
+                [
+                    scheduleStore.timeZone?.identifier,
+                    singleStageStore.timeZone?.identifier,
+                    manyStagesStore.timeZone?.identifier,
+                    performanceListStore.timeZone?.identifier,
+                    eventSearchStore.timeZone?.identifier,
+                ],
+                Array(repeating: eventTimeZone.identifier, count: 5)
+            )
+            let schedule = try #require(scheduleStore.schedules.first)
+            expectNoDifference(
+                ScheduleViewer.scheduleTitle(schedule, in: eventTimeZone),
+                "Friday"
+            )
+
+            let contributorsStore = try #require(store.spawn(\.contributorsViewer))
+            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
+            let contributorDetail = try #require(
+                contributorsStore.destination?.contributorDetail
+            )
+            expectNoDifference(
+                contributorDetail.timeZone?.identifier,
+                eventTimeZone.identifier
+            )
+
+            let stagesStore = try #require(store.spawn(\.stagesViewer))
+            await stagesStore.send(.stageButtonTapped(stageLocalID("hallow")))?.value
+            let stageDetail = try #require(stagesStore.destination?.stageDetail)
+            expectNoDifference(
+                stageDetail.timeZone?.identifier,
+                eventTimeZone.identifier
+            )
+
+            // Exercise the mounted reducer path used by a real schedule-row tap. The device zone
+            // may determine whether an MDT suffix is shown, but it can never become the clock.
+            await singleStageStore.send(.performanceButtonTapped(performanceID))?.value
+
+            let performanceDetail = try #require(
+                scheduleStore.destination?.performanceDetail
+            )
+            expectNoDifference(
+                performanceDetail.timeZone?.identifier,
+                eventTimeZone.identifier
+            )
+            let eventTimePresentation = try #require(
+                performanceDetail.eventTimePresentation
+            )
+            let performance = try #require(performanceDetail.performance)
+            expectNoDifference(
+                eventTimePresentation.performanceRowTimeRange(
+                    for: performance,
+                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                ),
+                "3:00 - 4:00 pm (MDT)"
             )
         }
     }

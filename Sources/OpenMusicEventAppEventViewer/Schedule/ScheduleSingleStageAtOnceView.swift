@@ -16,10 +16,10 @@ public struct ScheduleSingleStageAtOnce {
             eventID: OMERecord.Event.ID,
             scheduleDivision: ScheduleViewer.ScheduleDivision
         ) {
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: eventID)
+            )
             self.scheduleDivision = scheduleDivision
             let scheduleViewerState = ScheduleViewerState(
                 eventID: eventID,
@@ -43,10 +43,9 @@ public struct ScheduleSingleStageAtOnce {
         }
 
         public let eventID: OMERecord.Event.ID
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
         public var scheduleViewerState: ScheduleViewerState
@@ -347,13 +346,13 @@ public struct ScheduleSingleStageAtOnceView: View {
                     store.send(.scheduleDivisionButtonTapped(division))
                 }
             )
-        } else {
+        } else if let eventTimePresentation = store.state.eventTimePresentation {
             ScheduleStagePager(
                 selectedStageID: $store.selectedStageID,
                 stages: visibleStages,
                 performances: visiblePerformances,
                 timeRange: timeRange,
-                eventTimePresentation: store.state.eventTimePresentation,
+                eventTimePresentation: eventTimePresentation,
                 pageHeight: timeRange.map { scheduleHeight(for: $0) },
                 userScheduleOverlay: userScheduleOverlay,
                 scheduleDivision: store.scheduleDivision,
@@ -412,9 +411,10 @@ public struct ScheduleSingleStageAtOnceView: View {
 
     var selectedScheduleTitle: String {
         guard let scheduleID = store.state.resolvedSelectedScheduleID(selectedScheduleID),
-              let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID })
+              let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID }),
+              let timeZone = store.timeZone
         else { return "Select Schedule" }
-        return ScheduleViewer.scheduleTitle(schedule)
+        return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
     }
 
     var timeRange: DateInterval? {

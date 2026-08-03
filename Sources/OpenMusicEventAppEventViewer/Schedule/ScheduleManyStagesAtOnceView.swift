@@ -15,10 +15,10 @@ public struct ScheduleManyStagesAtOnce {
             eventID: OMERecord.Event.ID,
             scheduleDivision: ScheduleViewer.ScheduleDivision
         ) {
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: eventID)
+            )
             self.scheduleDivision = scheduleDivision
             self.scheduleViewerState = ScheduleViewerState(
                 eventID: eventID,
@@ -40,10 +40,9 @@ public struct ScheduleManyStagesAtOnce {
         }
 
         public let eventID: OMERecord.Event.ID
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
         public var scheduleViewerState: ScheduleViewerState
@@ -506,50 +505,54 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     var timelinePage: some View {
-        SchedulePageView(
-            timelineCards,
-            groups: timelineGroups,
-            currentTimeLabel: {
-                store.state.eventTimePresentation.currentTimeLabel(
-                    for: $0,
-                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
-                )
-            },
-            hourLabel: {
-                store.state.eventTimePresentation.hourLabel(for: $0)
-            }
-        ) { card in
-            ScheduleTimelineCardView(
-                performance: card.performance,
-                stage: card.stage,
-                timeRangeText: store.state.eventTimePresentation.performanceRowTimeRange(
-                    for: card.performance
-                ),
-                userScheduleOverlay: userScheduleOverlay,
-                showsAuthoringControls: showsAuthoringControls,
-                userScheduleMembershipAction: { scheduleID in
-                    store.send(
-                        .userScheduleMembershipButtonTapped(
-                            card.id,
-                            scheduleID
+        Group {
+            if let eventTimePresentation = store.state.eventTimePresentation {
+                SchedulePageView(
+                    timelineCards,
+                    groups: timelineGroups,
+                    currentTimeLabel: {
+                        eventTimePresentation.currentTimeLabel(
+                            for: $0,
+                            disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                         )
+                    },
+                    hourLabel: {
+                        eventTimePresentation.hourLabel(for: $0)
+                    }
+                ) { card in
+                    ScheduleTimelineCardView(
+                        performance: card.performance,
+                        stage: card.stage,
+                        timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                            for: card.performance
+                        ),
+                        userScheduleOverlay: userScheduleOverlay,
+                        showsAuthoringControls: showsAuthoringControls,
+                        userScheduleMembershipAction: { scheduleID in
+                            store.send(
+                                .userScheduleMembershipButtonTapped(
+                                    card.id,
+                                    scheduleID
+                                )
+                            )
+                        },
+                        newUserScheduleAction: {
+                            store.send(.newUserScheduleButtonTapped(card.id))
+                        },
+                        editAction: {
+                            store.send(.editPerformanceButtonTapped(card.id))
+                        },
+                        deleteAction: {
+                            store.send(.deletePerformanceButtonTapped(card.id))
+                        },
+                        action: {
+                            store.send(.performanceButtonTapped(card.id))
+                        }
                     )
-                },
-                newUserScheduleAction: {
-                    store.send(.newUserScheduleButtonTapped(card.id))
-                },
-                editAction: {
-                    store.send(.editPerformanceButtonTapped(card.id))
-                },
-                deleteAction: {
-                    store.send(.deletePerformanceButtonTapped(card.id))
-                },
-                action: {
-                    store.send(.performanceButtonTapped(card.id))
+                } emptyContent: {
+                    emptyPerformancesView
                 }
-            )
-        } emptyContent: {
-            emptyPerformancesView
+            }
         }
     }
 
@@ -677,9 +680,10 @@ public struct ScheduleManyStagesAtOnceView: View {
             selectedScheduleID,
             schedules: store.schedules
         ),
-            let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID })
+            let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID }),
+            let timeZone = store.timeZone
         else { return "Select Schedule" }
-        return ScheduleViewer.scheduleTitle(schedule)
+        return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
     }
 
     var timeRange: DateInterval? {

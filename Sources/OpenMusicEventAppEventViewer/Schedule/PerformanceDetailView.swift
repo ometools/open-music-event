@@ -8,7 +8,6 @@ import OpenMusicEventEditors
 import OpenMusicEventImages
 import OpenMusicEventViewers
 import ScheduleComponents
-import Sharing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -23,11 +22,11 @@ public struct PerformanceDetail {
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+            )
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
                 EventViewerState.none
@@ -78,10 +77,9 @@ public struct PerformanceDetail {
 
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
 
         @FetchAll var contributors: [ContributorProfile]
@@ -396,7 +394,8 @@ public struct PerformanceDetailView: View {
 
     public var body: some View {
         Group {
-            if let performance = store.performance {
+            if let performance = store.performance,
+               let eventTimePresentation = store.state.eventTimePresentation {
                 HeroImageList(title: Text(performance.title)) {
                     PerformanceHeroView(
                         performance: performance,
@@ -408,7 +407,7 @@ public struct PerformanceDetailView: View {
                         performance: performance,
                         stage: store.stage,
                         contributors: store.headlineContributors,
-                        eventTimePresentation: store.state.eventTimePresentation
+                        eventTimePresentation: eventTimePresentation
                     )
 
                     Section {

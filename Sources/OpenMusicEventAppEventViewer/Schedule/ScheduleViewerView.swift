@@ -286,9 +286,10 @@ public struct ScheduleViewerView: View {
             }
             #if !os(Android)
             .toolbarTitleMenu {
-                if !store.state.usesSingletonSchedule {
+                if !store.state.usesSingletonSchedule,
+                   let timeZone = store.timeZone {
                     ForEach(store.schedules) { schedule in
-                        Button(ScheduleViewer.scheduleTitle(schedule)) {
+                        Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
                             selectedScheduleID = schedule.id.scheduleID
                         }
                     }
@@ -370,10 +371,10 @@ public struct ScheduleViewerView: View {
     var androidScheduleTitle: some View {
         if store.state.usesSingletonSchedule {
             Text(selectedScheduleTitle)
-        } else {
+        } else if let timeZone = store.timeZone {
             Menu {
                 ForEach(store.schedules) { schedule in
-                    Button(ScheduleViewer.scheduleTitle(schedule)) {
+                    Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
                         selectedScheduleID = schedule.id.scheduleID
                     }
                 }

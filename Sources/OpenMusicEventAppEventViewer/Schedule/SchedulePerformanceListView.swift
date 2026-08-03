@@ -15,10 +15,10 @@ public struct SchedulePerformanceList {
             eventID: OMERecord.Event.ID,
             scheduleDivision: ScheduleViewer.ScheduleDivision
         ) {
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: eventID)
+            )
             self.scheduleDivision = scheduleDivision
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
@@ -32,10 +32,9 @@ public struct SchedulePerformanceList {
         }
 
         public let eventID: OMERecord.Event.ID
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
 
@@ -55,8 +54,10 @@ public struct SchedulePerformanceList {
         public func selectedScheduleTitle(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> String {
-            selectedSchedule(selectedScheduleID: selectedScheduleID)
-                .map(ScheduleViewer.scheduleTitle) ?? "Select Schedule"
+            guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
+                  let timeZone
+            else { return "Select Schedule" }
+            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
         }
 
         public func visiblePerformanceRows(
@@ -183,7 +184,7 @@ public struct SchedulePerformanceListView: View {
                     )
                     .padding()
                 }
-        } else {
+        } else if let eventTimePresentation = store.state.eventTimePresentation {
             PeriodicTimelineView(every: 1) { currentDate in
                 ScrollViewReader { proxy in
                     List(rows) { row in
@@ -192,10 +193,10 @@ public struct SchedulePerformanceListView: View {
                         } label: {
                             SchedulePerformanceRow(
                                 row: row,
-                                timeRangeText: store.state.eventTimePresentation.performanceRowTimeRange(
+                                timeRangeText: eventTimePresentation.performanceRowTimeRange(
                                     for: row.performance
                                 ),
-                                daySegmentText: store.state.eventTimePresentation.daySegment(
+                                daySegmentText: eventTimePresentation.daySegment(
                                     for: row.performance.startTime,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),

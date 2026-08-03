@@ -834,10 +834,9 @@ public struct StageDetail {
         public let eventID: OMERecord.Event.ID
 
         public var destination: Destination.State?
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
@@ -851,11 +850,12 @@ public struct StageDetail {
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.stageID = stageID
             self.eventID = eventID ?? defaultEventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+            )
             eventViewerState = EventViewerState(id: self.eventID)
             _persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
@@ -902,9 +902,10 @@ public struct StageDetail {
             guard let resolvedSelectedScheduleID,
                   let schedule = schedules.first(where: {
                       $0.id.scheduleID == resolvedSelectedScheduleID
-                  })
+                  }),
+                  let timeZone
             else { return "Select Schedule" }
-            return ScheduleViewer.scheduleTitle(schedule)
+            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
         }
 
         var selectedSchedulePerformances: [OMERecord.Performance] {
@@ -1152,18 +1153,22 @@ struct StageScheduleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if store.schedules.count > 1 {
-                StageScheduleDaySelector(
-                    schedules: store.schedules,
-                    selectedScheduleID: _selectedScheduleID
-                )
+                if let timeZone = store.timeZone {
+                    StageScheduleDaySelector(
+                        schedules: store.schedules,
+                        timeZone: timeZone,
+                        selectedScheduleID: _selectedScheduleID
+                    )
+                }
             }
 
-            if let timeRange {
+            if let timeRange,
+               let eventTimePresentation = store.state.eventTimePresentation {
                 ScheduleFixedStageTimeline(
                     stage: stage,
                     performances: store.selectedSchedulePerformances,
                     timeRange: timeRange,
-                    eventTimePresentation: store.state.eventTimePresentation,
+                    eventTimePresentation: eventTimePresentation,
                     pageHeight: scheduleHeight(for: timeRange),
                     userScheduleOverlay: UserScheduleOverlay(
                         schedules: [],
@@ -1215,13 +1220,16 @@ struct StageScheduleView: View {
 
 struct StageScheduleDaySelector: View {
     let schedules: [OMERecord.Schedule]
+    let timeZone: TimeZone
     @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 
     init(
         schedules: [OMERecord.Schedule],
+        timeZone: TimeZone,
         selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>
     ) {
         self.schedules = schedules
+        self.timeZone = timeZone
         self._selectedScheduleID = selectedScheduleID
     }
 
@@ -1232,7 +1240,7 @@ struct StageScheduleDaySelector: View {
                     Button {
                         selectedScheduleID = schedule.id.scheduleID
                     } label: {
-                        Text(ScheduleViewer.scheduleTitle(schedule))
+                        Text(ScheduleViewer.scheduleTitle(schedule, in: timeZone))
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                             .padding(.horizontal, 12)

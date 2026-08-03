@@ -28,10 +28,10 @@ public struct EventSearch {
             eventID: OMERecord.Event.ID,
             destination: Destination.State? = nil
         ) {
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
             self.eventID = eventID
-            self._timeZone = defaultEventTimeZone
+            self._timeZone = FetchOne(
+                OMERecord.Event.timeZoneQuery(eventID: eventID)
+            )
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
             _contributors = FetchAll(
@@ -52,10 +52,9 @@ public struct EventSearch {
         }
 
         public let eventID: OMERecord.Event.ID
-        @DebugSnapshotIgnored
-        @SharedReader public var timeZone: TimeZone
-        var eventTimePresentation: EventTimePresentation {
-            EventTimePresentation(timeZone: event?.timeZone ?? timeZone)
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
         }
 
         public var content: EventSearchContent
@@ -252,20 +251,22 @@ public struct EventSearchView: View {
     public var body: some View {
         NavigationStack {
             PeriodicTimelineView(every: 60) { currentDate in
-                EventSearchContentView(
-                    content: store.content,
-                    now: currentDate,
-                    contributors: store.contributors,
-                    event: store.event,
-                    eventTimePresentation: store.state.eventTimePresentation,
-                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
-                    performanceContributors: store.performanceContributors,
-                    performanceRows: store.performanceRows,
-                    scheduleViewerStates: store.scheduleViewerStates,
-                    openTarget: { store.send(.openTarget($0)) }
-                )
-                .task(id: currentDate) {
-                    store.send(.timelineTick(currentDate))
+                if let eventTimePresentation = store.state.eventTimePresentation {
+                    EventSearchContentView(
+                        content: store.content,
+                        now: currentDate,
+                        contributors: store.contributors,
+                        event: store.event,
+                        eventTimePresentation: eventTimePresentation,
+                        timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
+                        performanceContributors: store.performanceContributors,
+                        performanceRows: store.performanceRows,
+                        scheduleViewerStates: store.scheduleViewerStates,
+                        openTarget: { store.send(.openTarget($0)) }
+                    )
+                    .task(id: currentDate) {
+                        store.send(.timelineTick(currentDate))
+                    }
                 }
             }
             .navigationTitle("Search")
