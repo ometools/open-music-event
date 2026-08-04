@@ -123,8 +123,8 @@ products.append(contentsOf: [
 
 var dependencies: [Package.Dependency] = [
     .package(
-        name: "composable-calendar-events",
-        path: workspacePackagePath("composable-calendar-events")
+        url: "https://source.woody.fm/composable-calendar-events",
+        branch: "main"
     ),
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
