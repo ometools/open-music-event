@@ -6,6 +6,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
+import OpenMusicEventViewers
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -20,19 +21,15 @@ public struct OrganizationDetail {
     public struct State: Identifiable {
         public init(
             organizerID: OME.Organizer.ID,
-            collection: ATProto.NSID = OME.Event.nsid,
-            organizer: CalendarEvent.Organizer? = nil,
-            events: [CalendarEvent] = []
+            collection: ATProto.NSID = OME.Event.nsid
         ) {
             self.organizerID = organizerID
             self.collection = collection
-            self.organizer = organizer
-            self.events = events
         }
 
         public let collection: ATProto.NSID
         public var errorMessage: String?
-        public var events: [CalendarEvent]
+        public var events: [CalendarEvent] = []
         public var isLoading = false
         public var organizer: CalendarEvent.Organizer?
         public let organizerID: OME.Organizer.ID
@@ -51,11 +48,16 @@ public struct OrganizationDetail {
         Update { state, action in
             switch action {
             case let .eventButtonTapped(eventURI):
-                guard let event = state.events.first(where: { $0.uri == eventURI }) else {
+                guard state.events.contains(where: { $0.uri == eventURI }),
+                      let eventID = OME.Event.ID(eventURI)
+                else {
                     return
                 }
                 store.addTask {
-                    try store.post(key: OrganizationEventSelected.self, value: event)
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
                 }
 
             case .retryButtonTapped, .task:
@@ -232,8 +234,4 @@ public struct OrganizationDetailView: View {
     var unavailableEvents: [CalendarEvent] {
         store.events.filter { $0.startsAt == nil }
     }
-}
-
-struct OrganizationEventSelected: FeatureEventKey {
-    typealias Value = CalendarEvent
 }

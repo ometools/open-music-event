@@ -397,12 +397,7 @@ public struct Browse {
 
             case let .browseEventButtonTapped(uri):
                 guard let event = state.events.first(where: { $0.uri == uri }) else { return }
-                state.eventDetail = EventBrowseDetail.State(
-                    event: event,
-                    organizerEvents: state.events.filter {
-                        $0.organizer.id == event.organizer.id && $0.uri != event.uri
-                    }
-                )
+                state.eventDetail = EventBrowseDetail.State(event: event)
 
             case let .daySelected(day):
                 state.selectedDay = day
@@ -1065,9 +1060,8 @@ public struct EventBrowseDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public init(event: CalendarEvent, organizerEvents: [CalendarEvent] = []) {
+        public init(event: CalendarEvent) {
             self.event = event
-            self.organizerEvents = organizerEvents
         }
 
         public var errorMessage: String?
@@ -1075,7 +1069,6 @@ public struct EventBrowseDetail {
         public var isEnteringEvent = false
         public var isSavingRSVP = false
         public var organizationDetail: OrganizationDetail.State?
-        public var organizerEvents: [CalendarEvent]
         public var rsvpStatus: OME.RSVP.Status?
 
         public var id: ATProto.URI { event.uri }
@@ -1123,9 +1116,7 @@ public struct EventBrowseDetail {
             case .organizerButtonTapped:
                 state.organizationDetail = OrganizationDetail.State(
                     organizerID: state.event.organizer.id,
-                    collection: state.event.source.collection,
-                    organizer: state.event.organizer,
-                    events: [state.event] + state.organizerEvents
+                    collection: state.event.source.collection
                 )
 
             case .organizationDetail:
@@ -1191,12 +1182,6 @@ public struct EventBrowseDetail {
         }
         .ifLet(\.organizationDetail, action: \.organizationDetail) {
             OrganizationDetail()
-        }
-        .onEvent(OrganizationEventSelected.self) { event, state in
-            let organizerEvents = state.organizationDetail?.events ?? []
-            state.event = event
-            state.organizerEvents = organizerEvents.filter { $0.uri != event.uri }
-            state.organizationDetail = nil
         }
     }
 }

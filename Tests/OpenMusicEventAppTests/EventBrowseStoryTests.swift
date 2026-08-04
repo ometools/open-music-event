@@ -312,7 +312,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `browse opens the shared organization detail with every organizer event`() throws {
+    func `browse opens organization detail by organizer identity`() throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let currentEvent = try event(
             uri: "at://did:plc:organizer/app.openmusicevent.event/current",
@@ -321,18 +321,8 @@ struct EventBrowseStoryTests {
             startsAt: Date(timeIntervalSince1970: 200),
             collection: OME.Event.nsid
         )
-        let otherEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/other",
-            name: "Other Festival",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 100),
-            collection: OME.Event.nsid
-        )
         let store = Store(
-            initialState: EventBrowseDetail.State(
-                event: currentEvent,
-                organizerEvents: [otherEvent]
-            )
+            initialState: EventBrowseDetail.State(event: currentEvent)
         ) {
             EventBrowseDetail()
         }
@@ -341,14 +331,12 @@ struct EventBrowseStoryTests {
 
         let organizationDetail = try #require(store.organizationDetail)
         expectNoDifference(organizationDetail.organizerID, organizerID)
-        expectNoDifference(
-            organizationDetail.events.map(\.name),
-            ["Current Festival", "Other Festival"]
-        )
+        expectNoDifference(organizationDetail.collection, OME.Event.nsid)
+        expectNoDifference(organizationDetail.events, [])
     }
 
     @Test @MainActor
-    func `organization detail opens the selected event before installing it`() async throws {
+    func `organization detail requests selected event navigation without installing it`() async throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let previousEvent = try event(
             uri: "at://did:plc:organizer/app.openmusicevent.event/2025",
@@ -405,15 +393,12 @@ struct EventBrowseStoryTests {
         #expect(store.lastRequest == nil)
 
         let selectionTask = store.send(.detail(.eventButtonTapped(selectedEvent.uri))) {
-            $0.eventDetail = EventBrowseDetail.State.DebugSnapshot(
-                event: selectedEvent,
-                organizerEvents: [previousEvent]
-            )
+            $0.lastRequest = .event(selectedEventID, nil)
         }
         await selectionTask?.value
 
         #expect(installations.withLock { $0 }.isEmpty)
-        #expect(store.lastRequest == nil)
+        expectNoDifference(store.lastRequest, .event(selectedEventID, nil))
         await store.dismount(timeout: .seconds(1))
     }
 
@@ -703,27 +688,16 @@ struct OrganizationDetailStory {
         }
 
         var detail: OrganizationDetail.State
-        var eventDetail: EventBrowseDetail.State?
         var lastRequest: NavigationRequest?
     }
 
     enum Action {
         case detail(OrganizationDetail.Action)
-        case eventDetail(EventBrowseDetail.Action)
     }
 
     var body: some Feature {
         Scope(\.detail, action: \.detail) {
             OrganizationDetail()
-        }
-        .ifLet(\.eventDetail, action: \.eventDetail) {
-            EventBrowseDetail()
-        }
-        .onEvent(OrganizationEventSelected.self) { event, state in
-            state.eventDetail = EventBrowseDetail.State(
-                event: event,
-                organizerEvents: state.detail.events.filter { $0.uri != event.uri }
-            )
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request

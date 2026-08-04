@@ -280,22 +280,48 @@ struct NavigationTests {
     }
 
     @Test
-    func navigationRequestSelectsEventAndMountsViewer() async throws {
+    func navigationRequestInstallsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
+        let installations = Mutex<[ATProto.URI]>([])
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        withDependencies {
+        let navigationTask = withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.omeEventInstallation = OMEEventInstallationClient { uri in
+                installations.withLock { $0.append(uri) }
+                try await database.write { db in
+                    try Self.insertOrganizer(db, id: eventID.organizerID)
+                    try Self.insertEvent(db, id: eventID, name: "Event 1")
+                    try EventSourceProvenanceRecord.insert {
+                        EventSourceProvenanceRecord(
+                            id: eventID,
+                            sourceKind: .tangled,
+                            sourceReference: "tangled.org/example/event-1",
+                            ref: "main",
+                            eventIDOrigin: .explicit,
+                            sourceEventDirectory: "event-1"
+                        )
+                    }
+                    .execute(db)
+                }
+                return eventID
+            }
         } operation: {
             store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         }
+        await navigationTask?.value
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }
+        expectNoDifference(
+            installations.withLock { $0 },
+            [OMERecord.Event.reference(id: eventID).uri]
+        )
         #expect(appState?.selectedEventID == eventID)
         #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
         #expect(
@@ -6638,8 +6664,15 @@ struct NavigationTests {
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.omeEventInstallation = OMEEventInstallationClient { uri in
+                guard let eventID = OME.Event.ID(uri) else {
+                    throw OMEEventInstallationError.invalidEventURI(uri)
+                }
+                return eventID
+            }
         } operation: {
             var state = RootHarness.State()
             state.root = OpenMusicEventAppRoot.State(

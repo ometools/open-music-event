@@ -21,13 +21,11 @@ public struct WhiteLabelRoot {
 
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
-        public var eventDetail: EventBrowseDetail.State?
         public var isLoading = false
         public var organizationDetail: Spawn<OrganizationDetail>?
     }
 
     public enum Action {
-        case eventDetail(EventBrowseDetail.Action)
         case retryButtonTapped
         case task
     }
@@ -37,9 +35,6 @@ public struct WhiteLabelRoot {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .eventDetail:
-                return
-
             case .retryButtonTapped, .task:
                 guard !state.isLoading else { return }
                 state.isLoading = true
@@ -105,16 +100,6 @@ public struct WhiteLabelRoot {
         .ifLet(\.organizationDetail) {
             OrganizationDetail()
         }
-        .ifLet(\.eventDetail, action: \.eventDetail) {
-            EventBrowseDetail()
-        }
-        .onEvent(OrganizationEventSelected.self) { event, state in
-            let organizerEvents = state.organizationDetail?.events ?? []
-            state.eventDetail = EventBrowseDetail.State(
-                event: event,
-                organizerEvents: organizerEvents.filter { $0.uri != event.uri }
-            )
-        }
     }
 
     private static func organizerID(
@@ -171,11 +156,6 @@ public struct WhiteLabelRootView: View {
                 }
                 .padding()
             }
-        }
-        .navigationDestination(
-            item: $store.scope(\.eventDetail, action: \.eventDetail)
-        ) { eventDetailStore in
-            EventBrowseDetailView(store: eventDetailStore)
         }
     }
 }
