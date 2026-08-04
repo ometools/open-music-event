@@ -769,17 +769,6 @@ extension CalendarEvent {
         return sources
     }
 
-    var heroTitleSources: [HeroImageTitleSource] {
-        let logo = semanticallyOrderedMedia.first { media in
-            let role = media.normalizedRole
-            return role == "icon" || role == "logo"
-        }
-        return [
-            logo.map { .logo($0.artworkSource.image) },
-            .title,
-        ].compactMap { $0 }
-    }
-
     var semanticallyOrderedMedia: [Media] {
         media.enumerated()
             .filter { $0.element.normalizedRole != "sitemap" }
@@ -1194,15 +1183,13 @@ public struct EventBrowseDetailView: View {
     }
 
     public var body: some View {
-        let titleSources = store.event.heroTitleSources
         HeroImageList(
-            title: Text(store.event.name),
-            showsNavigationTitleBeforeScroll: titleSources.containsLogo
+            title: Text(store.event.name)
         ) {
             HeroImage(
                 title: Text(store.event.name),
                 sources: store.event.artworkSources,
-                titleSources: titleSources
+                titleSources: [.title]
             ) {
                 MappedSystemImage(systemName: "music.note")
                     .frame(width: 56, height: 56)
@@ -1248,52 +1235,57 @@ public struct EventBrowseDetailView: View {
                     LabeledContent("Location", value: location)
                 }
 
-                Menu {
-                    RSVPStatusButton(
-                        title: "Going",
-                        status: .going,
-                        selectedStatus: store.rsvpStatus,
-                        disabled: store.isSavingRSVP
-                    ) {
-                        store.send(.rsvpButtonTapped(.going))
-                    }
-                    RSVPStatusButton(
-                        title: "Interested",
-                        status: .interested,
-                        selectedStatus: store.rsvpStatus,
-                        disabled: store.isSavingRSVP
-                    ) {
-                        store.send(.rsvpButtonTapped(.interested))
-                    }
-                    RSVPStatusButton(
-                        title: "Not Going",
-                        status: .notGoing,
-                        selectedStatus: store.rsvpStatus,
-                        disabled: store.isSavingRSVP
-                    ) {
-                        store.send(.rsvpButtonTapped(.notGoing))
-                    }
-                } label: {
-                    HStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("RSVP")
 
-                        Spacer()
+                        if let status = store.rsvpStatus {
+                            Text(status.eventBrowseTitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
-                        if store.isSavingRSVP {
-                            ProgressView()
-                        } else {
-                            Text(store.rsvpStatus?.eventBrowseTitle ?? "Choose")
-                                .foregroundStyle(.secondary)
+                    Spacer()
+
+                    Menu {
+                        RSVPStatusButton(
+                            title: "Going",
+                            status: .going,
+                            selectedStatus: store.rsvpStatus,
+                            disabled: store.isSavingRSVP
+                        ) {
+                            store.send(.rsvpButtonTapped(.going))
+                        }
+                        RSVPStatusButton(
+                            title: "Interested",
+                            status: .interested,
+                            selectedStatus: store.rsvpStatus,
+                            disabled: store.isSavingRSVP
+                        ) {
+                            store.send(.rsvpButtonTapped(.interested))
+                        }
+                        RSVPStatusButton(
+                            title: "Not Going",
+                            status: .notGoing,
+                            selectedStatus: store.rsvpStatus,
+                            disabled: store.isSavingRSVP
+                        ) {
+                            store.send(.rsvpButtonTapped(.notGoing))
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if store.isSavingRSVP {
+                                ProgressView()
+                            }
+                            Text("RSVP")
                             MappedSystemImage(systemName: "ellipsis")
-                                .foregroundStyle(.secondary)
                                 .frame(width: 20, height: 20)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.bordered)
+                    .disabled(store.isSavingRSVP)
                 }
-                .disabled(store.isSavingRSVP)
-                .tint(.primary)
 
                 if let errorMessage = store.errorMessage {
                     Text(errorMessage)
