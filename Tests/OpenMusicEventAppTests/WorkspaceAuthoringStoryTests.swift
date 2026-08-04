@@ -282,6 +282,169 @@ struct WorkspaceAuthoringStoryTests {
         }
     }
 
+    @Test(.tcaExhaustivity(.off))
+    func `active authoring owns Workspace while source preparation fails and retries`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let storageRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "OME-WorkspaceAccessStory-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        defer { try? FileManager.default.removeItem(at: storageRoot) }
+        let git = try WorkspaceStoryGitFixture(
+            organizerID: organizerID,
+            rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
+        )
+        let operations = WorkspaceStorySourceControlRecorder()
+        let preparationGate = WorkspaceStoryPreparationGate()
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
+        let route = AppRoute.event(selectedEventID, .settings)
+        let routeURL = try #require(URL(string: "ome://workspace-access-story\(route.path)"))
+
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            let liveSourceControl = $0.sourceControl
+            let livePreparation = $0[SourceWorkspacePreparationClient.self]
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            $0.sourceWorkspaceStorage = .fileBacked(
+                rootURL: storageRoot.appending(path: "workspaces")
+            )
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
+                organizerID: organizerID
+            )
+            $0.tangledRepositoryMembership = .liveValue
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.p256Sign = { try $1.signature(for: $0).rawRepresentation }
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                organizerID: organizerID,
+                archive: git.archive
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                .sshAgent(hostKeyPolicy: .acceptForTesting)
+            }
+            $0.sourceControl = workspaceStorySourceControl(
+                live: liveSourceControl,
+                remoteURL: git.bareRepositoryURL,
+                recorder: operations
+            )
+            $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient {
+                workspace in
+                try await preparationGate.prepare(
+                    workspace,
+                    live: livePreparation
+                )
+            }
+        } operation: {
+            let opened = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
+                ) {
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
+            }
+            await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
+            expectNoDifference(opened.state.content.eventViewer?.authoring.canEnter, true)
+
+            // The Settings action activates authoring. Workspace availability follows the grant,
+            // while source preparation remains independently suspended at its external boundary.
+            let entry = opened.send(
+                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                .enterAuthoringButtonTapped
+            )
+            await preparationGate.waitUntilFirstAttemptStarts()
+
+            let preparingAuthoring = try #require(
+                opened.state.content.eventViewer?.authoring
+            )
+            let preparingGrant = try #require(preparingAuthoring.grant)
+            expectNoDifference(
+                preparingGrant.principal,
+                AuthoringPrincipal(actorID: organizerID)
+            )
+            expectNoDifference(preparingGrant.role, .owner)
+            expectNoDifference(preparingAuthoring.content.phase, .preparingSource)
+            expectNoDifference(
+                preparingAuthoring.content.content.authoringAccess,
+                .authoring(.owner)
+            )
+            #expect(
+                preparingAuthoring.content.content.installedFeatures.contains(.workspace)
+            )
+            let preparingWorkspace = try #require(
+                preparingAuthoring.content.content.eventWorkspace
+            )
+            expectNoDifference(preparingWorkspace.workspace.id, preparingGrant.workspaceID)
+            expectNoDifference(preparingWorkspace.workspacePhase, .preparingSource)
+            expectNoDifference(
+                preparingWorkspace.changes.summary.availability,
+                .workspaceNeedsPreparation
+            )
+
+            // Failure is presented by the same mounted Workspace; it does not revoke authoring.
+            await preparationGate.failFirstAttempt()
+            await entry?.value
+            let failedAuthoring = try #require(opened.state.content.eventViewer?.authoring)
+            guard case .sourcePreparationFailed = failedAuthoring.content.phase else {
+                Issue.record("The controlled first preparation must fail in Workspace.")
+                return
+            }
+            #expect(failedAuthoring.grant != nil)
+            #expect(failedAuthoring.content.source == nil)
+            #expect(failedAuthoring.content.content.eventWorkspace != nil)
+            #expect(failedAuthoring.content.content.installedFeatures.contains(.workspace))
+            #expect(failedAuthoring.content.content.authoringAccess.canEditContent)
+
+            // Retry starts at EventWorkspace, crosses the app event bridge, and reaches the shared
+            // Workspace state machine before executing the real source preparation implementation.
+            await opened.send(
+                workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
+            )?.value
+            let readyAuthoring = try #require(opened.state.content.eventViewer?.authoring)
+            guard case .ready(.canonical) = readyAuthoring.content.phase else {
+                Issue.record("Workspace retry must establish the canonical editing line.")
+                return
+            }
+            #expect(readyAuthoring.content.source != nil)
+            #expect(readyAuthoring.content.content.eventWorkspace != nil)
+            #expect(readyAuthoring.content.content.installedFeatures.contains(.workspace))
+            expectNoDifference(operations.count(of: "clone"), 1)
+
+            // Exiting authoring removes Workspace from navigation even though its settled state is
+            // retained for durable reentry.
+            await opened.send(
+                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                .exitAuthoringButtonTapped
+            )?.value
+            let exited = try #require(opened.state.content.eventViewer?.authoring)
+            #expect(exited.grant == nil)
+            expectNoDifference(exited.content.content.authoringAccess, .attendee)
+            #expect(!exited.content.content.installedFeatures.contains(.workspace))
+            #expect(exited.content.content.eventWorkspace != nil)
+            await opened.dismount(timeout: .seconds(1))
+        }
+    }
+
     @Test
     func `an authenticated attendee cannot enter authoring and never touches Git`() async throws {
         let database = try makeWorkspaceStoryDatabase()
@@ -634,13 +797,19 @@ private func workspaceStoryOpenEvent<Subject: FeatureProtocol>(
 private func workspaceStoryProposalAction(
     _ action: WorkspaceChanges.Action
 ) -> OpenMusicEventApplication.Action {
+    workspaceStoryWorkspaceAction(.changes(action))
+}
+
+private func workspaceStoryWorkspaceAction(
+    _ action: EventWorkspace.Action
+) -> OpenMusicEventApplication.Action {
     .content(
         .destination(
             .eventViewer(
                 .authoring(
                     .content(
                         .content(
-                            .eventWorkspace(.changes(action))
+                            .eventWorkspace(action)
                         )
                     )
                 )
@@ -650,6 +819,48 @@ private func workspaceStoryProposalAction(
 }
 
 private struct WorkspaceStoryUnexpectedSourceControlOperation: Error {}
+
+private struct WorkspaceStoryFirstPreparationFailure: Error {}
+
+private actor WorkspaceStoryPreparationGate {
+    private var attempt = 0
+    private var firstAttemptStarted = false
+    private var firstAttemptStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstAttemptFailure: CheckedContinuation<Void, Never>?
+
+    func prepare(
+        _ workspace: SourceWorkspace,
+        live: SourceWorkspacePreparationClient
+    ) async throws -> WorkspacePreparation<SourceWorkspaceResource> {
+        attempt += 1
+        guard attempt == 1 else {
+            return try await live.prepare(workspace)
+        }
+
+        firstAttemptStarted = true
+        for waiter in firstAttemptStartWaiters {
+            waiter.resume()
+        }
+        firstAttemptStartWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            firstAttemptFailure = continuation
+        }
+        throw WorkspaceStoryFirstPreparationFailure()
+    }
+
+    func waitUntilFirstAttemptStarts() async {
+        guard !firstAttemptStarted else { return }
+        await withCheckedContinuation { continuation in
+            firstAttemptStartWaiters.append(continuation)
+        }
+    }
+
+    func failFirstAttempt() {
+        precondition(firstAttemptStarted, "The first preparation attempt has not started.")
+        firstAttemptFailure?.resume()
+        firstAttemptFailure = nil
+    }
+}
 
 private final class WorkspaceStorySourceControlRecorder: Sendable {
     private let operations = Mutex<[String]>([])

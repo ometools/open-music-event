@@ -1,10 +1,12 @@
 import ComposableArchitecture2
 import ComposableAuthoring
+import ComposableWorkspace
 import Foundation
 import GRDB
 import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
+import Sharing
 import SourceEditing
 #if os(Android)
 import SkipSwiftUI
@@ -35,15 +37,21 @@ public struct EventWorkspace {
     }
 
     public struct State: Identifiable {
-        public init(workspace: SourceWorkspace, eventID: OME.Event.ID) {
+        public init(
+            workspace: SourceWorkspace,
+            eventID: OME.Event.ID,
+            workspacePhase: SharedReader<WorkspacePhase<SourcePatch>>
+        ) {
             self.workspace = workspace
             self.eventID = eventID
+            self._workspacePhase = workspacePhase
             self.changes = WorkspaceChanges.State(workspace: workspace)
             self.reviews = WorkspaceReviews.State(workspace: workspace)
         }
 
         public let workspace: SourceWorkspace
         public let eventID: OME.Event.ID
+        @SharedReader public var workspacePhase: WorkspacePhase<SourcePatch>
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
@@ -85,6 +93,7 @@ public struct EventWorkspace {
         case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
         case reviews(WorkspaceReviews.Action)
+        case sourcePreparationRetryButtonTapped
     }
 
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
@@ -92,6 +101,21 @@ public struct EventWorkspace {
 
     public var body: some Feature {
         Features {
+            Update { _, action in
+                switch action {
+                case .sourcePreparationRetryButtonTapped:
+                    store.addTask {
+                        let retry = try store.post(
+                            key: SourceWorkspacePreparationRetryRequested.self,
+                            value: ()
+                        )
+                        await retry?.value
+                    }
+
+                case .changes, .collaborators, .reviews:
+                    break
+                }
+            }
             Scope(\.changes, action: \.changes) { WorkspaceChanges() }
             Scope(\.reviews, action: \.reviews) { WorkspaceReviews() }
         }
@@ -138,7 +162,14 @@ public struct EventWorkspaceView: View {
         VStack(spacing: 0) {
             switch store.selectedPage {
             case .changes:
-                WorkspaceChangesView(store: changesStore)
+                if case let .sourcePreparationFailed(failure) = store.workspacePhase {
+                    WorkspacePreparationFailureView(
+                        failure: failure,
+                        retry: { store.send(.sourcePreparationRetryButtonTapped) }
+                    )
+                } else {
+                    WorkspaceChangesView(store: changesStore)
+                }
 
             case .collaborators:
                 if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
@@ -257,6 +288,34 @@ public struct EventWorkspaceView: View {
             .background(.background)
             .overlay(alignment: .bottom) {
                 Divider()
+            }
+        }
+    }
+}
+
+struct WorkspacePreparationFailureView: View {
+    let failure: WorkspaceFailure
+    let retry: () -> Void
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+
+    var body: some View {
+        List {
+            Section("Workspace preparation") {
+                Text("Workspace preparation failed")
+                Text(
+                    "Authoring remains active. Retry preparing the organization source to load changes."
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if showsTechnicalDetails {
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospaced()
+                }
+
+                Button("Retry preparation", action: retry)
             }
         }
     }

@@ -348,8 +348,7 @@ public struct EventViewer {
         }
 
         public var authoringAccess: AuthoringAccess {
-            guard eventWorkspace != nil else { return .attendee }
-            return authoringGrant?.access ?? .attendee
+            authoringGrant?.access ?? .attendee
         }
 
         public var showsAuthoringControls: Bool {
@@ -791,24 +790,45 @@ public struct EventViewer {
         }
     }
 
-    private func installPreparedWorkspace(
-        _ source: SourceWorkspaceResource,
+    private func installAuthorizedWorkspace(
+        _ grant: AuthoringGrant,
         state: inout State
     ) {
-        guard state.authoringGrant?.access.canEditContent == true,
-              state.eventWorkspace == nil
-        else { return }
-        state.eventWorkspace = withDependencies {
-            $0.defaultDatabase = source.database
-        } operation: {
-            EventWorkspace.State(
-                workspace: source.workspace,
-                eventID: state.eventID
-            )
+        if state.eventWorkspace?.workspace.id != grant.workspaceID {
+            do {
+                let sourceWorkspace = try SourceWorkspace(id: grant.workspaceID)
+                state.eventWorkspace = EventWorkspace.State(
+                    workspace: sourceWorkspace,
+                    eventID: state.eventID,
+                    workspacePhase: workspace.phase
+                )
+            } catch {
+                reportIssue(error)
+                return
+            }
         }
         state.reloadFeaturesForAuthoringAccess()
         if let pendingAuthoringEntry = state.pendingAuthoringEntry {
             enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+        }
+    }
+
+    private func installPreparedSource(
+        _ source: SourceWorkspaceResource,
+        state: inout State
+    ) {
+        guard state.eventWorkspace?.workspace.id == source.workspace.id else { return }
+        let selectedPage = state.eventWorkspace?.selectedPage ?? .changes
+        state.eventWorkspace = withDependencies {
+            $0.defaultDatabase = source.database
+        } operation: {
+            var eventWorkspace = EventWorkspace.State(
+                workspace: source.workspace,
+                eventID: state.eventID,
+                workspacePhase: workspace.phase
+            )
+            eventWorkspace.selectedPage = selectedPage
+            return eventWorkspace
         }
         let sourceWorkspaceFetch = sourceWorkspaceFetch
         store.addTask {
@@ -864,13 +884,11 @@ public struct EventViewer {
                 .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
                     let oldValue = oldGrant?.access ?? .attendee
                     let newValue = newGrant?.access ?? .attendee
-                    guard oldValue != newValue else { return }
-                    state.reloadFeaturesForAuthoringAccess()
-                    guard state.eventWorkspace != nil,
-                          newValue.canEditContent,
-                          let pendingAuthoringEntry = state.pendingAuthoringEntry
-                    else { return }
-                    enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+                    if let newGrant, newValue.canEditContent {
+                        installAuthorizedWorkspace(newGrant, state: &state)
+                    } else if oldValue != newValue {
+                        state.reloadFeaturesForAuthoringAccess()
+                    }
                 }
                 .onChange(of: store.selectedFeature) { _, feature, state in
                     guard feature.isEditorFeature else { return }
@@ -902,7 +920,13 @@ public struct EventViewer {
                     }
                 }
                 .onMount { state in
-                    state.reloadFeaturesForAuthoringAccess()
+                    if let grant = state.authoringGrant,
+                       grant.access.canEditContent
+                    {
+                        installAuthorizedWorkspace(grant, state: &state)
+                    } else {
+                        state.reloadFeaturesForAuthoringAccess()
+                    }
                     let eventID = state.eventID
                     let persistedEventViewerState = state.$persistedEventViewerState
                     store.addTask {
@@ -917,11 +941,14 @@ public struct EventViewer {
                     initial: true
                 ) { _, _, state in
                     guard let source = workspace.source.wrappedValue else { return }
-                    installPreparedWorkspace(source, state: &state)
+                    guard case .preparingSource = workspace.phase.wrappedValue else {
+                        installPreparedSource(source, state: &state)
+                        return
+                    }
                 }
                 .onTrigger(store.workspaceSourcePrepared) { state in
                     guard let source = workspace.source.wrappedValue else { return }
-                    installPreparedWorkspace(source, state: &state)
+                    installPreparedSource(source, state: &state)
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
