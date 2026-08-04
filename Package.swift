@@ -3,6 +3,7 @@
 import Foundation
 import PackageDescription
 
+let isOMEAppView = ProcessInfo.processInfo.environment["OME_APPVIEW"] == "1"
 let isAndroidAppBuild = ProcessInfo.processInfo.environment["OME_ANDROID_APP_BUILD"] == "1"
 let grdbPackageName = isAndroidAppBuild ? "grdb-sqlcipher" : "GRDB.swift"
 let sharingTraits: Set<Package.Dependency.Trait> =
@@ -851,6 +852,50 @@ targets.append(contentsOf: [
     ),
 ])
 #endif
+
+if isOMEAppView {
+    products = [
+        .library(
+            name: "OpenMusicEventAppViewServer",
+            targets: ["OpenMusicEventAppViewServer"]
+        ),
+        .executable(
+            name: "OpenMusicEventAppView",
+            targets: ["OpenMusicEventAppView"]
+        ),
+        .executable(
+            name: "OpenMusicEventAppViewLambda",
+            targets: ["OpenMusicEventAppViewLambda"]
+        ),
+    ]
+    dependencies = [
+        .package(
+            url: "https://github.com/awslabs/swift-aws-lambda-events.git",
+            from: "1.4.0"
+        ),
+        .package(
+            url: "https://github.com/hummingbird-project/hummingbird.git",
+            from: "2.22.0"
+        ),
+        .package(
+            url: "https://github.com/hummingbird-project/hummingbird-lambda.git",
+            from: "2.1.0"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-tagged",
+            from: "0.10.0"
+        ),
+    ]
+
+    let appViewTargetNames: Set<String> = [
+        "OpenMusicEventAppView",
+        "OpenMusicEventAppViewLambda",
+        "OpenMusicEventAppViewServer",
+        "OpenMusicEventAppViewServerTests",
+        "OpenMusicEventRouting",
+    ]
+    targets = targets.filter { appViewTargetNames.contains($0.name) }
+}
 
 let package = Package(
     name: "open-music-event",
