@@ -8,6 +8,7 @@ import FileTree
 import Foundation
 import GRDB
 import HTTPClient
+import HTTPTypes
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -16,18 +17,20 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SourceControlClient
 import SQLiteData
+import Sharing
 import Synchronization
 import Testing
 import XRPCClient
 
 @testable import OpenMusicEventApp
+@testable import OpenMusicEventAppEventViewer
 
 private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
-    @Test
+    @Test(.tcaExhaustivity(.off))
     func `authorized entry prepares the organization workspace once and durable reentry only validates it`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
@@ -41,413 +44,238 @@ struct WorkspaceAuthoringStoryTests {
             organizerID: organizerID,
             localID: "ome-workspace-2025"
         )
-        let unrelatedEventID = try await insertUnrelatedWorkspaceStoryEvent(into: database)
         let storageRoot = FileManager.default.temporaryDirectory
             .appending(
                 path: "OME-WorkspaceAuthoringStory-\(UUID().uuidString)",
                 directoryHint: .isDirectory
             )
         defer { try? FileManager.default.removeItem(at: storageRoot) }
-
-        let revision = CommitID(rawValue: "0123456789012345678901234567890123456789")
+        let git = try WorkspaceStoryGitFixture(
+            organizerID: organizerID,
+            rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
+        )
         let operations = WorkspaceStorySourceControlRecorder()
-        let cloneGate = AsyncStream<Void>.makeStream()
-        defer { cloneGate.continuation.finish() }
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
+        let route = AppRoute.event(selectedEventID, .settings)
+        let routeURL = try #require(URL(string: "ome://workspace-story\(route.path)"))
 
-        try await withWorkspaceStoryOAuthSession(actorID: organizerID) {
-            try await withDependencies {
-                $0.context = .test
-                OME.prepareDependencies(&$0, database: database)
-                $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
-                $0.uuid = .incrementing
-                $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot)
-                $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
-                    _, expectedOwnerID, actorID in
-                    expectedOwnerID == organizerID && actorID == organizerID
-                }
-                $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
-                    organizerID: organizerID
-                )
-                $0[XRPC.Client.self] = .liveValue
-                $0.httpClient = workspaceStoryTangledRecordsHTTPClient()
-                $0.tangledSSHCredentials = TangledSSHCredentialsClient {
-                    .sshAgent(hostKeyPolicy: .acceptForTesting)
-                }
-                $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                    try FileManager.default.createDirectory(
-                        at: request.outputURL,
-                        withIntermediateDirectories: true
-                    )
-                    try writeWorkspaceStorySource(
-                        organizerID: organizerID,
-                        to: request.outputURL
-                    )
-                    return TangledSourceCheckout(repositoryURL: request.outputURL)
-                }
-
-                var sourceControl = SourceControlClient.unimplemented
-                sourceControl.clone = { request in
-                    operations.record("clone")
-                    if operations.count(of: "clone") == 1 {
-                        for await _ in cloneGate.stream { break }
-                        throw WorkspaceStoryCloneFailure()
-                    }
-                    try FileManager.default.createDirectory(
-                        at: request.destinationURL.appending(path: ".git", directoryHint: .isDirectory),
-                        withIntermediateDirectories: true
-                    )
-                    try writeWorkspaceStorySource(
-                        organizerID: organizerID,
-                        to: request.destinationURL
-                    )
-                    return Repository(url: request.destinationURL)
-                }
-                sourceControl.open = { url in
-                    operations.record("open")
-                    return Repository(url: url)
-                }
-                sourceControl.fetch = { _ in operations.record("fetch") }
-                sourceControl.checkout = { _ in operations.record("checkout") }
-                sourceControl.resolveRevision = { request in
-                    operations.record("resolve:\(request.ref.rawValue)")
-                    return revision
-                }
-                $0.sourceControl = sourceControl
-            } operation: {
-                // Browsing uses the temporary source artifact path and installs only the selected
-                // event into the real writable database. Git is still untouched.
-                let installedEventID = try await OMEEventInstallationClient.liveValue
-                    .ensureInstalled(OMERecord.Event.reference(id: selectedEventID).uri)
-                expectNoDifference(installedEventID, selectedEventID)
-                let browsedEventNames = try await workspaceStoryEventNames(in: database)
-                expectNoDifference(browsedEventNames, ["Other Festival", "Wicked Woods 2026"])
-                #expect(operations.snapshot.isEmpty)
-
-                var firstStore: StoreOf<OpenMusicEventApplication>? = Store(
-                    initialState: OpenMusicEventApplication.State(
-                        storage: OpenMusicEventOAuth.storage
-                    ) {
-                        OpenMusicEventAppRoot.State(
-                            selectedEventIDAtLaunch: selectedEventID
-                        )
-                    }
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            let liveSourceControl = $0.sourceControl
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot.appending(path: "workspaces"))
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
+                organizerID: organizerID
+            )
+            $0.tangledRepositoryMembership = .liveValue
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.p256Sign = { try $1.signature(for: $0).rawRepresentation }
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                organizerID: organizerID,
+                archive: git.archive
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                .sshAgent(hostKeyPolicy: .acceptForTesting)
+            }
+            $0.sourceControl = workspaceStorySourceControl(
+                live: liveSourceControl,
+                remoteURL: git.bareRepositoryURL,
+                recorder: operations
+            )
+        } operation: {
+            let opened = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
                 ) {
-                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
-                        OpenMusicEventAppRoot()
-                    }
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
                     .presentAuthorizationFailures()
                     .deliverAuthoringAuthorizationChanges()
-                }
+            }
+            await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
 
-                try await workspaceStoryWaitUntil {
-                    firstStore?.content.eventViewer?.authoring.canEnter == true
-                }
-                #expect(operations.snapshot.isEmpty)
+            // Browsing is entered through the app URL and installs only the selected event.
+            let browsedEventNames = try await workspaceStoryEventNames(in: database)
+            expectNoDifference(
+                browsedEventNames,
+                ["Wicked Woods 2026"]
+            )
+            #expect(operations.snapshot.isEmpty)
+            expectNoDifference(opened.state.content.eventViewer?.authoring.canEnter, true)
 
-                // The real OAuth -> AppRoot -> Authoring -> Workspace action path owns entry.
-                let entry = firstStore?.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(.enterButtonTapped)
-                            )
-                        )
-                    )
-                )
-                try await workspaceStoryWaitUntil {
-                    guard case .preparingSource = firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .phase
-                    else { return false }
-                    return operations.count(of: "clone") == 1
-                }
+            // The visible Event Settings control owns authorization and workspace preparation.
+            await opened.send(
+                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                .enterAuthoringButtonTapped
+            )?.value
 
-                // The application boundary renders this package phase as progress. The database
-                // viewer is correctly unavailable until Workspace has delivered its resource.
-                let enteringAuthoring = try #require(
-                    firstStore?.content.eventViewer?.authoring
-                )
-                let enteringGrant = try #require(enteringAuthoring.grant)
-                expectNoDifference(enteringAuthoring.phase, .entering)
-                expectNoDifference(enteringGrant.principal, AuthoringPrincipal(actorID: organizerID))
-                expectNoDifference(enteringGrant.role, .owner)
-                #expect(enteringAuthoring.content.content.eventWorkspace == nil)
+            let authoring = try #require(opened.state.content.eventViewer?.authoring)
+            let workspace = authoring.context
+            let resource = try #require(authoring.content.source)
+            expectNoDifference(authoring.grant?.principal, AuthoringPrincipal(actorID: organizerID))
+            expectNoDifference(authoring.grant?.role, .owner)
+            guard case .ready(.canonical(_)) = authoring.content.phase else {
+                Issue.record("First preparation must establish the canonical editing line.")
+                return
+            }
+            #expect(authoring.content.content.eventWorkspace != nil)
+            expectNoDifference(operations.count(of: "clone"), 1)
+            #expect(operations.count(prefix: "resolve:") > 0)
+            let preparedEventNames = try await workspaceStoryEventNames(in: database)
+            expectNoDifference(
+                preparedEventNames,
+                ["Wicked Woods 2025", "Wicked Woods 2026"]
+            )
+            let olderEventIsInstalled = try await database.read { db in
+                try OMERecord.Event.find(olderEventID).fetchOne(db) != nil
+            }
+            #expect(olderEventIsInstalled)
 
-                cloneGate.continuation.yield(())
-                await entry?.value
-                try await workspaceStoryWaitUntil {
-                    guard case .sourcePreparationFailed = firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .phase
-                    else { return false }
-                    return firstStore?.content.eventViewer?.authoring.grant != nil
-                }
-                expectNoDifference(operations.count(of: "clone"), 1)
-
-                // The mounted Workspace owns retry. Authoring keeps the valid grant, and retrying
-                // repeats only source preparation rather than authentication or authorization.
-                let retry = firstStore?.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(
-                                    .content(.sourcePreparationRetryButtonTapped)
+            // A real editor action opens the live form. TestStore.modify is the same blessed
+            // binding entry point used by SwiftUI, and save writes through Workspace's database.
+            await opened.send(
+                to: \.content.eventViewer!.authoring.content.content.eventInfoViewer!,
+                .editButtonTapped
+            )?.value
+            opened.modify {
+                guard var eventViewer = $0.content.eventViewer,
+                      var form = eventViewer
+                        .authoring.content.content.destination?
+                        .eventInfoForm
+                else { return }
+                form.draft.name = "Wicked Woods 2026 - Local Edit"
+                eventViewer.authoring.content.content.destination = .eventInfoForm(form)
+                $0.content.eventViewer = eventViewer
+            }
+            await opened.send(
+                .content(
+                    .destination(
+                        .eventViewer(
+                            .authoring(
+                                .content(
+                                    .content(
+                                        .destination(
+                                            .eventInfoForm(.saveButtonTapped)
+                                        )
+                                    )
                                 )
                             )
                         )
                     )
                 )
-                await retry?.value
-                try await workspaceStoryWaitUntil {
-                    guard case .ready(.canonical) = firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .phase
-                    else { return false }
-                    return firstStore?.content.eventViewer?.authoring.content.source != nil
-                        && firstStore?
-                            .content
-                            .eventViewer?
-                            .authoring
-                            .content
-                            .content
-                            .eventWorkspace != nil
-                }
+            )?.value
 
-                let workspace = try #require(firstStore?.content.eventViewer?.authoring.context)
-                let firstResource = try #require(
-                    firstStore?.content.eventViewer?.authoring.content.source
-                )
-                expectNoDifference(workspace.organizerID, organizerID)
-                let preparedEventNames = try await workspaceStoryEventNames(in: database)
-                expectNoDifference(
-                    preparedEventNames,
-                    ["Other Festival", "Wicked Woods 2025", "Wicked Woods 2026"]
-                )
-                expectNoDifference(operations.count(of: "clone"), 2)
-                expectNoDifference(operations.count(prefix: "resolve:"), 1)
-                #expect(
-                    firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .content
-                        .installedFeatures
-                        .contains(.workspace) == true
-                )
+            let editedEventNames = try await workspaceStoryEventNames(in: database)
+            expectNoDifference(
+                editedEventNames,
+                ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
+            )
+            let editedSummary = try await resource.database.read { db in
+                try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+            }
+            #expect(editedSummary.totalCount > 0)
 
-                let cleanSummary = try await firstResource.database.read { db in
-                    try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
-                }
-                expectNoDifference(cleanSummary.availability, .available)
-                expectNoDifference(cleanSummary.totalCount, 0)
-
-                // EventWorkspace is a pure live database viewer. Publication persistence and the
-                // viewer share the workspace-owned main + attached-baseline connection, so the
-                // proposal changes without a reload action or client-held state.
-                let observedProposal = WorkspaceProposal(
-                    id: WorkspaceProposalID(
-                        rawValue: "at://did:plc:author/sh.tangled.pull/workspace-story"
-                    ),
-                    source: WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: "ome/workspace-story"),
-                        revision: WorkspaceRevision(rawValue: revision.rawValue)
-                    ),
-                    target: WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: workspace.branch),
-                        revision: WorkspaceRevision(rawValue: revision.rawValue)
-                    )
+            // Proposal creation is driven only through the mounted WorkspaceChanges surface.
+            opened.send(workspaceStoryProposalAction(.proposalActionButtonTapped))
+            opened.send(
+                workspaceStoryProposalAction(
+                    .proposalDraft(.titleChanged("Update the 2026 event"))
                 )
-                let proposalStore = SourceWorkspaceOpenProposalStore(
-                    database: firstResource.database
+            )
+            opened.send(
+                workspaceStoryProposalAction(
+                    .proposalDraft(.descriptionChanged("Exercise the complete proposal stack."))
                 )
-                try await proposalStore.save(observedProposal, workspaceID: workspace.id)
-                try await workspaceStoryWaitUntil {
-                    firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .content
-                        .eventWorkspace?
-                        .changes
-                        .openProposal == observedProposal
-                }
-                try await proposalStore.save(nil, workspaceID: workspace.id)
-                try await workspaceStoryWaitUntil {
-                    firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .content
-                        .eventWorkspace?
-                        .changes
-                        .openProposal == nil
-                }
-
-                // A real application write is immediately visible against the attached baseline.
-                try await database.write { db in
-                    try OMERecord.Event.find(selectedEventID)
-                        .update { $0.name = "Wicked Woods 2026 - Local Edit" }
-                        .execute(db)
-                }
-                let editedSummary = try await firstResource.database.read { db in
-                    try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
-                }
-                #expect(editedSummary.totalCount > 0)
-
-                // Grant loss does not destroy settled workspace state within the mounted feature.
-                let exit = firstStore?.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(.exitButtonTapped)
-                            )
-                        )
-                    )
+            )
+            await opened.send(
+                workspaceStoryProposalAction(
+                    .proposalDraft(.createProposalButtonTapped)
                 )
-                await exit?.value
-                try await workspaceStoryWaitUntil {
-                    firstStore?.content.eventViewer?.authoring.grant == nil
-                        && firstStore?.content.eventViewer?.authoring.canEnter == true
-                }
-                guard case .ready(.canonical) = firstStore?
-                    .content
-                    .eventViewer?
-                    .authoring
-                    .content
-                    .phase
-                else {
-                    Issue.record("Settled workspace state must outlive authoring grant loss.")
-                    return
-                }
-                #expect(
-                    firstStore?
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .content
-                        .eventWorkspace != nil
-                )
+            )?.value
 
-                let sameMountReentry = firstStore?.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(.enterButtonTapped)
-                            )
-                        )
-                    )
-                )
-                await sameMountReentry?.value
-                try await workspaceStoryWaitUntil {
-                    firstStore?.content.eventViewer?.authoring.grant != nil
-                }
-                expectNoDifference(operations.count(of: "clone"), 2)
-                expectNoDifference(operations.count(prefix: "resolve:"), 1)
+            let proposal = try #require(
+                opened.state.content.eventViewer?
+                    .authoring.content.content.eventWorkspace?
+                    .changes.openProposal
+            )
+            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.eventViewer?
+                .authoring.content.phase,
+                recordedProposal == proposal
+            else {
+                Issue.record("Creating the proposal must advance Workspace to its proposal line.")
+                return
+            }
+            #expect(operations.count(of: "createBranch") == 1)
+            #expect(operations.count(of: "commit") == 1)
+            #expect(operations.count(of: "formatPatch") == 1)
+            #expect(operations.count(of: "push") == 1)
 
-                let secondExit = firstStore?.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(.exitButtonTapped)
-                            )
-                        )
-                    )
-                )
-                await secondExit?.value
-                try await workspaceStoryWaitUntil {
-                    firstStore?.content.eventViewer?.authoring.grant == nil
-                }
-                firstStore = nil
-                await Task.yield()
+            // Exiting revokes the grant, but the settled workspace and proposal survive by design.
+            await opened.send(
+                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                .exitAuthoringButtonTapped
+            )?.value
+            #expect(opened.state.content.eventViewer?.authoring.grant == nil)
+            guard case let .ready(.proposal(settledProposal)) = opened.state.content.eventViewer?
+                .authoring.content.phase,
+                settledProposal == proposal
+            else {
+                Issue.record("Grant loss must not discard the settled proposal workspace.")
+                return
+            }
 
-                // A new application mount has inactive Workspace state, so it opens and validates
-                // the durable repository/reference pair. It neither clones nor reinstalls source.
-                let remountedStore = Store(
-                    initialState: OpenMusicEventApplication.State(
-                        storage: OpenMusicEventOAuth.storage
-                    ) {
-                        OpenMusicEventAppRoot.State(
-                            selectedEventIDAtLaunch: selectedEventID
-                        )
-                    }
+            await opened.dismount(timeout: .seconds(1))
+
+            // A fresh application mount enters through the same settings action. It must open and
+            // validate the durable repository and proposal rather than cloning or reinstalling it.
+            let remountedStore = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
                 ) {
-                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
-                        OpenMusicEventAppRoot()
-                    }
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
                     .presentAuthorizationFailures()
                     .deliverAuthoringAuthorizationChanges()
-                }
-                try await workspaceStoryWaitUntil {
-                    remountedStore.content.eventViewer?.authoring.canEnter == true
-                }
-                let durableReentry = remountedStore.send(
-                    .content(
-                        .destination(
-                            .eventViewer(
-                                .authoring(.enterButtonTapped)
-                            )
-                        )
-                    )
-                )
-                await durableReentry?.value
-                try await workspaceStoryWaitUntil {
-                    guard case .ready(.canonical) = remountedStore
-                        .content
-                        .eventViewer?
-                        .authoring
-                        .content
-                        .phase
-                    else { return false }
-                    return remountedStore.content.eventViewer?.authoring.content.source != nil
-                        && remountedStore
-                            .content
-                            .eventViewer?
-                            .authoring
-                            .content
-                            .content
-                            .eventWorkspace != nil
-                }
-
-                expectNoDifference(operations.count(of: "clone"), 2)
-                expectNoDifference(operations.count(prefix: "resolve:"), 2)
-                let remountedEventNames = try await workspaceStoryEventNames(in: database)
-                expectNoDifference(
-                    remountedEventNames,
-                    [
-                        "Other Festival",
-                        "Wicked Woods 2025",
-                        "Wicked Woods 2026 - Local Edit",
-                    ]
-                )
-
-                let remountedResource = try #require(
-                    remountedStore.content.eventViewer?.authoring.content.source
-                )
-                let remountedSummary = try await remountedResource.database.read { db in
-                    try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
-                }
-                #expect(remountedSummary.totalCount > 0)
-
-                // Keep the exact identities visible in this application story.
-                let exactEventsRemain = try await database.read { db in
-                    try OMERecord.Event.find(olderEventID).fetchOne(db) != nil
-                        && OMERecord.Event.find(unrelatedEventID).fetchOne(db) != nil
-                }
-                #expect(exactEventsRemain)
             }
+            await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
+            await remountedStore.send(
+                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                .enterAuthoringButtonTapped
+            )?.value
+
+            let remountedAuthoring = try #require(
+                remountedStore.state.content.eventViewer?.authoring
+            )
+            expectNoDifference(remountedAuthoring.grant?.role, .owner)
+            expectNoDifference(remountedAuthoring.content.phase, .ready(.proposal(proposal)))
+            expectNoDifference(
+                remountedAuthoring.content.content.eventWorkspace?.changes.openProposal,
+                proposal
+            )
+            expectNoDifference(operations.count(of: "clone"), 1)
+            #expect(operations.count(of: "open") > 1)
+            let remountedEventNames = try await workspaceStoryEventNames(in: database)
+            expectNoDifference(
+                remountedEventNames,
+                ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
+            )
+            await remountedStore.dismount(timeout: .seconds(1))
         }
     }
 
@@ -543,7 +371,281 @@ struct WorkspaceAuthoringStoryTests {
     }
 }
 
-private struct WorkspaceStoryCloneFailure: Error {}
+private struct WorkspaceStoryGitFixture {
+    let archive: Data
+    let bareRepositoryURL: URL
+
+    init(organizerID: OMERecord.Organizer.ID, rootURL: URL) throws {
+        let sourceURL = rootURL.appending(path: "source", directoryHint: .isDirectory)
+        bareRepositoryURL = rootURL.appending(path: "remote.git", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        try writeWorkspaceStorySource(organizerID: organizerID, to: sourceURL)
+
+        try workspaceStoryRunGit(["init", "--initial-branch=main"], at: sourceURL)
+        try workspaceStoryRunGit(["config", "user.name", "Workspace Story"], at: sourceURL)
+        try workspaceStoryRunGit(
+            ["config", "user.email", "workspace-story@openmusicevent.app"],
+            at: sourceURL
+        )
+        try workspaceStoryRunGit(["add", "."], at: sourceURL)
+        try workspaceStoryRunGit(["commit", "-m", "Initial organization source"], at: sourceURL)
+        try workspaceStoryRunGit(
+            ["clone", "--bare", sourceURL.path, bareRepositoryURL.path],
+            at: rootURL
+        )
+        archive = try workspaceStoryRunGit(
+            ["archive", "--format=tar.gz", "main"],
+            at: sourceURL
+        )
+    }
+}
+
+private struct WorkspaceStoryFixtureCommandFailure: Error, CustomStringConvertible {
+    let arguments: [String]
+    let status: Int32
+    let stderr: String
+
+    var description: String {
+        "git \(arguments.joined(separator: " ")) failed with \(status): \(stderr)"
+    }
+}
+
+@discardableResult
+private func workspaceStoryRunGit(_ arguments: [String], at directory: URL) throws -> Data {
+    let process = Process()
+    let output = Pipe()
+    let error = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = ["-C", directory.path] + arguments
+    process.standardOutput = output
+    process.standardError = error
+    try process.run()
+    process.waitUntilExit()
+    let outputData = output.fileHandleForReading.readDataToEndOfFile()
+    let errorData = error.fileHandleForReading.readDataToEndOfFile()
+    guard process.terminationStatus == 0 else {
+        throw WorkspaceStoryFixtureCommandFailure(
+            arguments: arguments,
+            status: process.terminationStatus,
+            stderr: String(decoding: errorData, as: UTF8.self)
+        )
+    }
+    return outputData
+}
+
+private func workspaceStoryOAuthStorage(actorID: DID) -> OAuthSessionStorage {
+    let session = workspaceStoryOAuthSession(actorID: actorID)
+    let sessionStore = Shared(
+        value: OAuth.SessionStore(
+            selectedAccountID: session.accountID,
+            sessions: [actorID: session]
+        )
+    )
+    return OAuthSessionStorage(
+        sessionStore: sessionStore,
+        authFailureMessage: Shared(value: nil),
+        selectedSessionID: Shared(value: session.accountID)
+    )
+}
+
+private func workspaceStoryOAuthSession(actorID: DID) -> OAuth.Session {
+    OAuth.Session(
+        accountID: Atmosphere.Account.ID(actorID),
+        pdsHost: "owner.pds.example",
+        tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
+            URL(string: "https://owner.pds.example/oauth/token")!
+        ),
+        scope: OAuth.Scope(
+            rawValue: Set([OAuth.Permission.atproto])
+                .union(OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions)
+                .map(\.rawValue)
+                .sorted()
+                .joined(separator: " ")
+        ),
+        accessToken: OAuth.AccessToken(rawValue: "workspace-story-access-token"),
+        refreshToken: OAuth.RefreshToken(rawValue: "workspace-story-refresh-token"),
+        dpopKey: OAuth.DPOP.Key()
+    )
+}
+
+private func workspaceStoryNetwork(
+    organizerID: DID,
+    archive: Data
+) -> RunHTTPRequest {
+    { request, _ in
+        let path = request.url?.path ?? ""
+        func ok(_ data: Data) -> (Data, HTTPResponse) {
+            (data, HTTPResponse(status: .ok))
+        }
+
+        if path.hasSuffix("/archive/main.tar.gz") {
+            return ok(archive)
+        }
+        if path.hasSuffix("/com.atproto.repo.listRecords") {
+            return ok(Data(
+                """
+                {
+                  "records": [
+                    {
+                      "uri": "at://\(organizerID)/sh.tangled.repo/ome-workspace",
+                      "cid": "bafyreifakerepo",
+                      "value": {
+                        "$type": "sh.tangled.repo",
+                        "name": "ome-workspace",
+                        "repoDid": "did:plc:workspace-source-repository",
+                        "knot": "tangled.org",
+                        "createdAt": "2026-05-26T17:30:42Z"
+                      }
+                    }
+                  ]
+                }
+                """.utf8
+            ))
+        }
+        if path.hasSuffix("/com.atproto.repo.uploadBlob") {
+            return ok(Data(
+                """
+                {
+                  "blob": {
+                    "$type": "blob",
+                    "ref": {"$link": "bafkreipatch"},
+                    "mimeType": "application/gzip",
+                    "size": 123
+                  }
+                }
+                """.utf8
+            ))
+        }
+        if path.hasSuffix("/com.atproto.repo.putRecord") {
+            return ok(Data(
+                """
+                {
+                  "uri": "at://\(organizerID)/sh.tangled.repo.pull/workspace-story",
+                  "cid": "bafyreipull"
+                }
+                """.utf8
+            ))
+        }
+
+        throw WorkspaceStoryUnexpectedNetworkRequest(url: request.url)
+    }
+}
+
+private struct WorkspaceStoryUnexpectedNetworkRequest: Error {
+    let url: URL?
+}
+
+private func workspaceStorySourceControl(
+    live: SourceControlClient,
+    remoteURL: URL,
+    recorder: WorkspaceStorySourceControlRecorder
+) -> SourceControlClient {
+    var sourceControl = live
+    sourceControl.clone = { request in
+        recorder.record("clone")
+        var request = request
+        request.remote.url = RemoteURL(rawValue: remoteURL.path)
+        request.credentials = nil
+        return try await live.clone(request)
+    }
+    sourceControl.open = { url in
+        recorder.record("open")
+        return try await live.open(url)
+    }
+    sourceControl.fetch = { request in
+        recorder.record("fetch")
+        var request = request
+        request.credentials = nil
+        try await live.fetch(request)
+    }
+    sourceControl.checkout = { request in
+        recorder.record("checkout")
+        try await live.checkout(request)
+    }
+    sourceControl.createBranch = { request in
+        recorder.record("createBranch")
+        return try await live.createBranch(request)
+    }
+    sourceControl.status = { repository in
+        recorder.record("status")
+        return try await live.status(repository)
+    }
+    sourceControl.stage = { request in
+        recorder.record("stage")
+        try await live.stage(request)
+    }
+    sourceControl.commit = { request in
+        recorder.record("commit")
+        return try await live.commit(request)
+    }
+    sourceControl.resolveRevision = { request in
+        recorder.record("resolve:\(request.ref.rawValue)")
+        return try await live.resolveRevision(request)
+    }
+    sourceControl.formatPatch = { request in
+        recorder.record("formatPatch")
+        return try await live.formatPatch(request)
+    }
+    sourceControl.push = { request in
+        recorder.record("push")
+        var request = request
+        request.credentials = nil
+        try await live.push(request)
+    }
+    return sourceControl
+}
+
+@MainActor
+private func workspaceStoryOpenEvent<Subject: FeatureProtocol>(
+    _ store: TestStore<Subject>,
+    route: AppRoute,
+    url: URL
+) async where
+    Subject.State == OpenMusicEventApplication.State,
+    Subject.Action == OpenMusicEventApplication.Action
+{
+    await store.send(.content(.openURL(url)))?.value
+    let open = await store.receive(
+        \.content,
+        .matching { action in
+            guard case let .openRoute(receivedRoute) = action else { return false }
+            return receivedRoute == route
+        },
+        timeout: .seconds(1)
+    )
+    await open?.value
+    let restore = await store.receive(
+        \.content,
+        .matching { action in
+            guard case .destination(
+                .eventViewer(.authoring(.restoreAuthorization))
+            ) = action
+            else { return false }
+            return true
+        },
+        timeout: .seconds(1)
+    )
+    await restore?.value
+}
+
+private func workspaceStoryProposalAction(
+    _ action: WorkspaceChanges.Action
+) -> OpenMusicEventApplication.Action {
+    .content(
+        .destination(
+            .eventViewer(
+                .authoring(
+                    .content(
+                        .content(
+                            .eventWorkspace(.changes(action))
+                        )
+                    )
+                )
+            )
+        )
+    )
+}
+
 private struct WorkspaceStoryUnexpectedSourceControlOperation: Error {}
 
 private final class WorkspaceStorySourceControlRecorder: Sendable {

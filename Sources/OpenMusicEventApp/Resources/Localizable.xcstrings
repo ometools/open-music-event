@@ -138,9 +138,6 @@
         }
       }
     },
-    "Capturing source changes" : {
-
-    },
     "Choose a date" : {
 
     },
@@ -230,9 +227,6 @@
 
     },
     "Events Unavailable" : {
-
-    },
-    "Exit" : {
 
     },
     "Favorite" : {
@@ -498,21 +492,6 @@
     "Previous" : {
 
     },
-    "Publication was interrupted" : {
-
-    },
-    "Publishing proposal" : {
-
-    },
-    "Reconcile" : {
-
-    },
-    "Reconciling source" : {
-
-    },
-    "Retry" : {
-
-    },
     "RSVP" : {
 
     },
@@ -588,9 +567,6 @@
 
     },
     "Source import output can only be used with Tangled repositories." : {
-
-    },
-    "Source moved; reconcile before publishing" : {
 
     },
     "Starts" : {
@@ -799,9 +775,6 @@
           }
         }
       }
-    },
-    "Workspace operation failed" : {
-
     }
   },
   "version" : "1.0"
