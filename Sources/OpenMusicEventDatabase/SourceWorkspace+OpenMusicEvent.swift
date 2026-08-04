@@ -299,10 +299,8 @@ private func saveReferenceRevision(
     database: any DatabaseWriter
 ) async throws {
     try await database.write { db in
-        try SourceWorkspaceReferenceRecord.insert {
+        try SourceWorkspaceReferenceRecord.upsert {
             SourceWorkspaceReferenceRecord(id: workspaceID, revision: revision)
-        } onConflict: {
-            $0.id
         }
         .execute(db)
     }
@@ -314,10 +312,8 @@ private func saveInstallationRevision(
     database: any DatabaseWriter
 ) async throws {
     try await database.write { db in
-        try SourceWorkspaceInstallationRecord.insert {
+        try SourceWorkspaceInstallationRecord.upsert {
             SourceWorkspaceInstallationRecord(id: workspaceID, revision: revision)
-        } onConflict: {
-            $0.id
         }
         .execute(db)
     }

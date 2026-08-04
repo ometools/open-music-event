@@ -1,4 +1,5 @@
 import ATProto
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import FileTree
@@ -9,6 +10,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
+import SourceControlClient
 import SourceEditing
 import Synchronization
 import Testing
@@ -2840,6 +2842,105 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func publishedWorkspaceRevisionReopensAfterExistingRevisionsAdvance() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let location = try storage.location(workspace.id)
+        try FileManager.default.createDirectory(
+            at: location.repositoryURL,
+            withIntermediateDirectories: true
+        )
+        _ = try OpenMusicEventSourceRepositoryFileTree().write(
+            makeSourceRepository(),
+            to: location.repositoryURL
+        )
+        try FileManager.default.createDirectory(
+            at: location.repositoryURL.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+
+        let currentRevision = Mutex("old-revision")
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: currentRevision.withLock { $0 })
+        }
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+        } operation: {
+            let preparation = SourceWorkspacePreparationClient.openMusicEvent(
+                resolveRevision: resolveRevision
+            )
+            let prepared = try await preparation.prepare(workspace)
+            currentRevision.withLock { $0 = "new-revision" }
+
+            let proposal = WorkspaceProposal(
+                id: WorkspaceProposalID(rawValue: "proposal-1"),
+                source: WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "proposal/testival"),
+                    revision: WorkspaceRevision(rawValue: "new-revision")
+                ),
+                target: WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "main"),
+                    revision: WorkspaceRevision(rawValue: "old-revision")
+                )
+            )
+            let submission = try workspaceSubmission(for: proposal)
+            try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .advance(prepared.source, workspace.id, submission, proposal)
+
+            let persistedRevisions = try await (
+                defaultBaselineDatabase(
+                    path: prepared.source.sourceEditingSession.baselineDatabasePath
+                ).read { db in
+                    try SourceWorkspaceReferenceRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?
+                        .revision
+                },
+                database.read { db in
+                    try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?
+                        .revision
+                }
+            )
+            expectNoDifference(persistedRevisions.0, "new-revision")
+            expectNoDifference(persistedRevisions.1, "new-revision")
+
+            let reopened = try await preparation.prepare(workspace)
+            expectNoDifference(
+                reopened.line,
+                .canonical(
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "new-revision")
+                    )
+                )
+            )
+            #expect(reopened.source.workspace == workspace)
+        }
+    }
+
+    @Test
     func materializesFileBackedRequiredStageLogosOnInsert() async throws {
         let repositoryURL = try temporaryDirectoryURL()
         let eventDirectoryURL = repositoryURL
@@ -4070,6 +4171,29 @@ struct SourceDatabaseInsertionTests {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func workspaceSubmission(
+        for proposal: WorkspaceProposal
+    ) throws -> WorkspaceSubmission<SourcePatch> {
+        struct EncodableSubmission: Encodable {
+            var changes: SourcePatch
+            var id: WorkspaceSubmissionID
+            var step: WorkspacePublicationStep
+            var target: WorkspaceSubmissionTarget
+        }
+
+        return try JSONDecoder().decode(
+            WorkspaceSubmission<SourcePatch>.self,
+            from: JSONEncoder().encode(
+                EncodableSubmission(
+                    changes: SourcePatch(),
+                    id: WorkspaceSubmissionID(rawValue: UUID(0)),
+                    step: .updateReference(proposal),
+                    target: .updateProposal(proposal)
+                )
+            )
+        )
     }
 }
 

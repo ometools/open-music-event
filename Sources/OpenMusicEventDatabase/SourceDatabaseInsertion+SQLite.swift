@@ -100,13 +100,11 @@ public extension OME.SourceDatabaseInsertion {
                 .execute(db)
 
             try prepared.insert(into: db)
-            try SourceWorkspaceInstallationRecord.insert {
+            try SourceWorkspaceInstallationRecord.upsert {
                 SourceWorkspaceInstallationRecord(
                     id: workspace.id,
                     revision: revision
                 )
-            } onConflict: {
-                $0.id
             }
             .execute(db)
         }
