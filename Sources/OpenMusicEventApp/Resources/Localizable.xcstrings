@@ -202,9 +202,6 @@
     "Done" : {
 
     },
-    "Ends" : {
-
-    },
     "Enter a Tangled repository, not a local source path." : {
 
     },
@@ -215,6 +212,9 @@
 
     },
     "Enter Event" : {
+
+    },
+    "Entering…" : {
 
     },
     "Error Handling" : {
@@ -567,9 +567,6 @@
 
     },
     "Source import output can only be used with Tangled repositories." : {
-
-    },
-    "Starts" : {
 
     },
     "System" : {
