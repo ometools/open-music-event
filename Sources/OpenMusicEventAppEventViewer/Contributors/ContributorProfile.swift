@@ -318,18 +318,20 @@ extension ContributorProfile {
     private static func eventContributorActorExpression(
         eventID: OMERecord.Event.ID
     ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
-        #sql(
+        let contributorTableName = OMERecord.Contributor.tableName
+        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+        return #sql(
             """
             COALESCE(
-              "contributors"."did",
+              \(quote: contributorTableName)."did",
               (
-              SELECT "performanceContributors"."contributorActor"
-              FROM "performanceContributors"
-              WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
-                AND "performanceContributors"."eventID" = \(eventID.eventID)
-                AND "performanceContributors"."contributorID" = "contributors"."contributorID"
-                AND "performanceContributors"."contributorActor" IS NOT NULL
-              ORDER BY "performanceContributors"."performanceID"
+              SELECT \(quote: performanceContributorsTableName)."contributorActor"
+              FROM \(quote: performanceContributorsTableName)
+              WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
+                AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
+                AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
+                AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
+              ORDER BY \(quote: performanceContributorsTableName)."performanceID"
               LIMIT 1
               )
             )
@@ -342,18 +344,20 @@ extension ContributorProfile {
         performanceID: OMERecord.ID<OMERecord.Performance>,
         eventID: OMERecord.Event.ID
     ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
-        #sql(
+        let contributorTableName = OMERecord.Contributor.tableName
+        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+        return #sql(
             """
             COALESCE(
-              "contributors"."did",
+              \(quote: contributorTableName)."did",
               (
-              SELECT "performanceContributors"."contributorActor"
-              FROM "performanceContributors"
-              WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
-                AND "performanceContributors"."eventID" = \(eventID.eventID)
-                AND "performanceContributors"."performanceID" = \(performanceID)
-                AND "performanceContributors"."contributorID" = "contributors"."contributorID"
-                AND "performanceContributors"."contributorActor" IS NOT NULL
+              SELECT \(quote: performanceContributorsTableName)."contributorActor"
+              FROM \(quote: performanceContributorsTableName)
+              WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
+                AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
+                AND \(quote: performanceContributorsTableName)."performanceID" = \(performanceID)
+                AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
+                AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
               LIMIT 1
               )
             )
@@ -439,23 +443,27 @@ extension ContributorProfile {
         eventID: OMERecord.Event.ID,
         as type: Value.Type
     ) -> some QueryExpression<Value> {
-        #sql(
+        let actorProfileCacheEntriesTableName = BlueskyActorProfileCacheEntry.tableName
+        let actorProfilesTableName = BlueskyActorProfile.tableName
+        let contributorTableName = OMERecord.Contributor.tableName
+        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+        return #sql(
             """
             (
-              SELECT "blueskyActorProfiles".\(raw: columnName)
-              FROM "blueskyActorProfileCacheEntries"
-              JOIN "blueskyActorProfiles"
-                ON "blueskyActorProfiles"."did" = "blueskyActorProfileCacheEntries"."did"
-              WHERE "blueskyActorProfileCacheEntries"."actor" = COALESCE(
-                "contributors"."did",
+              SELECT \(quote: actorProfilesTableName).\(raw: columnName)
+              FROM \(quote: actorProfileCacheEntriesTableName)
+              JOIN \(quote: actorProfilesTableName)
+                ON \(quote: actorProfilesTableName)."did" = \(quote: actorProfileCacheEntriesTableName)."did"
+              WHERE \(quote: actorProfileCacheEntriesTableName)."actor" = COALESCE(
+                \(quote: contributorTableName)."did",
                 (
-                SELECT "performanceContributors"."contributorActor"
-                FROM "performanceContributors"
-                WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
-                  AND "performanceContributors"."eventID" = \(eventID.eventID)
-                  AND "performanceContributors"."contributorID" = "contributors"."contributorID"
-                  AND "performanceContributors"."contributorActor" IS NOT NULL
-                ORDER BY "performanceContributors"."performanceID"
+                SELECT \(quote: performanceContributorsTableName)."contributorActor"
+                FROM \(quote: performanceContributorsTableName)
+                WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
+                  AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
+                  AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
+                  AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
+                ORDER BY \(quote: performanceContributorsTableName)."performanceID"
                 LIMIT 1
                 )
               )
@@ -472,23 +480,27 @@ extension ContributorProfile {
         eventID: OMERecord.Event.ID,
         as type: Value.Type
     ) -> some QueryExpression<Value> {
-        #sql(
+        let actorProfileCacheEntriesTableName = BlueskyActorProfileCacheEntry.tableName
+        let actorProfilesTableName = BlueskyActorProfile.tableName
+        let contributorTableName = OMERecord.Contributor.tableName
+        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+        return #sql(
             """
             (
-              SELECT "blueskyActorProfiles".\(raw: columnName)
-              FROM "blueskyActorProfileCacheEntries"
-              JOIN "blueskyActorProfiles"
-                ON "blueskyActorProfiles"."did" = "blueskyActorProfileCacheEntries"."did"
-              WHERE "blueskyActorProfileCacheEntries"."actor" = COALESCE(
-                "contributors"."did",
+              SELECT \(quote: actorProfilesTableName).\(raw: columnName)
+              FROM \(quote: actorProfileCacheEntriesTableName)
+              JOIN \(quote: actorProfilesTableName)
+                ON \(quote: actorProfilesTableName)."did" = \(quote: actorProfileCacheEntriesTableName)."did"
+              WHERE \(quote: actorProfileCacheEntriesTableName)."actor" = COALESCE(
+                \(quote: contributorTableName)."did",
                 (
-                SELECT "performanceContributors"."contributorActor"
-                FROM "performanceContributors"
-                WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
-                  AND "performanceContributors"."eventID" = \(eventID.eventID)
-                  AND "performanceContributors"."performanceID" = \(performanceID)
-                  AND "performanceContributors"."contributorID" = "contributors"."contributorID"
-                  AND "performanceContributors"."contributorActor" IS NOT NULL
+                SELECT \(quote: performanceContributorsTableName)."contributorActor"
+                FROM \(quote: performanceContributorsTableName)
+                WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
+                  AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
+                  AND \(quote: performanceContributorsTableName)."performanceID" = \(performanceID)
+                  AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
+                  AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
                 LIMIT 1
                 )
               )
@@ -550,19 +562,23 @@ extension ContributorListRow {
                 contributor.id
             })
             .select { contributor, stage -> ContributorListRow.Columns in
+                let contributorTableName = OMERecord.Contributor.tableName
+                let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+                let performanceTableName = OMERecord.Performance.tableName
+                let stageTableName = OMERecord.Stage.tableName
                 let isScheduledStage = #sql(
                     """
                     EXISTS (
                       SELECT 1
-                      FROM "app.openmusicevent.performance" AS "performances"
-                      JOIN "performanceContributors"
-                        ON "performanceContributors"."organizerID" = "performances"."organizerID"
-                        AND "performanceContributors"."eventID" = "performances"."eventID"
-                        AND "performanceContributors"."performanceID" = "performances"."performanceID"
+                      FROM \(quote: performanceTableName) AS "performances"
+                      JOIN \(quote: performanceContributorsTableName)
+                        ON \(quote: performanceContributorsTableName)."organizerID" = "performances"."organizerID"
+                        AND \(quote: performanceContributorsTableName)."eventID" = "performances"."eventID"
+                        AND \(quote: performanceContributorsTableName)."performanceID" = "performances"."performanceID"
                       WHERE "performances"."organizerID" = \(eventID.organizerID)
                         AND "performances"."eventID" = \(eventID.eventID)
-                        AND "performances"."stageID" = "stages"."stageID"
-                        AND "performanceContributors"."contributorID" = "contributors"."contributorID"
+                        AND "performances"."stageID" = \(quote: stageTableName)."stageID"
+                        AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
                     )
                     """,
                     as: Bool.self

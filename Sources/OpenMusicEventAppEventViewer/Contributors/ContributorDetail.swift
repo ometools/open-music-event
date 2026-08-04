@@ -140,6 +140,7 @@ public struct ContributorDetail {
         eventID: OMERecord.Event.ID
     ) -> some SelectStatementOf<OMERecord.Stage> {
         let contributorIDValue = contributorID.rawValue.rawValue
+        let stageTableName = OMERecord.Stage.tableName
         return OMERecord.Stage
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
@@ -148,7 +149,7 @@ public struct ContributorDetail {
                     """
                     EXISTS (
                       SELECT 1
-                      FROM json_each("stages"."lineup")
+                      FROM json_each(\(quote: stageTableName)."lineup")
                       WHERE json_each.value = \(bind: contributorIDValue)
                     )
                     """,
