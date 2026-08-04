@@ -111,6 +111,7 @@ public struct EventWorkspace {
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
     let authoringAccess: AuthoringAccess
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(
         store: StoreOf<EventWorkspace>,
@@ -132,27 +133,12 @@ public struct EventWorkspaceView: View {
     }
 
     public var body: some View {
+        let changesStore = store.scope(\.changes, action: \.changes)
+
         VStack(spacing: 0) {
-            WorkspaceDetailsView(
-                workspace: store.workspace,
-                eventID: store.eventID
-            )
-
-            let pages = availablePages
-            if pages.count > 1 {
-                Picker("Workspace section", selection: $store.selectedPage) {
-                    ForEach(pages) { page in
-                        Text(page.title).tag(page)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            }
-
             switch store.selectedPage {
             case .changes:
-                WorkspaceChangesView(store: store.scope(\.changes, action: \.changes))
+                WorkspaceChangesView(store: changesStore)
 
             case .collaborators:
                 if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
@@ -163,26 +149,116 @@ public struct EventWorkspaceView: View {
                 WorkspaceReviewsView(store: store.scope(\.reviews, action: \.reviews))
             }
         }
-    }
-}
+        .navigationTitle("Shared Workspace")
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .portableSafeAreaTopInset(spacing: 0) {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your changes")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-struct WorkspaceDetailsView: View {
-    let workspace: SourceWorkspace
-    let eventID: OME.Event.ID
+                            switch changesStore.summary.availability {
+                            case .available:
+                                Text(changesStore.changeCount, format: .number)
+                                    .font(.title3)
+                                    .portableMonospacedDigit()
+                            case .workspaceNeedsPreparation, .unavailable:
+                                Text("—")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Organization workspace").font(.headline)
-            Text(workspace.repository)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Text("Branch: \(workspace.branch) · Viewing: \(eventID.eventID.rawValue.rawValue)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Workspace")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("Organization workspace")
+                                .font(.subheadline)
+                        }
+                    }
+
+                    if showsTechnicalDetails {
+                        PortableDisclosureGroup("Technical details") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                WorkspaceTechnicalValueView(
+                                    label: "Repository",
+                                    value: store.workspace.repository
+                                )
+                                WorkspaceTechnicalValueView(
+                                    label: "Branch",
+                                    value: store.workspace.branch
+                                )
+                                WorkspaceTechnicalValueView(
+                                    label: "Organization",
+                                    value: store.workspace.organizerID.description
+                                )
+                                WorkspaceTechnicalValueView(
+                                    label: "Event",
+                                    value: store.eventID.eventID.rawValue.rawValue
+                                )
+                                if let proposal = changesStore.openProposal {
+                                    WorkspaceTechnicalValueView(
+                                        label: "Open proposal",
+                                        value: proposal.id.rawValue
+                                    )
+                                }
+                            }
+                            .padding(.top, 8)
+                        }
+                        .font(.caption)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+
+                let pages = availablePages
+                if pages.count > 1 {
+                    Picker("Workspace section", selection: $store.selectedPage) {
+                        ForEach(pages) { page in
+                            Text(page.title).tag(page)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 6)
+                }
+
+                if case .available = changesStore.summary.availability,
+                   store.selectedPage == .changes,
+                   changesStore.changeCount > 0,
+                   authoringAccess.canPropose
+                {
+                    Button {
+                        changesStore.send(.proposalActionButtonTapped)
+                    } label: {
+                        Label(
+                            changesStore.openProposal == nil
+                                ? "Create proposal"
+                                : "Update proposal",
+                            systemImage: "paperplane"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+            }
+            .background(.background)
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
     }
 }
 

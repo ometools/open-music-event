@@ -190,63 +190,53 @@ public struct WorkspaceChangesView: View {
 
     public var body: some View {
         List {
-            SourceChangeSummarySection(
-                groups: store.summary.groups,
-                recordComparisons: store.summary.recordComparisons
-            )
+            switch store.summary.availability {
+            case .available:
+                SourceChangeSummarySection(
+                    groups: store.summary.groups,
+                    recordComparisons: store.summary.recordComparisons
+                )
 
-            Section("Workspace") {
-                if let proposal = store.openProposal {
-                    LabeledContent("Open proposal", value: proposal.id.rawValue)
-                }
-
-                if store.changeCount == 0 {
-                    Text("No local changes")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("Check changes") {
-                        store.send(.checkChangesButtonTapped)
-                    }
-                    .disabled(!store.canInspectChanges)
-
-                    Button(store.openProposal == nil ? "Create proposal" : "Update proposal") {
-                        store.send(.proposalActionButtonTapped)
-                    }
-                }
-
-                switch store.patchStatus {
-                case .generating:
-                    HStack(spacing: 8) {
+            case .workspaceNeedsPreparation:
+                Section("What changed") {
+                    HStack(spacing: 10) {
                         ProgressView()
-                        Text("Checking source changes")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Preparing workspace")
+                            Text("Your changes will appear here when the source is ready.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                case let .failed(message):
-                    if showsTechnicalDetails {
-                        Text(message).font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("Changes could not be prepared")
-                            .foregroundStyle(.secondary)
-                    }
-                case let .generated(patch) where patch.isEmpty:
-                    Text("No source patch is needed")
+                }
+
+            case let .unavailable(reason):
+                Section("What changed") {
+                    Text("Changes couldn’t be compared")
+                    Text("The workspace source does not match the app’s data model.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                case .generated, .needsGeneration, .notGenerated:
-                    EmptyView()
+                    if showsTechnicalDetails {
+                        Text(String(describing: reason))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospaced()
+                    }
                 }
             }
 
             if store.canResetChanges || store.resetStatus != .idle {
-                Section {
-                    Button("Reset source changes", role: .destructive) {
+                Section("Reset") {
+                    Button("Reset changes", role: .destructive) {
                         isResetConfirmationPresented = true
                     }
                     .disabled(!store.canResetChanges)
 
                     switch store.resetStatus {
                     case .resetting:
-                        ProgressView("Resetting source changes")
+                        ProgressView("Resetting changes")
                     case let .failed(message):
-                        Text(showsTechnicalDetails ? message : "Source changes could not be reset")
+                        Text(showsTechnicalDetails ? message : "Changes could not be reset")
                             .foregroundStyle(.secondary)
                     case .idle:
                         EmptyView()

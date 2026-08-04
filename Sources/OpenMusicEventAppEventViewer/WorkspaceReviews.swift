@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
+import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
 #if os(Android)
 import SkipSwiftUI
@@ -184,10 +185,21 @@ public struct WorkspaceReviewsView: View {
 
     public var body: some View {
         List {
-            Section("Source") {
-                LabeledContent("Repository", value: store.workspace.repository)
-                LabeledContent("Branch", value: store.workspace.branch)
-                LabeledContent("Organization", value: store.workspace.organizerID.description)
+            if showsTechnicalDetails {
+                Section("Source details") {
+                    WorkspaceTechnicalValueView(
+                        label: "Repository",
+                        value: store.workspace.repository
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Branch",
+                        value: store.workspace.branch
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Organization",
+                        value: store.workspace.organizerID.description
+                    )
+                }
             }
 
             Section("Open proposals") {
