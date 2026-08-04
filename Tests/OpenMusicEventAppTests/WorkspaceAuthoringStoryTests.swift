@@ -218,6 +218,8 @@ struct WorkspaceAuthoringStoryTests {
                 return
             }
             #expect(operations.count(of: "createBranch") == 1)
+            #expect(operations.count(of: "checkout") == 1)
+            #expect(operations.count(of: "stage") == 1)
             #expect(operations.count(of: "commit") == 1)
             #expect(operations.count(of: "formatPatch") == 1)
             #expect(operations.count(of: "push") == 1)
@@ -236,6 +238,7 @@ struct WorkspaceAuthoringStoryTests {
                 return
             }
 
+            let openedRepositoriesBeforeRemount = operations.count(of: "open")
             await opened.dismount(timeout: .seconds(1))
 
             // A fresh application mount enters through the same settings action. It must open and
@@ -269,7 +272,7 @@ struct WorkspaceAuthoringStoryTests {
                 proposal
             )
             expectNoDifference(operations.count(of: "clone"), 1)
-            #expect(operations.count(of: "open") > 1)
+            #expect(operations.count(of: "open") > openedRepositoriesBeforeRemount)
             let remountedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
                 remountedEventNames,
