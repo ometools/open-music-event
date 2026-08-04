@@ -73,7 +73,7 @@ public struct OpenMusicEventAppRoot {
             appState?.selectedEventID
         }
 
-        public var eventViewer: OpenMusicEventEventAuthoring.State? {
+        public var eventViewer: OpenMusicEventWorkspace.State? {
             get {
                 guard case let .eventViewer(eventViewer) = destination else { return nil }
                 return eventViewer
@@ -98,7 +98,7 @@ public struct OpenMusicEventAppRoot {
 
     @Feature
     public enum Destination {
-        case eventViewer(OpenMusicEventEventAuthoring)
+        case eventViewer(OpenMusicEventWorkspace)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -181,7 +181,6 @@ public struct OpenMusicEventAppRoot {
 
                 case .task:
                     if let eventID = state.eventViewer?
-                        .content
                         .authoring
                         .content
                         .content
@@ -204,7 +203,6 @@ public struct OpenMusicEventAppRoot {
         }
         .onChange(
             of: store.eventViewer?
-                .content
                 .authoring
                 .content
                 .content
@@ -349,19 +347,15 @@ private extension OpenMusicEventAppRoot {
         eventID: OMERecord.Event.ID,
         target: EventTarget?,
         pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
-    ) -> OpenMusicEventEventAuthoring.State {
-        OpenMusicEventEventAuthoring.State(
-            storage: OpenMusicEventOAuth.storage
+    ) -> OpenMusicEventWorkspace.State {
+        OpenMusicEventAuthoringWorkspace<EventViewer>.state(
+            workspace: workspace
         ) {
-            OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-                workspace: workspace
-            ) {
-                EventViewer.State.route(
-                    eventID: eventID,
-                    target: target,
-                    pendingScheduleLaunchAction: pendingScheduleLaunchAction
-                )
-            }
+            EventViewer.State.route(
+                eventID: eventID,
+                target: target,
+                pendingScheduleLaunchAction: pendingScheduleLaunchAction
+            )
         }
     }
 

@@ -48,14 +48,14 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
                 guard oldAccountID == nil, accountID != nil else { return }
                 store.addTask {
                     try store.content.eventViewer?
-                        .content.authoring.content.content
+                        .authoring.content.content
                         .authoringAuthorizationInvalidated()
                 }
             }
             .onEvent(OAuthAuthorizationInvalidated.self) { _, _ in
                 store.addTask {
                     try store.content.eventViewer?
-                        .content.authoring.content.content
+                        .authoring.content.content
                         .authoringAuthorizationInvalidated()
                 }
             }

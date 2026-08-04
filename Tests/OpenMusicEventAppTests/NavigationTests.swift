@@ -297,9 +297,9 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.pendingScheduleLaunchAction == nil
+            store.state.root.eventViewer?.authoring.content.content.pendingScheduleLaunchAction == nil
         )
     }
 
@@ -312,7 +312,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(firstEventID, nil))))
-        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == firstEventID)
+        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(secondEventID, nil))))
 
@@ -320,7 +320,7 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == secondEventID)
-        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == secondEventID)
+        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == secondEventID)
     }
     #endif
 
@@ -340,11 +340,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
+            store.state.root.eventViewer?.authoring.content.content.selectedFeature
                 == .contributors
         )
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.contributorsViewer?
+            store.state.root.eventViewer?.authoring.content.content.contributorsViewer?
                 .destination?.contributorDetail?.contributorID == contributorID
         )
     }
@@ -365,11 +365,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
+            store.state.root.eventViewer?.authoring.content.content.selectedFeature
                 == .stages
         )
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.stagesViewer?
+            store.state.root.eventViewer?.authoring.content.content.stagesViewer?
                 .destination?.stageDetail?.stageID == stageID
         )
     }
@@ -406,11 +406,11 @@ struct NavigationTests {
         store.send(.root(.openRoute(route)))
 
         #expect(
-            store.state.root.eventViewer?.content.authoring.content.content.selectedFeature
+            store.state.root.eventViewer?.authoring.content.content.selectedFeature
                 == .schedule(.schedule)
         )
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.content.authoring.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -429,7 +429,7 @@ struct NavigationTests {
         store.send(.root(.openRoute(.event(eventID, .performance(performanceID)))))
 
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.content.authoring.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -6048,7 +6048,7 @@ struct NavigationTests {
         )
         #expect(store.state.root.eventViewer?.id == eventID)
         expectNoDifference(
-            store.state.root.eventViewer?.content.authoring.content.content.pendingScheduleLaunchAction,
+            store.state.root.eventViewer?.authoring.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
     }
@@ -6128,7 +6128,7 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.content.authoring.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
 
         await store.modify {
             $0.root.eventViewer = nil

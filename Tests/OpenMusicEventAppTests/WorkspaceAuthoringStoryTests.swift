@@ -122,31 +122,41 @@ struct WorkspaceAuthoringStoryTests {
                 expectNoDifference(browsedEventNames, ["Other Festival", "Wicked Woods 2026"])
                 #expect(operations.snapshot.isEmpty)
 
-                var firstStore: StoreOf<OpenMusicEventAppRoot>? = Store(
-                    initialState: OpenMusicEventAppRoot.State(
-                        selectedEventIDAtLaunch: selectedEventID
-                    )
+                var firstStore: StoreOf<OpenMusicEventApplication>? = Store(
+                    initialState: OpenMusicEventApplication.State(
+                        storage: OpenMusicEventOAuth.storage
+                    ) {
+                        OpenMusicEventAppRoot.State(
+                            selectedEventIDAtLaunch: selectedEventID
+                        )
+                    }
                 ) {
-                    OpenMusicEventAppRoot()
+                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
                 }
 
                 try await workspaceStoryWaitUntil {
-                    firstStore?.eventViewer?.content.authoring.canEnter == true
+                    firstStore?.content.eventViewer?.authoring.canEnter == true
                 }
                 #expect(operations.snapshot.isEmpty)
 
-                // The real AppRoot -> OAuth -> Authoring -> Workspace action path owns entry.
+                // The real OAuth -> AppRoot -> Authoring -> Workspace action path owns entry.
                 let entry = firstStore?.send(
-                    .destination(
-                        .eventViewer(
-                            .content(.authoring(.enterButtonTapped))
+                    .content(
+                        .destination(
+                            .eventViewer(
+                                .authoring(.enterButtonTapped)
+                            )
                         )
                     )
                 )
                 try await workspaceStoryWaitUntil {
                     guard case .preparingSource = firstStore?
-                        .eventViewer?
                         .content
+                        .eventViewer?
                         .authoring
                         .content
                         .phase
@@ -157,7 +167,7 @@ struct WorkspaceAuthoringStoryTests {
                 // EventSettingsView and WorkspacePublicationStatusView both render a ProgressView
                 // directly from this phase, so the control cannot simply disappear during entry.
                 let enteringAuthoring = try #require(
-                    firstStore?.eventViewer?.content.authoring
+                    firstStore?.content.eventViewer?.authoring
                 )
                 let enteringGrant = try #require(enteringAuthoring.grant)
                 expectNoDifference(enteringAuthoring.phase, .entering)
@@ -168,22 +178,22 @@ struct WorkspaceAuthoringStoryTests {
                 await entry?.value
                 try await workspaceStoryWaitUntil {
                     guard case .sourcePreparationFailed = firstStore?
-                        .eventViewer?
                         .content
+                        .eventViewer?
                         .authoring
                         .content
                         .phase
                     else { return false }
-                    return firstStore?.eventViewer?.content.authoring.grant != nil
+                    return firstStore?.content.eventViewer?.authoring.grant != nil
                 }
                 expectNoDifference(operations.count(of: "clone"), 1)
 
                 // The mounted Workspace owns retry. Authoring keeps the valid grant, and retrying
                 // repeats only source preparation rather than authentication or authorization.
                 let retry = firstStore?.send(
-                    .destination(
-                        .eventViewer(
-                            .content(
+                    .content(
+                        .destination(
+                            .eventViewer(
                                 .authoring(
                                     .content(.sourcePreparationRetryButtonTapped)
                                 )
@@ -194,18 +204,18 @@ struct WorkspaceAuthoringStoryTests {
                 await retry?.value
                 try await workspaceStoryWaitUntil {
                     guard case .ready(.canonical) = firstStore?
-                        .eventViewer?
                         .content
+                        .eventViewer?
                         .authoring
                         .content
                         .phase
                     else { return false }
-                    return firstStore?.eventViewer?.content.authoring.content.source != nil
+                    return firstStore?.content.eventViewer?.authoring.content.source != nil
                 }
 
-                let workspace = try #require(firstStore?.eventViewer?.content.authoring.context)
+                let workspace = try #require(firstStore?.content.eventViewer?.authoring.context)
                 let firstResource = try #require(
-                    firstStore?.eventViewer?.content.authoring.content.source
+                    firstStore?.content.eventViewer?.authoring.content.source
                 )
                 expectNoDifference(workspace.organizerID, organizerID)
                 let preparedEventNames = try await workspaceStoryEventNames(in: database)
@@ -235,20 +245,22 @@ struct WorkspaceAuthoringStoryTests {
 
                 // Grant loss does not destroy settled workspace state within the mounted feature.
                 let exit = firstStore?.send(
-                    .destination(
-                        .eventViewer(
-                            .content(.authoring(.exitButtonTapped))
+                    .content(
+                        .destination(
+                            .eventViewer(
+                                .authoring(.exitButtonTapped)
+                            )
                         )
                     )
                 )
                 await exit?.value
                 try await workspaceStoryWaitUntil {
-                    firstStore?.eventViewer?.content.authoring.grant == nil
-                        && firstStore?.eventViewer?.content.authoring.canEnter == true
+                    firstStore?.content.eventViewer?.authoring.grant == nil
+                        && firstStore?.content.eventViewer?.authoring.canEnter == true
                 }
                 guard case .ready(.canonical) = firstStore?
-                    .eventViewer?
                     .content
+                    .eventViewer?
                     .authoring
                     .content
                     .phase
@@ -258,29 +270,33 @@ struct WorkspaceAuthoringStoryTests {
                 }
 
                 let sameMountReentry = firstStore?.send(
-                    .destination(
-                        .eventViewer(
-                            .content(.authoring(.enterButtonTapped))
+                    .content(
+                        .destination(
+                            .eventViewer(
+                                .authoring(.enterButtonTapped)
+                            )
                         )
                     )
                 )
                 await sameMountReentry?.value
                 try await workspaceStoryWaitUntil {
-                    firstStore?.eventViewer?.content.authoring.grant != nil
+                    firstStore?.content.eventViewer?.authoring.grant != nil
                 }
                 expectNoDifference(operations.count(of: "clone"), 2)
                 expectNoDifference(operations.count(prefix: "resolve:"), 1)
 
                 let secondExit = firstStore?.send(
-                    .destination(
-                        .eventViewer(
-                            .content(.authoring(.exitButtonTapped))
+                    .content(
+                        .destination(
+                            .eventViewer(
+                                .authoring(.exitButtonTapped)
+                            )
                         )
                     )
                 )
                 await secondExit?.value
                 try await workspaceStoryWaitUntil {
-                    firstStore?.eventViewer?.content.authoring.grant == nil
+                    firstStore?.content.eventViewer?.authoring.grant == nil
                 }
                 firstStore = nil
                 await Task.yield()
@@ -288,32 +304,42 @@ struct WorkspaceAuthoringStoryTests {
                 // A new application mount has inactive Workspace state, so it opens and validates
                 // the durable repository/reference pair. It neither clones nor reinstalls source.
                 let remountedStore = Store(
-                    initialState: OpenMusicEventAppRoot.State(
-                        selectedEventIDAtLaunch: selectedEventID
-                    )
+                    initialState: OpenMusicEventApplication.State(
+                        storage: OpenMusicEventOAuth.storage
+                    ) {
+                        OpenMusicEventAppRoot.State(
+                            selectedEventIDAtLaunch: selectedEventID
+                        )
+                    }
                 ) {
-                    OpenMusicEventAppRoot()
+                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
                 }
                 try await workspaceStoryWaitUntil {
-                    remountedStore.eventViewer?.content.authoring.canEnter == true
+                    remountedStore.content.eventViewer?.authoring.canEnter == true
                 }
                 let durableReentry = remountedStore.send(
-                    .destination(
-                        .eventViewer(
-                            .content(.authoring(.enterButtonTapped))
+                    .content(
+                        .destination(
+                            .eventViewer(
+                                .authoring(.enterButtonTapped)
+                            )
                         )
                     )
                 )
                 await durableReentry?.value
                 try await workspaceStoryWaitUntil {
                     guard case .ready(.canonical) = remountedStore
-                        .eventViewer?
                         .content
+                        .eventViewer?
                         .authoring
                         .content
                         .phase
                     else { return false }
-                    return remountedStore.eventViewer?.content.authoring.content.source != nil
+                    return remountedStore.content.eventViewer?.authoring.content.source != nil
                 }
 
                 expectNoDifference(operations.count(of: "clone"), 2)
@@ -329,7 +355,7 @@ struct WorkspaceAuthoringStoryTests {
                 )
 
                 let remountedResource = try #require(
-                    remountedStore.eventViewer?.content.authoring.content.source
+                    remountedStore.content.eventViewer?.authoring.content.source
                 )
                 let remountedSummary = try await remountedResource.database.read { db in
                     try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
@@ -408,20 +434,28 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(operations.snapshot.isEmpty)
 
                 let store = Store(
-                    initialState: OpenMusicEventAppRoot.State(
-                        selectedEventIDAtLaunch: selectedEventID
-                    )
+                    initialState: OpenMusicEventApplication.State(
+                        storage: OpenMusicEventOAuth.storage
+                    ) {
+                        OpenMusicEventAppRoot.State(
+                            selectedEventIDAtLaunch: selectedEventID
+                        )
+                    }
                 ) {
-                    OpenMusicEventAppRoot()
+                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
                 }
                 try await workspaceStoryWaitUntil {
-                    store.eventViewer?.content.authoring.admission == .unavailable
+                    store.content.eventViewer?.authoring.admission == .unavailable
                 }
 
-                expectNoDifference(store.eventViewer?.content.authoring.canEnter, false)
-                #expect(store.eventViewer?.content.authoring.grant == nil)
+                expectNoDifference(store.content.eventViewer?.authoring.canEnter, false)
+                #expect(store.content.eventViewer?.authoring.grant == nil)
                 expectNoDifference(
-                    store.eventViewer?.content.authoring.content.phase,
+                    store.content.eventViewer?.authoring.content.phase,
                     .inactive
                 )
                 #expect(operations.snapshot.isEmpty)
