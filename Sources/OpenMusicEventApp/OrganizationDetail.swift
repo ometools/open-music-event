@@ -45,6 +45,7 @@ public struct OrganizationDetail {
 
     @Dependency(\.calendarEvents) var calendarEvents
     public var body: some Feature {
+        let _ = Self._logChanges()
         Update { state, action in
             switch action {
             case let .eventButtonTapped(eventURI):

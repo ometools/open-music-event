@@ -42,7 +42,9 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
         )
         .clone()
 
-        print("Downloaded \(repository.displayName) at \(ref) to \(outputURL.path())")
+        print(
+            "Downloaded \(repository.displayName) at \(ref) to \(outputURL.path(percentEncoded: false))"
+        )
     }
 
     public static func resolvedOutputURL(_ output: String) throws -> URL {
@@ -71,13 +73,15 @@ public enum SourceRepositoryLocation: Equatable, Sendable {
         }
 
         let localURL = URL(filePath: trimmedValue).standardizedFileURL
-        if FileManager.default.fileExists(atPath: localURL.path()) {
+        if FileManager.default.fileExists(atPath: localURL.path(percentEncoded: false)) {
             self = .local(localURL)
             return
         }
 
         if trimmedValue.looksLikeLocalPath {
-            throw ValidationError("Local source path does not exist: \(localURL.path())")
+            throw ValidationError(
+                "Local source path does not exist: \(localURL.path(percentEncoded: false))"
+            )
         }
 
         if trimmedValue.hasPrefix("at://") {
@@ -346,8 +350,9 @@ public struct TangledSourceArchiveExtractor: Sendable {
     public init() {}
 
     public static func validateOutputDoesNotExist(_ outputURL: URL) throws {
-        guard !FileManager.default.fileExists(atPath: outputURL.path()) else {
-            throw ValidationError("Output path already exists: \(outputURL.path())")
+        let outputPath = outputURL.path(percentEncoded: false)
+        guard !FileManager.default.fileExists(atPath: outputPath) else {
+            throw ValidationError("Output path already exists: \(outputPath)")
         }
     }
 
@@ -376,7 +381,10 @@ public struct TangledSourceArchiveExtractor: Sendable {
 
                 do {
                     let archive = Archive(data: Array(tarData))
-                    let result = try TarExtractor().extract(archive, to: extractionURL.path())
+                    let result = try TarExtractor().extract(
+                        archive,
+                        to: extractionURL.path(percentEncoded: false)
+                    )
                     guard result.extractedEntries > 0 else {
                         lastError = ValidationError("Downloaded archive did not contain any files.")
                         continue
@@ -432,7 +440,10 @@ public struct TangledSourceArchiveExtractor: Sendable {
 
     private func directoryExists(at url: URL) -> Bool {
         var isDirectory = ObjCBool(false)
-        return FileManager.default.fileExists(atPath: url.path(), isDirectory: &isDirectory)
+        return FileManager.default.fileExists(
+            atPath: url.path(percentEncoded: false),
+            isDirectory: &isDirectory
+        )
             && isDirectory.boolValue
     }
 

@@ -793,6 +793,39 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func ignoresASeparatePathWhoseNameContainsPercentEncodedCharacters() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(
+                path: "Open Music Event Source Workspaces \(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        let outputURL = rootURL
+            .appending(path: "repository", directoryHint: .isDirectory)
+
+        // An older libgit2 bridge created this separate directory by passing an encoded URL path to C.
+        let incorrectlyEncodedRootURL = URL(
+            filePath: rootURL.path(percentEncoded: true)
+        )
+        let incorrectlyEncodedOutputURL = incorrectlyEncodedRootURL
+            .appending(path: "repository", directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: incorrectlyEncodedRootURL)
+        }
+        try FileManager.default.createDirectory(
+            at: incorrectlyEncodedOutputURL,
+            withIntermediateDirectories: true
+        )
+
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: outputURL.path(percentEncoded: false)
+            )
+        )
+        try TangledSourceArchiveExtractor.validateOutputDoesNotExist(outputURL)
+    }
+
+    @Test
     func archiveExtractorExtractsGzippedTarAndFlattensTopLevelDirectory() throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")

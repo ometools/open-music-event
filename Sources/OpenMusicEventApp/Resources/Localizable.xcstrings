@@ -702,10 +702,10 @@
     "Unable to import source." : {
 
     },
-    "Unable to load event." : {
+    "Unable to load installed events: %@" : {
 
     },
-    "Unable to load installed events: %@" : {
+    "Unable to load organizer." : {
 
     },
     "Unable to prepare the downloaded source because a file already exists." : {
