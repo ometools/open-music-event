@@ -310,26 +310,6 @@ public struct OpenMusicEventAppRootView: View {
                 admission: authoringStore.admission,
                 phase: authoringStore.phase
             )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                OpenMusicEventWorkspaceStatusView(
-                    phase: workspaceStore.phase,
-                    exitAuthoring: {
-                        authoringStore.send(.exitButtonTapped)
-                    },
-                    reconcile: {
-                        workspaceStore.send(.reconciliationRequested)
-                    },
-                    retryCapture: {
-                        workspaceStore.send(.submissionCaptureRetryButtonTapped)
-                    },
-                    retryPreparation: {
-                        workspaceStore.send(.sourcePreparationRetryButtonTapped)
-                    },
-                    retryPublication: {
-                        workspaceStore.send(.publicationRetryButtonTapped)
-                    }
-                )
-            }
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in
                 InAppSafariView(url: presentation.url)
@@ -355,110 +335,6 @@ public struct OpenMusicEventAppRootView: View {
             }
         )
         #endif
-    }
-}
-
-struct OpenMusicEventWorkspaceStatusView: View {
-    let phase: WorkspacePhase<SourcePatch>
-    let exitAuthoring: () -> Void
-    let reconcile: () -> Void
-    let retryCapture: () -> Void
-    let retryPreparation: () -> Void
-    let retryPublication: () -> Void
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    var body: some View {
-        switch phase {
-        case .inactive, .preparingSource, .ready:
-            EmptyView()
-
-        case .capturingSubmission:
-            status {
-                ProgressView()
-                Text("Capturing source changes")
-            }
-
-        case .publishing:
-            status {
-                ProgressView()
-                Text("Publishing proposal")
-            }
-
-        case .reconciling:
-            status {
-                ProgressView()
-                Text("Reconciling source")
-            }
-
-        case let .sourcePreparationFailed(failure):
-            failureStatus(failure) {
-                Button("Retry", action: retryPreparation)
-                Button("Exit", action: exitAuthoring)
-            }
-
-        case let .submissionCaptureFailed(_, _, failure):
-            failureStatus(failure) {
-                Button("Retry", action: retryCapture)
-            }
-
-        case let .publicationFailed(_, failure):
-            failureStatus(failure) {
-                Button("Retry", action: retryPublication)
-            }
-
-        case .publicationInterrupted:
-            status {
-                Label("Publication was interrupted", systemImage: "pause.circle")
-                Spacer()
-                Button("Retry", action: retryPublication)
-            }
-
-        case let .reconciliationFailed(_, failure):
-            failureStatus(failure) {
-                Button("Reconcile", action: reconcile)
-            }
-
-        case .stale:
-            status {
-                Label(
-                    "Source moved; reconcile before publishing",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-                Spacer()
-                Button("Reconcile", action: reconcile)
-            }
-        }
-    }
-
-    private func status<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(spacing: 8, content: content)
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial)
-    }
-
-    private func failureStatus<Actions: View>(
-        _ failure: WorkspaceFailure,
-        @ViewBuilder actions: () -> Actions
-    ) -> some View {
-        status {
-            VStack(alignment: .leading, spacing: 2) {
-                Label(
-                    "Workspace operation failed",
-                    systemImage: "exclamationmark.triangle"
-                )
-                if showsTechnicalDetails {
-                    Text(failure.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            actions()
-        }
     }
 }
 
