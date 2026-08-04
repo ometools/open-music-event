@@ -83,7 +83,7 @@ extension OME {
         dependencies[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
         dependencies.sourceWorkspacePatchConversion = .live
 
-        dependencies.tangledPullReviewListSource = .constellationBackfill
+        dependencies.tangledPullReviewListSource = .tangledXRPC
         dependencies.tangledPullReviewSourceSnapshot = .openMusicEvent
         dependencies.sourceWorkspaceStorage = .live
         dependencies.sourceWorkspaceReferenceMigrator = .openMusicEvent

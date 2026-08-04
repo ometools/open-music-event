@@ -1,5 +1,5 @@
 {
-  "originHash" : "58045b5e2438063d03daf4f73c33870ef1dc4fc6b2e02987749648dcf45eb754",
+  "originHash" : "cc1ff204ccfe5abc7d8d5ed057f81d063417a276d737516ee334e3d133c3d66a",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
         "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "composable-calendar-events",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.woody.fm/composable-calendar-events",
+      "state" : {
+        "branch" : "main",
+        "revision" : "733b2e542a08ccb17648d96edf0870d85611f301"
       }
     },
     {
