@@ -405,7 +405,10 @@ public struct ScheduleViewerView: View {
                         store: store.spawn(\.singleStageAtOnce),
                         selectedScheduleID: _selectedScheduleID,
                         userScheduleOverlay: store.state.userScheduleOverlay,
-                        showsAuthoringControls: showsAuthoringControls
+                        showsAuthoringControls: showsAuthoringControls,
+                        performanceButtonTapped: {
+                            store.send(.performanceButtonTapped($0))
+                        }
                     )
 
                 case .allStagesAtOnce:
@@ -413,7 +416,10 @@ public struct ScheduleViewerView: View {
                         store: store.spawn(\.manyStagesAtOnce),
                         selectedScheduleID: _selectedScheduleID,
                         userScheduleOverlay: store.state.userScheduleOverlay,
-                        showsAuthoringControls: showsAuthoringControls
+                        showsAuthoringControls: showsAuthoringControls,
+                        performanceButtonTapped: {
+                            store.send(.performanceButtonTapped($0))
+                        }
                     )
 
                 case .list:
@@ -421,7 +427,10 @@ public struct ScheduleViewerView: View {
                         store: store.spawn(\.performanceList),
                         selectedScheduleID: selectedScheduleID,
                         userScheduleOverlay: store.state.userScheduleOverlay,
-                        showsAuthoringControls: showsAuthoringControls
+                        showsAuthoringControls: showsAuthoringControls,
+                        performanceButtonTapped: {
+                            store.send(.performanceButtonTapped($0))
+                        }
                     )
                 }
             }

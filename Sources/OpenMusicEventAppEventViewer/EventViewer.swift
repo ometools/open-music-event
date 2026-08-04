@@ -791,6 +791,33 @@ public struct EventViewer {
         }
     }
 
+    private func installPreparedWorkspace(
+        _ source: SourceWorkspaceResource,
+        state: inout State
+    ) {
+        guard state.authoringGrant?.access.canEditContent == true,
+              state.eventWorkspace == nil
+        else { return }
+        state.eventWorkspace = withDependencies {
+            $0.defaultDatabase = source.database
+        } operation: {
+            EventWorkspace.State(
+                workspace: source.workspace,
+                eventID: state.eventID
+            )
+        }
+        state.reloadFeaturesForAuthoringAccess()
+        if let pendingAuthoringEntry = state.pendingAuthoringEntry {
+            enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+        }
+        let sourceWorkspaceFetch = sourceWorkspaceFetch
+        store.addTask {
+            await withErrorReporting {
+                try await sourceWorkspaceFetch.fetch(source)
+            }
+        }
+    }
+
     public var body: some Feature {
 //        let _ = Self._logChanges()
         Features {
@@ -885,29 +912,16 @@ public struct EventViewer {
                         .task
                     }
                 }
+                .onChange(
+                    of: workspace.source.wrappedValue?.workspace.id,
+                    initial: true
+                ) { _, _, state in
+                    guard let source = workspace.source.wrappedValue else { return }
+                    installPreparedWorkspace(source, state: &state)
+                }
                 .onTrigger(store.workspaceSourcePrepared) { state in
-                    guard state.authoringGrant?.access.canEditContent == true,
-                          state.eventWorkspace == nil,
-                          let source = workspace.source.wrappedValue
-                    else { return }
-                    state.eventWorkspace = withDependencies {
-                        $0.defaultDatabase = source.database
-                    } operation: {
-                        EventWorkspace.State(
-                            workspace: source.workspace,
-                            eventID: state.eventID
-                        )
-                    }
-                    state.reloadFeaturesForAuthoringAccess()
-                    if let pendingAuthoringEntry = state.pendingAuthoringEntry {
-                        enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
-                    }
-                    let sourceWorkspaceFetch = sourceWorkspaceFetch
-                    store.addTask {
-                        await withErrorReporting {
-                            try await sourceWorkspaceFetch.fetch(source)
-                        }
-                    }
+                    guard let source = workspace.source.wrappedValue else { return }
+                    installPreparedWorkspace(source, state: &state)
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
@@ -1041,21 +1055,13 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
 }
 
 public struct EventViewerView: View {
-    public init(
-        store: StoreOf<EventViewer>,
-        authoringAdmission: ComposableAuthoring.AuthoringAdmission? = nil,
-        authoringPhase: AuthoringPhase<AuthoringGrant>? = nil
-    ) {
+    public init(store: StoreOf<EventViewer>) {
         self.store = store
-        self.authoringAdmission = authoringAdmission
-        self.authoringPhase = authoringPhase
         self.accountStore = store.spawn(\.account)
     }
 
     @Bindable var store: StoreOf<EventViewer>
     @Bindable var accountStore: StoreOf<Account>
-    let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
-    let authoringPhase: AuthoringPhase<AuthoringGrant>?
 
     public var body: some View {
         tabContent
@@ -1116,28 +1122,16 @@ public struct EventViewerView: View {
     @ViewBuilder
     private var tabContent: some View {
         #if os(Android)
-        TabFeaturesViewer(
-            store: store,
-            authoringAdmission: authoringAdmission,
-            authoringPhase: authoringPhase
-        )
+        TabFeaturesViewer(store: store)
         #elseif os(iOS)
         if #available(iOS 18.0, *) {
-            TabFeaturesViewer(
-                store: store,
-                authoringAdmission: authoringAdmission,
-                authoringPhase: authoringPhase
-            )
+            TabFeaturesViewer(store: store)
         } else {
             legacyiOSTabView
         }
         #elseif os(macOS)
         if #available(macOS 15.0, *) {
-            TabFeaturesViewer(
-                store: store,
-                authoringAdmission: authoringAdmission,
-                authoringPhase: authoringPhase
-            )
+            TabFeaturesViewer(store: store)
         } else {
             defaultTabView
         }
@@ -1151,8 +1145,6 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
-        let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
-        let authoringPhase: AuthoringPhase<AuthoringGrant>?
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
@@ -1309,9 +1301,7 @@ public struct EventViewerView: View {
                     ) {
                         EventSettingsView(
                             store: featureStore,
-                            authoringAccess: store.authoringAccess,
-                            authoringAdmission: authoringAdmission,
-                            authoringPhase: authoringPhase
+                            authoringAccess: store.authoringAccess
                         )
                     }
                 }
@@ -1500,9 +1490,7 @@ public struct EventViewerView: View {
                 viewerTab(.settings) {
                     EventSettingsView(
                         store: featureStore,
-                        authoringAccess: store.authoringAccess,
-                        authoringAdmission: authoringAdmission,
-                        authoringPhase: authoringPhase
+                        authoringAccess: store.authoringAccess
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)
@@ -1622,9 +1610,7 @@ public struct EventViewerView: View {
                 viewerTab(.settings) {
                     EventSettingsView(
                         store: featureStore,
-                        authoringAccess: store.authoringAccess,
-                        authoringAdmission: authoringAdmission,
-                        authoringPhase: authoringPhase
+                        authoringAccess: store.authoringAccess
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)

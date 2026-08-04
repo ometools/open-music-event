@@ -1652,12 +1652,10 @@ struct NavigationTests {
                 EventViewer()
             }
             let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
-            let singleStageStore: StoreOf<ScheduleSingleStageAtOnce> =
-                scheduleStore.spawn(\.singleStageAtOnce)
             let contributorsStore = try #require(store.spawn(\.contributorsViewer))
 
             // The attendee opens a performance and contributor while the event uses Denver time.
-            await singleStageStore.send(.performanceButtonTapped(performanceID))?.value
+            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
             let performanceDetail = try #require(
                 scheduleStore.destination?.performanceDetail
             )
@@ -1834,7 +1832,7 @@ struct NavigationTests {
 
             // Exercise the mounted reducer path used by a real schedule-row tap. The device zone
             // may determine whether an MDT suffix is shown, but it can never become the clock.
-            await singleStageStore.send(.performanceButtonTapped(performanceID))?.value
+            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
 
             let performanceDetail = try #require(
                 scheduleStore.destination?.performanceDetail
@@ -3720,11 +3718,13 @@ struct NavigationTests {
             let store = Store(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
-            let scheduleStore: StoreOf<ScheduleSingleStageAtOnce> = store.spawn(\.singleStageAtOnce)
-
-            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
+            await store.send(.performanceButtonTapped(performanceID))?.value
 
             #expect(store.destination?.performanceDetail?.performanceID == performanceID)
+            expectNoDifference(
+                store.destination?.performanceDetail?.eventID,
+                eventID
+            )
         }
     }
 
@@ -4259,12 +4259,11 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(
-                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
-            )
-            let authoringWorkspaceStore = eventAuthoringStore.scope(
-                \.content,
-                action: \.content
+            let authoringWorkspaceStore = try #require(
+                $store.scope(
+                    \.eventViewer,
+                    action: \.destination.eventViewer
+                ).wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,
@@ -4462,12 +4461,11 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(
-                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
-            )
-            let authoringWorkspaceStore = eventAuthoringStore.scope(
-                \.content,
-                action: \.content
+            let authoringWorkspaceStore = try #require(
+                $store.scope(
+                    \.eventViewer,
+                    action: \.destination.eventViewer
+                ).wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,
@@ -6168,12 +6166,11 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
 
-            let eventAuthoringStore = try #require(
-                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
-            )
-            let authoringWorkspaceStore = eventAuthoringStore.scope(
-                \.content,
-                action: \.content
+            let authoringWorkspaceStore = try #require(
+                $store.scope(
+                    \.eventViewer,
+                    action: \.destination.eventViewer
+                ).wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,

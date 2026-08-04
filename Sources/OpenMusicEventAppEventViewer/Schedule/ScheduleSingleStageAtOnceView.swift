@@ -130,7 +130,6 @@ public struct ScheduleSingleStageAtOnce {
         case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             OMERecord.ID<OMERecord.Performance>,
@@ -170,14 +169,6 @@ public struct ScheduleSingleStageAtOnce {
                     await task?.value
                 }
 
-            case let .performanceButtonTapped(performanceID):
-                store.addTask {
-                    let task = try store.post(
-                        key: SchedulePerformanceDetailRequested.self,
-                        value: performanceID
-                    )
-                    await task?.value
-                }
             case let .scheduleDivisionButtonTapped(division):
                 store.addTask {
                     let task = try store.post(
@@ -263,6 +254,7 @@ public struct ScheduleSingleStageAtOnceView: View {
     @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
@@ -272,12 +264,14 @@ public struct ScheduleSingleStageAtOnceView: View {
         store: StoreOf<ScheduleSingleStageAtOnce>,
         selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
         userScheduleOverlay: UserScheduleOverlay,
-        showsAuthoringControls: Bool
+        showsAuthoringControls: Bool,
+        performanceButtonTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void
     ) {
         self.store = store
         self._selectedScheduleID = selectedScheduleID
         self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
+        self.performanceButtonTapped = performanceButtonTapped
     }
 
     public var body: some View {
@@ -377,7 +371,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                     store.send(.deletePerformanceButtonTapped(performanceID))
                 },
                 onPerformanceTapped: { performanceID in
-                    store.send(.performanceButtonTapped(performanceID))
+                    performanceButtonTapped(performanceID)
                 },
                 onScheduleDivisionTapped: { division in
                     store.send(.scheduleDivisionButtonTapped(division))

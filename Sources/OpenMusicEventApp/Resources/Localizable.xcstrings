@@ -4,19 +4,6 @@
     "@%@" : {
 
     },
-    "%lld events" : {
-
-    },
-    "%lld events · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld events · %2$@"
-          }
-        }
-      }
-    },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
       "localizations" : {
@@ -46,22 +33,10 @@
         }
       }
     },
-    "1 event" : {
-
-    },
-    "1 event · %@" : {
-
-    },
-    "2026" : {
-
-    },
     "About" : {
 
     },
     "About OpenMusicEvent" : {
-
-    },
-    "Actions" : {
 
     },
     "Add" : {
@@ -92,9 +67,6 @@
           }
         }
       }
-    },
-    "Add Event" : {
-
     },
     "All Dates" : {
 
@@ -131,9 +103,6 @@
         }
       }
     },
-    "Blank Event" : {
-
-    },
     "Browse" : {
 
     },
@@ -169,28 +138,10 @@
         }
       }
     },
-    "Canonical Sources" : {
-
-    },
-    "Carried Forward" : {
-
-    },
-    "Channel definitions" : {
+    "Capturing source changes" : {
 
     },
     "Choose a date" : {
-
-    },
-    "Connection details" : {
-
-    },
-    "Create Event" : {
-
-    },
-    "Create Shared Workspace" : {
-
-    },
-    "Creates events/%@/event.yml in the organizer workspace." : {
 
     },
     "Dark" : {
@@ -251,40 +202,7 @@
         }
       }
     },
-    "Dates" : {
-
-    },
-    "Dates are saved as local calendar dates in %@." : {
-
-    },
-    "Default version" : {
-
-    },
-    "Delete Created Events" : {
-
-    },
-    "Delete Created Events?" : {
-
-    },
-    "Delete Event" : {
-
-    },
-    "Delete Event?" : {
-
-    },
-    "Description" : {
-
-    },
-    "Directory" : {
-
-    },
     "Done" : {
-
-    },
-    "Durable Details" : {
-
-    },
-    "Edit Calendar" : {
 
     },
     "Ends" : {
@@ -299,22 +217,10 @@
     "Enter a valid Tangled repository." : {
 
     },
-    "Enter an event name." : {
-
-    },
-    "Enter Authoring" : {
-
-    },
     "Enter Event" : {
 
     },
     "Error Handling" : {
-
-    },
-    "Event Name" : {
-
-    },
-    "Event Ready" : {
 
     },
     "Event unavailable" : {
@@ -324,6 +230,9 @@
 
     },
     "Events Unavailable" : {
+
+    },
+    "Exit" : {
 
     },
     "Favorite" : {
@@ -355,13 +264,7 @@
         }
       }
     },
-    "festival-source" : {
-
-    },
     "Filter and sort" : {
-
-    },
-    "Folk Fest" : {
 
     },
     "Following" : {
@@ -371,9 +274,6 @@
 
     },
     "Happening Now" : {
-
-    },
-    "HEAD" : {
 
     },
     "Hello [%@](https://skip.dev)!" : {
@@ -434,13 +334,7 @@
         }
       }
     },
-    "https://tangled.org/owner/repo" : {
-
-    },
     "Hybrid" : {
-
-    },
-    "Imported" : {
 
     },
     "In person" : {
@@ -481,22 +375,10 @@
     "Loading events" : {
 
     },
-    "Loading previous events…" : {
-
-    },
     "Location" : {
 
     },
     "main" : {
-
-    },
-    "main or HEAD" : {
-
-    },
-    "Manage Team Workspace" : {
-
-    },
-    "Messages, announcements, and alert history are never carried forward." : {
 
     },
     "More Events" : {
@@ -537,19 +419,10 @@
     "Near Me" : {
 
     },
-    "New Dates" : {
-
-    },
-    "New Event" : {
-
-    },
     "No Events" : {
 
     },
     "No events match the current browse selection." : {
-
-    },
-    "No Previous Events" : {
 
     },
     "Notes" : {
@@ -587,22 +460,10 @@
     "Now" : {
 
     },
-    "Only events with stages can seed a rollover." : {
-
-    },
-    "Open Local Folder" : {
-
-    },
-    "Open Shared Workspace" : {
-
-    },
     "Organizer" : {
 
     },
     "Past Events" : {
-
-    },
-    "Pine Creek Lodge" : {
 
     },
     "Powered by [Skip](https://skip.dev)" : {
@@ -634,13 +495,22 @@
         }
       }
     },
+    "Preparing source workspace" : {
+
+    },
     "Previous" : {
 
     },
-    "Previous Event" : {
+    "Publication was interrupted" : {
 
     },
-    "Provider address" : {
+    "Publishing proposal" : {
+
+    },
+    "Reconcile" : {
+
+    },
+    "Reconciling source" : {
 
     },
     "Retry" : {
@@ -717,37 +587,13 @@
         }
       }
     },
-    "Shambhala" : {
-
-    },
-    "Shared workspace" : {
-
-    },
-    "Shared Workspaces" : {
-
-    },
-    "Site map and theme/branding" : {
-
-    },
     "Soonest first" : {
 
     },
     "Source import output can only be used with Tangled repositories." : {
 
     },
-    "Stages to Carry Forward" : {
-
-    },
-    "Start Fresh" : {
-
-    },
-    "Start from Previous Event" : {
-
-    },
-    "Start with the basics. This creates files in the active organizer workspace so the event can be edited locally." : {
-
-    },
-    "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
+    "Source moved; reconcile before publishing" : {
 
     },
     "Starts" : {
@@ -785,19 +631,7 @@
     "Tangled did not return a source archive." : {
 
     },
-    "tangled.org" : {
-
-    },
-    "Technical details" : {
-
-    },
     "Test error." : {
-
-    },
-    "Testival 2026" : {
-
-    },
-    "The new event is ready in the organizer workspace. Review these items before building the season." : {
 
     },
     "The repository owner did not resolve to a valid organizer." : {
@@ -813,18 +647,6 @@
 
     },
     "This organizer has no events." : {
-
-    },
-    "This permanently deletes the selected event data from this device. Created events are not cached off device." : {
-
-    },
-    "This permanently deletes the selected event data from this device. Shared workspace source trees can be opened again, but created events are not cached off device." : {
-
-    },
-    "This source has no events." : {
-
-    },
-    "Time Zone" : {
 
     },
     "Title" : {
@@ -856,6 +678,9 @@
         }
       }
     },
+    "Try Again" : {
+
+    },
     "Unable to authorize account." : {
 
     },
@@ -868,16 +693,19 @@
     "Unable to delete event." : {
 
     },
+    "Unable to enter this event." : {
+
+    },
     "Unable to extract the Tangled source archive." : {
 
     },
     "Unable to import source." : {
 
     },
-    "Unable to load data." : {
+    "Unable to load event." : {
 
     },
-    "Unable to load event source." : {
+    "Unable to load installed events: %@" : {
 
     },
     "Unable to prepare the downloaded source because a file already exists." : {
@@ -905,15 +733,6 @@
 
     },
     "Upcoming" : {
-
-    },
-    "Upload to Tangled" : {
-
-    },
-    "Venue and location details" : {
-
-    },
-    "Version" : {
 
     },
     "Version %@ (%@)" : {
@@ -984,19 +803,7 @@
         }
       }
     },
-    "Wicked Woods" : {
-
-    },
-    "Wicked Woods 2026" : {
-
-    },
-    "Workspace" : {
-
-    },
-    "Workspace address" : {
-
-    },
-    "Workspace name" : {
+    "Workspace operation failed" : {
 
     }
   },

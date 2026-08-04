@@ -1,6 +1,5 @@
 import ComposableArchitecture2
 import ComposableAuthoring
-import ComposableWorkspace
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SourceEditing
@@ -109,7 +108,6 @@ public struct EventWorkspace {
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
     let authoringAccess: AuthoringAccess
-    @Environment(\.openMusicEventWorkspacePhase) var phase
 
     public init(
         store: StoreOf<EventWorkspace>,
@@ -134,8 +132,7 @@ public struct EventWorkspaceView: View {
         VStack(spacing: 0) {
             WorkspaceDetailsView(
                 workspace: store.workspace,
-                eventID: store.eventID,
-                phase: phase
+                eventID: store.eventID
             )
 
             let pages = availablePages
@@ -169,15 +166,10 @@ public struct EventWorkspaceView: View {
 struct WorkspaceDetailsView: View {
     let workspace: SourceWorkspace
     let eventID: OME.Event.ID
-    let phase: WorkspacePhase<SourcePatch>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Organization workspace").font(.headline)
-                Spacer()
-                Text(phase.shortTitle).foregroundStyle(.secondary)
-            }
+            Text("Organization workspace").font(.headline)
             Text(workspace.repository)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -188,61 +180,6 @@ struct WorkspaceDetailsView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-    }
-}
-
-public struct WorkspacePublicationStatusView: View {
-    let phase: WorkspacePhase<SourcePatch>
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-
-    public init(phase: WorkspacePhase<SourcePatch>) {
-        self.phase = phase
-    }
-
-    public var body: some View {
-        switch phase {
-        case .inactive, .ready(.canonical):
-            EmptyView()
-        case let .ready(.proposal(proposal)):
-            LabeledContent("Open proposal", value: proposal.id.rawValue)
-        case .preparingSource:
-            progress("Preparing source workspace")
-        case .capturingSubmission:
-            progress("Capturing source changes")
-        case .publishing:
-            progress("Publishing proposal commit")
-        case .reconciling:
-            progress("Reconciling source")
-        case let .sourcePreparationFailed(failure),
-             let .submissionCaptureFailed(_, _, failure),
-             let .publicationFailed(_, failure),
-             let .reconciliationFailed(_, failure):
-            failureView(failure)
-        case .publicationInterrupted:
-            Label("Publication was interrupted", systemImage: "pause.circle")
-                .foregroundStyle(.orange)
-        case .stale:
-            Label("Source moved; reconcile before publishing", systemImage: "arrow.triangle.2.circlepath")
-                .foregroundStyle(.orange)
-        }
-    }
-
-    private func progress(_ title: String) -> some View {
-        HStack(spacing: 8) {
-            ProgressView()
-            Text(title)
-        }
-        .foregroundStyle(.secondary)
-    }
-
-    private func failureView(_ failure: WorkspaceFailure) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label("Workspace operation failed", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
-            if showsTechnicalDetails {
-                Text(failure.message).font(.caption).foregroundStyle(.secondary)
-            }
-        }
     }
 }
 
@@ -310,26 +247,6 @@ struct SourceChangeSummarySection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-    }
-}
-
-private extension WorkspacePhase where ChangeSet == SourcePatch {
-    var shortTitle: String {
-        switch self {
-        case .inactive: "Inactive"
-        case .preparingSource: "Preparing"
-        case .ready(.canonical): "Ready"
-        case .ready(.proposal): "Proposal open"
-        case .capturingSubmission: "Capturing"
-        case .publishing: "Publishing"
-        case .publicationInterrupted: "Interrupted"
-        case .publicationFailed: "Publication failed"
-        case .reconciling: "Reconciling"
-        case .reconciliationFailed: "Reconciliation failed"
-        case .sourcePreparationFailed: "Preparation failed"
-        case .stale: "Source moved"
-        case .submissionCaptureFailed: "Capture failed"
         }
     }
 }

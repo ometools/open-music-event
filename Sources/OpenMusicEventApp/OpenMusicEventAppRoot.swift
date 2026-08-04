@@ -260,40 +260,42 @@ public struct OpenMusicEventAppRootView: View {
     public var body: some View {
         OpenMusicEventAppSurfaceView(store: store)
         .openMusicEventViewerPresentation(
-            item: $store.scope(\.destination, action: \.destination).eventViewer
-        ) { authorizationStore in
-            #if os(Android)
-            let authoringWorkspaceStore = authorizationStore.scope(\.content, action: \.content)
+            item: $store.scope(\.eventViewer, action: \.destination.eventViewer)
+        ) { authoringWorkspaceStore in
             let authoringStore = authoringWorkspaceStore
                 .scope(\.authoring, action: \.authoring)
             let workspaceStore = authoringStore.scope(\.content, action: \.content)
             let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
-            EventViewerView(
-                store: eventViewerStore,
-                authoringAdmission: authoringStore.admission,
-                authoringPhase: authoringStore.phase
+            EventViewerView(store: eventViewerStore)
+            .openMusicEventAuthoringStatus(
+                admission: authoringStore.admission,
+                phase: authoringStore.phase
             )
-            .openMusicEventWorkspacePhase(workspaceStore.phase)
-            #else
-            OpenMusicEventAuthorizationView(store: authorizationStore) {
-                authoringWorkspaceStore in
-                let authoringStore = authoringWorkspaceStore
-                    .scope(\.authoring, action: \.authoring)
-                let workspaceStore = authoringStore.scope(\.content, action: \.content)
-                let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
-                EventViewerView(
-                    store: eventViewerStore,
-                    authoringAdmission: authoringStore.admission,
-                    authoringPhase: authoringStore.phase
+            .safeAreaInset(edge: .top, spacing: 0) {
+                OpenMusicEventWorkspaceStatusView(
+                    phase: workspaceStore.phase,
+                    exitAuthoring: {
+                        authoringStore.send(.exitButtonTapped)
+                    },
+                    reconcile: {
+                        workspaceStore.send(.reconciliationRequested)
+                    },
+                    retryCapture: {
+                        workspaceStore.send(.submissionCaptureRetryButtonTapped)
+                    },
+                    retryPreparation: {
+                        workspaceStore.send(.sourcePreparationRetryButtonTapped)
+                    },
+                    retryPublication: {
+                        workspaceStore.send(.publicationRetryButtonTapped)
+                    }
                 )
-                .openMusicEventWorkspacePhase(workspaceStore.phase)
             }
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in
                 InAppSafariView(url: presentation.url)
                     .ignoresSafeArea()
             }
-            #endif
             #endif
         }
         .task {
@@ -314,6 +316,118 @@ public struct OpenMusicEventAppRootView: View {
             }
         )
         #endif
+    }
+}
+
+struct OpenMusicEventWorkspaceStatusView: View {
+    let phase: WorkspacePhase<SourcePatch>
+    let exitAuthoring: () -> Void
+    let reconcile: () -> Void
+    let retryCapture: () -> Void
+    let retryPreparation: () -> Void
+    let retryPublication: () -> Void
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+
+    var body: some View {
+        switch phase {
+        case .inactive, .ready:
+            EmptyView()
+
+        case .preparingSource:
+            status {
+                ProgressView()
+                Text("Preparing source workspace")
+                Spacer()
+                Button("Exit", action: exitAuthoring)
+            }
+
+        case .capturingSubmission:
+            status {
+                ProgressView()
+                Text("Capturing source changes")
+            }
+
+        case .publishing:
+            status {
+                ProgressView()
+                Text("Publishing proposal")
+            }
+
+        case .reconciling:
+            status {
+                ProgressView()
+                Text("Reconciling source")
+            }
+
+        case let .sourcePreparationFailed(failure):
+            failureStatus(failure) {
+                Button("Retry", action: retryPreparation)
+                Button("Exit", action: exitAuthoring)
+            }
+
+        case let .submissionCaptureFailed(_, _, failure):
+            failureStatus(failure) {
+                Button("Retry", action: retryCapture)
+            }
+
+        case let .publicationFailed(_, failure):
+            failureStatus(failure) {
+                Button("Retry", action: retryPublication)
+            }
+
+        case .publicationInterrupted:
+            status {
+                Label("Publication was interrupted", systemImage: "pause.circle")
+                Spacer()
+                Button("Retry", action: retryPublication)
+            }
+
+        case let .reconciliationFailed(_, failure):
+            failureStatus(failure) {
+                Button("Reconcile", action: reconcile)
+            }
+
+        case .stale:
+            status {
+                Label(
+                    "Source moved; reconcile before publishing",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+                Spacer()
+                Button("Reconcile", action: reconcile)
+            }
+        }
+    }
+
+    private func status<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 8, content: content)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial)
+    }
+
+    private func failureStatus<Actions: View>(
+        _ failure: WorkspaceFailure,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        status {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(
+                    "Workspace operation failed",
+                    systemImage: "exclamationmark.triangle"
+                )
+                if showsTechnicalDetails {
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            actions()
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import FileTree
@@ -34,11 +35,11 @@ struct WorkspaceAuthoringStoryTests {
         )
         let selectedEventID = workspaceStoryEventID(
             organizerID: organizerID,
-            localID: "wicked-woods-ome-2026"
+            localID: "ome-workspace-2026"
         )
         let olderEventID = workspaceStoryEventID(
             organizerID: organizerID,
-            localID: "wicked-woods-ome-2025"
+            localID: "ome-workspace-2025"
         )
         let unrelatedEventID = try await insertUnrelatedWorkspaceStoryEvent(into: database)
         let storageRoot = FileManager.default.temporaryDirectory
@@ -164,8 +165,8 @@ struct WorkspaceAuthoringStoryTests {
                     return operations.count(of: "clone") == 1
                 }
 
-                // EventSettingsView and WorkspacePublicationStatusView both render a ProgressView
-                // directly from this phase, so the control cannot simply disappear during entry.
+                // The application boundary renders this package phase as progress. The database
+                // viewer is correctly unavailable until Workspace has delivered its resource.
                 let enteringAuthoring = try #require(
                     firstStore?.content.eventViewer?.authoring
                 )
@@ -173,6 +174,7 @@ struct WorkspaceAuthoringStoryTests {
                 expectNoDifference(enteringAuthoring.phase, .entering)
                 expectNoDifference(enteringGrant.principal, AuthoringPrincipal(actorID: organizerID))
                 expectNoDifference(enteringGrant.role, .owner)
+                #expect(enteringAuthoring.content.content.eventWorkspace == nil)
 
                 cloneGate.continuation.yield(())
                 await entry?.value
@@ -211,6 +213,13 @@ struct WorkspaceAuthoringStoryTests {
                         .phase
                     else { return false }
                     return firstStore?.content.eventViewer?.authoring.content.source != nil
+                        && firstStore?
+                            .content
+                            .eventViewer?
+                            .authoring
+                            .content
+                            .content
+                            .eventWorkspace != nil
                 }
 
                 let workspace = try #require(firstStore?.content.eventViewer?.authoring.context)
@@ -225,12 +234,66 @@ struct WorkspaceAuthoringStoryTests {
                 )
                 expectNoDifference(operations.count(of: "clone"), 2)
                 expectNoDifference(operations.count(prefix: "resolve:"), 1)
+                #expect(
+                    firstStore?
+                        .content
+                        .eventViewer?
+                        .authoring
+                        .content
+                        .content
+                        .installedFeatures
+                        .contains(.workspace) == true
+                )
 
                 let cleanSummary = try await firstResource.database.read { db in
                     try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
                 }
                 expectNoDifference(cleanSummary.availability, .available)
                 expectNoDifference(cleanSummary.totalCount, 0)
+
+                // EventWorkspace is a pure live database viewer. Publication persistence and the
+                // viewer share the workspace-owned main + attached-baseline connection, so the
+                // proposal changes without a reload action or client-held state.
+                let observedProposal = WorkspaceProposal(
+                    id: WorkspaceProposalID(
+                        rawValue: "at://did:plc:author/sh.tangled.pull/workspace-story"
+                    ),
+                    source: WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "ome/workspace-story"),
+                        revision: WorkspaceRevision(rawValue: revision.rawValue)
+                    ),
+                    target: WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: workspace.branch),
+                        revision: WorkspaceRevision(rawValue: revision.rawValue)
+                    )
+                )
+                let proposalStore = SourceWorkspaceOpenProposalStore(
+                    database: firstResource.database
+                )
+                try await proposalStore.save(observedProposal, workspaceID: workspace.id)
+                try await workspaceStoryWaitUntil {
+                    firstStore?
+                        .content
+                        .eventViewer?
+                        .authoring
+                        .content
+                        .content
+                        .eventWorkspace?
+                        .changes
+                        .openProposal == observedProposal
+                }
+                try await proposalStore.save(nil, workspaceID: workspace.id)
+                try await workspaceStoryWaitUntil {
+                    firstStore?
+                        .content
+                        .eventViewer?
+                        .authoring
+                        .content
+                        .content
+                        .eventWorkspace?
+                        .changes
+                        .openProposal == nil
+                }
 
                 // A real application write is immediately visible against the attached baseline.
                 try await database.write { db in
@@ -268,6 +331,15 @@ struct WorkspaceAuthoringStoryTests {
                     Issue.record("Settled workspace state must outlive authoring grant loss.")
                     return
                 }
+                #expect(
+                    firstStore?
+                        .content
+                        .eventViewer?
+                        .authoring
+                        .content
+                        .content
+                        .eventWorkspace != nil
+                )
 
                 let sameMountReentry = firstStore?.send(
                     .content(
@@ -340,6 +412,13 @@ struct WorkspaceAuthoringStoryTests {
                         .phase
                     else { return false }
                     return remountedStore.content.eventViewer?.authoring.content.source != nil
+                        && remountedStore
+                            .content
+                            .eventViewer?
+                            .authoring
+                            .content
+                            .content
+                            .eventWorkspace != nil
                 }
 
                 expectNoDifference(operations.count(of: "clone"), 2)
@@ -380,7 +459,7 @@ struct WorkspaceAuthoringStoryTests {
         )
         let selectedEventID = workspaceStoryEventID(
             organizerID: organizerID,
-            localID: "wicked-woods-ome-2026"
+            localID: "ome-workspace-2026"
         )
         let operations = WorkspaceStorySourceControlRecorder()
 
@@ -566,7 +645,7 @@ private func writeWorkspaceStorySource(
             workspaceStorySourceEvent(
                 id: workspaceStoryEventID(
                     organizerID: organizerID,
-                    localID: "wicked-woods-ome-2025"
+                    localID: "ome-workspace-2025"
                 ),
                 directoryName: "2025",
                 name: "Wicked Woods 2025",
@@ -575,7 +654,7 @@ private func writeWorkspaceStorySource(
             workspaceStorySourceEvent(
                 id: workspaceStoryEventID(
                     organizerID: organizerID,
-                    localID: "wicked-woods-ome-2026"
+                    localID: "ome-workspace-2026"
                 ),
                 directoryName: "2026",
                 name: "Wicked Woods 2026",
@@ -643,7 +722,7 @@ private func workspaceStoryTangledRecordsHTTPClient() -> HTTPClient {
                   "cid": "bafyreifakerepo",
                   "value": {
                     "$type": "sh.tangled.repo",
-                    "name": "wicked-woods-ome",
+                    "name": "ome-workspace",
                     "repoDid": "did:plc:workspace-source-repository",
                     "knot": "tangled.org",
                     "createdAt": "2026-05-26T17:30:42Z"

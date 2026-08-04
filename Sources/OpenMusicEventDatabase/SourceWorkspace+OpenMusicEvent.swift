@@ -38,7 +38,7 @@ public extension WorkspaceReferenceUpdateClient {
                 guard source.workspace.id == workspaceID else {
                     throw SourceWorkspaceDatabaseError.resourceMismatch(workspaceID)
                 }
-                @Dependency(\.defaultDatabase) var mainDatabase
+                let mainDatabase = source.database
                 let revision = try await resolveRevision(
                     Repository(url: source.repositoryURL),
                     RefName(rawValue: "HEAD")
@@ -79,7 +79,7 @@ public extension WorkspaceReferenceUpdateClient {
                 guard source.workspace.id == workspaceID else {
                     throw SourceWorkspaceDatabaseError.resourceMismatch(workspaceID)
                 }
-                @Dependency(\.defaultDatabase) var mainDatabase
+                let mainDatabase = source.database
                 @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
                 var patchGenerator
                 @Dependency(\.sourcePatchApplier) var patchApplier

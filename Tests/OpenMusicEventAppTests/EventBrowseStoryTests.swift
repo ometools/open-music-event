@@ -424,7 +424,7 @@ struct EventBrowseStoryTests {
         let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
         let eventID = OME.Event.ID(
             organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "wicked-woods-ome-2026")
+            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
         )
         let wickedWoods = try #require(
             try CalendarEventsClient.temporaryOpenMusicEvents().first {
@@ -460,7 +460,7 @@ struct EventBrowseStoryTests {
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 expectNoDifference(
                     request.repository.normalizedReference,
-                    "tangled.org/woody.fm/wicked-woods-ome"
+                    "tangled.org/wickedwoods.ca/ome-workspace"
                 )
                 try FileManager.default.createDirectory(
                     at: request.outputURL,
@@ -500,7 +500,7 @@ struct EventBrowseStoryTests {
         }
         let workspace = try #require(browseState.provenance?.workspace)
         expectNoDifference(workspace.organizerID, organizerID)
-        expectNoDifference(workspace.repository, "tangled.org/woody.fm/wicked-woods-ome")
+        expectNoDifference(workspace.repository, "tangled.org/wickedwoods.ca/ome-workspace")
         expectNoDifference(workspace.branch, "main")
         expectNoDifference(browseState.installations, 0)
         #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)

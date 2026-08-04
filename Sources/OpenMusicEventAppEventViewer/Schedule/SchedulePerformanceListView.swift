@@ -89,7 +89,6 @@ public struct SchedulePerformanceList {
 
     public enum Action {
         case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             OMERecord.ID<OMERecord.Performance>,
@@ -104,15 +103,6 @@ public struct SchedulePerformanceList {
                 store.addTask {
                     let task = try store.post(
                         key: SchedulePerformanceNewUserScheduleRequested.self,
-                        value: performanceID
-                    )
-                    await task?.value
-                }
-
-            case let .performanceButtonTapped(performanceID):
-                store.addTask {
-                    let task = try store.post(
-                        key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
                     )
                     await task?.value
@@ -151,17 +141,20 @@ public struct SchedulePerformanceListView: View {
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     public init(
         store: StoreOf<SchedulePerformanceList>,
         selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
         userScheduleOverlay: UserScheduleOverlay,
-        showsAuthoringControls: Bool
+        showsAuthoringControls: Bool,
+        performanceButtonTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void
     ) {
         self.store = store
         self.selectedScheduleID = selectedScheduleID
         self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
+        self.performanceButtonTapped = performanceButtonTapped
     }
 
     public var body: some View {
@@ -189,7 +182,7 @@ public struct SchedulePerformanceListView: View {
                 ScrollViewReader { proxy in
                     List(rows) { row in
                         Button {
-                            store.send(.performanceButtonTapped(row.performanceID))
+                            performanceButtonTapped(row.performanceID)
                         } label: {
                             SchedulePerformanceRow(
                                 row: row,

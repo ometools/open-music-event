@@ -173,7 +173,10 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
             captureChanges: { source, workspaceID, request in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 precondition(source.workspace.id == sourceWorkspaceID)
-                if let capture = try persistence.capture(
+                let sourcePersistence = WorkspacePublicationPersistence(
+                    database: source.database
+                )
+                if let capture = try sourcePersistence.capture(
                     workspaceID: sourceWorkspaceID,
                     requestID: request.id
                 ) {
@@ -186,7 +189,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                         SourceWorkspacePatchRequest(workspace: source.workspace)
                     )
                 }
-                try await persistence.saveCapture(
+                try await sourcePersistence.saveCapture(
                     capture,
                     workspaceID: sourceWorkspaceID,
                     requestID: request.id
@@ -211,11 +214,13 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                 }
                 return WorkspacePreparation(line: .proposal(proposal), source: prepared.source)
             },
-            pushCommit: { workspaceID, submission in
+            pushCommit: { source, workspaceID, submission in
                 try await publisher.pushCommit(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
-                    persistence: persistence
+                    persistence: WorkspacePublicationPersistence(
+                        database: source.database
+                    )
                 )
             },
             reconcileSource: { source, workspaceID, reconciliation in
@@ -225,22 +230,25 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     reconciliation
                 )
             },
-            recordProposal: { workspaceID, submission, commit in
+            recordProposal: { source, workspaceID, submission, commit in
                 try await publisher.recordProposal(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     commit: commit,
-                    persistence: persistence
+                    persistence: WorkspacePublicationPersistence(
+                        database: source.database
+                    )
                 )
             },
-            removeSubmission: { workspaceID, submissionID in
-                try await persistence.removeSubmission(
+            removeSubmission: { source, workspaceID, submissionID in
+                try await WorkspacePublicationPersistence(database: source.database)
+                    .removeSubmission(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submissionID: submissionID
                 )
             },
-            saveSubmission: { workspaceID, submission in
-                try await persistence.save(
+            saveSubmission: { source, workspaceID, submission in
+                try await WorkspacePublicationPersistence(database: source.database).save(
                     submission,
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 )

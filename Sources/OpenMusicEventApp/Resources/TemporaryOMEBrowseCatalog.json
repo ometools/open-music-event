@@ -2,10 +2,10 @@
   {
     "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
     "organizerName": "Wicked Woods",
-    "eventID": "wicked-woods-ome-2026",
+    "eventID": "ome-workspace-2026",
     "source": {
       "kind": "tangled",
-      "reference": "https://tangled.org/woody.fm/wicked-woods-ome",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
       "ref": "main"
     },
     "name": "Wicked Woods 2026",

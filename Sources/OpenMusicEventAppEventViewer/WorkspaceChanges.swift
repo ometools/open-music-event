@@ -41,11 +41,17 @@ public struct WorkspaceChanges {
                 ),
                 SourceWorkspaceEditSummaryRequest(workspace: workspace)
             )
+            self._openProposal = Fetch(
+                wrappedValue: nil,
+                SourceWorkspaceOpenProposalRequest(workspaceID: workspace.id)
+            )
         }
 
         public let workspace: SourceWorkspace
         @DebugSnapshotIgnored
         @Fetch public var summary: SourceWorkspaceEditSummary
+        @DebugSnapshotIgnored
+        @Fetch public var openProposal: WorkspaceProposal?
         public var patchStatus: PatchStatus = .notGenerated
         public var proposalDraft: WorkspaceProposalDraft.State?
         public var resetStatus: ResetStatus = .idle
@@ -82,8 +88,6 @@ public struct WorkspaceChanges {
     var patchGenerator
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
-    var workspaceContext
 
     public var body: some Feature {
         Update { state, action in
@@ -106,14 +110,12 @@ public struct WorkspaceChanges {
                 guard authoring.grant.wrappedValue?.access.canPropose == true,
                       state.changeCount > 0
                 else { return }
-                switch workspaceContext.phase.wrappedValue {
-                case .ready(.canonical):
+                if state.openProposal == nil {
                     state.proposalDraft = WorkspaceProposalDraft.State(
                         groups: state.summary.groups,
                         recordComparisons: state.summary.recordComparisons
                     )
-
-                case .ready(.proposal):
+                } else {
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceProposalUpdateRequested.self,
@@ -121,28 +123,6 @@ public struct WorkspaceChanges {
                         )
                         await task?.value
                     }
-
-                case .publicationFailed, .publicationInterrupted:
-                    store.addTask {
-                        let task = try store.post(
-                            key: WorkspacePublicationRetryRequested.self,
-                            value: ()
-                        )
-                        await task?.value
-                    }
-
-                case .reconciliationFailed, .stale:
-                    store.addTask {
-                        let task = try store.post(
-                            key: WorkspaceReconciliationRequested.self,
-                            value: ()
-                        )
-                        await task?.value
-                    }
-
-                case .capturingSubmission, .inactive, .preparingSource, .publishing,
-                     .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
-                    break
                 }
 
             case .resetChangesButtonTapped:
@@ -201,7 +181,6 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
-    @Environment(\.openMusicEventWorkspacePhase) var phase
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
@@ -217,7 +196,9 @@ public struct WorkspaceChangesView: View {
             )
 
             Section("Workspace") {
-                WorkspacePublicationStatusView(phase: phase)
+                if let proposal = store.openProposal {
+                    LabeledContent("Open proposal", value: proposal.id.rawValue)
+                }
 
                 if store.changeCount == 0 {
                     Text("No local changes")
@@ -228,10 +209,9 @@ public struct WorkspaceChangesView: View {
                     }
                     .disabled(!store.canInspectChanges)
 
-                    Button(phase.proposalActionTitle) {
+                    Button(store.openProposal == nil ? "Create proposal" : "Update proposal") {
                         store.send(.proposalActionButtonTapped)
                     }
-                    .disabled(!phase.canRequestProposalAction)
                 }
 
                 switch store.patchStatus {
@@ -284,31 +264,6 @@ public struct WorkspaceChangesView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This restores every record owned by this organization source to its reference copy.")
-        }
-    }
-}
-
-extension WorkspacePhase where ChangeSet == SourcePatch {
-    var proposalActionTitle: String {
-        switch self {
-        case .ready(.canonical): "Create proposal"
-        case .ready(.proposal): "Update proposal"
-        case .publicationFailed, .publicationInterrupted: "Retry publication"
-        case .reconciliationFailed, .stale: "Reconcile source"
-        case .capturingSubmission, .inactive, .preparingSource, .publishing,
-             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
-            "Working"
-        }
-    }
-
-    var canRequestProposalAction: Bool {
-        switch self {
-        case .ready, .publicationFailed, .publicationInterrupted,
-             .reconciliationFailed, .stale:
-            true
-        case .capturingSubmission, .inactive, .preparingSource, .publishing,
-             .reconciling, .sourcePreparationFailed, .submissionCaptureFailed:
-            false
         }
     }
 }

@@ -94,6 +94,25 @@ public struct SourceWorkspaceOpenProposalStore: Sendable {
     }
 }
 
+/// The proposal branch currently owned by a source workspace.
+///
+/// This request observes the workspace publication table so database-backed viewers update when
+/// publication creates, advances, merges, or removes the open proposal.
+public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
+    public init(workspaceID: SourceWorkspace.ID) {
+        self.workspaceID = workspaceID
+    }
+
+    public let workspaceID: SourceWorkspace.ID
+
+    public func fetch(_ db: Database) throws -> WorkspaceProposal? {
+        try WorkspacePublicationRecord.find(workspaceID)
+            .fetchOne(db)?
+            .openProposalData
+            .map { try decode(WorkspaceProposal.self, from: $0) }
+    }
+}
+
 struct WorkspacePublicationPersistence: Sendable {
     enum Error: Swift.Error {
         case workspaceNotPrepared(SourceWorkspace.ID)

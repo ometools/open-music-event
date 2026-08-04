@@ -1,6 +1,5 @@
 import ComposableArchitecture2
 import ComposableAuthoring
-import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -35,7 +34,6 @@ public struct EventSettings {
         case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
         case exitAuthoringButtonTapped
-        case retryWorkspacePreparationButtonTapped
         case testErrorButtonTapped
     }
 
@@ -64,15 +62,6 @@ public struct EventSettings {
                     await task?.value
                 }
 
-            case .retryWorkspacePreparationButtonTapped:
-                store.addTask {
-                    let task = try store.post(
-                        key: SourceWorkspacePreparationRetryRequested.self,
-                        value: ()
-                    )
-                    await task?.value
-                }
-
             case .testErrorButtonTapped:
                 store.addTask {
                     _ = await store.withErrorHandling(
@@ -90,20 +79,15 @@ public struct EventSettings {
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
     let authoringAccess: AuthoringAccess
-    let authoringAdmission: ComposableAuthoring.AuthoringAdmission?
-    let authoringPhase: AuthoringPhase<AuthoringGrant>?
-    @Environment(\.openMusicEventWorkspacePhase) var workspacePhase
+    @Environment(\.openMusicEventAuthoringAdmission) var authoringAdmission
+    @Environment(\.openMusicEventAuthoringPhase) var authoringPhase
 
     public init(
         store: StoreOf<EventSettings>,
-        authoringAccess: AuthoringAccess,
-        authoringAdmission: ComposableAuthoring.AuthoringAdmission?,
-        authoringPhase: AuthoringPhase<AuthoringGrant>? = nil
+        authoringAccess: AuthoringAccess
     ) {
         self.store = store
         self.authoringAccess = authoringAccess
-        self.authoringAdmission = authoringAdmission
-        self.authoringPhase = authoringPhase
     }
 
     public var body: some View {
@@ -119,32 +103,6 @@ public struct EventSettingsView: View {
             } else if authoringPhase?.isExiting == true {
                 Section("Authoring") {
                     ProgressView("Exiting authoring")
-                }
-            } else if workspacePhase.isPreparingSource {
-                Section("Authoring") {
-                    ProgressView("Preparing source workspace")
-                    Button("Exit Authoring") {
-                        store.send(.exitAuthoringButtonTapped)
-                    }
-                }
-            } else if case .sourcePreparationFailed = workspacePhase {
-                Section("Authoring") {
-                    WorkspacePublicationStatusView(phase: workspacePhase)
-                    Button("Retry workspace preparation") {
-                        store.send(.retryWorkspacePreparationButtonTapped)
-                    }
-                    Button("Exit Authoring") {
-                        store.send(.exitAuthoringButtonTapped)
-                    }
-                }
-            } else if authoringPhase?.isActive == true,
-                      !authoringAccess.canEditContent
-            {
-                Section("Authoring") {
-                    ProgressView("Starting source workspace")
-                    Button("Exit Authoring") {
-                        store.send(.exitAuthoringButtonTapped)
-                    }
                 }
             } else if authoringAccess.canEditContent {
                 Section("Authoring") {
@@ -183,11 +141,6 @@ public struct EventSettingsView: View {
 }
 
 private extension AuthoringPhase {
-    var isActive: Bool {
-        if case .active = self { return true }
-        return false
-    }
-
     var isEntering: Bool {
         if case .entering = self { return true }
         return false
@@ -200,13 +153,6 @@ private extension AuthoringPhase {
 
     var isRestoring: Bool {
         if case .restoring = self { return true }
-        return false
-    }
-}
-
-private extension WorkspacePhase where ChangeSet == SourcePatch {
-    var isPreparingSource: Bool {
-        if case .preparingSource = self { return true }
         return false
     }
 }

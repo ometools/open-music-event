@@ -68,7 +68,6 @@ public struct WorkspaceReviews {
         case deleteButtonTapped(TangledPullReview)
         case mergeButtonTapped(TangledPullReview)
         case refreshButtonTapped
-        case refreshSourceButtonTapped
     }
 
     @Dependency(\.tangledPullReviewClient) var reviewClient
@@ -138,15 +137,6 @@ public struct WorkspaceReviews {
 
             case .refreshButtonTapped:
                 loadReviews(state: &state)
-
-            case .refreshSourceButtonTapped:
-                store.addTask {
-                    let reconciliation = try store.post(
-                        key: WorkspaceReconciliationRequested.self,
-                        value: ()
-                    )
-                    await reconciliation?.value
-                }
             }
         }
         .onMount { state in
@@ -186,7 +176,6 @@ public struct WorkspaceReviews {
 
 public struct WorkspaceReviewsView: View {
     @Bindable var store: StoreOf<WorkspaceReviews>
-    @Environment(\.openMusicEventWorkspacePhase) var phase
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<WorkspaceReviews>) {
@@ -199,13 +188,6 @@ public struct WorkspaceReviewsView: View {
                 LabeledContent("Repository", value: store.workspace.repository)
                 LabeledContent("Branch", value: store.workspace.branch)
                 LabeledContent("Organization", value: store.workspace.organizerID.description)
-
-                Button("Reconcile with source") {
-                    store.send(.refreshSourceButtonTapped)
-                }
-                .disabled(!phase.canRequestReconciliation)
-
-                WorkspacePublicationStatusView(phase: phase)
             }
 
             Section("Open proposals") {

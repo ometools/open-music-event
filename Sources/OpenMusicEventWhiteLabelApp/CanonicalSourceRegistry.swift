@@ -1,5 +1,6 @@
 import Dependencies
 import OpenMusicEventApp
+import SQLiteData
 
 public enum OpenMusicEvent {
     public enum WhiteLabel {
@@ -9,6 +10,16 @@ public enum OpenMusicEvent {
             _ dependencies: inout DependencyValues
         ) throws {
             try OME.prepareDependencies(&dependencies)
+        }
+
+        /// Installs the ordinary OME application dependencies around an existing application
+        /// database. This is the test and embedding seam for preserving database identity; it does
+        /// not change the white-label application's source or authorization behavior.
+        public static func prepareDependencies(
+            _ dependencies: inout DependencyValues,
+            database: any DatabaseWriter
+        ) {
+            OME.prepareDependencies(&dependencies, database: database)
         }
     }
 }

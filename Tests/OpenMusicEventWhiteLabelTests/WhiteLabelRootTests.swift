@@ -29,7 +29,7 @@ struct WhiteLabelRootTests {
         )
         let eventID = OMERecord.Event.ID(
             organizerID: organizerID,
-            eventID: OMERecord.ID<OMERecord.Event>(rawValue: "wicked-woods-ome-2026")
+            eventID: OMERecord.ID<OMERecord.Event>(rawValue: "ome-workspace-2026")
         )
         let installations = Mutex<[ATProto.URI]>([])
         let gitOperations = GitOperationRecorder()
@@ -57,7 +57,11 @@ struct WhiteLabelRootTests {
             }
         }
 
-        await store.expect {
+        await store.receive(
+            key: NavigationRequested.self,
+            value: .equals(.event(eventID, nil)),
+            timeout: .seconds(1)
+        ) {
             $0.root.isLoading = false
             $0.lastRequest = .event(eventID, nil)
         }
@@ -80,7 +84,7 @@ struct WhiteLabelRootTests {
         )
         let eventID = OMERecord.Event.ID(
             organizerID: organizerID,
-            eventID: OMERecord.ID<OMERecord.Event>(rawValue: "wicked-woods-ome-2026")
+            eventID: OMERecord.ID<OMERecord.Event>(rawValue: "ome-workspace-2026")
         )
         let resolvedHandles = Mutex<[String]>([])
         let installations = Mutex<[ATProto.URI]>([])
@@ -112,7 +116,11 @@ struct WhiteLabelRootTests {
             }
         }
 
-        await store.expect {
+        await store.receive(
+            key: NavigationRequested.self,
+            value: .equals(.event(eventID, nil)),
+            timeout: .seconds(1)
+        ) {
             $0.root.isLoading = false
             $0.lastRequest = .event(eventID, nil)
         }
@@ -134,30 +142,38 @@ struct WhiteLabelRootTests {
         )
         let installations = Mutex<[ATProto.URI]>([])
 
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.calendarEvents = .openMusicEventAndAtmo(database: database)
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                throw WhiteLabelError.missingEvent(missingOrganizerID)
-            }
-        } operation: {
-            TestStore(
-                initialState: WhiteLabelStory.State(
-                    configuration: WhiteLabelAppConfiguration(
-                        brand: WhiteLabelBrand(displayName: "Missing Festival"),
-                        organizerID: missingOrganizerID
+        var mountedStore: TestStore<WhiteLabelStory>?
+        await withExpectedIssue {
+            mountedStore = withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.calendarEvents = .openMusicEventAndAtmo(database: database)
+                $0.omeEventInstallation = OMEEventInstallationClient { uri in
+                    installations.withLock { $0.append(uri) }
+                    throw WhiteLabelError.missingEvent(missingOrganizerID)
+                }
+            } operation: {
+                TestStore(
+                    initialState: WhiteLabelStory.State(
+                        configuration: WhiteLabelAppConfiguration(
+                            brand: WhiteLabelBrand(displayName: "Missing Festival"),
+                            organizerID: missingOrganizerID
+                        )
                     )
-                )
-            ) {
-                WhiteLabelStory()
-            } changes: {
-                $0.root.isLoading = true
+                ) {
+                    WhiteLabelStory()
+                } changes: {
+                    $0.root.isLoading = true
+                }
+            }
+            try await whiteLabelWaitUntil {
+                mountedStore?.lastErrorOperation == "white-label.load"
+                    && mountedStore?.root.errorMessage == "Unable to load event."
+                    && mountedStore?.root.isLoading == false
             }
         }
-
-        await store.expect {
+        let store = try #require(mountedStore)
+        store.expect {
             $0.root.isLoading = false
             $0.root.errorMessage = "Unable to load event."
             $0.lastErrorOperation = "white-label.load"
@@ -168,6 +184,24 @@ struct WhiteLabelRootTests {
         #expect(store.root.errorMessage == "Unable to load event.")
         await store.dismount(timeout: .seconds(1))
     }
+}
+
+@MainActor
+private func whiteLabelWaitUntil(
+    _ condition: @escaping @MainActor () -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(1))
+    while clock.now < deadline {
+        if condition() { return }
+        try await clock.sleep(for: .milliseconds(1))
+    }
+    Issue.record(
+        "Condition was not satisfied within one second.",
+        sourceLocation: sourceLocation
+    )
+    try #require(condition())
 }
 
 @Feature
@@ -195,6 +229,7 @@ private struct WhiteLabelStory {
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request
+            return .continue
         }
     }
 }

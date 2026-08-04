@@ -409,6 +409,7 @@ public struct ScheduleViewer {
         case addToNewUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case destination(Destination.Action)
         case otherReactionButtonTapped(OMERecord.Performance.ID)
+        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
         case scheduleKindButtonTapped(ScheduleKind)
         case schedulesButtonTapped
@@ -734,6 +735,18 @@ public struct ScheduleViewer {
                     PerformanceReactionEntry.State(performanceID: performanceID)
                 )
 
+            case let .performanceButtonTapped(performanceID):
+                store.withDependencies {
+                    state.destination = .performanceDetail(
+                        Spawn(
+                            PerformanceDetail.State(
+                                performanceID: performanceID,
+                                eventID: state.eventID
+                            )
+                        )
+                    )
+                }
+
             case let .reactionButtonTapped(performanceID, emoji):
                 let id = uuid()
                 let date = now
@@ -812,17 +825,6 @@ public struct ScheduleViewer {
             state.destination = .deletePerformanceConfirmation(
                 DeletePerformanceConfirmation.State(performanceID: performanceID)
             )
-        }
-        .onEvent(SchedulePerformanceDetailRequested.self) { performanceID, state in
-            store.withDependencies {
-                state.destination = .performanceDetail(
-                    Spawn(
-                        PerformanceDetail.State(
-                            performanceID: performanceID
-                        )
-                    )
-                )
-            }
         }
         .onEvent(SchedulePerformanceEditRequested.self) { performanceID, state in
             guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
