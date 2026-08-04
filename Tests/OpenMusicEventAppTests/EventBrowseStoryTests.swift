@@ -73,6 +73,29 @@ struct EventBrowseStoryTests {
                 "Daniel Donato’s Cosmic Country",
                 "Montana Folk Festival 2026",
                 "Shambhala 2026",
+                "Wicked Woods (May 2022)",
+                "Wicked Woods (September 2022)",
+                "Wicked Woods 2023",
+                "Wicked Woods 2024",
+                "Wicked Woods 2025",
+                "Wicked Woods 2026",
+            ]
+        )
+
+        // The Wicked Woods organization exposes its complete event history on a fresh install.
+        let wickedWoodsOrganizerID = try #require(
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        expectNoDifference(
+            page.events
+                .filter { $0.organizer.id == wickedWoodsOrganizerID }
+                .map(\.name),
+            [
+                "Wicked Woods (May 2022)",
+                "Wicked Woods (September 2022)",
+                "Wicked Woods 2023",
+                "Wicked Woods 2024",
+                "Wicked Woods 2025",
                 "Wicked Woods 2026",
             ]
         )

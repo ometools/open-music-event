@@ -30,6 +30,141 @@
     "timeZone": "America/Denver"
   },
   {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "ome-workspace-2025",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+      "ref": "main"
+    },
+    "name": "Wicked Woods 2025",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2025-08-29",
+    "endDate": "2025-08-31",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, BC-93, Fairmont Hot Springs, BC V0A 1K4",
+    "media": [
+      {
+        "url": "https://res.cloudinary.com/dhh19fozh/q_auto:good,f_auto,dpr_1.0/w_auto:breakpoints_85_850_10_10:768/jb7production-uploads/2024/03/wicked-woods-music-festival-2024-featured-e1710945659862-1200x675.jpg",
+        "alt": "Wicked Woods Music Festival",
+        "role": "hero"
+      },
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F6D9DD348-26B0-481D-8E0B-200901A57F5A.png?alt=media&token=847204e2-2df4-49e1-ac9e-bcfc1c95835a",
+        "alt": "Wicked Woods",
+        "role": "icon"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "ome-workspace-2024",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+      "ref": "main"
+    },
+    "name": "Wicked Woods 2024",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2024-08-30",
+    "endDate": "2024-09-01",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, Fairmont Hot Springs, BC V0B 1L1, Canada",
+    "media": [
+      {
+        "url": "https://res.cloudinary.com/dhh19fozh/q_auto:good,f_auto,dpr_1.0/w_auto:breakpoints_85_850_10_10:768/jb7production-uploads/2024/03/wicked-woods-music-festival-2024-featured-e1710945659862-1200x675.jpg",
+        "alt": "Wicked Woods Music Festival",
+        "role": "hero"
+      },
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F6D9DD348-26B0-481D-8E0B-200901A57F5A.png?alt=media&token=847204e2-2df4-49e1-ac9e-bcfc1c95835a",
+        "alt": "Wicked Woods",
+        "role": "icon"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "ome-workspace-2023",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+      "ref": "main"
+    },
+    "name": "Wicked Woods 2023",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2023-06-08",
+    "endDate": "2023-06-11",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, Fairmont Hot Springs, BC V0B 1L1, Canada",
+    "media": [
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F54F37A50-9698-41B3-AF27-2BC3EE1599FD.png?alt=media&token=d8b07305-f201-4826-bb91-1f31e209741f",
+        "alt": "Wicked Woods 2023",
+        "role": "icon"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "ome-workspace-fall-2022",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+      "ref": "main"
+    },
+    "name": "Wicked Woods (September 2022)",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2022-09-08",
+    "endDate": "2022-09-11",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, Fairmont Hot Springs, BC V0B 1L1, Canada",
+    "media": [
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FEE6A4163-01DE-4DF4-A9B7-1AC0D8BE6EAA.png?alt=media&token=4b9951c7-bcc6-405a-ba4c-aa90ab35a98d",
+        "alt": "Wicked Woods September 2022",
+        "role": "icon"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+    "organizerName": "Wicked Woods",
+    "eventID": "ome-workspace-spring-2022",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+      "ref": "main"
+    },
+    "name": "Wicked Woods (May 2022)",
+    "description": "Wicked Woods Music Festival in Fairmont Hot Springs, British Columbia.",
+    "startDate": "2022-05-26",
+    "endDate": "2022-05-28",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "3901 Kootenay Hwy, Fairmont Hot Springs, BC V0B 1L1, Canada",
+    "media": [
+      {
+        "url": "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FDAA28B1F-8634-49ED-B740-435A751FAAC6.png?alt=media&token=3359edfa-99c5-4b8e-bb39-417f6ce0cfe4",
+        "alt": "Wicked Woods May 2022",
+        "role": "icon"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
     "organizerID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
     "organizerName": "Shambhala Music Festival",
     "eventID": "shambhala-ome-2026",
