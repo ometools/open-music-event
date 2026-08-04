@@ -280,6 +280,37 @@ struct NavigationTests {
     }
 
     @Test
+    func siteMapMetadataIsAvailableWhenViewerStateIsCreated() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let siteMapURL = URL(string: "https://example.com/site-map.png")!
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try OMERecord.Event.insert {
+                OMERecord.Event.Draft(
+                    id: eventID,
+                    name: "Event 1",
+                    timeZone: TimeZone(secondsFromGMT: 0)!,
+                    siteMapImageURL: siteMapURL
+                )
+            }
+            .execute(db)
+        }
+
+        // The installed event already tells the viewer that a site map exists.
+        let state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            SiteMapViewer.State(eventID: eventID)
+        }
+
+        expectNoDifference(
+            state.event?.images?.imageAsset(role: .siteMap)?.url,
+            siteMapURL
+        )
+    }
+
+    @Test
     func navigationRequestInstallsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

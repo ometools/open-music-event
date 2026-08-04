@@ -40,19 +40,20 @@ public struct SiteMapViewerView: View {
         Group {
             if let event = store.event,
                 let asset = event.images?.imageAsset(role: .siteMap) {
-                Group {
-                    #if os(Android)
-                    AndroidSiteMapZoomView(asset: asset, eventID: event.id)
-                    #else
-                    SwiftUISiteMapZoomView(asset: asset, eventID: event.id)
-                    #endif
-                }
-                .background(.background)
-                .navigationTitle("Site Map")
+                #if os(Android)
+                AndroidSiteMapZoomView(asset: asset, eventID: event.id)
+                #else
+                SwiftUISiteMapZoomView(asset: asset, eventID: event.id)
+                #endif
+            } else if store.event != nil {
+                SiteMapPlaceholderView()
             } else {
-                SiteMapPlaceholderView(eventWasLoaded: store.event != nil)
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(.background)
+        .navigationTitle("Site Map")
     }
 }
 
@@ -62,23 +63,16 @@ struct AndroidSiteMapZoomView: View {
     let eventID: OMERecord.Event.ID
 
     var body: some View {
-        GeometryReader { geometry in
-            ImageAssetAsyncImage(
-                asset: asset,
-                cacheContext: .init(eventID: eventID),
-                contentMode: .fit
-            ) {
-                SiteMapPlaceholderView(eventWasLoaded: true)
-            }
-            .frame(
-                width: max(geometry.size.width - 32, 1),
-                height: max(geometry.size.height - 32, 1)
-            )
-            .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .composeModifier {
-                AndroidSiteMapZoomModifier()
-            }
+        ImageAssetAsyncImage(
+            asset: asset,
+            cacheContext: .init(eventID: eventID),
+            contentMode: .fit
+        ) { reason in
+            SiteMapImagePlaceholderView(reason: reason)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .composeModifier {
+            AndroidSiteMapZoomModifier()
         }
     }
 }
@@ -93,11 +87,7 @@ struct SwiftUISiteMapZoomView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let availableSize = CGSize(
-                width: max(geometry.size.width - 32, 1),
-                height: max(geometry.size.height - 32, 1)
-            )
-            let fittedSize = fittedImageSize(in: availableSize)
+            let fittedSize = fittedImageSize(in: geometry.size)
             let magnification = max(
                 1,
                 committedMagnification * gestureState.magnification
@@ -126,8 +116,8 @@ struct SwiftUISiteMapZoomView: View {
                 onIntrinsicSizeLoaded: { size in
                     intrinsicImageSize = size
                 }
-            ) {
-                SiteMapPlaceholderView(eventWasLoaded: true)
+            ) { reason in
+                SiteMapImagePlaceholderView(reason: reason)
             }
             .frame(width: fittedSize.width, height: fittedSize.height)
             .scaleEffect(magnification)
@@ -172,6 +162,7 @@ struct SwiftUISiteMapZoomView: View {
                         )
                     }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -335,15 +326,29 @@ struct AndroidSiteMapZoomModifier: ContentModifier {
 #endif
 
 struct SiteMapPlaceholderView: View {
-    let eventWasLoaded: Bool
-
     var body: some View {
         ViewerPlaceholderView(
             title: "Site Map",
             systemImage: "map",
-            description: eventWasLoaded
-                ? "No site map has been added to this event yet."
-                : "This event could not be loaded."
+            description: "No site map has been added to this event yet."
         )
+    }
+}
+
+struct SiteMapImagePlaceholderView: View {
+    let reason: ImageAssetPlaceholderReason
+
+    @ViewBuilder
+    var body: some View {
+        switch reason {
+        case .loading:
+            ProgressView()
+        case .failure, .unavailable:
+            ViewerPlaceholderView(
+                title: "Site Map",
+                systemImage: "map",
+                description: "This site map could not be loaded."
+            )
+        }
     }
 }
