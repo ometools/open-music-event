@@ -18,6 +18,7 @@ import OpenMusicEventSourceEditing
 import SourceControlClient
 import SQLiteData
 import Sharing
+import SourceEditing
 import Synchronization
 import Testing
 import XRPCClient
@@ -26,6 +27,124 @@ import XRPCClient
 @testable import OpenMusicEventAppEventViewer
 
 private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
+
+@Suite
+struct WorkspaceChangePresentationTests {
+    struct Focus: Equatable, Sendable {
+        var x: Double
+        var y: Double
+    }
+
+    struct Image: Equatable, Sendable {
+        var role: String
+        var focalPoint: Focus?
+    }
+
+    @Test
+    func `equal collection counts show their generic structural difference`() throws {
+        let baselineJSON = #"[{"role":"logo"},{"role":"hero","focalPoint":{"x":0.5,"y":0.5}}]"#
+        let workingJSON = #"[{"role":"logo"},{"role":"hero","focalPoint":{"x":0.25,"y":0.75}}]"#
+        let fieldChange = SourceFieldChange(
+            columnName: "images",
+            baselineValue: baselineJSON.databaseValue,
+            workingValue: workingJSON.databaseValue
+        )
+        let comparison = AnySourceFieldComparison(
+            SourceFieldComparison(
+                change: fieldChange,
+                baseline: [
+                    Image(role: "logo", focalPoint: nil),
+                    Image(role: "hero", focalPoint: Focus(x: 0.5, y: 0.5)),
+                ],
+                working: [
+                    Image(role: "logo", focalPoint: nil),
+                    Image(role: "hero", focalPoint: Focus(x: 0.25, y: 0.75)),
+                ]
+            )
+        )
+        let difference = try #require(comparison.difference)
+
+        expectNoDifference(
+            fieldChange.baselineValue.sourceDisplayValue(columnName: "images"),
+            "2 items"
+        )
+        expectNoDifference(
+            fieldChange.workingValue.sourceDisplayValue(columnName: "images"),
+            "2 items"
+        )
+        expectNoDifference(
+            fieldChange.sourcePresentation(kind: .modified, comparison: comparison),
+            .structuralDifference(difference)
+        )
+        #expect(difference.contains("focalPoint"))
+        #expect(difference.contains("0.25"))
+        #expect(difference.contains("0.75"))
+        expectNoDifference(
+            fieldChange.sourcePresentation(kind: .modified, comparison: nil),
+            .hidden
+        )
+    }
+
+    @MainActor
+    @Test
+    func `Contributor uses the app style while Stage keeps the static type fallback`() {
+        let record = SourceRecordChange(
+            tableID: "records",
+            kind: .modified,
+            primaryKeyValues: [],
+            fieldChanges: []
+        )
+        let group = SourceChangeGroup(
+            id: "records",
+            displayName: "Records",
+            added: 0,
+            modified: 1,
+            deleted: 0,
+            records: [record]
+        )
+        let contributor = AnySourceRecordComparison(
+            SourceRecordComparison<OMERecord.Contributor>(
+                change: record,
+                left: nil,
+                right: nil
+            )
+        )
+        let stage = AnySourceRecordComparison(
+            SourceRecordComparison<OMERecord.Stage>(
+                change: record,
+                left: nil,
+                right: nil
+            )
+        )
+        let style = SourceRecordComparisonStyle.openMusicEvent
+
+        #expect(
+            style.row(
+                group: group,
+                record: record,
+                fieldComparisons: .empty,
+                comparison: contributor
+            ) != nil
+        )
+        #expect(
+            style.row(
+                group: group,
+                record: record,
+                fieldComparisons: .empty,
+                comparison: stage
+            ) == nil
+        )
+        expectNoDifference(
+            SourceRecordChangeRow(
+                group: group,
+                record: record,
+                fieldComparisons: .empty,
+                comparison: stage
+            ).fallbackTitle,
+            "Stage"
+        )
+    }
+}
 
 @MainActor
 @Suite(.serialized)

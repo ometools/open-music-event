@@ -74,7 +74,7 @@ public extension SourceEditableTable {
 public enum SourceColumnPolicyResolution: Sendable {
     case ignored
     case unchanged
-    case changed(recordDiff: String?)
+    case changed(AnySourceFieldComparison)
     case useRawComparison
 }
 
@@ -119,14 +119,11 @@ public struct SourceColumnPolicy: Sendable {
             }
 
             return .changed(
-                recordDiff: diff(
-                    SourceColumnPolicyComparisonValue(
-                        columnName: fieldChange.columnName,
-                        value: baseline
-                    ),
-                    SourceColumnPolicyComparisonValue(
-                        columnName: fieldChange.columnName,
-                        value: working
+                AnySourceFieldComparison(
+                    SourceFieldComparison(
+                        change: fieldChange,
+                        baseline: baseline,
+                        working: working
                     )
                 )
             )
@@ -200,12 +197,12 @@ private struct SourceRecordDump<Record: Sendable>: Sendable, CustomDumpReflectab
 
 public struct AnySourceEditableRecordType {
     public var descriptor: SourceTableDescriptor
-    public var resolveRecordChange: (SourceRecordChange, Database, String) throws -> SourceRecordChange?
+    public var resolveRecordChange: (SourceRecordChange, Database, String) throws -> SourceResolvedRecordChange?
     public var recordComparison: (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison?
 
     public init(
         descriptor: SourceTableDescriptor,
-        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceRecordChange?,
+        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceResolvedRecordChange?,
         recordComparison: @escaping (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
     ) {
         self.descriptor = descriptor
@@ -223,7 +220,7 @@ public struct AnySourceEditableRecordType {
             resolveRecordChange: { change, db, baselineSchemaName in
                 var change = change
                 change.recordDiff = try recordDiff(change, db, baselineSchemaName)
-                return change
+                return SourceResolvedRecordChange(change: change)
             },
             recordComparison: recordComparison
         )
@@ -255,7 +252,7 @@ public extension SourceEditableTable where QueryOutput: Sendable {
             resolveRecordChange: { change, db, baselineSchemaName in
                 var retainedFieldChanges: [SourceFieldChange] = []
                 var rawFieldChanges: [SourceFieldChange] = []
-                var policyRecordDiffs: [String] = []
+                var fieldComparisons: [AnySourceFieldComparison] = []
 
                 for fieldChange in change.fieldChanges {
                     guard let policy = policiesByColumnName[fieldChange.columnName] else {
@@ -268,11 +265,9 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                     case .ignored, .unchanged:
                         continue
 
-                    case let .changed(recordDiff):
+                    case let .changed(comparison):
                         retainedFieldChanges.append(fieldChange)
-                        if let recordDiff, !recordDiff.isEmpty {
-                            policyRecordDiffs.append(recordDiff)
-                        }
+                        fieldComparisons.append(comparison)
 
                     case .useRawComparison:
                         retainedFieldChanges.append(fieldChange)
@@ -290,12 +285,14 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                     rawChange.fieldChanges = rawFieldChanges
                     let resolvedRawChange = try rawRecordType
                         .resolveRecordChange(rawChange, db, baselineSchemaName)
-                    rawRecordDiff = resolvedRawChange?.recordDiff
+                    rawRecordDiff = resolvedRawChange?.change.recordDiff
                 }
 
                 var resolvedChange = change
                 resolvedChange.fieldChanges = retainedFieldChanges
 
+                let policyRecordDiffs = fieldComparisons
+                    .compactMap(\.difference)
                 let recordDiffs = ([rawRecordDiff].compactMap(\.self) + policyRecordDiffs)
                     .filter { !$0.isEmpty }
                 if !recordDiffs.isEmpty {
@@ -305,7 +302,10 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                 } else {
                     resolvedChange.recordDiff = nil
                 }
-                return resolvedChange
+                return SourceResolvedRecordChange(
+                    change: resolvedChange,
+                    fieldComparisons: fieldComparisons
+                )
             },
             recordComparison: { change, db, baselineSchemaName in
                 try rawRecordType.recordComparison(change, db, baselineSchemaName)
@@ -522,6 +522,148 @@ public struct SourceFieldChange: Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
+public struct SourceFieldComparison<Value>: Sendable
+where Value: Equatable & Sendable {
+    public var change: SourceFieldChange
+    public var baseline: Value?
+    public var working: Value?
+
+    public init(
+        change: SourceFieldChange,
+        baseline: Value?,
+        working: Value?
+    ) {
+        self.change = change
+        self.baseline = baseline
+        self.working = working
+    }
+}
+
+extension SourceFieldComparison: Equatable {}
+
+public struct AnySourceFieldComparison: Sendable, Equatable, Hashable, Identifiable {
+    public var id: SourceFieldChange.ID { change.id }
+
+    public var change: SourceFieldChange
+    public var valueTypeID: ObjectIdentifier
+    public var valueTypeName: String
+
+    private var baseline: (any Sendable)?
+    private var working: (any Sendable)?
+    private var differenceValue: @Sendable () -> String?
+
+    public init<Value>(
+        _ comparison: SourceFieldComparison<Value>
+    ) where Value: Equatable & Sendable {
+        self.change = comparison.change
+        self.valueTypeID = ObjectIdentifier(Value.self)
+        self.valueTypeName = String(reflecting: Value.self)
+        self.baseline = comparison.baseline
+        self.working = comparison.working
+        self.differenceValue = {
+            diff(
+                SourceColumnPolicyComparisonValue(
+                    columnName: comparison.change.columnName,
+                    value: comparison.baseline
+                ),
+                SourceColumnPolicyComparisonValue(
+                    columnName: comparison.change.columnName,
+                    value: comparison.working
+                )
+            )
+        }
+    }
+
+    public var difference: String? {
+        differenceValue()
+    }
+
+    public func `as`<Value>(
+        _ valueType: Value.Type
+    ) -> SourceFieldComparison<Value>?
+    where Value: Equatable & Sendable {
+        guard valueTypeID == ObjectIdentifier(valueType) else { return nil }
+        return SourceFieldComparison(
+            change: change,
+            baseline: baseline as? Value,
+            working: working as? Value
+        )
+    }
+
+    public static func == (
+        lhs: AnySourceFieldComparison,
+        rhs: AnySourceFieldComparison
+    ) -> Bool {
+        lhs.change == rhs.change
+            && lhs.valueTypeID == rhs.valueTypeID
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(change)
+        hasher.combine(valueTypeID)
+    }
+}
+
+extension AnySourceFieldComparison: CustomDumpReflectable {
+    public var customDumpMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "change": change,
+                "valueTypeName": valueTypeName,
+                "baseline": baseline as Any,
+                "working": working as Any,
+            ],
+            displayStyle: .struct
+        )
+    }
+}
+
+public struct SourceFieldComparisons: Equatable, Hashable, Sendable {
+    public static var empty: Self { Self() }
+
+    private var comparisonsByRecordChangeID:
+        [SourceRecordChange.ID: [SourceFieldChange.ID: AnySourceFieldComparison]]
+
+    public init() {
+        self.comparisonsByRecordChangeID = [:]
+    }
+
+    public subscript(
+        _ recordChange: SourceRecordChange,
+        _ fieldChange: SourceFieldChange
+    ) -> AnySourceFieldComparison? {
+        comparisonsByRecordChangeID[recordChange.id]?[fieldChange.id]
+    }
+
+    public mutating func insert(
+        _ comparison: AnySourceFieldComparison,
+        for recordChange: SourceRecordChange
+    ) {
+        comparisonsByRecordChangeID[recordChange.id, default: [:]][comparison.id] = comparison
+    }
+
+    public mutating func append(contentsOf other: Self) {
+        for (recordChangeID, comparisons) in other.comparisonsByRecordChangeID {
+            comparisonsByRecordChangeID[recordChangeID, default: [:]]
+                .merge(comparisons) { _, new in new }
+        }
+    }
+}
+
+public struct SourceResolvedRecordChange: Equatable, Hashable, Sendable {
+    public var change: SourceRecordChange
+    public var fieldComparisons: [AnySourceFieldComparison]
+
+    public init(
+        change: SourceRecordChange,
+        fieldComparisons: [AnySourceFieldComparison] = []
+    ) {
+        self.change = change
+        self.fieldComparisons = fieldComparisons
+    }
+}
+
 public struct SourceRecordChange: Equatable, Hashable, Sendable, Identifiable {
     public var id: String {
         let primaryKey = primaryKeyValues
@@ -575,6 +717,7 @@ public struct AnySourceRecordComparison: @unchecked Sendable, Equatable, Hashabl
     public var change: SourceRecordChange
     public var recordTypeID: ObjectIdentifier
     public var recordTypeName: String
+    public var recordTypeDisplayName: String
 
     private var left: (any Sendable)?
     private var right: (any Sendable)?
@@ -585,6 +728,7 @@ public struct AnySourceRecordComparison: @unchecked Sendable, Equatable, Hashabl
         self.change = comparison.change
         self.recordTypeID = ObjectIdentifier(Record.self)
         self.recordTypeName = String(reflecting: Record.self)
+        self.recordTypeDisplayName = String(describing: Record.self)
         self.left = comparison.left
         self.right = comparison.right
     }
@@ -690,15 +834,18 @@ public struct SourceChangeSummary: Equatable, Hashable, Sendable {
 
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var fieldComparisons: SourceFieldComparisons
     public var recordComparisons: SourceRecordComparisons
 
     public init(
         availability: Availability,
         groups: [SourceChangeGroup],
+        fieldComparisons: SourceFieldComparisons = .empty,
         recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.availability = availability
         self.groups = groups
+        self.fieldComparisons = fieldComparisons
         self.recordComparisons = recordComparisons
     }
 
@@ -825,6 +972,7 @@ public struct SourceEditingComparer: Sendable {
         let recordTypesByID = Dictionary(
             uniqueKeysWithValues: recordTypes.map { ($0.descriptor.id, $0) }
         )
+        var fieldComparisons = SourceFieldComparisons.empty
         var recordComparisons: [AnySourceRecordComparison] = []
         let groups = try summary.groups.map { group in
             guard let recordType = recordTypesByID[group.id] else {
@@ -834,11 +982,18 @@ public struct SourceEditingComparer: Sendable {
             var group = group
             group.records = try group.records.compactMap { record in
                 do {
-                    guard let resolvedRecord = try recordType.resolveRecordChange(
+                    guard let resolution = try recordType.resolveRecordChange(
                         record,
                         db,
                         baselineSchemaName
                     ) else { return nil }
+                    let resolvedRecord = resolution.change
+                    for comparison in resolution.fieldComparisons {
+                        fieldComparisons.insert(
+                            comparison,
+                            for: resolvedRecord
+                        )
+                    }
                     do {
                         if let comparison = try recordType.recordComparison(
                             resolvedRecord,
@@ -863,6 +1018,7 @@ public struct SourceEditingComparer: Sendable {
         return SourceChangeSummary(
             availability: summary.availability,
             groups: groups,
+            fieldComparisons: fieldComparisons,
             recordComparisons: SourceRecordComparisons(recordComparisons)
         )
     }

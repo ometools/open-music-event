@@ -118,6 +118,7 @@ struct SelectedEventRestoration {
     private let eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation
     let store: StoreOf<OpenMusicEventApplication>
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
+    @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
 
     /* SKIP @bridge */public init() {
         let store = Self.genericStore
@@ -149,6 +150,12 @@ struct SelectedEventRestoration {
             .environment(
                 \.showsTechnicalDetails,
                 TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
+            )
+            .environment(
+                \.sourceRecordComparisonStyle,
+                SourceRecordComparisonStyle.openMusicEvent.overlaying(
+                    sourceRecordComparisonStyle
+                )
             )
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")

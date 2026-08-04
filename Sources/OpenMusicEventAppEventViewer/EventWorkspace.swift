@@ -350,6 +350,7 @@ public struct WorkspaceProposalDraftView: View {
                 }
                 SourceChangeSummarySection(
                     groups: store.groups,
+                    fieldComparisons: store.fieldComparisons,
                     recordComparisons: store.recordComparisons
                 )
             }
@@ -369,6 +370,7 @@ public struct WorkspaceProposalDraftView: View {
 
 struct SourceChangeSummarySection: View {
     let groups: [SourceChangeGroup]
+    let fieldComparisons: SourceFieldComparisons
     let recordComparisons: SourceRecordComparisons
 
     var body: some View {
@@ -380,6 +382,7 @@ struct SourceChangeSummarySection: View {
             ForEach(groups.filter { $0.totalCount > 0 }) { group in
                 SourceChangeGroupDisclosure(
                     group: group,
+                    fieldComparisons: fieldComparisons,
                     recordComparisons: recordComparisons
                 )
             }
@@ -389,6 +392,7 @@ struct SourceChangeSummarySection: View {
 
 struct SourceChangeGroupDisclosure: View {
     let group: SourceChangeGroup
+    let fieldComparisons: SourceFieldComparisons
     let recordComparisons: SourceRecordComparisons
 
     var body: some View {
@@ -404,6 +408,7 @@ struct SourceChangeGroupDisclosure: View {
                             SourceRecordChangeRow(
                                 group: group,
                                 record: record,
+                                fieldComparisons: fieldComparisons,
                                 comparison: recordComparisons[record]
                             )
                         }
@@ -476,97 +481,167 @@ struct SourceChangeCountBadge: View {
     }
 }
 
-struct SourceRecordChangeRow: View {
-    let group: SourceChangeGroup
-    let record: SourceRecordChange
-    let comparison: AnySourceRecordComparison?
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+public struct SourceRecordComparisonStyleConfiguration<Record: Sendable> {
+    public let group: SourceChangeGroup
+    public let record: SourceRecordChange
+    public let fieldComparisons: SourceFieldComparisons
+    public let comparison: SourceRecordComparison<Record>
 
-    @ViewBuilder
-    var body: some View {
-        if let comparison = comparison?.as(OME.Event.self) {
-            semanticRow(
-                title: comparison.right?.name ?? comparison.left?.name ?? "Event",
-                recordTitle: "Event"
+    public init(
+        group: SourceChangeGroup,
+        record: SourceRecordChange,
+        fieldComparisons: SourceFieldComparisons,
+        comparison: SourceRecordComparison<Record>
+    ) {
+        self.group = group
+        self.record = record
+        self.fieldComparisons = fieldComparisons
+        self.comparison = comparison
+    }
+}
+
+public struct SourceRecordComparisonStyle {
+    typealias Row = @MainActor (
+        SourceChangeGroup,
+        SourceRecordChange,
+        SourceFieldComparisons,
+        AnySourceRecordComparison
+    ) -> AnyView?
+
+    var rowsByRecordType: [ObjectIdentifier: Row]
+
+    public init() {
+        self.rowsByRecordType = [:]
+    }
+
+    public mutating func set<Record: Sendable, Content: View>(
+        for recordType: Record.Type,
+        @ViewBuilder row: @escaping @MainActor (
+            SourceRecordComparisonStyleConfiguration<Record>
+        ) -> Content
+    ) {
+        rowsByRecordType[ObjectIdentifier(recordType)] = {
+            group,
+            record,
+            fieldComparisons,
+            comparison in
+            guard let comparison = comparison.as(recordType) else { return nil }
+            return AnyView(
+                row(
+                    SourceRecordComparisonStyleConfiguration(
+                        group: group,
+                        record: record,
+                        fieldComparisons: fieldComparisons,
+                        comparison: comparison
+                    )
+                )
             )
-        } else if let comparison = comparison?.as(OME.Calendar.self) {
-            semanticRow(
-                title: comparison.right?.name ?? comparison.left?.name ?? "Calendar",
-                recordTitle: "Calendar"
-            )
-        } else if let comparison = comparison?.as(OME.Stage.self) {
-            semanticRow(
-                title: comparison.right?.name ?? comparison.left?.name ?? "Stage",
-                recordTitle: "Stage"
-            )
-        } else if let comparison = comparison?.as(OME.Schedule.self) {
-            semanticRow(
-                title: comparison.right?.customTitle
-                    ?? comparison.left?.customTitle
-                    ?? comparison.right?.date.rawValue
-                    ?? comparison.left?.date.rawValue
-                    ?? "Schedule",
-                recordTitle: "Schedule"
-            )
-        } else if let comparison = comparison?.as(OME.ScheduleItem.self) {
-            semanticRow(
-                title: comparison.right?.title ?? comparison.left?.title ?? "Schedule item",
-                recordTitle: "Schedule item"
-            )
-        } else if comparison?.as(OME.ScheduleItem.PerformanceDetails.self) != nil {
-            semanticRow(title: "Performance recordings", recordTitle: "Schedule item details")
-        } else if let comparison = comparison?.as(OME.ScheduleItem.Contributor.self) {
-            semanticRow(
-                title: comparison.right?.anonymousName
-                    ?? comparison.left?.anonymousName
-                    ?? "Performance contributor",
-                recordTitle: "Schedule item contributor"
-            )
-        } else if let comparison = comparison?.as(OME.Contributor.self) {
-            semanticRow(
-                title: comparison.right?.name ?? comparison.left?.name ?? "Contributor",
-                recordTitle: "Contributor"
-            )
-        } else if let comparison = comparison?.as(OME.Channel.self) {
-            semanticRow(
-                title: comparison.right?.name ?? comparison.left?.name ?? "Channel",
-                recordTitle: "Communication channel"
-            )
-        } else if let comparison = comparison?.as(OME.Poster.self) {
-            semanticRow(
-                title: comparison.right?.title ?? comparison.left?.title ?? "Poster",
-                recordTitle: "Poster"
-            )
-        } else if let comparison = comparison?.as(WorkspaceRelationshipRecord.self) {
-            semanticRow(
-                title: showsTechnicalDetails
-                    ? comparison.right?.id.actorID.description
-                        ?? comparison.left?.id.actorID.description
-                        ?? "Workspace collaborator"
-                    : "Workspace collaborator",
-                recordTitle: "Collaborator"
-            )
-        } else {
-            semanticRow(title: group.displayName, recordTitle: "Source record")
         }
     }
 
-    func semanticRow(title: String, recordTitle: String) -> some View {
-        SourceSemanticRecordChangeRow(
-            record: record,
-            title: title,
-            recordTitle: recordTitle
+    public func overlaying(_ overrides: Self) -> Self {
+        var result = self
+        result.rowsByRecordType.merge(overrides.rowsByRecordType) { _, override in override }
+        return result
+    }
+
+    @MainActor
+    func row(
+        group: SourceChangeGroup,
+        record: SourceRecordChange,
+        fieldComparisons: SourceFieldComparisons,
+        comparison: AnySourceRecordComparison
+    ) -> AnyView? {
+        rowsByRecordType[comparison.recordTypeID]?(
+            group,
+            record,
+            fieldComparisons,
+            comparison
         )
     }
 }
 
-struct SourceSemanticRecordChangeRow: View {
+enum SourceRecordComparisonStyleKey: EnvironmentKey {
+    static var defaultValue: SourceRecordComparisonStyle { SourceRecordComparisonStyle() }
+}
+
+public extension EnvironmentValues {
+    var sourceRecordComparisonStyle: SourceRecordComparisonStyle {
+        get { self[SourceRecordComparisonStyleKey.self] }
+        set { self[SourceRecordComparisonStyleKey.self] = newValue }
+    }
+}
+
+public extension SourceRecordComparisonStyle {
+    @MainActor
+    static var openMusicEvent: Self {
+        var style = Self()
+        style.set(for: OME.Contributor.self) { configuration in
+            SourceSemanticRecordChangeRow(
+                record: configuration.record,
+                fieldComparisons: configuration.fieldComparisons,
+                title: configuration.comparison.right?.name
+                    ?? configuration.comparison.left?.name
+                    ?? String(describing: OME.Contributor.self),
+                recordTitle: "Contributor"
+            )
+        }
+        return style
+    }
+}
+
+struct SourceRecordChangeRow: View {
+    let group: SourceChangeGroup
     let record: SourceRecordChange
+    let fieldComparisons: SourceFieldComparisons
+    let comparison: AnySourceRecordComparison?
+    @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
+
+    @ViewBuilder
+    var body: some View {
+        if let comparison,
+           let row = sourceRecordComparisonStyle.row(
+               group: group,
+               record: record,
+               fieldComparisons: fieldComparisons,
+               comparison: comparison
+           ) {
+            row
+        } else {
+            SourceSemanticRecordChangeRow(
+                record: record,
+                fieldComparisons: fieldComparisons,
+                title: fallbackTitle,
+                recordTitle: "Source record"
+            )
+        }
+    }
+
+    var fallbackTitle: String {
+        comparison?.recordTypeDisplayName ?? group.displayName
+    }
+}
+
+public struct SourceSemanticRecordChangeRow: View {
+    let record: SourceRecordChange
+    let fieldComparisons: SourceFieldComparisons
     let title: String
     let recordTitle: String
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    var body: some View {
+    public init(
+        record: SourceRecordChange,
+        fieldComparisons: SourceFieldComparisons,
+        title: String,
+        recordTitle: String
+    ) {
+        self.record = record
+        self.fieldComparisons = fieldComparisons
+        self.title = title
+        self.recordTitle = recordTitle
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 SourceChangeKindBadge(kind: record.kind)
@@ -590,6 +665,7 @@ struct SourceSemanticRecordChangeRow: View {
                 ForEach(visibleFieldChanges) { change in
                     SourceFieldChangePresentationRow(
                         change: change,
+                        comparison: fieldComparisons[record, change],
                         kind: record.kind
                     )
                 }
@@ -617,7 +693,11 @@ struct SourceSemanticRecordChangeRow: View {
 
     var visibleFieldChanges: [SourceFieldChange] {
         record.fieldChanges.filter { change in
-            showsTechnicalDetails || !change.columnName.isTechnicalSourceColumn
+            (showsTechnicalDetails || !change.columnName.isTechnicalSourceColumn)
+                && change.sourcePresentation(
+                    kind: record.kind,
+                    comparison: fieldComparisons[record, change]
+                ).isVisible
         }
     }
 }
@@ -637,6 +717,7 @@ struct SourceChangeKindBadge: View {
 
 struct SourceFieldChangePresentationRow: View {
     let change: SourceFieldChange
+    let comparison: AnySourceFieldComparison?
     let kind: SourceRecordChangeKind
 
     var body: some View {
@@ -645,42 +726,116 @@ struct SourceFieldChangePresentationRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            switch kind {
-            case .added:
+            switch change.sourcePresentation(kind: kind, comparison: comparison) {
+            case let .added(value):
                 SourceChangeValueView(
                     label: "Added",
-                    value: change.workingValue.sourceDisplayValue(
-                        columnName: change.columnName
-                    ),
+                    value: value,
                     role: .added
                 )
 
-            case .modified:
+            case let .modified(before, after):
                 SourceChangeValueView(
                     label: "Before",
-                    value: change.baselineValue.sourceDisplayValue(
-                        columnName: change.columnName
-                    ),
+                    value: before,
                     role: .removed
                 )
                 SourceChangeValueView(
                     label: "After",
-                    value: change.workingValue.sourceDisplayValue(
-                        columnName: change.columnName
-                    ),
+                    value: after,
                     role: .added
                 )
 
-            case .deleted:
+            case let .removed(value):
                 SourceChangeValueView(
                     label: "Removed",
-                    value: change.baselineValue.sourceDisplayValue(
-                        columnName: change.columnName
-                    ),
+                    value: value,
                     role: .removed
                 )
+
+            case let .structuralDifference(difference):
+                SourceStructuralDifferenceView(difference: difference)
+
+            case .hidden:
+                EmptyView()
             }
         }
+    }
+}
+
+enum SourceFieldChangePresentation: Equatable {
+    case added(String)
+    case modified(before: String, after: String)
+    case removed(String)
+    case structuralDifference(String)
+    case hidden
+
+    var isVisible: Bool {
+        self != .hidden
+    }
+}
+
+extension SourceFieldChange {
+    func sourcePresentation(
+        kind: SourceRecordChangeKind,
+        comparison: AnySourceFieldComparison?
+    ) -> SourceFieldChangePresentation {
+        switch kind {
+        case .added:
+            return .added(
+                workingValue.sourceDisplayValue(columnName: columnName)
+            )
+
+        case .modified:
+            let before = baselineValue.sourceDisplayValue(columnName: columnName)
+            let after = workingValue.sourceDisplayValue(columnName: columnName)
+            guard before == after else {
+                return .modified(before: before, after: after)
+            }
+            guard let difference = comparison?.difference,
+                  !difference.isEmpty
+            else { return .hidden }
+            return .structuralDifference(difference)
+
+        case .deleted:
+            return .removed(
+                baselineValue.sourceDisplayValue(columnName: columnName)
+            )
+        }
+    }
+}
+
+struct SourceStructuralDifferenceView: View {
+    let difference: String
+
+    var body: some View {
+        let lines = difference.components(separatedBy: "\n")
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(lines.indices, id: \.self) { index in
+                let line = lines[index]
+                Text(line)
+                    .font(.caption)
+                    .monospaced()
+                    .foregroundStyle(line.sourceDifferenceForegroundStyle)
+            }
+        }
+        .selectableText()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+extension String {
+    var sourceDifferenceForegroundStyle: Color {
+        let content = trimmingCharacters(in: .whitespaces)
+        if content.hasPrefix("-") {
+            return .red
+        }
+        if content.hasPrefix("+") {
+            return .green
+        }
+        return .secondary
     }
 }
 

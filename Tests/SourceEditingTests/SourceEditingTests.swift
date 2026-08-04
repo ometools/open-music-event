@@ -31,6 +31,20 @@ private struct TodoAttachment: Codable, Equatable, Sendable {
 private struct TypedTodo: Equatable, Sendable, Identifiable, SourceEditableTable {
     @Column(primaryKey: true) var id: Int
     @Column(as: TodoAttachment.JSONRepresentation.self) var attachment: TodoAttachment
+
+    static var sourceRecordTypeWithAttachmentPolicy: AnySourceEditableRecordType {
+        sourceRecordType(
+            columnPolicies: [
+                \.attachment: .comparing { (value: DatabaseValue?) -> TodoAttachment? in
+                    guard case let .string(json)? = value?.storage else { return nil }
+                    return try? JSONDecoder().decode(
+                        TodoAttachment.self,
+                        from: Data(json.utf8)
+                    )
+                }
+            ]
+        )
+    }
 }
 
 @Table("todo_labels")
@@ -276,11 +290,30 @@ struct SourceEditingTests {
             attachment: TodoAttachment(label: "After label", rank: 1)
         )
 
-        let summary = try fixture.typedTodoSummary()
+        let summary = try fixture.typedTodoSummary(
+            recordType: TypedTodo.sourceRecordTypeWithAttachmentPolicy
+        )
 
         let group = try #require(summary.groups.first)
         let changedRecord = try #require(group.records.first)
+        let fieldChange = try #require(changedRecord.fieldChanges.first)
+        let fieldComparison = try #require(
+            summary.fieldComparisons[changedRecord, fieldChange]
+        )
+        let typedComparison = try #require(
+            fieldComparison.as(TodoAttachment.self)
+        )
+        expectNoDifference(
+            typedComparison.baseline,
+            TodoAttachment(label: "Before label", rank: 1)
+        )
+        expectNoDifference(
+            typedComparison.working,
+            TodoAttachment(label: "After label", rank: 1)
+        )
+
         let recordDiff = try #require(changedRecord.recordDiff)
+        expectNoDifference(fieldComparison.difference, recordDiff)
         #expect(recordDiff.contains("Before label"))
         #expect(recordDiff.contains("After label"))
         #expect(recordDiff.contains("TodoAttachment"))
@@ -323,6 +356,59 @@ struct SourceEditingTests {
         let fieldChange = try #require(changedRecord.fieldChanges.first)
         #expect(fieldChange.columnName == "attachment")
         #expect(fieldChange.workingValue == malformedAttachment.databaseValue)
+        #expect(summary.fieldComparisons[changedRecord, fieldChange] == nil)
+    }
+
+    @Test
+    func fieldComparisonsKeepMatchingColumnNamesOnDifferentRecordsSeparate() throws {
+        let firstField = sourceFieldChange(
+            "attachment",
+            baselineValue: "before-1".databaseValue,
+            workingValue: "after-1".databaseValue
+        )
+        let secondField = sourceFieldChange(
+            "attachment",
+            baselineValue: "before-2".databaseValue,
+            workingValue: "after-2".databaseValue
+        )
+        let firstRecord = SourceRecordChange(
+            tableID: "todos",
+            kind: .modified,
+            primaryKeyValues: [sourceColumnValue("id", 1.databaseValue)],
+            fieldChanges: [firstField]
+        )
+        let secondRecord = SourceRecordChange(
+            tableID: "todos",
+            kind: .modified,
+            primaryKeyValues: [sourceColumnValue("id", 2.databaseValue)],
+            fieldChanges: [secondField]
+        )
+        let firstComparison = AnySourceFieldComparison(
+            SourceFieldComparison(
+                change: firstField,
+                baseline: "before-1",
+                working: "after-1"
+            )
+        )
+        let secondComparison = AnySourceFieldComparison(
+            SourceFieldComparison(
+                change: secondField,
+                baseline: "before-2",
+                working: "after-2"
+            )
+        )
+        var comparisons = SourceFieldComparisons.empty
+        comparisons.insert(firstComparison, for: firstRecord)
+        comparisons.insert(secondComparison, for: secondRecord)
+
+        expectNoDifference(
+            comparisons[firstRecord, firstField]?.as(String.self)?.working,
+            "after-1"
+        )
+        expectNoDifference(
+            comparisons[secondRecord, secondField]?.as(String.self)?.working,
+            "after-2"
+        )
     }
 
     @Test
@@ -737,12 +823,15 @@ private final class SourceEditingFixture {
         }
     }
 
-    func typedTodoSummary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
+    func typedTodoSummary(
+        recordType: AnySourceEditableRecordType = TypedTodo.sourceRecordType,
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
         try workingDatabase.read { db in
             try SourceEditingComparer().summary(
                 in: db,
                 baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                recordTypes: [TypedTodo.sourceRecordType],
+                recordTypes: [recordType],
                 scope: scope
             )
         }

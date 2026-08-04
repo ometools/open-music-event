@@ -14,17 +14,20 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
     public var eventID: OME.Event.ID
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var fieldComparisons: SourceFieldComparisons
     public var recordComparisons: SourceRecordComparisons
 
     public init(
         eventID: OME.Event.ID,
         availability: Availability,
         groups: [SourceChangeGroup],
+        fieldComparisons: SourceFieldComparisons = .empty,
         recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.eventID = eventID
         self.availability = availability
         self.groups = groups
+        self.fieldComparisons = fieldComparisons
         self.recordComparisons = recordComparisons
     }
 
@@ -67,6 +70,7 @@ public extension EventWorkspaceSummary {
                 eventID: eventID,
                 availability: .available,
                 groups: summary.groups,
+                fieldComparisons: summary.fieldComparisons,
                 recordComparisons: summary.recordComparisons
             )
         case let .unavailable(reason):
@@ -85,17 +89,20 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
     public var workspaceID: SourceWorkspace.ID
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var fieldComparisons: SourceFieldComparisons
     public var recordComparisons: SourceRecordComparisons
 
     public init(
         workspaceID: SourceWorkspace.ID,
         availability: Availability,
         groups: [SourceChangeGroup],
+        fieldComparisons: SourceFieldComparisons = .empty,
         recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.workspaceID = workspaceID
         self.availability = availability
         self.groups = groups
+        self.fieldComparisons = fieldComparisons
         self.recordComparisons = recordComparisons
     }
 
@@ -124,6 +131,7 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
                 workspaceID: workspace.id,
                 availability: .available,
                 groups: summary.groups,
+                fieldComparisons: summary.fieldComparisons,
                 recordComparisons: summary.recordComparisons
             )
         case let .unavailable(reason):
@@ -156,6 +164,7 @@ private func sourceSummary(
     scope: (OpenMusicEventSourceProjection) -> SourceRecordScope
 ) throws -> SourceChangeSummary {
     var groups: [SourceChangeGroup] = []
+    var fieldComparisons = SourceFieldComparisons.empty
     var comparisons: [AnySourceRecordComparison] = []
     for projection in projections {
         let summary = try SourceEditingComparer().summary(
@@ -166,11 +175,13 @@ private func sourceSummary(
         )
         guard case .available = summary.availability else { return summary }
         groups.append(contentsOf: summary.groups)
+        fieldComparisons.append(contentsOf: summary.fieldComparisons)
         comparisons.append(contentsOf: summary.recordComparisons.values)
     }
     return SourceChangeSummary(
         availability: .available,
         groups: groups,
+        fieldComparisons: fieldComparisons,
         recordComparisons: SourceRecordComparisons(comparisons)
     )
 }

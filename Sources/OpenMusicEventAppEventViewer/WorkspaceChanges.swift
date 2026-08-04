@@ -113,6 +113,7 @@ public struct WorkspaceChanges {
                 if state.openProposal == nil {
                     state.proposalDraft = WorkspaceProposalDraft.State(
                         groups: state.summary.groups,
+                        fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
                     )
                 } else {
@@ -194,6 +195,7 @@ public struct WorkspaceChangesView: View {
             case .available:
                 SourceChangeSummarySection(
                     groups: store.summary.groups,
+                    fieldComparisons: store.summary.fieldComparisons,
                     recordComparisons: store.summary.recordComparisons
                 )
 

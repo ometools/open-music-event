@@ -15,13 +15,16 @@ public struct WorkspaceProposalDraft {
     public struct State {
         public init(
             groups: [SourceChangeGroup],
+            fieldComparisons: SourceFieldComparisons,
             recordComparisons: SourceRecordComparisons
         ) {
             self.groups = groups
+            self.fieldComparisons = fieldComparisons
             self.recordComparisons = recordComparisons
         }
 
         public var description = ""
+        public let fieldComparisons: SourceFieldComparisons
         public let groups: [SourceChangeGroup]
         public let recordComparisons: SourceRecordComparisons
         public var title = ""

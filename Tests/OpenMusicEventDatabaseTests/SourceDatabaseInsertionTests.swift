@@ -2340,8 +2340,16 @@ struct SourceDatabaseInsertionTests {
         #expect(contributorGroup.modified == 1)
         let record = try #require(contributorGroup.records.first)
         #expect(record.fieldChanges.map(\.columnName) == ["images"])
+        let fieldChange = try #require(record.fieldChanges.first)
+        let fieldComparison = try #require(
+            summary.fieldComparisons[record, fieldChange]
+        )
+        let fieldDifference = try #require(fieldComparison.difference)
         #expect(record.recordDiff?.contains("dimensions") == false)
         #expect(record.recordDiff?.contains("focalPoint") == true)
+        #expect(fieldDifference.contains("focalPoint"))
+        #expect(fieldDifference.contains("0.25"))
+        #expect(fieldDifference.contains("0.75"))
     }
 
     @Test
