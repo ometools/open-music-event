@@ -114,6 +114,25 @@ struct EventBrowseStoryTests {
             ]
         )
 
+        // Every Gallatin listing enters through the organizer's canonical Tangled source.
+        let gallatinSourceRequest = OpenMusicEventSourceValidationRequest(
+            source: "https://tangled.org/woody.fm/gallatin-labor-temple-ome",
+            organizerID: laborTempleOrganizerID,
+            ref: "main"
+        )
+        let laborTempleRecords = try CalendarEventsClient
+            .temporaryOpenMusicEventRecords()
+            .filter { $0.organizerID == laborTempleOrganizerID.description }
+        for record in laborTempleRecords {
+            let request = try #require(
+                record.installationRequest(organizerID: laborTempleOrganizerID)
+            )
+            expectNoDifference(
+                request,
+                gallatinSourceRequest
+            )
+        }
+
         // The Wicked Woods organization exposes its complete event history on a fresh install.
         let wickedWoodsOrganizerID = try #require(
             DID("did:plc:5df2u7ief6m6tn77jznicxob")
