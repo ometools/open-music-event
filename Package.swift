@@ -3,8 +3,29 @@
 import Foundation
 import PackageDescription
 
-let isOMEAppView = ProcessInfo.processInfo.environment["OME_APPVIEW"] == "1"
-let isAndroidAppBuild = ProcessInfo.processInfo.environment["OME_ANDROID_APP_BUILD"] == "1"
+// Build selection
+
+enum PackageBuild: Equatable {
+    case app
+    case androidApp
+    case appView
+}
+
+// OME_APPVIEW selects the standalone server graph. OME_ANDROID_APP_BUILD
+// selects Android-specific package variants. With neither set, SwiftPM exposes
+// the complete app development graph, including the AppView targets.
+let environment = ProcessInfo.processInfo.environment
+let packageBuild: PackageBuild = {
+    if environment["OME_APPVIEW"] == "1" {
+        return .appView
+    }
+    if environment["OME_ANDROID_APP_BUILD"] == "1" {
+        return .androidApp
+    }
+    return .app
+}()
+
+let isAndroidAppBuild = packageBuild == .androidApp
 let grdbPackageName = isAndroidAppBuild ? "grdb-sqlcipher" : "GRDB.swift"
 let sharingTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild ? [] : [.defaults]
@@ -20,6 +41,9 @@ let composableAtmosphereTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild
     ? ["TCA26", "SkipAndroidBridge"]
     : [.defaults, "TCA26"]
+
+// Build-specific dependency variants
+
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 func packagePath(_ relativePath: String) -> String {
     URL(fileURLWithPath: relativePath, relativeTo: packageDirectory)
@@ -35,9 +59,8 @@ func workspacePackagePath(_ name: String) -> String {
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
-#if os(macOS)
 let skipstonePlugins: [Target.PluginUsage] = [.plugin(name: "skipstone", package: "skip")]
-let skipRootPath = ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
+let skipRootPath = environment["SKIPLOCAL"].map {
     URL(fileURLWithPath: $0).deletingLastPathComponent()
 }
 let skipDependency: Package.Dependency
@@ -83,11 +106,10 @@ if let skipRootPath {
         ? .package(name: "skip-android-bridge", path: skipAndroidBridgePath)
         : .package(url: "https://source.skip.tools/skip-android-bridge.git", from: "0.6.1")
 }
-#else
-let skipstonePlugins: [Target.PluginUsage] = []
-#endif
 
-var products: [Product] = [
+// Products
+
+let applicationProducts: [Product] = [
     .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
     .executable(name: "ome-release-check", targets: ["OpenMusicEventReleaseCheck"]),
     .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
@@ -103,18 +125,6 @@ var products: [Product] = [
     .library(name: "OpenMusicEventWhiteLabel", targets: ["OpenMusicEventWhiteLabel"]),
     .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
     .library(name: "SourceEditing", targets: ["SourceEditing"]),
-]
-
-if !isAndroidAppBuild {
-    products.append(contentsOf: [
-        .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
-        .executable(name: "OpenMusicEventAppView", targets: ["OpenMusicEventAppView"]),
-        .executable(name: "OpenMusicEventAppViewLambda", targets: ["OpenMusicEventAppViewLambda"]),
-    ])
-}
-
-#if os(macOS)
-products.append(contentsOf: [
     .library(name: "OpenMusicEventApp", type: .dynamic, targets: ["OpenMusicEventApp"]),
     .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
     .library(name: "OpenMusicEventEditors", targets: ["OpenMusicEventEditors"]),
@@ -124,10 +134,22 @@ products.append(contentsOf: [
     .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
     .library(name: "ScheduleComponents", targets: ["ScheduleComponents"]),
     .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
-])
-#endif
+]
 
-var dependencies: [Package.Dependency] = [
+let appViewProducts: [Product] = [
+    .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
+    .executable(name: "OpenMusicEventAppView", targets: ["OpenMusicEventAppView"]),
+    .executable(name: "OpenMusicEventAppViewLambda", targets: ["OpenMusicEventAppViewLambda"]),
+]
+
+// Package dependencies
+
+let routingDependency: Package.Dependency = .package(
+    url: "https://github.com/pointfreeco/swift-tagged",
+    from: "0.10.0"
+)
+
+var applicationDependencies: [Package.Dependency] = [
     .package(
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
@@ -160,7 +182,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.8.1", traits: sharingTraits),
-    .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
+    routingDependency,
     .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
@@ -192,28 +214,24 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
     .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
     .package(url: "https://github.com/tuist/Noora", from: "0.15.0"),
-]
-
-if !isAndroidAppBuild {
-    dependencies.append(contentsOf: [
-        .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
-        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
-        .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
-    ])
-}
-
-#if os(macOS)
-dependencies.append(contentsOf: [
     skipDependency,
     skipFuseUIDependency,
     skipAndroidBridgeDependency,
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
-])
+]
+
 if isAndroidAppBuild {
-    dependencies.append(skipSharingDependency)
+    applicationDependencies.append(skipSharingDependency)
 }
-#endif
+
+let appViewDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
+]
+
+// Target dependencies
 
 var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
     "BlueskyActorCache",
@@ -250,7 +268,6 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
 ]
 
-#if os(macOS)
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
 ])
@@ -262,7 +279,6 @@ if isAndroidAppBuild {
         .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
     )
 }
-#endif
 
 var openMusicEventComponentsDependencies: [Target.Dependency] = []
 var openMusicEventTimeZonesDependencies: [Target.Dependency] = [
@@ -276,7 +292,6 @@ var scheduleComponentsDependencies: [Target.Dependency] = [
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
 
-#if os(macOS)
 openMusicEventComponentsDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
@@ -289,9 +304,27 @@ openMusicEventWhiteLabelDependencies.append(
 scheduleComponentsDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
-#endif
 
-var targets: [Target] = [
+// Targets
+
+let routingTarget = Target.target(
+    name: "OpenMusicEventRouting",
+    dependencies: [
+        .product(name: "Tagged", package: "swift-tagged"),
+    ]
+)
+
+let routingTestTarget = Target.testTarget(
+    name: "OpenMusicEventRoutingTests",
+    dependencies: [
+        "OpenMusicEventRouting",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+    ]
+)
+
+// Shared app, command-line, and library targets
+
+var applicationTargets: [Target] = [
     .target(
         name: "OpenMusicEventAuthentication",
         dependencies: openMusicEventAuthenticationDependencies,
@@ -369,12 +402,6 @@ var targets: [Target] = [
             .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
-            .product(name: "Tagged", package: "swift-tagged"),
-        ]
-    ),
-    .target(
-        name: "OpenMusicEventRouting",
-        dependencies: [
             .product(name: "Tagged", package: "swift-tagged"),
         ]
     ),
@@ -556,58 +583,10 @@ var targets: [Target] = [
             .product(name: "SQLiteData", package: "sqlite-data"),
         ]
     ),
-    .testTarget(
-        name: "OpenMusicEventRoutingTests",
-        dependencies: [
-            "OpenMusicEventRouting",
-            .product(name: "CustomDump", package: "swift-custom-dump"),
-        ]
-    ),
 ]
 
-if !isAndroidAppBuild {
-    targets.append(contentsOf: [
-        .target(
-            name: "OpenMusicEventAppViewServer",
-            dependencies: [
-                "OpenMusicEventRouting",
-                .product(name: "Hummingbird", package: "hummingbird"),
-            ],
-            resources: [
-                .copy("Resources/Site"),
-                .copy("Resources/WellKnown"),
-            ]
-        ),
-        .executableTarget(
-            name: "OpenMusicEventAppView",
-            dependencies: ["OpenMusicEventAppViewServer"]
-        ),
-        .executableTarget(
-            name: "OpenMusicEventAppViewLambda",
-            dependencies: [
-                "OpenMusicEventAppViewServer",
-                .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
-                .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
-            ]
-        ),
-        .testTarget(
-            name: "OpenMusicEventAppViewServerTests",
-            dependencies: [
-                "OpenMusicEventAppViewServer",
-                .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
-                .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
-                .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
-                .product(name: "HummingbirdTesting", package: "hummingbird"),
-            ],
-            resources: [
-                .copy("Resources/Site"),
-                .copy("Resources/WellKnown"),
-            ]
-        ),
-    ])
-}
+// App UI targets
 
-#if os(macOS)
 var openMusicEventAppDependencies: [Target.Dependency] = [
     "BlueskyActorCache",
     .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
@@ -650,7 +629,7 @@ if !isAndroidAppBuild {
     )
 }
 
-targets.append(contentsOf: [
+applicationTargets.append(contentsOf: [
     .target(
         name: "OpenMusicEventApp",
         dependencies: openMusicEventAppDependencies,
@@ -858,50 +837,70 @@ targets.append(contentsOf: [
         ]
     ),
 ])
-#endif
 
-if isOMEAppView {
-    products = [
-        .library(
-            name: "OpenMusicEventAppViewServer",
-            targets: ["OpenMusicEventAppViewServer"]
-        ),
-        .executable(
-            name: "OpenMusicEventAppView",
-            targets: ["OpenMusicEventAppView"]
-        ),
-        .executable(
-            name: "OpenMusicEventAppViewLambda",
-            targets: ["OpenMusicEventAppViewLambda"]
-        ),
-    ]
-    dependencies = [
-        .package(
-            url: "https://github.com/awslabs/swift-aws-lambda-events.git",
-            from: "1.4.0"
-        ),
-        .package(
-            url: "https://github.com/hummingbird-project/hummingbird.git",
-            from: "2.22.0"
-        ),
-        .package(
-            url: "https://github.com/hummingbird-project/hummingbird-lambda.git",
-            from: "2.1.0"
-        ),
-        .package(
-            url: "https://github.com/pointfreeco/swift-tagged",
-            from: "0.10.0"
-        ),
-    ]
+// AppView targets
 
-    let appViewTargetNames: Set<String> = [
-        "OpenMusicEventAppView",
-        "OpenMusicEventAppViewLambda",
-        "OpenMusicEventAppViewServer",
-        "OpenMusicEventAppViewServerTests",
-        "OpenMusicEventRouting",
-    ]
-    targets = targets.filter { appViewTargetNames.contains($0.name) }
+let appViewTargets: [Target] = [
+    .target(
+        name: "OpenMusicEventAppViewServer",
+        dependencies: [
+            "OpenMusicEventRouting",
+            .product(name: "Hummingbird", package: "hummingbird"),
+        ],
+        resources: [
+            .copy("Resources/Site"),
+            .copy("Resources/WellKnown"),
+        ]
+    ),
+    .executableTarget(
+        name: "OpenMusicEventAppView",
+        dependencies: ["OpenMusicEventAppViewServer"]
+    ),
+    .executableTarget(
+        name: "OpenMusicEventAppViewLambda",
+        dependencies: [
+            "OpenMusicEventAppViewServer",
+            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventAppViewServerTests",
+        dependencies: [
+            "OpenMusicEventAppViewServer",
+            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
+            .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
+            .product(name: "HummingbirdTesting", package: "hummingbird"),
+        ],
+        resources: [
+            .copy("Resources/Site"),
+            .copy("Resources/WellKnown"),
+        ]
+    ),
+]
+
+// Selected package graph
+
+let products: [Product]
+let dependencies: [Package.Dependency]
+let targets: [Target]
+
+switch packageBuild {
+case .app:
+    products = applicationProducts + appViewProducts
+    dependencies = applicationDependencies + appViewDependencies
+    targets = applicationTargets + [routingTarget, routingTestTarget] + appViewTargets
+
+case .androidApp:
+    products = applicationProducts
+    dependencies = applicationDependencies
+    targets = applicationTargets + [routingTarget, routingTestTarget]
+
+case .appView:
+    products = appViewProducts
+    dependencies = [routingDependency] + appViewDependencies
+    targets = [routingTarget] + appViewTargets
 }
 
 let package = Package(
