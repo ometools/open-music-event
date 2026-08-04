@@ -6,7 +6,6 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
-import OpenMusicEventViewers
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -29,6 +28,8 @@ public struct OrganizationDetail {
 
         public let collection: ATProto.NSID
         public var errorMessage: String?
+        @DebugSnapshotIgnored
+        public var eventDetail: Spawn<EventBrowseDetail>? = nil
         public var events: [CalendarEvent] = []
         public var isLoading = false
         public var organizer: CalendarEvent.Organizer?
@@ -49,17 +50,14 @@ public struct OrganizationDetail {
         Update { state, action in
             switch action {
             case let .eventButtonTapped(eventURI):
-                guard state.events.contains(where: { $0.uri == eventURI }),
-                      let eventID = OME.Event.ID(eventURI)
-                else {
+                guard let event = state.events.first(where: { $0.uri == eventURI }) else {
                     return
                 }
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
+                state.eventDetail = Spawn(
+                    EventBrowseDetail.State(
+                        event: event
                     )
-                }
+                )
 
             case .retryButtonTapped, .task:
                 guard !state.isLoading else { return }
@@ -90,6 +88,9 @@ public struct OrganizationDetail {
                     }
                 }
             }
+        }
+        .ifLet(\.eventDetail) {
+            EventBrowseDetail()
         }
     }
 
@@ -175,9 +176,25 @@ public struct OrganizationDetailView: View {
                 }
             }
         }
+        .navigationDestination(isPresented: eventDetailIsPresented) {
+            if let eventDetailStore = store.spawn(\.eventDetail) {
+                EventBrowseDetailView(store: eventDetailStore)
+            }
+        }
         .task {
             await store.send(.task)?.value
         }
+    }
+
+    var eventDetailIsPresented: Binding<Bool> {
+        Binding(
+            get: { store.spawn(\.eventDetail) != nil },
+            set: { isPresented in
+                if !isPresented {
+                    store.spawn(\.eventDetail)?.dismiss()
+                }
+            }
+        )
     }
 
     @ViewBuilder

@@ -410,7 +410,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `organization detail requests selected event navigation without installing it`() async throws {
+    func `organization detail opens selected event detail without entering it`() async throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let previousEvent = try event(
             uri: "at://did:plc:organizer/app.openmusicevent.event/2025",
@@ -466,13 +466,13 @@ struct EventBrowseStoryTests {
         )
         #expect(store.lastRequest == nil)
 
-        let selectionTask = store.send(.detail(.eventButtonTapped(selectedEvent.uri))) {
-            $0.lastRequest = .event(selectedEventID, nil)
-        }
+        let selectionTask = store.send(.detail(.eventButtonTapped(selectedEvent.uri)))
         await selectionTask?.value
 
+        let eventDetail = try #require(store.detail.eventDetail)
+        expectNoDifference(eventDetail.event, selectedEvent)
         #expect(installations.withLock { $0 }.isEmpty)
-        expectNoDifference(store.lastRequest, .event(selectedEventID, nil))
+        #expect(store.lastRequest == nil)
         await store.dismount(timeout: .seconds(1))
     }
 
