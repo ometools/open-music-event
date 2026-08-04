@@ -409,12 +409,7 @@ public struct PerformanceDetailView: View {
                         eventTimePresentation: eventTimePresentation
                     )
 
-                    Section("Your Reactions") {
-                        PerformanceReactionPicker(
-                            performanceID: store.fullPerformanceID,
-                            context: reactionMenuContext
-                        )
-                    }
+
 
                     if let description = performance.displayDescription {
                         Section("About") {
@@ -452,6 +447,14 @@ public struct PerformanceDetailView: View {
                     ToolbarItem(placement: .primaryAction) {
                         PerformanceUserScheduleMenu(store: store)
                     }
+
+                    ToolbarItem {
+                        PerformanceReactionPicker(
+                            performanceID: store.fullPerformanceID,
+                            context: reactionMenuContext
+                        )
+                    }
+
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
@@ -477,6 +480,11 @@ public struct PerformanceDetailView: View {
                     }
                 }
                 .navigationTitle("Performance")
+            }
+        }
+        .toolbar {
+            Section("Your Reactions") {
+
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in

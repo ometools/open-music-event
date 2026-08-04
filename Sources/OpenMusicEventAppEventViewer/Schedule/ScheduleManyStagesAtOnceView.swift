@@ -944,11 +944,7 @@ struct ScheduleManyStagesStageBubble: View {
             .padding(4)
             .frame(width: 70, height: 70)
             .foregroundStyle(.white)
-            .background {
-                Capsule()
-                    .fill(stage.color.swiftUIColor)
-            }
-            .glassEffect(.clear, in: .capsule)
+            .glassEffect(.clear.tint(stage.color.swiftUIColor).interactive(), in: .capsule)
     }
     #endif
 
