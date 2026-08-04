@@ -70,8 +70,18 @@ struct EventBrowseStoryTests {
         expectNoDifference(
             Set(page.events.map(\.name)),
             [
+                "Alice Di Micele & Rob Kohler",
                 "Daniel Donato’s Cosmic Country",
+                "EDM DANCE PARTY",
+                "Four Schillings Short",
+                "Gnar Fest",
+                "Goners U.K./ Me, Grimlock/ Seditious Activity/ Prints",
+                "Goth Night",
+                "Gray Goo + Local Bands",
+                "Iona Fyfe in Concert",
                 "Montana Folk Festival 2026",
+                "Open Music Event Launch Party",
+                "Second Saturday Square Dance",
                 "Shambhala 2026",
                 "Wicked Woods (May 2022)",
                 "Wicked Woods (September 2022)",
@@ -79,6 +89,28 @@ struct EventBrowseStoryTests {
                 "Wicked Woods 2024",
                 "Wicked Woods 2025",
                 "Wicked Woods 2026",
+            ]
+        )
+
+        let laborTempleOrganizerID = try #require(
+            DID("did:web:gallatinlabortemple.org")
+        )
+        expectNoDifference(
+            page.events
+                .filter { $0.organizer.id == laborTempleOrganizerID }
+                .map { $0.uri.description },
+            [
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-06-26-gnar-fest",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-04-iona-fyfe-in-concert",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-15-open-music-event-launch-party",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-27-gray-goo-local-bands",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-01-alice-di-micele-rob-kohler",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-05-edm-dance-party",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-19-four-schillings-short",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-26-goth-night",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-02-goners-u-k-me-grimlock-seditious-activity-prints",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-10-second-saturday-square-dance",
+                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-24-goth-night",
             ]
         )
 

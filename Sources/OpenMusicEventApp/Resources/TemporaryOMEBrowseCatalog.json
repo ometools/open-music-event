@@ -227,5 +227,190 @@
       }
     ],
     "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-06-26-gnar-fest",
+    "name": "Gnar Fest",
+    "description": "Two days of live music at the Gallatin Labor Temple.\n\nFriday, June 26: doors at 6 PM. JK Spesh, Reach for Grabtahr, Icarus, Cowboy Fight Club, and Witch Bitch.\n\nSaturday, June 27: doors at 2:30 PM. Bullet Train to Butte, Ocean Lee, Pillowcase, Cable Club, Tiny Iota, Almost Empathy, Brother Venus, Goochslam, Sunbather Die, Hot Milk and the Flower Pallets, and Schticky.\n\n$15 at the door each day. Nobody turned away for lack of funds. A portion of door sales will be donated to the Labor Temple for upkeep and maintenance.",
+    "startDate": "2026-06-26",
+    "endDate": "2026-06-27",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-08-04-iona-fyfe-in-concert",
+    "name": "Iona Fyfe in Concert",
+    "description": "Award-winning Scottish folk singer Iona Fyfe performs traditional Scots songs at the Gallatin Labor Temple.",
+    "startDate": "2026-08-04",
+    "endDate": "2026-08-04",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [
+      {
+        "url": "https://static.wixstatic.com/media/3eaf95_aecdfcd119754d369882ce79816dfbd0~mv2.jpg",
+        "alt": "Iona Fyfe in Concert poster",
+        "role": "poster"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-08-15-open-music-event-launch-party",
+    "name": "Open Music Event Launch Party",
+    "description": "Celebrate the public launch of a locally developed online platform for live music events, followed by live electronic music featuring local DJs.",
+    "startDate": "2026-08-15",
+    "endDate": "2026-08-16",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [
+      {
+        "url": "https://static.wixstatic.com/media/3eaf95_d3d62c9dd5fd4407a99d8fd8cc00d470~mv2.png",
+        "alt": "Open Music Event Launch Party poster",
+        "role": "poster"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-08-27-gray-goo-local-bands",
+    "name": "Gray Goo + Local Bands",
+    "description": "Psychedelic rock from Northwest Montana with local bands",
+    "startDate": "2026-08-27",
+    "endDate": "2026-08-28",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [
+      {
+        "url": "https://static.wixstatic.com/media/3eaf95_4cb5685c7f364b1c8227b427addfc882~mv2.png",
+        "alt": "Gray Goo + Local Bands poster",
+        "role": "poster"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-09-01-alice-di-micele-rob-kohler",
+    "name": "Alice Di Micele & Rob Kohler",
+    "description": "Bozeman Folklore Society",
+    "startDate": "2026-09-01",
+    "endDate": "2026-09-01",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-09-05-edm-dance-party",
+    "name": "EDM DANCE PARTY",
+    "startDate": "2026-09-05",
+    "endDate": "2026-09-06",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-09-19-four-schillings-short",
+    "name": "Four Schillings Short",
+    "description": "Bozeman Folklore Society",
+    "startDate": "2026-09-19",
+    "endDate": "2026-09-19",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-09-26-goth-night",
+    "name": "Goth Night",
+    "startDate": "2026-09-26",
+    "endDate": "2026-09-26",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-10-02-goners-u-k-me-grimlock-seditious-activity-prints",
+    "name": "Goners U.K./ Me, Grimlock/ Seditious Activity/ Prints",
+    "description": "Punk Show: Four bands live at the Gallatin Labor Temple. All ages • 8 PM • $10",
+    "startDate": "2026-10-02",
+    "endDate": "2026-10-02",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [
+      {
+        "url": "https://static.wixstatic.com/media/3eaf95_61a9bf26478d4b2d90ebf53b13695d12~mv2.jpeg",
+        "alt": "Goners U.K./ Me, Grimlock/ Seditious Activity/ Prints poster",
+        "role": "poster"
+      }
+    ],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-10-10-second-saturday-square-dance",
+    "name": "Second Saturday Square Dance",
+    "startDate": "2026-10-10",
+    "endDate": "2026-10-10",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
+  },
+  {
+    "organizerID": "did:web:gallatinlabortemple.org",
+    "organizerName": "Gallatin Labor Temple",
+    "organizerAvatarURL": "https://wixmp-fe53c9ff592a4da924211f23.wixmp.com/users/3eaf9536-91f3-455a-8c77-592b17ddf4ff/design-previews/89fb44a8-df08-4bd2-9de6-3dd22a6f65e4/1778638810263-thumbnail.jpeg",
+    "eventID": "gallatin-labor-temple-ome-2026-10-24-goth-night",
+    "name": "Goth Night",
+    "startDate": "2026-10-24",
+    "endDate": "2026-10-24",
+    "status": "scheduled",
+    "mode": "inPerson",
+    "location": "422 East Mendenhall Street, Bozeman, MT 59715",
+    "media": [],
+    "timeZone": "America/Denver"
   }
 ]
