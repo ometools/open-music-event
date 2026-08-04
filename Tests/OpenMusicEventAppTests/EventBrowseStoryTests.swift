@@ -643,7 +643,9 @@ struct EventBrowseStoryTests {
         }
 
         // Entering starts from the temporary browse identity and uses the existing viewer route.
-        await store.send(.detail(.enterEventButtonTapped))?.value
+        let enterEventTask = store.send(.detail(.enterEventButtonTapped))
+        #expect(store.detail.isEnteringEvent)
+        await enterEventTask?.value
         expectNoDifference(store.lastRequest, .event(eventID, nil))
         #expect(!store.detail.isEnteringEvent)
 

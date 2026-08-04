@@ -1208,8 +1208,15 @@ public struct EventBrowseDetailView: View {
                     .frame(width: 56, height: 56)
             } chromeTrailingContent: {
                 if store.event.source.collection == OME.Event.nsid {
-                    Button("Enter Event") {
+                    Button {
                         store.send(.enterEventButtonTapped)
+                    } label: {
+                        HStack(spacing: 8) {
+                            if store.isEnteringEvent {
+                                ProgressView()
+                            }
+                            Text(store.isEnteringEvent ? "Entering…" : "Enter Event")
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.isEnteringEvent)
@@ -1220,60 +1227,83 @@ public struct EventBrowseDetailView: View {
                 Button {
                     store.send(.organizerButtonTapped)
                 } label: {
-                    LabeledContent("Organizer", value: store.event.organizer.name)
+                    EventOrganizerRow(organizer: store.event.organizer)
                 }
+                .navigationLinkListRowStyle()
 
-                if let startsAt = store.event.startsAt {
-                    LabeledContent(
-                        "Starts",
-                        value: store.event.detailDateText(startsAt)
-                    )
-                }
-                if let endsAt = store.event.endsAt {
-                    LabeledContent(
-                        "Ends",
-                        value: store.event.detailDateText(endsAt)
-                    )
+                if let dateText = store.event.detailDateText {
+                    LabeledContent("Date") {
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text(dateText)
+
+                            if let timeText = store.event.detailTimeText {
+                                Text(timeText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
                 if let location = store.event.locations.first?.summary {
                     LabeledContent("Location", value: location)
+                }
+
+                Menu {
+                    RSVPStatusButton(
+                        title: "Going",
+                        status: .going,
+                        selectedStatus: store.rsvpStatus,
+                        disabled: store.isSavingRSVP
+                    ) {
+                        store.send(.rsvpButtonTapped(.going))
+                    }
+                    RSVPStatusButton(
+                        title: "Interested",
+                        status: .interested,
+                        selectedStatus: store.rsvpStatus,
+                        disabled: store.isSavingRSVP
+                    ) {
+                        store.send(.rsvpButtonTapped(.interested))
+                    }
+                    RSVPStatusButton(
+                        title: "Not Going",
+                        status: .notGoing,
+                        selectedStatus: store.rsvpStatus,
+                        disabled: store.isSavingRSVP
+                    ) {
+                        store.send(.rsvpButtonTapped(.notGoing))
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("RSVP")
+
+                        Spacer()
+
+                        if store.isSavingRSVP {
+                            ProgressView()
+                        } else {
+                            Text(store.rsvpStatus?.eventBrowseTitle ?? "Choose")
+                                .foregroundStyle(.secondary)
+                            MappedSystemImage(systemName: "ellipsis")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 20, height: 20)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .disabled(store.isSavingRSVP)
+                .tint(.primary)
+
+                if let errorMessage = store.errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
                 }
             }
 
             if let description = store.event.description, !description.isEmpty {
                 Section("About") {
                     Text(description)
-                }
-            }
-
-            Section("RSVP") {
-                RSVPStatusButton(
-                    title: "Going",
-                    status: .going,
-                    selectedStatus: store.rsvpStatus,
-                    disabled: store.isSavingRSVP
-                ) {
-                    store.send(.rsvpButtonTapped(.going))
-                }
-                RSVPStatusButton(
-                    title: "Interested",
-                    status: .interested,
-                    selectedStatus: store.rsvpStatus,
-                    disabled: store.isSavingRSVP
-                ) {
-                    store.send(.rsvpButtonTapped(.interested))
-                }
-                RSVPStatusButton(
-                    title: "Not Going",
-                    status: .notGoing,
-                    selectedStatus: store.rsvpStatus,
-                    disabled: store.isSavingRSVP
-                ) {
-                    store.send(.rsvpButtonTapped(.notGoing))
-                }
-                if let errorMessage = store.errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
                 }
             }
 
@@ -1297,12 +1327,135 @@ public struct EventBrowseDetailView: View {
 }
 
 private extension CalendarEvent {
-    func detailDateText(_ date: Date) -> String {
+    var detailDateText: String? {
+        switch (startsAt, endsAt) {
+        case let (.some(startsAt), .some(endsAt)):
+            let formatter = DateIntervalFormatter()
+            formatter.timeZone = eventTimeZone
+            formatter.dateStyle = .long
+            formatter.timeStyle = .none
+            return formatter.string(from: startsAt, to: endsAt)
+
+        case let (.some(startsAt), .none):
+            return detailDateFormatter.string(from: startsAt)
+
+        case let (.none, .some(endsAt)):
+            return detailDateFormatter.string(from: endsAt)
+
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    var detailTimeText: String? {
+        guard !detailRangeCoversWholeDays else { return nil }
+
+        switch (startsAt, endsAt) {
+        case let (.some(startsAt), .some(endsAt)):
+            let formatter = DateIntervalFormatter()
+            formatter.timeZone = eventTimeZone
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            return formatter.string(from: startsAt, to: endsAt)
+
+        case let (.some(startsAt), .none):
+            return detailTimeFormatter.string(from: startsAt)
+
+        case let (.none, .some(endsAt)):
+            return detailTimeFormatter.string(from: endsAt)
+
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    var detailRangeCoversWholeDays: Bool {
+        guard let startsAt, let endsAt else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = eventTimeZone
+        let start = calendar.dateComponents([.hour, .minute, .second], from: startsAt)
+        let end = calendar.dateComponents([.hour, .minute, .second], from: endsAt)
+        return start.hour == 0
+            && start.minute == 0
+            && start.second == 0
+            && end.hour == 23
+            && end.minute == 59
+            && end.second == 59
+    }
+
+    var detailDateFormatter: DateFormatter {
         let formatter = DateFormatter()
         formatter.timeZone = eventTimeZone
         formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }
+
+    var detailTimeFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.timeZone = eventTimeZone
+        formatter.dateStyle = .none
         formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return formatter
+    }
+}
+
+private extension OME.RSVP.Status {
+    var eventBrowseTitle: String {
+        switch self {
+        case .going:
+            "Going"
+        case .interested:
+            "Interested"
+        case .notGoing:
+            "Not Going"
+        }
+    }
+}
+
+struct EventOrganizerRow: View {
+    let organizer: CalendarEvent.Organizer
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(.secondary.opacity(0.12))
+
+                ImageAssetAsyncImage(
+                    image: organizerArtwork,
+                    renderedImageSize: CGSize(width: 60, height: 60)
+                ) {
+                    MappedSystemImage(systemName: "person")
+                        .foregroundStyle(.secondary)
+                        .padding(16)
+                }
+            }
+            .frame(width: 60, height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(organizer.name)
+                    .lineLimit(1)
+
+                Text("Organizer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    var organizerArtwork: DisplayImageAsset? {
+        organizer.avatarURL.map { avatarURL in
+            DisplayImageAsset(
+                asset: OME.ImageAsset(
+                    source: .url(avatarURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .lazy
+                )
+            )
+        }
     }
 }
 
