@@ -832,21 +832,7 @@ struct ScheduleManyStagesLaneHeader: View {
 
     func stageHeaderCell(for stage: OMERecord.Stage) -> some View {
         VStack(spacing: 6) {
-            ScheduleStageIcon(stage: stage)
-                .frame(width: stageIconSize, height: stageIconSize)
-                .padding(stageIconPadding)
-                .foregroundStyle(stage.color.swiftUIColor)
-                .background {
-                    Circle()
-                        .fill(stage.color.swiftUIColor.opacity(stageIconFillOpacity))
-                        .overlay {
-                            Circle()
-                                .stroke(
-                                    stage.color.swiftUIColor.opacity(stageIconStrokeOpacity),
-                                    lineWidth: 1
-                                )
-                        }
-                }
+            ScheduleManyStagesStageBubble(stage: stage)
 
             if showStageNameLabels {
                 Text(stage.name)
@@ -859,28 +845,12 @@ struct ScheduleManyStagesLaneHeader: View {
         }
     }
 
-    var stageIconSize: CGFloat {
-        44
-    }
-
-    var stageIconPadding: CGFloat {
-        12
-    }
-
     var hourLabelsWidth: CGFloat {
         HourLabelsWidthPreferenceKey.defaultValue
     }
 
     var stageSelectorCellWidth: CGFloat {
         showStageNameLabels ? 112 : 76
-    }
-
-    var stageIconFillOpacity: CGFloat {
-        0.12
-    }
-
-    var stageIconStrokeOpacity: CGFloat {
-        0.28
     }
 
     var stageLaneWidth: CGFloat {
@@ -928,21 +898,7 @@ struct ScheduleManyStagesStageRail: View {
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
         VStack(spacing: 6) {
-            ScheduleStageIcon(stage: stage)
-                .frame(width: stageIconSize, height: stageIconSize)
-                .padding(stageIconPadding)
-                .foregroundStyle(stage.color.swiftUIColor)
-                .background {
-                    Circle()
-                        .fill(stage.color.swiftUIColor.opacity(stageIconFillOpacity))
-                        .overlay {
-                            Circle()
-                                .stroke(
-                                    stage.color.swiftUIColor.opacity(stageIconStrokeOpacity),
-                                    lineWidth: 1
-                                )
-                        }
-                }
+            ScheduleManyStagesStageBubble(stage: stage)
 
             if showStageNameLabels {
                 Text(stage.name)
@@ -956,24 +912,8 @@ struct ScheduleManyStagesStageRail: View {
         .padding(.horizontal, 6)
     }
 
-    var stageIconSize: CGFloat {
-        44
-    }
-
-    var stageIconPadding: CGFloat {
-        12
-    }
-
     var hourLabelsHeight: CGFloat {
         HourLabelsHeightPreferenceKey.defaultValue
-    }
-
-    var stageIconFillOpacity: CGFloat {
-        0.12
-    }
-
-    var stageIconStrokeOpacity: CGFloat {
-        0.28
     }
 
     var railBackgroundColor: Color {
@@ -985,5 +925,55 @@ struct ScheduleManyStagesStageRail: View {
         @unknown default:
             return .clear
         }
+    }
+}
+
+struct ScheduleManyStagesStageBubble: View {
+    let stage: OMERecord.Stage
+
+    @ViewBuilder
+    var body: some View {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            liquidGlassBubble
+        } else {
+            standardBubble
+        }
+        #else
+        standardBubble
+        #endif
+    }
+
+    #if os(iOS) || os(macOS)
+    @available(iOS 26, macOS 26, *)
+    var liquidGlassBubble: some View {
+        ScheduleStageIcon(stage: stage)
+            .padding(4)
+            .frame(width: 70, height: 70)
+            .foregroundStyle(.white)
+            .background {
+                Capsule()
+                    .fill(stage.color.swiftUIColor)
+            }
+            .glassEffect(.clear, in: .capsule)
+    }
+    #endif
+
+    var standardBubble: some View {
+        ScheduleStageIcon(stage: stage)
+            .frame(width: 44, height: 44)
+            .padding(12)
+            .foregroundStyle(stage.color.swiftUIColor)
+            .background {
+                Circle()
+                    .fill(stage.color.swiftUIColor.opacity(0.12))
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                stage.color.swiftUIColor.opacity(0.28),
+                                lineWidth: 1
+                            )
+                    }
+            }
     }
 }
