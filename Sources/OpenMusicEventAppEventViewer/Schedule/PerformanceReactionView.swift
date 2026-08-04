@@ -172,7 +172,7 @@ struct PerformanceReactionSummary: View {
                 }
             }
             .font(.caption)
-            .accessibilityElement(children: .ignore)
+            .portableAccessibilityElementIgnoringChildren()
             .accessibilityLabel(
                 Text(verbatim: "Reactions: \(emojis.map(\.rawValue).joined(separator: " "))")
             )

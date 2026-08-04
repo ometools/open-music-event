@@ -144,6 +144,15 @@ extension View {
     }
 
     @ViewBuilder
+    func portableAccessibilityElementIgnoringChildren() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.accessibilityElement(children: .ignore)
+        #endif
+    }
+
+    @ViewBuilder
     func portableSafeAreaTopInset<Content: View>(
         spacing: CGFloat? = nil,
         @ViewBuilder content: () -> Content

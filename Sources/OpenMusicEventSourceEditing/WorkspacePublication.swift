@@ -220,7 +220,7 @@ struct WorkspacePublicationPersistence: Sendable {
     func proposalTimestamp(
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID,
-        makeTimestamp: @Sendable () -> String
+        makeTimestamp: @escaping @Sendable () -> String
     ) async throws -> String {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try await database.write { db in

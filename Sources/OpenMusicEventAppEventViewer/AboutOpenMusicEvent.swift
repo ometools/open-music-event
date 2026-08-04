@@ -284,23 +284,23 @@ public struct AboutOpenMusicEventView: View {
             Section("OpenMusicEvent and the Atmosphere") {
                 Text("OpenMusicEvent uses the open AT Protocol. Your account is a portable identity that can work across compatible apps, while public event information remains available without signing in.")
 
-                DisclosureGroup("Why does OpenMusicEvent offer accounts?") {
+                PortableDisclosureGroup("Why does OpenMusicEvent offer accounts?") {
                     Text("OpenMusicEvent asks for an account only when an action needs your identity, such as publishing, collaborating, or participating in public feedback.")
                 }
 
-                DisclosureGroup("What stays on this device?") {
+                PortableDisclosureGroup("What stays on this device?") {
                     Text("Local events, saved attendee state, preferences, caches, and unpublished workspaces stay on this device. Account credentials use platform-protected storage.")
                 }
 
-                DisclosureGroup("What can become public?") {
+                PortableDisclosureGroup("What can become public?") {
                     Text("AT Protocol records, public feedback, and source proposals become public only when you explicitly submit them. Local drafts and saved schedules are not published automatically.")
                 }
 
-                DisclosureGroup("Who provides the event information?") {
+                PortableDisclosureGroup("Who provides the event information?") {
                     Text(store.eventInformationProviderDescription)
                 }
 
-                DisclosureGroup("How can I inspect the source?") {
+                PortableDisclosureGroup("How can I inspect the source?") {
                     Text("OpenMusicEvent is open source. You can inspect the app's source code from the link below.")
                 }
             }

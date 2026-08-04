@@ -17,7 +17,7 @@ let tcaTraits: Set<Package.Dependency.Trait> =
     : [.defaults, "Dependencies"]
 let composableAtmosphereTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild
-    ? ["TCA26"]
+    ? ["TCA26", "SkipAndroidBridge"]
     : [.defaults, "TCA26"]
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 func packagePath(_ relativePath: String) -> String {
