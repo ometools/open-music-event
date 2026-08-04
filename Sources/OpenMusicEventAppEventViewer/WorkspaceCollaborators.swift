@@ -3,6 +3,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
@@ -454,6 +455,9 @@ public struct WorkspaceCollaboratorsView: View {
 }
 
 struct WorkspaceCollaboratorRow: View {
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @State var isRemoveConfirmationPresented = false
+
     let stored: WorkspaceRelationshipRecord
     let cachedIdentity: ActorIdentity?
     let isDisabled: Bool
@@ -473,9 +477,23 @@ struct WorkspaceCollaboratorRow: View {
             capabilityButton("Can propose changes", capability: .propose)
             capabilityButton("Can merge changes", capability: .merge)
 
-            Button("Remove Collaborator", role: .destructive, action: remove)
+            Button("Remove Collaborator", role: .destructive) {
+                isRemoveConfirmationPresented = true
+            }
         }
         .disabled(isDisabled)
+        .confirmationDialog(
+            "Remove this collaborator?",
+            isPresented: $isRemoveConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Collaborator", role: .destructive, action: remove)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "They will no longer be able to propose or merge changes in this workspace."
+            )
+        }
     }
 
     var storedIdentity: OME.Relationship.IdentityReference? {
@@ -484,32 +502,35 @@ struct WorkspaceCollaboratorRow: View {
     }
 
     var identityTitle: String {
-        if let displayName = cachedIdentity?.displayName, !displayName.isEmpty {
-            return displayName
-        }
-        if let displayName = storedIdentity?.displayName, !displayName.isEmpty {
-            return displayName
-        }
-        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty {
-            return "@\(handle)"
-        }
-        if let handle = storedIdentity?.handle, !handle.isEmpty {
-            return "@\(handle)"
-        }
-        return stored.id.actorID.description
+        TechnicalDetails.identityTitle(
+            displayName: identityDisplayName,
+            handle: identityHandle,
+            technicalID: stored.id.actorID.description,
+            isVisible: showsTechnicalDetails
+        )
     }
 
     var identitySubtitle: String? {
-        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty,
-           cachedIdentity?.displayName?.isEmpty == false {
-            return "@\(handle) · \(stored.id.actorID)"
+        TechnicalDetails.identitySubtitle(
+            displayName: identityDisplayName,
+            handle: identityHandle,
+            technicalID: stored.id.actorID.description,
+            isVisible: showsTechnicalDetails
+        )
+    }
+
+    var identityDisplayName: String? {
+        if let displayName = cachedIdentity?.displayName, !displayName.isEmpty {
+            return displayName
         }
-        if let handle = storedIdentity?.handle, !handle.isEmpty,
-           storedIdentity?.displayName?.isEmpty == false {
-            return "@\(handle) · \(stored.id.actorID)"
+        return storedIdentity?.displayName
+    }
+
+    var identityHandle: String? {
+        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty {
+            return handle
         }
-        guard identityTitle != stored.id.actorID.description else { return nil }
-        return stored.id.actorID.description
+        return storedIdentity?.handle
     }
 
     var capabilities: Set<OME.WorkspaceRole.Capability> {
