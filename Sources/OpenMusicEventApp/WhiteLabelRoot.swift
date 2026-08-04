@@ -1,9 +1,7 @@
 import ComposableArchitecture2
-import ComposableCalendarEvents
 import Dependencies
 import ErrorHandling
 import OpenMusicEventLexicon
-import OpenMusicEventViewers
 import OpenMusicEventWhiteLabel
 #if os(Android)
 import SkipSwiftUI
@@ -11,8 +9,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-/// A branded entry point into the same browse -> install -> event workflow as the generic app.
-/// It owns no source, authentication, or authoring behavior.
+/// A branded entry point into an organizer's public detail and events.
 @Feature
 public struct WhiteLabelRoot {
     public init() {}
@@ -24,57 +21,54 @@ public struct WhiteLabelRoot {
 
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
+        public var eventDetail: EventBrowseDetail.State?
         public var isLoading = false
+        public var organizationDetail: Spawn<OrganizationDetail>?
     }
 
     public enum Action {
+        case eventDetail(EventBrowseDetail.Action)
         case retryButtonTapped
         case task
     }
 
-    @Dependency(\.calendarEvents) var calendarEvents
-    @Dependency(\.omeEventInstallation) var eventInstallation
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
 
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .eventDetail:
+                return
+
             case .retryButtonTapped, .task:
                 guard !state.isLoading else { return }
                 state.isLoading = true
                 state.errorMessage = nil
                 let configuration = state.configuration
                 store.addTask {
-                    let eventID = await store.withErrorHandling(
+                    let organizerID = await store.withErrorHandling(
                         fallbackMessage: .whiteLabelLoadFailed,
                         operation: .whiteLabelLoad
                     ) {
-                        let organizerID = try await Self.organizerID(
+                        try await Self.organizerID(
                             configuration,
                             identityResolver: identityResolver
                         )
-                        let page = try await calendarEvents.browse(
-                            CalendarEvent.PageRequest(collection: OME.Event.nsid)
-                        )
-                        guard let event = page.events.first(where: {
-                            $0.organizer.id == organizerID
-                        }) else {
-                            throw WhiteLabelError.missingEvent(organizerID)
-                        }
-                        return try await eventInstallation.ensureInstalled(event.uri)
                     }
 
-                    try store.modify { $0.isLoading = false }
-                    guard let eventID else {
+                    guard let organizerID else {
                         try store.modify {
+                            $0.isLoading = false
                             $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                         }
                         return
                     }
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
+                    try store.modify {
+                        $0.isLoading = false
+                        $0.organizationDetail = Spawn(
+                            OrganizationDetail.State(organizerID: organizerID)
+                        )
+                    }
                 }
             }
         }
@@ -84,33 +78,42 @@ public struct WhiteLabelRoot {
             state.errorMessage = nil
             let configuration = state.configuration
             store.addTask {
-                let eventID = await store.withErrorHandling(
+                let organizerID = await store.withErrorHandling(
                     fallbackMessage: .whiteLabelLoadFailed,
                     operation: .whiteLabelLoad
                 ) {
-                    let organizerID = try await Self.organizerID(
+                    try await Self.organizerID(
                         configuration,
                         identityResolver: identityResolver
                     )
-                    let page = try await calendarEvents.browse(
-                        CalendarEvent.PageRequest(collection: OME.Event.nsid)
-                    )
-                    guard let event = page.events.first(where: {
-                        $0.organizer.id == organizerID
-                    }) else {
-                        throw WhiteLabelError.missingEvent(organizerID)
-                    }
-                    return try await eventInstallation.ensureInstalled(event.uri)
                 }
-                try store.modify { $0.isLoading = false }
-                guard let eventID else {
+                guard let organizerID else {
                     try store.modify {
+                        $0.isLoading = false
                         $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                     }
                     return
                 }
-                try store.post(key: NavigationRequested.self, value: .event(eventID, nil))
+                try store.modify {
+                    $0.isLoading = false
+                    $0.organizationDetail = Spawn(
+                        OrganizationDetail.State(organizerID: organizerID)
+                    )
+                }
             }
+        }
+        .ifLet(\.organizationDetail) {
+            OrganizationDetail()
+        }
+        .ifLet(\.eventDetail, action: \.eventDetail) {
+            EventBrowseDetail()
+        }
+        .onEvent(OrganizationEventSelected.self) { event, state in
+            let organizerEvents = state.organizationDetail?.events ?? []
+            state.eventDetail = EventBrowseDetail.State(
+                event: event,
+                organizerEvents: organizerEvents.filter { $0.uri != event.uri }
+            )
         }
     }
 
@@ -136,42 +139,51 @@ public struct WhiteLabelRootView: View {
         self.store = store
     }
 
-    let store: StoreOf<WhiteLabelRoot>
+    @Bindable var store: StoreOf<WhiteLabelRoot>
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                if let loadingImage = store.configuration.brand.loadingImage {
-                    Image(loadingImage.name, bundle: Bundle(url: loadingImage.bundleURL))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 320, maxHeight: 240)
-                        .accessibilityHidden(true)
-                } else {
-                    Image(systemName: store.configuration.brand.systemImage)
-                        .font(.largeTitle)
+            if let organizationStore = store.spawn(\.organizationDetail) {
+                OrganizationDetailView(store: organizationStore)
+            } else {
+                VStack(spacing: 16) {
+                    if let loadingImage = store.configuration.brand.loadingImage {
+                        Image(loadingImage.name, bundle: Bundle(url: loadingImage.bundleURL))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 320, maxHeight: 240)
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: store.configuration.brand.systemImage)
+                            .font(.largeTitle)
+                    }
+                    Text(store.configuration.brand.displayName)
+                        .font(.title)
+                    if store.isLoading {
+                        ProgressView()
+                    }
+                    if let errorMessage = store.errorMessage {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button("Try Again") { store.send(.retryButtonTapped) }
+                    }
                 }
-                Text(store.configuration.brand.displayName)
-                    .font(.title)
-                if store.isLoading {
-                    ProgressView()
-                }
-                if let errorMessage = store.errorMessage {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button("Try Again") { store.send(.retryButtonTapped) }
-                }
+                .padding()
             }
-            .padding()
+        }
+        .navigationDestination(
+            item: $store.scope(\.eventDetail, action: \.eventDetail)
+        ) { eventDetailStore in
+            EventBrowseDetailView(store: eventDetailStore)
         }
     }
 }
 
 private extension UserFacingText {
     static let whiteLabelLoadFailed = Self(
-        "Unable to load event.",
-        fallback: "Unable to load event."
+        "Unable to load organizer.",
+        fallback: "Unable to load organizer."
     )
 }
 

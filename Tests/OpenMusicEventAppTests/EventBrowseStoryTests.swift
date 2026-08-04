@@ -312,6 +312,112 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
+    func `browse opens the shared organization detail with every organizer event`() throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+        let currentEvent = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/current",
+            name: "Current Festival",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 200),
+            collection: OME.Event.nsid
+        )
+        let otherEvent = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/other",
+            name: "Other Festival",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 100),
+            collection: OME.Event.nsid
+        )
+        let store = Store(
+            initialState: EventBrowseDetail.State(
+                event: currentEvent,
+                organizerEvents: [otherEvent]
+            )
+        ) {
+            EventBrowseDetail()
+        }
+
+        store.send(.organizerButtonTapped)
+
+        let organizationDetail = try #require(store.organizationDetail)
+        expectNoDifference(organizationDetail.organizerID, organizerID)
+        expectNoDifference(
+            organizationDetail.events.map(\.name),
+            ["Current Festival", "Other Festival"]
+        )
+    }
+
+    @Test @MainActor
+    func `organization detail opens the selected event before installing it`() async throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+        let previousEvent = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/2025",
+            name: "Wicked Woods 2025",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 100),
+            collection: OME.Event.nsid
+        )
+        let selectedEvent = try event(
+            uri: "at://did:plc:organizer/app.openmusicevent.event/2026",
+            name: "Wicked Woods 2026",
+            organizerID: organizerID,
+            startsAt: Date(timeIntervalSince1970: 200),
+            collection: OME.Event.nsid
+        )
+        let organizerEvents = [previousEvent, selectedEvent]
+        let selectedEventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "2026")
+        )
+        let installations = Mutex<[ATProto.URI]>([])
+        let store = withDependencies {
+            $0.calendarEvents = CalendarEventsClient(
+                browse: { _ in CalendarEvent.Page(events: organizerEvents) },
+                event: { _ in selectedEvent },
+                organizer: { _ in selectedEvent.organizer }
+            )
+            $0.omeEventInstallation = OMEEventInstallationClient { uri in
+                installations.withLock { $0.append(uri) }
+                return selectedEventID
+            }
+        } operation: {
+            TestStore(
+                initialState: OrganizationDetailStory.State(organizerID: organizerID)
+            ) {
+                OrganizationDetailStory()
+            }
+        }
+
+        let loadTask = store.send(.detail(.task)) {
+            $0.detail.isLoading = true
+        }
+        await loadTask?.value
+        store.expect {
+            $0.detail.events = organizerEvents
+            $0.detail.isLoading = false
+            $0.detail.organizer = selectedEvent.organizer
+        }
+
+        expectNoDifference(
+            store.detail.events.map(\.name),
+            ["Wicked Woods 2025", "Wicked Woods 2026"]
+        )
+        #expect(store.lastRequest == nil)
+
+        let selectionTask = store.send(.detail(.eventButtonTapped(selectedEvent.uri))) {
+            $0.eventDetail = EventBrowseDetail.State.DebugSnapshot(
+                event: selectedEvent,
+                organizerEvents: [previousEvent]
+            )
+        }
+        await selectionTask?.value
+
+        #expect(installations.withLock { $0 }.isEmpty)
+        #expect(store.lastRequest == nil)
+        await store.dismount(timeout: .seconds(1))
+    }
+
+    @Test @MainActor
     func `choosing Going is stored and restored for the signed in attendee`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
@@ -582,6 +688,42 @@ struct EnterEventStory {
         }
         .onEvent(ErrorReported.self) { error, state in
             state.lastError = error
+        }
+        .onEvent(NavigationRequested.self) { request, state in
+            state.lastRequest = request
+        }
+    }
+}
+
+@Feature
+struct OrganizationDetailStory {
+    struct State {
+        init(organizerID: OME.Organizer.ID) {
+            self.detail = OrganizationDetail.State(organizerID: organizerID)
+        }
+
+        var detail: OrganizationDetail.State
+        var eventDetail: EventBrowseDetail.State?
+        var lastRequest: NavigationRequest?
+    }
+
+    enum Action {
+        case detail(OrganizationDetail.Action)
+        case eventDetail(EventBrowseDetail.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.detail, action: \.detail) {
+            OrganizationDetail()
+        }
+        .ifLet(\.eventDetail, action: \.eventDetail) {
+            EventBrowseDetail()
+        }
+        .onEvent(OrganizationEventSelected.self) { event, state in
+            state.eventDetail = EventBrowseDetail.State(
+                event: event,
+                organizerEvents: state.detail.events.filter { $0.uri != event.uri }
+            )
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request

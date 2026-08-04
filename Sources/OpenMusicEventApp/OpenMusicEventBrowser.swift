@@ -1074,7 +1074,7 @@ public struct EventBrowseDetail {
         public var event: CalendarEvent
         public var isEnteringEvent = false
         public var isSavingRSVP = false
-        public var organizerDetail: CalendarEvent.Organizer?
+        public var organizationDetail: OrganizationDetail.State?
         public var organizerEvents: [CalendarEvent]
         public var rsvpStatus: OME.RSVP.Status?
 
@@ -1083,6 +1083,7 @@ public struct EventBrowseDetail {
 
     public enum Action {
         case enterEventButtonTapped
+        case organizationDetail(OrganizationDetail.Action)
         case organizerButtonTapped
         case rsvpButtonTapped(OME.RSVP.Status)
         case task
@@ -1120,7 +1121,15 @@ public struct EventBrowseDetail {
                 }
 
             case .organizerButtonTapped:
-                state.organizerDetail = state.event.organizer
+                state.organizationDetail = OrganizationDetail.State(
+                    organizerID: state.event.organizer.id,
+                    collection: state.event.source.collection,
+                    organizer: state.event.organizer,
+                    events: [state.event] + state.organizerEvents
+                )
+
+            case .organizationDetail:
+                return
 
             case let .rsvpButtonTapped(status):
                 let event = state.event
@@ -1179,6 +1188,15 @@ public struct EventBrowseDetail {
                     }
                 }
             }
+        }
+        .ifLet(\.organizationDetail, action: \.organizationDetail) {
+            OrganizationDetail()
+        }
+        .onEvent(OrganizationEventSelected.self) { event, state in
+            let organizerEvents = state.organizationDetail?.events ?? []
+            state.event = event
+            state.organizerEvents = organizerEvents.filter { $0.uri != event.uri }
+            state.organizationDetail = nil
         }
     }
 }
@@ -1282,11 +1300,10 @@ public struct EventBrowseDetailView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.organizerDetail) { organizer in
-            BrowseOrganizerDetailView(
-                organizer: organizer,
-                events: store.organizerEvents
-            )
+        .navigationDestination(
+            item: $store.scope(\.organizationDetail, action: \.organizationDetail)
+        ) { organizationStore in
+            OrganizationDetailView(store: organizationStore)
         }
         .task {
             await store.send(.task)?.value
@@ -1320,36 +1337,6 @@ struct RSVPStatusButton: View {
             }
         }
         .disabled(disabled)
-    }
-}
-
-struct BrowseOrganizerDetailView: View {
-    let organizer: CalendarEvent.Organizer
-    let events: [CalendarEvent]
-
-    var body: some View {
-        List {
-            Section {
-                Text(organizer.name)
-                    .font(.title2.weight(.semibold))
-                if let handle = organizer.handle {
-                    Text("@\(handle)")
-                        .foregroundStyle(.secondary)
-                }
-                if let description = organizer.description, !description.isEmpty {
-                    Text(description)
-                }
-            }
-
-            if !events.isEmpty {
-                Section("More Events") {
-                    ForEach(events) { event in
-                        BrowseCalendarEventRow(event: event)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Organizer")
     }
 }
 

@@ -22,7 +22,7 @@ private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 @Suite
 struct WhiteLabelRootTests {
     @Test
-    func `white label browses and installs through the ordinary event boundary`() async throws {
+    func `white label opens the configured organization instead of an event`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -57,19 +57,19 @@ struct WhiteLabelRootTests {
             }
         }
 
-        await store.receive(
-            key: NavigationRequested.self,
-            value: .equals(.event(eventID, nil)),
-            timeout: .seconds(1)
-        ) {
+        try await whiteLabelWaitUntil {
+            store.root.organizationDetail != nil
+                && !store.root.isLoading
+        }
+        store.expect {
             $0.root.isLoading = false
-            $0.lastRequest = .event(eventID, nil)
+            $0.root.organizationDetail = OrganizationDetail.State.DebugSnapshot(
+                organizerID: organizerID
+            )
         }
 
-        #expect(
-            installations.withLock { $0 }
-                == [OMERecord.Event.reference(id: eventID).uri]
-        )
+        #expect(store.lastRequest == nil)
+        #expect(installations.withLock { $0 }.isEmpty)
         #expect(gitOperations.snapshot.isEmpty)
         #expect(!store.root.isLoading)
         #expect(store.root.errorMessage == nil)
@@ -77,7 +77,7 @@ struct WhiteLabelRootTests {
     }
 
     @Test
-    func `white label handle resolution still uses the same browse and install flow`() async throws {
+    func `white label handle resolution opens the same organization detail`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -116,74 +116,24 @@ struct WhiteLabelRootTests {
             }
         }
 
-        await store.receive(
-            key: NavigationRequested.self,
-            value: .equals(.event(eventID, nil)),
-            timeout: .seconds(1)
-        ) {
+        try await whiteLabelWaitUntil {
+            store.root.organizationDetail != nil
+                && !store.root.isLoading
+        }
+        store.expect {
             $0.root.isLoading = false
-            $0.lastRequest = .event(eventID, nil)
+            $0.root.organizationDetail = OrganizationDetail.State.DebugSnapshot(
+                organizerID: organizerID
+            )
         }
 
         #expect(resolvedHandles.withLock { $0 } == ["wickedwoods.ca"])
-        #expect(
-            installations.withLock { $0 }
-                == [OMERecord.Event.reference(id: eventID).uri]
-        )
+        #expect(installations.withLock { $0 }.isEmpty)
+        #expect(store.lastRequest == nil)
         #expect(store.root.errorMessage == nil)
         await store.dismount(timeout: .seconds(1))
     }
 
-    @Test
-    func `missing published event is visible and retryable without authoring state`() async throws {
-        let database = try makePreparedDatabase()
-        let missingOrganizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:missingwhitelabel")
-        )
-        let installations = Mutex<[ATProto.URI]>([])
-
-        var mountedStore: TestStore<WhiteLabelStory>?
-        await withExpectedIssue {
-            mountedStore = withDependencies {
-                $0.context = .test
-                $0.defaultDatabase = database
-                $0.calendarEvents = .openMusicEventAndAtmo(database: database)
-                $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                    installations.withLock { $0.append(uri) }
-                    throw WhiteLabelError.missingEvent(missingOrganizerID)
-                }
-            } operation: {
-                TestStore(
-                    initialState: WhiteLabelStory.State(
-                        configuration: WhiteLabelAppConfiguration(
-                            brand: WhiteLabelBrand(displayName: "Missing Festival"),
-                            organizerID: missingOrganizerID
-                        )
-                    )
-                ) {
-                    WhiteLabelStory()
-                } changes: {
-                    $0.root.isLoading = true
-                }
-            }
-            try await whiteLabelWaitUntil {
-                mountedStore?.lastErrorOperation == "white-label.load"
-                    && mountedStore?.root.errorMessage == "Unable to load event."
-                    && mountedStore?.root.isLoading == false
-            }
-        }
-        let store = try #require(mountedStore)
-        store.expect {
-            $0.root.isLoading = false
-            $0.root.errorMessage = "Unable to load event."
-            $0.lastErrorOperation = "white-label.load"
-        }
-
-        #expect(installations.withLock { $0 }.isEmpty)
-        #expect(!store.root.isLoading)
-        #expect(store.root.errorMessage == "Unable to load event.")
-        await store.dismount(timeout: .seconds(1))
-    }
 }
 
 @MainActor
@@ -229,7 +179,6 @@ private struct WhiteLabelStory {
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request
-            return .continue
         }
     }
 }
