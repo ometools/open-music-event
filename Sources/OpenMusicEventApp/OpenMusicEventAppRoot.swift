@@ -369,16 +369,8 @@ struct OpenMusicEventWorkspaceStatusView: View {
 
     var body: some View {
         switch phase {
-        case .inactive, .ready:
+        case .inactive, .preparingSource, .ready:
             EmptyView()
-
-        case .preparingSource:
-            status {
-                ProgressView()
-                Text("Preparing source workspace")
-                Spacer()
-                Button("Exit", action: exitAuthoring)
-            }
 
         case .capturingSubmission:
             status {
