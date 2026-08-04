@@ -4,22 +4,6 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-enum EventViewerPresentationLaunchAnimation {
-    case automatic
-    case disabled
-}
-
-private struct EventViewerPresentationLaunchAnimationKey: EnvironmentKey {
-    static let defaultValue: EventViewerPresentationLaunchAnimation = .automatic
-}
-
-extension EnvironmentValues {
-    var eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation {
-        get { self[EventViewerPresentationLaunchAnimationKey.self] }
-        set { self[EventViewerPresentationLaunchAnimationKey.self] = newValue }
-    }
-}
-
 public extension View {
     func openMusicEventViewerPresentation<Item: Identifiable, Content: View>(
         item: Binding<Item?>,
@@ -38,10 +22,8 @@ struct OpenMusicEventViewerPresentation<
     Item: Identifiable,
     PresentedContent: View
 >: ViewModifier {
-    @Environment(\.eventViewerPresentationLaunchAnimation) var launchAnimation
     @Binding var item: Item?
     let presentedContent: (Item) -> PresentedContent
-    @State var hasAppeared = false
 
     init(
         item: Binding<Item?>,
@@ -52,29 +34,18 @@ struct OpenMusicEventViewerPresentation<
     }
 
     func body(content base: Content) -> some View {
-        Group {
-            #if os(Android) || (os(macOS) && !SKIP)
+        ZStack {
+            base
+                .allowsHitTesting(item == nil)
+                .accessibilityHidden(item != nil)
+
             if let item {
                 presentedContent(item)
-            } else {
-                base
+                    .transition(.move(edge: .bottom))
+                    .zIndex(1)
             }
-            #else
-            if hasAppeared {
-                base
-                    .fullScreenCover(item: presentationBinding) { item in
-                        presentedContent(item)
-                    }
-            } else if let item {
-                presentedContent(item)
-            } else {
-                base
-            }
-            #endif
         }
-        .onAppear {
-            hasAppeared = true
-        }
+        .animation(.default, value: item?.id)
     }
 
     #if os(Android) && SKIP_BRIDGE
@@ -84,18 +55,4 @@ struct OpenMusicEventViewerPresentation<
         body(content: base)
     }
     #endif
-
-    private var presentationBinding: Binding<Item?> {
-        guard launchAnimation == .disabled, !hasAppeared else {
-            return $item
-        }
-
-        #if os(Android) && SKIP_BRIDGE
-        return $item
-        #else
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        return $item.transaction(transaction)
-        #endif
-    }
 }

@@ -116,6 +116,29 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
+        let persistSelectedEvent: (OMERecord.Event.ID?, State) -> Void = { eventID, state in
+            guard state.persistsSelectedEvent else { return }
+            let organizerID = eventID?.organizerID
+            let eventID = eventID?.eventID
+            do {
+                try database.write { db in
+                    try AppState.update {
+                        $0.organizerID = #bind(organizerID)
+                        $0.eventID = #bind(eventID)
+                    }
+                    .execute(db)
+                }
+            } catch {
+                store.addTask {
+                    await store.reportError(
+                        error,
+                        fallbackMessage: .selectedEventPersistenceFailed,
+                        operation: .selectedEventPersistence
+                    )
+                }
+            }
+        }
+
         Features {
             Update { state, action in
                 switch action {
@@ -227,16 +250,7 @@ public struct OpenMusicEventAppRoot {
                 .content
                 .id
         ) { _, eventID, state in
-            guard state.persistsSelectedEvent else { return }
-            let organizerID = eventID?.organizerID
-            let eventID = eventID?.eventID
-            try? database.write { db in
-                try AppState.update {
-                    $0.organizerID = #bind(organizerID)
-                    $0.eventID = #bind(eventID)
-                }
-                .execute(db)
-            }
+            persistSelectedEvent(eventID, state)
         }
         .onEvent(NavigationRequested.self) { request, state in
             switch request {
@@ -270,6 +284,10 @@ public struct OpenMusicEventAppRoot {
             case let .externalURL(url):
                 state.openExternalURL(url)
             }
+        }
+        .onEvent(EventViewerDismissalRequested.self) { eventID, state in
+            guard state.eventViewer?.authoring.content.content.id == eventID else { return }
+            persistSelectedEvent(nil, state)
         }
         .presentReportedErrors()
         .spawn(\.browser) {

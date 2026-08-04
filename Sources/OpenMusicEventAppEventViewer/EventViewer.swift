@@ -22,6 +22,12 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 #endif
 
+public struct EventViewerDismissalRequested: FeatureEventKey {
+    public typealias Value = OMERecord.Event.ID
+
+    public init() {}
+}
+
 struct EventViewerContext: Sendable {
     let eventID: OMERecord.Event.ID
 }
@@ -845,7 +851,13 @@ public struct EventViewer {
                 Update { state, action in
                     switch action {
                     case .closeButtonTapped:
+                        let eventID = state.eventID
                         store.addTask {
+                            let dismissal = try store.post(
+                                key: EventViewerDismissalRequested.self,
+                                value: eventID
+                            )
+                            await dismissal?.value
                             try store.dismiss()
                         }
 

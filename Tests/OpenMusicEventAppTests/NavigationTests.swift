@@ -6058,6 +6058,19 @@ struct NavigationTests {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/example/event-1",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
             try AppState.update {
                 $0.organizerID = #bind(eventID.organizerID)
                 $0.eventID = #bind(eventID.eventID)
@@ -6140,6 +6153,19 @@ struct NavigationTests {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/example/event-1",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
             try AppState.update {
                 $0.organizerID = #bind(eventID.organizerID)
                 $0.eventID = #bind(eventID.eventID)
@@ -6154,10 +6180,21 @@ struct NavigationTests {
         )
         #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
 
-        await store.modify {
-            $0.root.eventViewer = nil
-        }?.value
+        await store.send(
+            .root(
+                .destination(
+                    .eventViewer(
+                        .authoring(
+                            .content(
+                                .content(.closeButtonTapped)
+                            )
+                        )
+                    )
+                )
+            )
+        )?.value
 
+        #expect(store.state.root.eventViewer == nil)
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }
@@ -6253,9 +6290,24 @@ struct NavigationTests {
     func normalEventViewerNavigationPersistsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/example/event-1",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
+        }
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
         #expect(store.state.root.eventViewer?.id == eventID)
 
         let appState = try await database.read { db in
@@ -6269,15 +6321,41 @@ struct NavigationTests {
     func normalEventViewerDismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/example/event-1",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
+        }
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
         #expect(store.state.root.eventViewer?.id == eventID)
 
-        await store.modify {
-            $0.root.eventViewer = nil
-        }?.value
+        await store.send(
+            .root(
+                .destination(
+                    .eventViewer(
+                        .authoring(
+                            .content(
+                                .content(.closeButtonTapped)
+                            )
+                        )
+                    )
+                )
+            )
+        )?.value
 
+        #expect(store.state.root.eventViewer == nil)
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }

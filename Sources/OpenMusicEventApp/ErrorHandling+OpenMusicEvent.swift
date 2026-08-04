@@ -91,6 +91,10 @@ public extension UserFacingText {
         "Unable to restore the saved event workspace.",
         fallback: "Unable to restore the saved event workspace."
     )
+    static let selectedEventPersistenceFailed = Self(
+        "Unable to save your event selection.",
+        fallback: "Unable to save your event selection."
+    )
     static let authenticationAuthorizationFailed = Self(
         "Unable to authorize account.",
         fallback: "Unable to authorize account."
@@ -102,6 +106,7 @@ public extension ErrorOperation {
     static let eventDeletion = Self("event.delete")
     static let eventInstallation = Self("event.install")
     static let eventWorkspaceRestore = Self("event.workspace.restore")
+    static let selectedEventPersistence = Self("event.selection.persist")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")
     static let sourceWorkspaceUpload = Self("source.workspace.upload")

@@ -115,38 +115,28 @@ struct SelectedEventRestoration {
     @MainActor
     private static let genericStore = makeStore(variant: .generic)
 
-    private let eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation
     let store: StoreOf<OpenMusicEventApplication>
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
     @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
 
     /* SKIP @bridge */public init() {
-        let store = Self.genericStore
-        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
-        self.store = store
+        self.store = Self.genericStore
     }
 
     @MainActor
     public init(store: StoreOf<OpenMusicEventApplication>) {
-        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
         self.store = store
     }
 
     @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        let store = Self.makeStore(variant: variant)
-        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
-        self.store = store
+        self.store = Self.makeStore(variant: variant)
     }
 
     public var body: some View {
         OpenMusicEventAuthorizationView(store: store) { rootStore in
             OpenMusicEventAppRootView(store: rootStore)
         }
-            .environment(
-                \.eventViewerPresentationLaunchAnimation,
-                eventViewerPresentationLaunchAnimation
-            )
             .environment(
                 \.showsTechnicalDetails,
                 TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
@@ -198,13 +188,6 @@ struct SelectedEventRestoration {
         } catch {
             return SelectedEventRestoration(error: error)
         }
-    }
-
-    @MainActor
-    private static func launchAnimation(
-        for store: StoreOf<OpenMusicEventApplication>
-    ) -> EventViewerPresentationLaunchAnimation {
-        store.content.eventViewer == nil ? .automatic : .disabled
     }
 }
 
