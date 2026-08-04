@@ -1,4 +1,5 @@
 import ATProto
+import ComposableAuthoring
 import Dependencies
 import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
@@ -51,51 +52,105 @@ extension DependencyValues {
     }
 }
 
-extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
+extension AuthoringClient
+where
+    Context == SourceWorkspace,
+    Eligibility == AuthoringEligibility,
+    Grant == AuthoringGrant
+{
     static var openMusicEvent: Self {
-        Self(
+        @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+
+        return Self(
             admission: { workspace in
-                @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
-                guard let session = getOptionalDefaultSession() else {
-                    return .signInRequired
+                guard let eligibility = try await authoringEligibility(for: workspace)
+                else { return .unavailable }
+                return .eligible(eligibility)
+            },
+            enter: { workspace, eligibility in
+                guard try await authoringEligibility(for: workspace) == eligibility else {
+                    throw OpenMusicEventAuthoringClientError.eligibilityChanged
                 }
-                guard let actorID = DID(session.accountID.rawValue.description),
-                      let repository = try? TangledRepositoryReference(
-                          sourceReference: workspace.repository
-                      )
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(
+                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                )
+
+                try await activations.activate(
+                    workspace.id,
+                    eligibility.principal,
+                    eligibility.role
+                )
+                return AuthoringGrant(
+                    principal: eligibility.principal,
+                    role: eligibility.role,
+                    workspaceID: workspace.id
+                )
+            },
+            exit: { workspace, grant in
+                guard grant.workspaceID == workspace.id else {
+                    throw OpenMusicEventAuthoringClientError.grantWorkspaceMismatch
+                }
+                try await activations.deactivate(workspace.id)
+            },
+            restore: { workspace in
+                guard let activation = try activations.current(workspace.id) else {
+                    return nil
+                }
+                guard let eligibility = try await authoringEligibility(for: workspace),
+                      eligibility.principal == activation.principal
                 else {
-                    return .denied
+                    try await activations.deactivate(workspace.id)
+                    return nil
                 }
 
-                @Dependency(\.tangledRepositoryMembership) var membership
-                guard try await membership.contains(
-                    repository,
-                    workspace.organizerID,
-                    actorID
-                ) else {
-                    return .denied
-                }
-
-                let role: OME.WorkspaceRole = workspace.organizerID == actorID
-                    ? .owner
-                    : .collaborator([.propose])
-                return .granted(
-                    principal: AuthoringPrincipal(actorID: actorID),
-                    role: role
-                )
-            },
-            authorizeEntry: { _, _ in
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(
                     OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
                 )
-            },
-            requestSignIn: {
-                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
-                try await authorizationBroker.authorize(
-                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                try await activations.activate(
+                    workspace.id,
+                    eligibility.principal,
+                    eligibility.role
+                )
+                return AuthoringGrant(
+                    principal: eligibility.principal,
+                    role: eligibility.role,
+                    workspaceID: workspace.id
                 )
             }
         )
     }
+}
+
+private func authoringEligibility(
+    for workspace: SourceWorkspace
+) async throws -> AuthoringEligibility? {
+    @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+    guard let session = getOptionalDefaultSession(),
+          let actorID = DID(session.accountID.rawValue.description),
+          let repository = try? TangledRepositoryReference(
+              sourceReference: workspace.repository
+          )
+    else { return nil }
+
+    @Dependency(\.tangledRepositoryMembership) var membership
+    guard try await membership.contains(
+        repository,
+        workspace.organizerID,
+        actorID
+    ) else { return nil }
+
+    let role: OME.WorkspaceRole = workspace.organizerID == actorID
+        ? .owner
+        : .collaborator([.propose])
+    return AuthoringEligibility(
+        principal: AuthoringPrincipal(actorID: actorID),
+        role: role
+    )
+}
+
+private enum OpenMusicEventAuthoringClientError: Error {
+    case eligibilityChanged
+    case grantWorkspaceMismatch
 }

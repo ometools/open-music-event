@@ -9,6 +9,7 @@ import Foundation
 import GRDB
 import HTTPClient
 import HTTPTypes
+import IssueReporting
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -149,8 +150,13 @@ struct WorkspaceChangePresentationTests {
 @MainActor
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
-    @Test(.tcaExhaustivity(.off))
-    func `authorized entry prepares the organization workspace once and durable reentry only validates it`() async throws {
+    @Test(
+        .tcaExhaustivity(.off),
+        arguments: [EventTarget.settings, .workspace]
+    )
+    func `an eligible organizer edits an event and creates a source proposal`(
+        _ target: EventTarget
+    ) async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -175,21 +181,25 @@ struct WorkspaceAuthoringStoryTests {
         )
         let operations = WorkspaceStorySourceControlRecorder()
         let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
-        let route = AppRoute.event(selectedEventID, .settings)
+        let route = AppRoute.event(selectedEventID, target)
         let routeURL = try #require(URL(string: "ome://workspace-story\(route.path)"))
 
         try await withDependencies {
             $0.context = .test
+            // Keep OME's database, installation, source import, diff, and proposal stack live.
             OME.prepareDependencies(&$0, database: database)
             let liveSourceControl = $0.sourceControl
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
+            // The second app mount must reopen this checkout instead of creating another one.
             $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot.appending(path: "workspaces"))
+            // The selected OAuth account is the organizer whose repository grants owner eligibility.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
                 organizerID: organizerID
             )
+            // Exercise OME's live membership and authorization clients against fixture transport.
             $0.tangledRepositoryMembership = .liveValue
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .liveValue
@@ -204,6 +214,7 @@ struct WorkspaceAuthoringStoryTests {
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
             }
+            // Run real Git operations against the local bare remote and record their user-visible effects.
             $0.sourceControl = workspaceStorySourceControl(
                 live: liveSourceControl,
                 remoteURL: git.bareRepositoryURL,
@@ -225,26 +236,64 @@ struct WorkspaceAuthoringStoryTests {
             }
             await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
 
-            // Browsing is entered through the app URL and installs only the selected event.
-            let browsedEventNames = try await workspaceStoryEventNames(in: database)
-            expectNoDifference(
-                browsedEventNames,
-                ["Wicked Woods 2026"]
+            let eligibility = AuthoringEligibility(
+                principal: AuthoringPrincipal(actorID: organizerID),
+                role: .owner
             )
-            #expect(operations.snapshot.isEmpty)
-            expectNoDifference(opened.state.content.eventViewer?.authoring.canEnter, true)
 
-            // The visible Event Settings control owns authorization and workspace preparation.
-            await opened.send(
-                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
-                .enterAuthoringButtonTapped
-            )?.value
+            if target == .settings {
+                // Browsing Settings installs only the selected event until authoring is requested.
+                let browsedEventNames = try await workspaceStoryEventNames(in: database)
+                expectNoDifference(
+                    browsedEventNames,
+                    ["Wicked Woods 2026"]
+                )
+                #expect(operations.snapshot.isEmpty)
+                expectNoDifference(
+                    opened.state.content.eventViewer?.authoring.phase,
+                    .inactive(.eligible(eligibility))
+                )
+
+                // The visible Event Settings control owns authorization and workspace preparation.
+                await opened.send(
+                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )?.value
+            } else {
+                // An editor deep link enters through the same eligibility and grant transition.
+                try await workspaceStoryWaitUntil {
+                    guard let authoring = opened.state.content.eventViewer?.authoring,
+                          case .active = authoring.phase,
+                          case .ready(.canonical) = authoring.content.phase
+                    else { return false }
+                    return true
+                }
+                expectNoDifference(
+                    opened.state.content.eventViewer?.authoring.content.content
+                        .pendingAuthoringEntry,
+                    nil
+                )
+                expectNoDifference(
+                    opened.state.content.eventViewer?.authoring.content.content.selectedFeature,
+                    .workspace
+                )
+            }
 
             let authoring = try #require(opened.state.content.eventViewer?.authoring)
             let workspace = authoring.context
             let resource = try #require(authoring.content.source)
             expectNoDifference(authoring.grant?.principal, AuthoringPrincipal(actorID: organizerID))
             expectNoDifference(authoring.grant?.role, .owner)
+            expectNoDifference(
+                authoring.phase,
+                .active(
+                    AuthoringGrant(
+                        principal: eligibility.principal,
+                        role: eligibility.role,
+                        workspaceID: authoring.context.id
+                    )
+                )
+            )
             guard case .ready(.canonical(_)) = authoring.content.phase else {
                 Issue.record("First preparation must establish the canonical editing line.")
                 return
@@ -349,6 +398,10 @@ struct WorkspaceAuthoringStoryTests {
                 .exitAuthoringButtonTapped
             )?.value
             #expect(opened.state.content.eventViewer?.authoring.grant == nil)
+            expectNoDifference(
+                opened.state.content.eventViewer?.authoring.phase,
+                .inactive(.eligible(eligibility))
+            )
             guard case let .ready(.proposal(settledProposal)) = opened.state.content.eventViewer?
                 .authoring.content.phase,
                 settledProposal == proposal
@@ -360,7 +413,7 @@ struct WorkspaceAuthoringStoryTests {
             let openedRepositoriesBeforeRemount = operations.count(of: "open")
             await opened.dismount(timeout: .seconds(1))
 
-            // A fresh application mount enters through the same settings action. It must open and
+            // A fresh application mount repeats the same route-owned transition. It must open and
             // validate the durable repository and proposal rather than cloning or reinstalling it.
             let remountedStore = TestStore(
                 initialState: OpenMusicEventApplication.State(
@@ -376,15 +429,35 @@ struct WorkspaceAuthoringStoryTests {
                     .deliverAuthoringAuthorizationChanges()
             }
             await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
-            await remountedStore.send(
-                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
-                .enterAuthoringButtonTapped
-            )?.value
+            if target == .settings {
+                await remountedStore.send(
+                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )?.value
+            } else {
+                try await workspaceStoryWaitUntil {
+                    guard let authoring = remountedStore.state.content.eventViewer?.authoring,
+                          case .active = authoring.phase,
+                          case .ready(.proposal) = authoring.content.phase
+                    else { return false }
+                    return true
+                }
+            }
 
             let remountedAuthoring = try #require(
                 remountedStore.state.content.eventViewer?.authoring
             )
             expectNoDifference(remountedAuthoring.grant?.role, .owner)
+            expectNoDifference(
+                remountedAuthoring.phase,
+                .active(
+                    AuthoringGrant(
+                        principal: eligibility.principal,
+                        role: eligibility.role,
+                        workspaceID: remountedAuthoring.context.id
+                    )
+                )
+            )
             expectNoDifference(remountedAuthoring.content.phase, .ready(.proposal(proposal)))
             expectNoDifference(
                 remountedAuthoring.content.content.eventWorkspace?.changes.openProposal,
@@ -397,12 +470,31 @@ struct WorkspaceAuthoringStoryTests {
                 remountedEventNames,
                 ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
             )
+
+            // Revoking the selected account invalidates the one authoring phase. Settings can no
+            // longer offer entry, the active grant disappears, and no second workspace path is
+            // installed to preserve authoring.
+            authenticationStorage.reset()
+            try await workspaceStoryWaitUntil {
+                remountedStore.state.content.eventViewer?.authoring.phase
+                    == .inactive(.unavailable)
+            }
+            let revokedAuthoring = try #require(
+                remountedStore.state.content.eventViewer?.authoring
+            )
+            expectNoDifference(revokedAuthoring.phase, .inactive(.unavailable))
+            #expect(revokedAuthoring.grant == nil)
+            expectNoDifference(
+                revokedAuthoring.content.content.authoringAccess,
+                .attendee
+            )
+            #expect(!revokedAuthoring.content.content.installedFeatures.contains(.workspace))
             await remountedStore.dismount(timeout: .seconds(1))
         }
     }
 
     @Test(.tcaExhaustivity(.off))
-    func `active authoring owns Workspace while source preparation fails and retries`() async throws {
+    func `an organizer retries failed source preparation without losing authoring access`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -429,6 +521,7 @@ struct WorkspaceAuthoringStoryTests {
 
         try await withDependencies {
             $0.context = .test
+            // Keep the full OME authoring stack live; only source preparation is controlled below.
             OME.prepareDependencies(&$0, database: database)
             let liveSourceControl = $0.sourceControl
             let livePreparation = $0[SourceWorkspacePreparationClient.self]
@@ -436,9 +529,11 @@ struct WorkspaceAuthoringStoryTests {
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
+            // Retry must reuse the same persisted checkout after the controlled first failure.
             $0.sourceWorkspaceStorage = .fileBacked(
                 rootURL: storageRoot.appending(path: "workspaces")
             )
+            // The selected OAuth account resolves to owner eligibility through the live client.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
                 organizerID: organizerID
             )
@@ -461,6 +556,7 @@ struct WorkspaceAuthoringStoryTests {
                 remoteURL: git.bareRepositoryURL,
                 recorder: operations
             )
+            // Suspend and fail only the external preparation attempt, leaving authorization live.
             $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient {
                 workspace in
                 try await preparationGate.prepare(
@@ -483,46 +579,58 @@ struct WorkspaceAuthoringStoryTests {
                     .deliverAuthoringAuthorizationChanges()
             }
             await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
-            expectNoDifference(opened.state.content.eventViewer?.authoring.canEnter, true)
+            expectNoDifference(
+                opened.state.content.eventViewer?.authoring.phase,
+                .inactive(
+                    .eligible(
+                        AuthoringEligibility(
+                            principal: AuthoringPrincipal(actorID: organizerID),
+                            role: .owner
+                        )
+                    )
+                )
+            )
 
             // The Settings action activates authoring. Workspace availability follows the grant,
             // while source preparation remains independently suspended at its external boundary.
-            let entry = opened.send(
-                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
-                .enterAuthoringButtonTapped
-            )
-            await preparationGate.waitUntilFirstAttemptStarts()
+            await withExpectedIssue {
+                let entry = opened.send(
+                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )
+                await preparationGate.waitUntilFirstAttemptStarts()
 
-            let preparingAuthoring = try #require(
-                opened.state.content.eventViewer?.authoring
-            )
-            let preparingGrant = try #require(preparingAuthoring.grant)
-            expectNoDifference(
-                preparingGrant.principal,
-                AuthoringPrincipal(actorID: organizerID)
-            )
-            expectNoDifference(preparingGrant.role, .owner)
-            expectNoDifference(preparingAuthoring.content.phase, .preparingSource)
-            expectNoDifference(
-                preparingAuthoring.content.content.authoringAccess,
-                .authoring(.owner)
-            )
-            #expect(
-                preparingAuthoring.content.content.installedFeatures.contains(.workspace)
-            )
-            let preparingWorkspace = try #require(
-                preparingAuthoring.content.content.eventWorkspace
-            )
-            expectNoDifference(preparingWorkspace.workspace.id, preparingGrant.workspaceID)
-            expectNoDifference(preparingWorkspace.workspacePhase, .preparingSource)
-            expectNoDifference(
-                preparingWorkspace.changes.summary.availability,
-                .workspaceNeedsPreparation
-            )
+                let preparingAuthoring = try #require(
+                    opened.state.content.eventViewer?.authoring
+                )
+                let preparingGrant = try #require(preparingAuthoring.grant)
+                expectNoDifference(
+                    preparingGrant.principal,
+                    AuthoringPrincipal(actorID: organizerID)
+                )
+                expectNoDifference(preparingGrant.role, .owner)
+                expectNoDifference(preparingAuthoring.content.phase, .preparingSource)
+                expectNoDifference(
+                    preparingAuthoring.content.content.authoringAccess,
+                    .authoring(.owner)
+                )
+                #expect(
+                    preparingAuthoring.content.content.installedFeatures.contains(.workspace)
+                )
+                let preparingWorkspace = try #require(
+                    preparingAuthoring.content.content.eventWorkspace
+                )
+                expectNoDifference(preparingWorkspace.workspace.id, preparingGrant.workspaceID)
+                expectNoDifference(preparingWorkspace.workspacePhase, .preparingSource)
+                expectNoDifference(
+                    preparingWorkspace.changes.summary.availability,
+                    .workspaceNeedsPreparation
+                )
 
-            // Failure is presented by the same mounted Workspace; it does not revoke authoring.
-            await preparationGate.failFirstAttempt()
-            await entry?.value
+                // Failure is presented by the same mounted Workspace; it does not revoke authoring.
+                await preparationGate.failFirstAttempt()
+                await entry?.value
+            }
             let failedAuthoring = try #require(opened.state.content.eventViewer?.authoring)
             guard case .sourcePreparationFailed = failedAuthoring.content.phase else {
                 Issue.record("The controlled first preparation must fail in Workspace.")
@@ -564,6 +672,132 @@ struct WorkspaceAuthoringStoryTests {
         }
     }
 
+    @Test(
+        .tcaExhaustivity(.off),
+        arguments: [EventTarget.settings, .workspace]
+    )
+    func `signed-out app never offers or enters authoring from settings or an editor route`(
+        _ target: EventTarget
+    ) async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let storageRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "OME-SignedOutAuthoringStory-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        defer { try? FileManager.default.removeItem(at: storageRoot) }
+        let git = try WorkspaceStoryGitFixture(
+            organizerID: organizerID,
+            rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
+        )
+        let operations = WorkspaceStorySourceControlRecorder()
+        let authenticationStorage = workspaceStorySignedOutOAuthStorage()
+        let route = AppRoute.event(selectedEventID, target)
+        let routeURL = try #require(URL(string: "ome://signed-out-authoring\(route.path)"))
+
+        try await withDependencies {
+            $0.context = .test
+            // Keep event installation and the app lifecycle real while authentication is absent.
+            OME.prepareDependencies(&$0, database: database)
+            let liveSourceControl = $0.sourceControl
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            $0.sourceWorkspaceStorage = .fileBacked(
+                rootURL: storageRoot.appending(path: "workspaces")
+            )
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
+                organizerID: organizerID
+            )
+            // A signed-out app must stop before membership policy or source work is consulted.
+            $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
+                _, _, _ in
+                operations.record("membership")
+                return false
+            }
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.p256Sign = { try $1.signature(for: $0).rawRepresentation }
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                organizerID: organizerID,
+                archive: git.archive
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                .sshAgent(hostKeyPolicy: .acceptForTesting)
+            }
+            // Record every Git operation so the denial story proves that none begins.
+            $0.sourceControl = workspaceStorySourceControl(
+                live: liveSourceControl,
+                remoteURL: git.bareRepositoryURL,
+                recorder: operations
+            )
+        } operation: {
+            let opened = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
+                ) {
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
+            }
+            await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
+
+            // Event Settings receives the application's one authoring phase. With no selected
+            // account it is unavailable, so the view has no Enter Authoring branch to render.
+            let authoring = try #require(opened.state.content.eventViewer?.authoring)
+            expectNoDifference(
+                opened.state.content.eventViewer?.authoring.phase,
+                .inactive(.unavailable)
+            )
+            #expect(authoring.grant == nil)
+            expectNoDifference(authoring.content.phase, .inactive)
+            if target == .workspace {
+                expectNoDifference(
+                    authoring.content.content.pendingAuthoringEntry,
+                    .target(.workspace)
+                )
+            } else {
+                #expect(authoring.content.content.pendingAuthoringEntry == nil)
+            }
+            #expect(operations.snapshot.isEmpty)
+
+            // A stale presentation action is still rejected at the full application boundary.
+            await withExpectedIssue {
+                await opened.send(
+                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )?.value
+            }
+            expectNoDifference(
+                opened.state.content.eventViewer?.authoring.phase,
+                .inactive(.unavailable)
+            )
+            #expect(opened.state.content.eventViewer?.authoring.grant == nil)
+            expectNoDifference(
+                opened.state.content.eventViewer?.authoring.content.phase,
+                .inactive
+            )
+            #expect(operations.snapshot.isEmpty)
+            await opened.dismount(timeout: .seconds(1))
+        }
+    }
+
     @Test
     func `an authenticated attendee cannot enter authoring and never touches Git`() async throws {
         let database = try makeWorkspaceStoryDatabase()
@@ -579,9 +813,11 @@ struct WorkspaceAuthoringStoryTests {
         try await withWorkspaceStoryOAuthSession(actorID: organizerID) {
             try await withDependencies {
                 $0.context = .test
+                // Install the real event and launch the full app with an authenticated session.
                 OME.prepareDependencies(&$0, database: database)
                 $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
                 $0.uuid = .incrementing
+                // The selected account is valid, but repository membership denies authoring eligibility.
                 $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
                     _, _, _ in false
                 }
@@ -598,6 +834,7 @@ struct WorkspaceAuthoringStoryTests {
                 }
 
                 var sourceControl = SourceControlClient.unimplemented
+                // Any source-control call means the attendee crossed the authorization boundary.
                 sourceControl.clone = { _ in
                     operations.record("clone")
                     throw WorkspaceStoryUnexpectedSourceControlOperation()
@@ -641,10 +878,13 @@ struct WorkspaceAuthoringStoryTests {
                     .deliverAuthoringAuthorizationChanges()
                 }
                 try await workspaceStoryWaitUntil {
-                    store.content.eventViewer?.authoring.admission == .unavailable
+                    store.content.eventViewer?.authoring.phase == .inactive(.unavailable)
                 }
 
-                expectNoDifference(store.content.eventViewer?.authoring.canEnter, false)
+                expectNoDifference(
+                    store.content.eventViewer?.authoring.phase,
+                    .inactive(.unavailable)
+                )
                 #expect(store.content.eventViewer?.authoring.grant == nil)
                 expectNoDifference(
                     store.content.eventViewer?.authoring.content.phase,
@@ -730,6 +970,14 @@ private func workspaceStoryOAuthStorage(actorID: DID) -> OAuthSessionStorage {
         sessionStore: sessionStore,
         authFailureMessage: Shared(value: nil),
         selectedSessionID: Shared(value: session.accountID)
+    )
+}
+
+private func workspaceStorySignedOutOAuthStorage() -> OAuthSessionStorage {
+    OAuthSessionStorage(
+        sessionStore: Shared(value: OAuth.SessionStore()),
+        authFailureMessage: Shared(value: nil),
+        selectedSessionID: Shared(value: nil)
     )
 }
 

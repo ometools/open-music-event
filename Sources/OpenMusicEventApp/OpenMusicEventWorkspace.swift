@@ -8,8 +8,8 @@ import SourceEditing
 
 /// OME's integration of the package-owned authoring workspace with `EventViewer`.
 ///
-/// This feature adds no state machine. It installs OME's live policy and workspace clients and
-/// translates application requests and authorization changes into the package's actions.
+/// This feature adds no state machine. It installs OME's eligibility-aware authoring client and
+/// workspace client, then translates application requests into the package's actions.
 public struct OpenMusicEventWorkspace: FeatureProtocol {
     public typealias Composition = OpenMusicEventAuthoringWorkspace<EventViewer>
     public typealias State = Composition.State
@@ -25,6 +25,7 @@ public struct OpenMusicEventWorkspace: FeatureProtocol {
             .dependency(
                 ComposableAuthoring.AuthoringClient<
                     SourceWorkspace,
+                    AuthoringEligibility,
                     AuthoringGrant
                 >.openMusicEvent
             )
@@ -59,11 +60,10 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     )
                     await restoration?.value
                     guard requestsEntry,
-                          store.state.authoring.grant == nil,
-                          store.state.authoring.canEnter
+                          store.state.authoring.phase.canRequestEntry
                     else { return }
                     let entry = try store.send(
-                        .authoring(.enterButtonTapped)
+                        .authoring(.entryRequested)
                     )
                     await entry?.value
                 }
@@ -88,7 +88,7 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
             .onEvent(AuthoringRequested.self) { _, _ in
                 store.addTask {
                     let entry = try store.send(
-                        .authoring(.enterButtonTapped)
+                        .authoring(.entryRequested)
                     )
                     await entry?.value
                 }

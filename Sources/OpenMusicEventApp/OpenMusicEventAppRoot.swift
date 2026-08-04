@@ -324,10 +324,7 @@ public struct OpenMusicEventAppRootView: View {
             let workspaceStore = authoringStore.scope(\.content, action: \.content)
             let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
             EventViewerView(store: eventViewerStore)
-            .openMusicEventAuthoringStatus(
-                admission: authoringStore.admission,
-                phase: authoringStore.phase
-            )
+            .openMusicEventAuthoringPhase(authoringStore.phase)
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in
                 InAppSafariView(url: presentation.url)

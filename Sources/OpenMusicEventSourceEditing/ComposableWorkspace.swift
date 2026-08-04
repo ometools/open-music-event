@@ -20,6 +20,7 @@ where Content.State: OpenMusicEventWorkspaceContentState {
     public typealias Feature = ComposableAuthoringWorkspace.AuthoringWorkspace<
         OpenMusicEventWorkspaceContent<Content>,
         SourceWorkspace,
+        AuthoringEligibility,
         AuthoringGrant,
         SourceWorkspaceResource,
         SourcePatch
@@ -73,79 +74,6 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
                 guard let source = workspace.source.wrappedValue else { return }
                 database = source.database
             }
-    }
-}
-
-public extension ComposableAuthoring.AuthoringClient
-where Context == SourceWorkspace, Grant == AuthoringGrant {
-    static var openMusicEvent: Self {
-        @Dependency(AuthoringPolicyClient.self) var policy
-        @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-
-        return Self(
-            admission: { workspace in
-                switch try await policy.admission(workspace) {
-                case .granted, .signInRequired:
-                    return .available
-                case .denied:
-                    return .unavailable
-                }
-            },
-            enter: { workspace in
-                var admission = try await policy.admission(workspace)
-                if case .signInRequired = admission {
-                    try await policy.requestSignIn()
-                    admission = try await policy.admission(workspace)
-                }
-
-                let principal: AuthoringPrincipal
-                let role: OME.WorkspaceRole
-                switch admission {
-                case let .granted(grantedPrincipal, grantedRole):
-                    principal = grantedPrincipal
-                    role = grantedRole
-                case .signInRequired:
-                    throw AuthoringPolicyError.authorizationRequired
-                case .denied:
-                    throw AuthoringPolicyError.admissionDenied
-                }
-
-                try await policy.authorizeEntry(workspace, principal)
-                try await activations.activate(workspace.id, principal, role)
-                return AuthoringGrant(
-                    principal: principal,
-                    role: role,
-                    workspaceID: workspace.id
-                )
-            },
-            exit: { workspace, grant in
-                guard grant.workspaceID == workspace.id else {
-                    throw OpenMusicEventAuthoringIntegrationError.grantWorkspaceMismatch
-                }
-                try await activations.deactivate(workspace.id)
-            },
-            restore: { workspace in
-                guard let activation = try activations.current(workspace.id) else {
-                    return nil
-                }
-
-                switch try await policy.admission(workspace) {
-                case let .granted(principal, role)
-                    where principal == activation.principal:
-                    try await policy.authorizeEntry(workspace, principal)
-                    try await activations.activate(workspace.id, principal, role)
-                    return AuthoringGrant(
-                        principal: principal,
-                        role: role,
-                        workspaceID: workspace.id
-                    )
-
-                case .granted, .signInRequired, .denied:
-                    try await activations.deactivate(workspace.id)
-                    return nil
-                }
-            }
-        )
     }
 }
 

@@ -6,32 +6,21 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-private struct OpenMusicEventAuthoringAdmissionKey: EnvironmentKey {
-    static let defaultValue: ComposableAuthoring.AuthoringAdmission? = nil
-}
-
 private struct OpenMusicEventAuthoringPhaseKey: EnvironmentKey {
-    static let defaultValue: AuthoringPhase<AuthoringGrant>? = nil
+    static let defaultValue: AuthoringPhase<AuthoringEligibility, AuthoringGrant>? = nil
 }
 
 public extension EnvironmentValues {
-    var openMusicEventAuthoringAdmission: ComposableAuthoring.AuthoringAdmission? {
-        get { self[OpenMusicEventAuthoringAdmissionKey.self] }
-        set { self[OpenMusicEventAuthoringAdmissionKey.self] = newValue }
-    }
-
-    var openMusicEventAuthoringPhase: AuthoringPhase<AuthoringGrant>? {
+    var openMusicEventAuthoringPhase: AuthoringPhase<AuthoringEligibility, AuthoringGrant>? {
         get { self[OpenMusicEventAuthoringPhaseKey.self] }
         set { self[OpenMusicEventAuthoringPhaseKey.self] = newValue }
     }
 }
 
 public extension View {
-    func openMusicEventAuthoringStatus(
-        admission: ComposableAuthoring.AuthoringAdmission,
-        phase: AuthoringPhase<AuthoringGrant>
+    func openMusicEventAuthoringPhase(
+        _ phase: AuthoringPhase<AuthoringEligibility, AuthoringGrant>
     ) -> some View {
-        environment(\.openMusicEventAuthoringAdmission, admission)
-            .environment(\.openMusicEventAuthoringPhase, phase)
+        environment(\.openMusicEventAuthoringPhase, phase)
     }
 }

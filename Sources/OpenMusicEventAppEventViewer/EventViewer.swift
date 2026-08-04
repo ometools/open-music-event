@@ -1338,10 +1338,7 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.settings.labelTint,
                         navigation: .stack
                     ) {
-                        EventSettingsView(
-                            store: featureStore,
-                            authoringAccess: store.authoringAccess
-                        )
+                        EventSettingsView(store: featureStore)
                     }
                 }
 
@@ -1527,10 +1524,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(.settings) {
-                    EventSettingsView(
-                        store: featureStore,
-                        authoringAccess: store.authoringAccess
-                    )
+                    EventSettingsView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1647,10 +1641,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(.settings) {
-                    EventSettingsView(
-                        store: featureStore,
-                        authoringAccess: store.authoringAccess
-                    )
+                    EventSettingsView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }

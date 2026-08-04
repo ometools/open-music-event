@@ -88,7 +88,6 @@ extension OME {
         dependencies.sourceWorkspaceStorage = .live
         dependencies.sourceWorkspaceReferenceMigrator = .openMusicEvent
         dependencies.tangledSourceArchiveExtractor = .live
-        dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
         dependencies[WorkspaceAuthoringActivationClient.self] = .live
     }
 

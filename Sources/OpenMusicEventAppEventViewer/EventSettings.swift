@@ -80,47 +80,51 @@ public struct EventSettings {
 
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
-    let authoringAccess: AuthoringAccess
-    @Environment(\.openMusicEventAuthoringAdmission) var authoringAdmission
     @Environment(\.openMusicEventAuthoringPhase) var authoringPhase
 
-    public init(
-        store: StoreOf<EventSettings>,
-        authoringAccess: AuthoringAccess
-    ) {
+    public init(store: StoreOf<EventSettings>) {
         self.store = store
-        self.authoringAccess = authoringAccess
     }
 
     public var body: some View {
         Form {
-            if authoringPhase?.isEntering == true {
+            switch authoringPhase {
+            case .some(.entering):
                 Section("Authoring") {
                     ProgressView("Authorizing source access")
                 }
-            } else if authoringPhase?.isRestoring == true {
+
+            case .some(.restoring):
                 Section("Authoring") {
                     ProgressView("Restoring source access")
                 }
-            } else if authoringPhase?.isExiting == true {
+
+            case .some(.exiting):
                 Section("Authoring") {
                     ProgressView("Exiting authoring")
                 }
-            } else if authoringAccess.canEditContent {
+
+            case .some(.active):
                 Section("Authoring") {
                     Button("Exit Authoring") {
                         store.send(.exitAuthoringButtonTapped)
                     }
                 }
-            } else if case .available = authoringAdmission {
+
+            case .some(.inactive(.eligible)):
                 Section("Authoring") {
                     Button("Enter Authoring") {
                         store.send(.enterAuthoringButtonTapped)
                     }
                 }
+
+            case .some(.inactive), .none:
+                EmptyView()
             }
 
-            if authoringAccess.canEditContent {
+            if case let .some(.active(grant)) = authoringPhase,
+               grant.access.canEditContent
+            {
                 Section("Policies") {
                     Button {
                         store.send(.eventPoliciesButtonTapped)
@@ -139,23 +143,6 @@ public struct EventSettingsView: View {
             }
         }
         .navigationTitle("Event Settings")
-    }
-}
-
-private extension AuthoringPhase {
-    var isEntering: Bool {
-        if case .entering = self { return true }
-        return false
-    }
-
-    var isExiting: Bool {
-        if case .exiting = self { return true }
-        return false
-    }
-
-    var isRestoring: Bool {
-        if case .restoring = self { return true }
-        return false
     }
 }
 

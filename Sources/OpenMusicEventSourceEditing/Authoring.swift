@@ -63,6 +63,23 @@ public struct AuthoringGrant: Equatable, Sendable {
     }
 }
 
+/// OME's complete evidence that the current principal may request authoring for a workspace.
+///
+/// The generic authoring boundary carries this exact value from admission through entry, making it
+/// OME's sole entry evidence.
+public struct AuthoringEligibility: Equatable, Sendable {
+    public var principal: AuthoringPrincipal
+    public var role: OME.WorkspaceRole
+
+    public init(
+        principal: AuthoringPrincipal,
+        role: OME.WorkspaceRole
+    ) {
+        self.principal = principal
+        self.role = role
+    }
+}
+
 public extension DependencyValues {
     mutating func useAuthoringContext(
         _ workspaceID: SourceWorkspace.ID,
@@ -100,54 +117,6 @@ public final class SourceWorkspaceResource: Sendable {
         self.database = session.database
         self.sourceEditingSession = session
     }
-}
-
-public struct AuthoringPolicyClient: Sendable {
-    public var admission: @Sendable (SourceWorkspace) async throws -> AuthoringAdmission
-    public var authorizeEntry: @Sendable (
-        SourceWorkspace,
-        AuthoringPrincipal
-    ) async throws -> Void
-    public var requestSignIn: @Sendable () async throws -> Void
-
-    public init(
-        admission: @escaping @Sendable (SourceWorkspace) async throws -> AuthoringAdmission,
-        authorizeEntry: @escaping @Sendable (
-            SourceWorkspace,
-            AuthoringPrincipal
-        ) async throws -> Void = { _, _ in },
-        requestSignIn: @escaping @Sendable () async throws -> Void = {}
-    ) {
-        self.admission = admission
-        self.authorizeEntry = authorizeEntry
-        self.requestSignIn = requestSignIn
-    }
-}
-
-public enum AuthoringAdmission: Equatable, Sendable {
-    case granted(principal: AuthoringPrincipal, role: OME.WorkspaceRole)
-    case signInRequired
-    case denied
-}
-
-public enum AuthoringPolicyError: Error, Equatable, Sendable {
-    case authorizationRequired
-    case admissionDenied
-}
-
-public extension AuthoringPolicyClient {
-    static var attendee: Self {
-        Self { _ in .denied }
-    }
-
-    static var live: Self {
-        .attendee
-    }
-}
-
-extension AuthoringPolicyClient: DependencyKey {
-    public static var liveValue: Self { .live }
-    public static var testValue: Self { .attendee }
 }
 
 public struct AuthoringRequested: FeatureEventKey {
