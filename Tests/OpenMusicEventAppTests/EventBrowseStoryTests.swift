@@ -22,6 +22,38 @@ import Synchronization
 import Testing
 
 struct EventBrowseStoryTests {
+    @Test @MainActor
+    func `the calendar picker preserves the local day and can clear the filter`() throws {
+        let denver = try #require(TimeZone(identifier: "America/Denver"))
+        let selectedDay = CalendarEvent.Day(year: 2026, month: 8, day: 3)
+
+        // Material stores a selected date as UTC-midnight milliseconds. Converting
+        // through that representation must preserve the browser day outside UTC.
+        let selectedDate = selectedDay.date(in: denver)
+        let milliseconds = BrowseDatePickerConversion.datePickerMilliseconds(
+            from: selectedDate,
+            timeZone: denver
+        )
+        let materialDate = BrowseDatePickerConversion.date(
+            fromDatePickerMilliseconds: milliseconds,
+            timeZone: denver
+        )
+        expectNoDifference(
+            CalendarEvent.Day(materialDate, timeZone: denver),
+            selectedDay
+        )
+
+        let store = Store(initialState: Browse.State()) {
+            Browse()
+        }
+
+        // Choosing a date filters Browse, and All Dates removes that filter.
+        store.send(.daySelected(selectedDay))
+        expectNoDifference(store.selectedDay, selectedDay)
+        store.send(.daySelected(nil))
+        #expect(store.selectedDay == nil)
+    }
+
     @Test
     func `an empty app still browses the temporary OME catalog`() async throws {
         let database = try SQLiteData.defaultDatabase()

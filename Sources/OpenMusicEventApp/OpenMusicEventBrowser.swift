@@ -18,6 +18,15 @@ import SwiftUI
 import SwiftUITabFeatures
 import Tagged
 
+#if SKIP
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+#endif
+
 @Feature
 public struct OpenMusicEventBrowser {
     public init() {}
@@ -461,7 +470,7 @@ public struct BrowseView: View {
     public var body: some View {
         List {
             if let errorMessage = store.errorMessage {
-                ContentUnavailableView(
+                PortableContentUnavailableView(
                     "Events Unavailable",
                     systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage)
@@ -527,6 +536,12 @@ public struct BrowseView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                #if os(Android)
+                AndroidBrowseDatePickerButton(
+                    selectedDay: store.selectedDay,
+                    daySelected: { store.send(.daySelected($0)) }
+                )
+                #else
                 Button {
                     isDatePickerPresented = true
                 } label: {
@@ -538,6 +553,7 @@ public struct BrowseView: View {
                         daySelected: { store.send(.daySelected($0)) }
                     )
                 }
+                #endif
 
                 Menu {
                     ForEach(EventCatalog.allCases) { catalog in
@@ -656,23 +672,23 @@ struct BrowseCalendarEventRow: View {
 
 struct BrowseEventArtwork: View {
     let event: CalendarEvent
-    let size: CGFloat
+    let size: ImageFocusCGFloat
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(.secondary.opacity(0.12))
 
-            BrowseEventArtworkSourceChain(
+            BrowseEventArtworkSourceChain<BrowseEventArtworkPlaceholder>(
                 sources: event.artworkSources[...],
-                renderedImageSize: CGSize(width: size, height: size)
+                renderedImageSize: ImageFocusCGSize(width: size, height: size)
             ) {
                 BrowseEventArtworkPlaceholder()
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .accessibilityLabel(event.name)
+        .accessibilityLabel(Text(event.name))
     }
 }
 
@@ -687,7 +703,7 @@ struct BrowseEventArtworkPlaceholder: View {
 
 struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
     let sources: ArraySlice<HeroImageSource>
-    let renderedImageSize: CGSize
+    let renderedImageSize: ImageFocusCGSize
     @ViewBuilder var placeholder: () -> Placeholder
 
     @ViewBuilder
@@ -841,6 +857,139 @@ private extension CalendarEvent.Media {
                     materializationPolicy: .lazy
                 )
             )
+        )
+    }
+}
+
+#if os(Android)
+struct AndroidBrowseDatePickerButton: View {
+    let selectedDay: CalendarEvent.Day?
+    let daySelected: (CalendarEvent.Day?) -> Void
+
+    var body: some View {
+        ComposeView {
+            AndroidBrowseDatePickerComposer(
+                selectedDate: selectedDay?.date(in: .current) ?? Date(),
+                dateSelected: { date in
+                    daySelected(CalendarEvent.Day(date, timeZone: .current))
+                },
+                allDatesSelected: {
+                    daySelected(nil)
+                }
+            )
+        }
+    }
+}
+#endif
+
+#if SKIP
+struct AndroidBrowseDatePickerComposer: ContentComposer {
+    let selectedDate: Date
+    let dateSelected: (Date) -> Void
+    let allDatesSelected: () -> Void
+
+    init(
+        selectedDate: Date,
+        dateSelected: @escaping (Date) -> Void,
+        allDatesSelected: @escaping () -> Void
+    ) {
+        self.selectedDate = selectedDate
+        self.dateSelected = dateSelected
+        self.allDatesSelected = allDatesSelected
+    }
+
+    // SKIP INSERT: @OptIn(ExperimentalMaterial3Api::class)
+    @Composable func Compose(context: ComposeContext) {
+        let isPresented = remember { mutableStateOf(false) }
+
+        androidx.compose.material3.IconButton(
+            onClick: { isPresented.value = true },
+            modifier: context.modifier
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector: Icons.Outlined.DateRange,
+                contentDescription: "Choose a date"
+            )
+        }
+
+        guard isPresented.value else { return }
+
+        let timeZone = TimeZone.current
+        let pickerState = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis: datePickerMillis(
+                from: selectedDate,
+                timeZone: timeZone
+            )
+        )
+        androidx.compose.material3.DatePickerDialog(
+            onDismissRequest: { isPresented.value = false },
+            confirmButton: {
+                androidx.compose.material3.TextButton(
+                    onClick: {
+                        if let millis = pickerState.selectedDateMillis {
+                            dateSelected(
+                                date(
+                                    fromDatePickerMillis: millis,
+                                    timeZone: timeZone
+                                )
+                            )
+                        }
+                        isPresented.value = false
+                    }
+                ) {
+                    androidx.compose.material3.Text("Done")
+                }
+            },
+            dismissButton: {
+                androidx.compose.material3.TextButton(
+                    onClick: {
+                        allDatesSelected()
+                        isPresented.value = false
+                    }
+                ) {
+                    androidx.compose.material3.Text("All Dates")
+                }
+            }
+        ) {
+            androidx.compose.material3.DatePicker(state: pickerState)
+        }
+    }
+
+    private func datePickerMillis(from date: Date, timeZone: TimeZone) -> Long {
+        Long(
+            BrowseDatePickerConversion.datePickerMilliseconds(
+                from: date,
+                timeZone: timeZone
+            )
+        )
+    }
+
+    private func date(fromDatePickerMillis millis: Long, timeZone: TimeZone) -> Date {
+        BrowseDatePickerConversion.date(
+            fromDatePickerMilliseconds: Double(millis),
+            timeZone: timeZone
+        )
+    }
+}
+#endif
+
+enum BrowseDatePickerConversion {
+    static func datePickerMilliseconds(
+        from date: Date,
+        timeZone: TimeZone
+    ) -> Double {
+        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: date))
+        return (date.timeIntervalSince1970 + timeZoneOffset) * 1_000
+    }
+
+    static func date(
+        fromDatePickerMilliseconds milliseconds: Double,
+        timeZone: TimeZone
+    ) -> Date {
+        let utcDate = Date(timeIntervalSince1970: milliseconds / 1_000)
+        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: utcDate))
+        return Date(
+            timeIntervalSince1970: utcDate.timeIntervalSince1970 - timeZoneOffset
         )
     }
 }
@@ -1790,5 +1939,46 @@ struct EmptyBrowserState: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
         .listRowBackground(Color.clear)
+    }
+}
+
+struct PortableContentUnavailableView: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let description: Text
+
+    init(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        description: Text
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.description = description
+    }
+
+    var body: some View {
+        #if os(Android)
+        VStack(alignment: .center, spacing: 12) {
+            MappedSystemImage(systemName: systemImage)
+                .frame(width: 32, height: 32)
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.headline)
+            description
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .listRowBackground(Color.clear)
+        #else
+        ContentUnavailableView(
+            title,
+            systemImage: systemImage,
+            description: description
+        )
+        #endif
     }
 }
