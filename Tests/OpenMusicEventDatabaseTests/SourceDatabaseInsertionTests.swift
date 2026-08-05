@@ -1616,6 +1616,107 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func workspaceSummarySuppliesTypedContributorAndDetailedStageComparisons() async throws {
+        let stageHeroURL = try #require(URL(string: "https://example.com/meadow-hero.jpg"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(stageHeroURL),
+                    role: .hero,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ],
+            contributorName: "Abstrakt Sonance"
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/woody.fm/testival-source",
+            branch: "main"
+        )
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID
+            )
+        )
+        let insertedContributorID = try #require(insertion.contributors.first?.id)
+        let insertedStageID = try #require(insertion.stages.first?.id)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let database = try makeCoreDatabase(
+            path: directoryURL.appendingPathComponent("working.sqlite").path
+        )
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("baseline.sqlite").path
+        )
+
+        try await insertion.migrateAndInsert(into: database)
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
+
+        let changedFocalPoint = OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
+        try await database.write { db in
+            var contributor = try #require(
+                try OME.Contributor
+                    .find(insertedContributorID)
+                    .fetchOne(db)
+            )
+            contributor.name = "Abstrakt Sona"
+            try OME.Contributor.update(contributor).execute(db)
+
+            var stage = try #require(
+                try OME.Stage
+                    .find(insertedStageID)
+                    .fetchOne(db)
+            )
+            var images = try #require(stage.images)
+            images[0].focalPoint = changedFocalPoint
+            stage.images = images
+            try OME.Stage.update(stage).execute(db)
+        }
+
+        let editingSession = try SourceEditingSession(
+            mainDatabase: database,
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let summary = try await editingSession.database.read { db in
+            try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+        }
+
+        let contributorGroup = try #require(
+            summary.groups.first { $0.id == OME.Contributor.tableName }
+        )
+        let contributorRecord = try #require(contributorGroup.records.first)
+        let contributorComparison = try #require(
+            summary.recordComparisons[contributorRecord]?.as(OME.Contributor.self)
+        )
+        expectNoDifference(contributorComparison.left?.name, "Abstrakt Sonance")
+        expectNoDifference(contributorComparison.right?.name, "Abstrakt Sona")
+
+        let stageGroup = try #require(
+            summary.groups.first { $0.id == OME.Stage.tableName }
+        )
+        let stageRecord = try #require(stageGroup.records.first)
+        let stageComparison = try #require(
+            summary.recordComparisons[stageRecord]?.as(OME.Stage.self)
+        )
+        expectNoDifference(stageComparison.left?.images?.first?.focalPoint, nil)
+        expectNoDifference(stageComparison.right?.images?.first?.focalPoint, changedFocalPoint)
+
+        let imageChange = try #require(
+            stageRecord.fieldChanges.first { $0.columnName == "images" }
+        )
+        let imageComparison = try #require(
+            summary.fieldComparisons[stageRecord, imageChange]
+        )
+        let imageDifference = try #require(imageComparison.difference)
+        #expect(imageDifference.contains("focalPoint"))
+        #expect(imageDifference.contains("0.25"))
+        #expect(imageDifference.contains("0.75"))
+    }
+
+    @Test
     func eventWorkspaceSummaryUsesDefaultDatabaseAgainstSourceReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
@@ -3904,6 +4005,7 @@ struct SourceDatabaseInsertionTests {
         contributorDID: DID? = nil,
         contributorImages: [SourceImageAsset]? = nil,
         contributorLinks: [ExternalPlatform.Link]? = nil,
+        contributorName: String = "Artist One",
         includeDefaultContributor: Bool = true,
         scheduleItems: [String: [ScheduleDTO.ScheduleItem]] = [
             "meadow": [
@@ -3988,7 +4090,7 @@ struct SourceDatabaseInsertionTests {
                                 fileType: nil,
                                 data: ContributorDTO(
                                     id: nil,
-                                    name: "Artist One",
+                                    name: contributorName,
                                     did: contributorDID,
                                     bio: nil,
                                     images: contributorImages,

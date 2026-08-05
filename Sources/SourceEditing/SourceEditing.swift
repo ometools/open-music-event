@@ -1,6 +1,7 @@
 import CustomDump
 import Foundation
 import GRDB
+import IssueReporting
 import SQLiteData
 
 public protocol SourceEditableTable: PrimaryKeyedTable {
@@ -1002,10 +1003,12 @@ public struct SourceEditingComparer: Sendable {
                         ) {
                             recordComparisons.append(comparison)
                         }
-                    } catch is SourceRecordDecodingError {
+                    } catch let error as SourceRecordDecodingError {
+                        reportIssue("Unable to build typed source record comparison. \(error)")
                     }
                     return resolvedRecord
-                } catch is SourceRecordDecodingError {
+                } catch let error as SourceRecordDecodingError {
+                    reportIssue("Unable to resolve source record fields. \(error)")
                     return record
                 }
             }

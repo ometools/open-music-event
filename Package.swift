@@ -328,6 +328,7 @@ var targets: [Target] = [
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "GRDB", package: grdbPackageName),
+            .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             .product(name: "SQLiteData", package: "sqlite-data"),
         ]
     ),
