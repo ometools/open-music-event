@@ -28,14 +28,6 @@ struct OMEScheduleStageSelector: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
-    var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
-        if let selectedStageID,
-           stages.contains(where: { $0.id.stageID == selectedStageID }) {
-            return selectedStageID
-        }
-        return stages.first?.id.stageID
-    }
-
     var body: some View {
         Group {
             if needsStageDisambiguation {
@@ -49,13 +41,6 @@ struct OMEScheduleStageSelector: View {
                 standardPicker
                 #endif
             }
-        }
-        .onAppear {
-            selectedStageID = resolvedSelectedStageID
-        }
-        .onChange(of: resolvedSelectedStageID) { _, newValue in
-            guard selectedStageID != newValue else { return }
-            selectedStageID = newValue
         }
     }
 
@@ -84,7 +69,6 @@ struct OMEScheduleStageSelector: View {
         AndroidScheduleStagePicker(
             stages: stages,
             selectedStageID: $selectedStageID,
-            resolvedSelectedStageID: resolvedSelectedStageID,
             showStageNameLabels: showStageNameLabels
         )
         #else
@@ -98,11 +82,11 @@ struct OMEScheduleStageSelector: View {
                             ScheduleStageIcon(stage: stage)
                                 .frame(width: 34, height: 34)
                                 .padding(9)
-                                .foregroundStyle(resolvedSelectedStageID == stage.id.stageID ? .white : stage.color.swiftUIColor)
+                                .foregroundStyle(selectedStageID == stage.id.stageID ? .white : stage.color.swiftUIColor)
                                 .background {
                                     Circle()
                                         .fill(
-                                            resolvedSelectedStageID == stage.id.stageID
+                                            selectedStageID == stage.id.stageID
                                             ? stage.color.swiftUIColor
                                             : Color.secondary.opacity(0.12)
                                         )
@@ -115,7 +99,7 @@ struct OMEScheduleStageSelector: View {
                                     .minimumScaleFactor(0.78)
                                     .multilineTextAlignment(.center)
                                     .foregroundStyle(
-                                        resolvedSelectedStageID == stage.id.stageID
+                                        selectedStageID == stage.id.stageID
                                         ? stage.color.swiftUIColor
                                         : .secondary
                                     )
@@ -139,7 +123,6 @@ struct OMEScheduleStageSelector: View {
 struct AndroidScheduleStagePicker: View {
     let stages: [OMERecord.Stage]
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
-    let resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>?
     let showStageNameLabels: Bool
 
     var body: some View {
@@ -148,7 +131,7 @@ struct AndroidScheduleStagePicker: View {
                 ForEach(stages) { stage in
                     AndroidScheduleStagePickerItem(
                         stage: stage,
-                        isSelected: resolvedSelectedStageID == stage.id.stageID,
+                        isSelected: selectedStageID == stage.id.stageID,
                         showStageNameLabel: showStageNameLabels
                     ) {
                         selectedStageID = stage.id.stageID

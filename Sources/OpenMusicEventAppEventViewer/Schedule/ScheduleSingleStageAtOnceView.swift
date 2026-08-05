@@ -72,6 +72,13 @@ public struct ScheduleSingleStageAtOnce {
             }
         }
 
+        mutating func normalizeSelectedStageID() {
+            scheduleViewerState.selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+                selectedStageID: scheduleViewerState.selectedStageID,
+                stages: visibleStages
+            )
+        }
+
         public func visiblePerformances(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> [OMERecord.Performance] {
@@ -195,8 +202,10 @@ public struct ScheduleSingleStageAtOnce {
             guard var persistedState else { return }
             persistedState.migrateLegacyScheduleKind()
             state.scheduleViewerStateBaseline = persistedState
-            guard persistedState != state.scheduleViewerState else { return }
-            state.scheduleViewerState = persistedState
+            if persistedState != state.scheduleViewerState {
+                state.scheduleViewerState = persistedState
+            }
+            state.normalizeSelectedStageID()
         }
         .onChange(of: store.scheduleViewerState) { oldViewerState, viewerState, state in
             guard state.scheduleViewerStateBaseline != viewerState else { return }
@@ -215,7 +224,11 @@ public struct ScheduleSingleStageAtOnce {
                 reportIssue(error)
             }
         }
+        .onChange(of: store.visibleStages) { _, _, state in
+            state.normalizeSelectedStageID()
+        }
         .onMount { state in
+            state.normalizeSelectedStageID()
             let eventID = state.eventID
             let scheduleDivision = state.scheduleDivision
             let initialState = state.scheduleViewerState
@@ -241,6 +254,7 @@ public struct ScheduleSingleStageAtOnce {
                         else { return }
                         $0.scheduleViewerStateBaseline = defaultState
                         $0.scheduleViewerState = defaultState
+                        $0.normalizeSelectedStageID()
                     }
                 }
                 try await subscription.task
@@ -276,12 +290,6 @@ public struct ScheduleSingleStageAtOnceView: View {
 
     public var body: some View {
         content
-            .onAppear {
-                resolveSelectedStage()
-            }
-            .onChange(of: resolvedSelectedStageID) { _, _ in
-                resolveSelectedStage()
-            }
     }
 
     @ViewBuilder
@@ -427,19 +435,6 @@ public struct ScheduleSingleStageAtOnceView: View {
 
     var shouldShowStageSelector: Bool {
         needsStageDisambiguation && !visibleStages.isEmpty
-    }
-
-    var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
-        ScheduleViewer.resolvedSelectedStageID(
-            selectedStageID: store.state.scheduleViewerState.selectedStageID,
-            stages: visibleStages
-        )
-    }
-
-    func resolveSelectedStage() {
-        guard !visibleStages.isEmpty else { return }
-        guard store.state.scheduleViewerState.selectedStageID != resolvedSelectedStageID else { return }
-        $store.selectedStageID.wrappedValue = resolvedSelectedStageID
     }
 
 }

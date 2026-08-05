@@ -3784,6 +3784,58 @@ struct NavigationTests {
         #expect(state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
     }
 
+    @MainActor
+    @Test
+    func singleStageMountNormalizesSelectionBeforeViewObservation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: workshopDivision.category,
+                sortIndex: 2
+            )
+        }
+
+        // The persisted selection points outside the visible workshop division.
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            var state = ScheduleSingleStageAtOnce.State(
+                eventID: eventID,
+                scheduleDivision: workshopDivision
+            )
+            state.scheduleViewerState.selectedStageID = stageLocalID("main")
+            return state
+        }
+
+        // Feature mounting must repair query-loaded selection before SwiftUI observes the store.
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            TestStore(initialState: state) {
+                ScheduleSingleStageAtOnce()
+            } changes: {
+                $0.scheduleViewerState.selectedStageID = stageLocalID("workshop")
+            }
+        }
+
+        #expect(store.state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
+    }
+
     @Test
     func scheduleViewerPerformanceTapPresentsDetail() async throws {
         let database = try makePreparedDatabase()
