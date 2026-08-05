@@ -63,17 +63,10 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
     public typealias State = Content.State
     public typealias Action = Content.Action
 
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
-    var workspace
-
     let makeContent: () -> Content
 
     public var body: some FeatureProtocol<State, Action> {
         makeContent()
-            .transformDependency(\.defaultDatabase) { database in
-                guard let source = workspace.source.wrappedValue else { return }
-                database = source.database
-            }
     }
 }
 
@@ -101,22 +94,16 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
             captureChanges: { source, workspaceID, request in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 precondition(source.workspace.id == sourceWorkspaceID)
-                let sourcePersistence = WorkspacePublicationPersistence(
-                    database: source.database
-                )
+                let sourcePersistence = persistence
                 if let capture = try sourcePersistence.capture(
                     workspaceID: sourceWorkspaceID,
                     requestID: request.id
                 ) {
                     return capture.isEmpty ? .noChanges : .changes(capture)
                 }
-                let capture = try await withDependencies {
-                    $0.defaultDatabase = source.database
-                } operation: {
-                    try await patchGenerator.generate(
-                        SourceWorkspacePatchRequest(workspace: source.workspace)
-                    )
-                }
+                let capture = try await patchGenerator.generate(
+                    SourceWorkspacePatchRequest(workspace: source.workspace)
+                )
                 try await sourcePersistence.saveCapture(
                     capture,
                     workspaceID: sourceWorkspaceID,
@@ -146,9 +133,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                 try await publisher.pushCommit(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
-                    persistence: WorkspacePublicationPersistence(
-                        database: source.database
-                    )
+                    persistence: persistence
                 )
             },
             reconcileSource: { source, workspaceID, reconciliation in
@@ -163,20 +148,17 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     commit: commit,
-                    persistence: WorkspacePublicationPersistence(
-                        database: source.database
-                    )
+                    persistence: persistence
                 )
             },
             removeSubmission: { source, workspaceID, submissionID in
-                try await WorkspacePublicationPersistence(database: source.database)
-                    .removeSubmission(
+                try await persistence.removeSubmission(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submissionID: submissionID
                 )
             },
             saveSubmission: { source, workspaceID, submission in
-                try await WorkspacePublicationPersistence(database: source.database).save(
+                try await persistence.save(
                     submission,
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 )

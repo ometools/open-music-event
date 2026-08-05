@@ -471,7 +471,7 @@ struct SourceEditingTests {
     }
 
     @Test
-    func workspaceDatabaseUsesItsAttachedReferenceForSummariesAndWrites() throws {
+    func explicitWorkingAndReferenceDatabasesProduceSummaries() throws {
         let fixture = try SourceEditingFixture()
 
         try fixture.workingDatabase.writeWithoutTransaction { db in
@@ -481,13 +481,15 @@ struct SourceEditingTests {
                 .execute(db)
         }
 
-        let summary = try fixture.workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                descriptors: [Todo.sourceDescriptor],
-                scope: listScope("list-1")
-            )
+        let summary = try fixture.workingDatabase.read { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
         }
 
         expectNoDifference(
@@ -524,34 +526,20 @@ struct SourceEditingTests {
     }
 
     @Test
-    func workspaceReferenceIsReadOnlyAndRemainsAttached() throws {
+    func workingDatabaseDoesNotAttachTheReferenceDatabase() throws {
         let fixture = try SourceEditingFixture()
 
-        try fixture.workingDatabase.writeWithoutTransaction { db in
-            #expect(throws: Error.self) {
-                try #sql(
-                    """
-                    UPDATE \(quote: SourceEditingSession.baselineSchemaName)."todos"
-                    SET "title" = 'Reference write should fail'
-                    WHERE "id" = 2
-                    """
-                )
-                .execute(db)
-            }
-
+        try fixture.workingDatabase.read { db in
             let attachedDatabaseNames = try String.fetchAll(
                 db,
                 sql: "SELECT name FROM pragma_database_list"
             )
-            expectNoDifference(
-                attachedDatabaseNames,
-                ["main", SourceEditingSession.baselineSchemaName]
-            )
+            expectNoDifference(attachedDatabaseNames, ["main"])
         }
     }
 
     @Test
-    func resetRestoresScopedDefaultChangesFromAttachedReference() throws {
+    func resetRestoresScopedDefaultChangesFromExplicitReference() throws {
         let fixture = try SourceEditingFixture()
 
         try fixture.updateWorking(id: 2, title: "Changed through default")
@@ -568,22 +556,26 @@ struct SourceEditingTests {
             )
         )
 
-        try fixture.workingDatabase.write { db in
-            try SourceEditingResetter().reset(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                descriptors: [Todo.sourceDescriptor],
-                scope: listScope("list-1")
-            )
+        try fixture.workingDatabase.write { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingResetter().reset(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
         }
 
-        let summary = try fixture.workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                descriptors: [Todo.sourceDescriptor],
-                scope: listScope("list-1")
-            )
+        let summary = try fixture.workingDatabase.read { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
         }
         expectNoDifference(
             summary,
@@ -640,11 +632,7 @@ private final class SourceEditingFixture {
             .appendingPathExtension("sqlite")
             .path
         self.baselineDatabase = try defaultBaselineDatabase()
-        let mainDatabase = try DatabasePool(path: workingDatabasePath)
-        self.workingDatabase = try SourceEditingSession(
-            mainDatabase: mainDatabase,
-            baselineDatabasePath: baselineDatabase.path
-        ).database
+        self.workingDatabase = try DatabasePool(path: workingDatabasePath)
 
         try workingDatabase.write { db in
             try createTodosTable(in: db)
@@ -799,13 +787,15 @@ private final class SourceEditingFixture {
     }
 
     func summary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
-        try workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                descriptors: [Todo.sourceDescriptor],
-                scope: scope
-            )
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: scope
+                )
+            }
         }
     }
 
@@ -813,13 +803,15 @@ private final class SourceEditingFixture {
         recordTypes: [AnySourceEditableRecordType] = [Todo.sourceRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        try workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                recordTypes: recordTypes,
-                scope: scope
-            )
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    recordTypes: recordTypes,
+                    scope: scope
+                )
+            }
         }
     }
 
@@ -827,13 +819,15 @@ private final class SourceEditingFixture {
         recordType: AnySourceEditableRecordType = TypedTodo.sourceRecordType,
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        try workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: SourceEditingSession.baselineSchemaName,
-                recordTypes: [recordType],
-                scope: scope
-            )
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    recordTypes: [recordType],
+                    scope: scope
+                )
+            }
         }
     }
 }

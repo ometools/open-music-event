@@ -41,16 +41,27 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
 public extension EventWorkspaceSummary {
     static func query(
         eventID: OME.Event.ID,
-        using database: any DatabaseReader
+        using database: any DatabaseReader,
+        referenceDatabase: SourceBaselineDatabase? = nil
     ) throws -> Self {
-        try database.read { db in try query(eventID: eventID, in: db) }
+        try database.read { db in
+            try query(
+                eventID: eventID,
+                in: db,
+                referenceDatabase: referenceDatabase
+            )
+        }
     }
 
-    static func query(eventID: OME.Event.ID, in db: Database) throws -> Self {
+    static func query(
+        eventID: OME.Event.ID,
+        in db: Database,
+        referenceDatabase: SourceBaselineDatabase? = nil
+    ) throws -> Self {
         guard try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.workspace != nil else {
             return Self(eventID: eventID, availability: .notInWorkspace, groups: [])
         }
-        guard let baseline = try SourceEditingSession.attachedBaselineSchemaName(in: db) else {
+        guard let referenceDatabase else {
             return Self(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
@@ -58,12 +69,14 @@ public extension EventWorkspaceSummary {
             )
         }
 
-        let summary = try sourceSummary(
-            projections: OME.sourceEventProjections,
-            in: db,
-            baselineSchemaName: baseline,
-            scope: { _ in .openMusicEvent(eventID: eventID) }
-        )
+        let summary = try referenceDatabase.read { baselineDatabase in
+            try sourceSummary(
+                projections: OME.sourceEventProjections,
+                workingDatabase: db,
+                baselineDatabase: baselineDatabase,
+                scope: { _ in .openMusicEvent(eventID: eventID) }
+            )
+        }
         switch summary.availability {
         case .available:
             return Self(
@@ -112,19 +125,25 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
         return totalCount
     }
 
-    public static func query(workspace: SourceWorkspace, in db: Database) throws -> Self {
-        guard let baseline = try SourceEditingSession.attachedBaselineSchemaName(in: db) else {
+    public static func query(
+        workspace: SourceWorkspace,
+        in db: Database,
+        referenceDatabase: SourceBaselineDatabase? = nil
+    ) throws -> Self {
+        guard let referenceDatabase else {
             return Self(
                 workspaceID: workspace.id,
                 availability: .workspaceNeedsPreparation,
                 groups: []
             )
         }
-        let summary = try openMusicEventSourceEditSummary(
-            workspace: workspace,
-            in: db,
-            baselineSchemaName: baseline
-        )
+        let summary = try referenceDatabase.read { baselineDatabase in
+            try openMusicEventSourceEditSummary(
+                workspace: workspace,
+                workingDatabase: db,
+                baselineDatabase: baselineDatabase
+            )
+        }
         switch summary.availability {
         case .available:
             return Self(
@@ -146,21 +165,21 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
 
 public func openMusicEventSourceEditSummary(
     workspace: SourceWorkspace,
-    in db: Database,
-    baselineSchemaName: String
+    workingDatabase: Database,
+    baselineDatabase: Database
 ) throws -> SourceChangeSummary {
     try sourceSummary(
         projections: OME.sourceProjections,
-        in: db,
-        baselineSchemaName: baselineSchemaName,
+        workingDatabase: workingDatabase,
+        baselineDatabase: baselineDatabase,
         scope: { sourceScope(for: $0, workspace: workspace) }
     )
 }
 
 private func sourceSummary(
     projections: [OpenMusicEventSourceProjection],
-    in db: Database,
-    baselineSchemaName: String,
+    workingDatabase: Database,
+    baselineDatabase: Database,
     scope: (OpenMusicEventSourceProjection) -> SourceRecordScope
 ) throws -> SourceChangeSummary {
     var groups: [SourceChangeGroup] = []
@@ -168,8 +187,8 @@ private func sourceSummary(
     var comparisons: [AnySourceRecordComparison] = []
     for projection in projections {
         let summary = try SourceEditingComparer().summary(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
+            workingDatabase: workingDatabase,
+            baselineDatabase: baselineDatabase,
             recordTypes: [projection.recordType],
             scope: scope(projection)
         )

@@ -10,12 +10,24 @@ public enum EventWorkspaceResetError: Error, Equatable, Sendable {
 }
 
 public struct EventWorkspaceResetter: Sendable {
-    public var resetEvent: @Sendable (OME.Event.ID) throws -> Void
-    public var resetWorkspace: @Sendable (SourceWorkspace) throws -> Void
+    public var resetEvent: @Sendable (
+        OME.Event.ID,
+        SourceBaselineDatabase
+    ) throws -> Void
+    public var resetWorkspace: @Sendable (
+        SourceWorkspace,
+        SourceBaselineDatabase
+    ) throws -> Void
 
     public init(
-        resetEvent: @escaping @Sendable (OME.Event.ID) throws -> Void,
-        resetWorkspace: @escaping @Sendable (SourceWorkspace) throws -> Void
+        resetEvent: @escaping @Sendable (
+            OME.Event.ID,
+            SourceBaselineDatabase
+        ) throws -> Void,
+        resetWorkspace: @escaping @Sendable (
+            SourceWorkspace,
+            SourceBaselineDatabase
+        ) throws -> Void
     ) {
         self.resetEvent = resetEvent
         self.resetWorkspace = resetWorkspace
@@ -25,44 +37,38 @@ public struct EventWorkspaceResetter: Sendable {
 public extension EventWorkspaceResetter {
     static var openMusicEvent: Self {
         Self(
-            resetEvent: { eventID in
+            resetEvent: { eventID, referenceDatabase in
                 @Dependency(\.defaultDatabase) var database
                 try database.write { db in
-                    guard let workspace = try EventSourceProvenanceRecord
+                    guard try EventSourceProvenanceRecord
                         .find(eventID)
                         .fetchOne(db)?
-                        .workspace
+                        .workspace != nil
                     else { throw EventWorkspaceResetError.unconfigured }
-                    guard let baseline = try SourceEditingSession
-                        .attachedBaselineSchemaName(in: db)
-                    else {
-                        throw EventWorkspaceResetError.workspaceNeedsPreparation(workspace.id)
-                    }
-                    for projection in OME.sourceEventProjections {
-                        try SourceEditingResetter().reset(
-                            in: db,
-                            baselineSchemaName: baseline,
-                            descriptors: [projection.recordType.descriptor],
-                            scope: .openMusicEvent(eventID: eventID)
-                        )
+                    try referenceDatabase.read { baselineDatabase in
+                        for projection in OME.sourceEventProjections {
+                            try SourceEditingResetter().reset(
+                                workingDatabase: db,
+                                baselineDatabase: baselineDatabase,
+                                descriptors: [projection.recordType.descriptor],
+                                scope: .openMusicEvent(eventID: eventID)
+                            )
+                        }
                     }
                 }
             },
-            resetWorkspace: { workspace in
+            resetWorkspace: { workspace, referenceDatabase in
                 @Dependency(\.defaultDatabase) var database
                 try database.write { db in
-                    guard let baseline = try SourceEditingSession
-                        .attachedBaselineSchemaName(in: db)
-                    else {
-                        throw EventWorkspaceResetError.workspaceNeedsPreparation(workspace.id)
-                    }
-                    for projection in OME.sourceProjections {
-                        try SourceEditingResetter().reset(
-                            in: db,
-                            baselineSchemaName: baseline,
-                            descriptors: [projection.recordType.descriptor],
-                            scope: sourceScope(for: projection, workspace: workspace)
-                        )
+                    try referenceDatabase.read { baselineDatabase in
+                        for projection in OME.sourceProjections {
+                            try SourceEditingResetter().reset(
+                                workingDatabase: db,
+                                baselineDatabase: baselineDatabase,
+                                descriptors: [projection.recordType.descriptor],
+                                scope: sourceScope(for: projection, workspace: workspace)
+                            )
+                        }
                     }
                 }
             }

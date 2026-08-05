@@ -824,18 +824,19 @@ public struct EventViewer {
         state: inout State
     ) {
         guard state.eventWorkspace?.workspace.id == source.workspace.id else { return }
+        precondition(
+            source.applicationDatabaseID == ObjectIdentifier(database),
+            "A prepared source must use EventViewer's application database."
+        )
         let selectedPage = state.eventWorkspace?.selectedPage ?? .changes
-        state.eventWorkspace = withDependencies {
-            $0.defaultDatabase = source.database
-        } operation: {
-            var eventWorkspace = EventWorkspace.State(
-                workspace: source.workspace,
-                eventID: state.eventID,
-                workspacePhase: workspace.phase
-            )
-            eventWorkspace.selectedPage = selectedPage
-            return eventWorkspace
-        }
+        var eventWorkspace = EventWorkspace.State(
+            workspace: source.workspace,
+            eventID: state.eventID,
+            workspacePhase: workspace.phase,
+            referenceDatabase: source.referenceDatabase
+        )
+        eventWorkspace.selectedPage = selectedPage
+        state.eventWorkspace = eventWorkspace
         let sourceWorkspaceFetch = sourceWorkspaceFetch
         store.addTask {
             await withErrorReporting {
@@ -961,6 +962,19 @@ public struct EventViewer {
                 .onTrigger(store.workspaceSourcePrepared) { state in
                     guard let source = workspace.source.wrappedValue else { return }
                     installPreparedSource(source, state: &state)
+                }
+                .onChange(
+                    of: workspace.phase.wrappedValue.editingLine?.editingReference.revision,
+                    initial: true
+                ) { oldRevision, revision, state in
+                    guard oldRevision != revision,
+                          let summary = state.eventWorkspace?.changes.$summary
+                    else { return }
+                    // The reference database is deliberately outside defaultDatabase observation.
+                    // A line revision is its explicit invalidation boundary.
+                    store.addTask {
+                        try await summary.load()
+                    }
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }

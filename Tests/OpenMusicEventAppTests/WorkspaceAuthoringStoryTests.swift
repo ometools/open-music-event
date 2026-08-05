@@ -365,10 +365,19 @@ struct WorkspaceAuthoringStoryTests {
                 opened.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
                 "Wicked Woods 2026 - Local Edit"
             )
-            let editedSummary = try await resource.database.read { db in
-                try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+            let editedSummary = try await database.read { db in
+                try SourceWorkspaceEditSummary.query(
+                    workspace: workspace,
+                    in: db,
+                    referenceDatabase: resource.referenceDatabase
+                )
             }
             #expect(editedSummary.totalCount > 0)
+            try await workspaceStoryWaitUntil {
+                (opened.state.content.destination?.eventViewer?
+                    .authoring.content.content.eventWorkspace?
+                    .changes.summary.totalCount ?? 0) > 0
+            }
 
             // Proposal creation is driven only through the mounted WorkspaceChanges surface.
             opened.send(workspaceStoryProposalAction(.proposalActionButtonTapped))
@@ -399,6 +408,19 @@ struct WorkspaceAuthoringStoryTests {
             else {
                 Issue.record("Creating the proposal must advance Workspace to its proposal line.")
                 return
+            }
+            let settledSummary = try await database.read { db in
+                try SourceWorkspaceEditSummary.query(
+                    workspace: workspace,
+                    in: db,
+                    referenceDatabase: resource.referenceDatabase
+                )
+            }
+            #expect(settledSummary.totalCount == 0)
+            try await workspaceStoryWaitUntil {
+                opened.state.content.destination?.eventViewer?
+                    .authoring.content.content.eventWorkspace?
+                    .changes.summary.totalCount == 0
             }
             #expect(operations.count(of: "createBranch") == 1)
             #expect(operations.count(of: "checkout") == 1)

@@ -851,12 +851,13 @@ private extension WorkspaceReviewDetail.SemanticDiff {
             throw WorkspaceReviewSemanticDiffError.sourceBaselineMissing(baselineURL.path)
         }
 
-        let session = try SourceEditingSession(
-            mainDatabase: reviewDatabase,
-            baselineDatabasePath: baselineURL.path
-        )
-        return try await session.database.read { db in
-            let summary = try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+        let referenceDatabase = try defaultBaselineDatabase(path: baselineURL.path)
+        return try await reviewDatabase.read { db in
+            let summary = try SourceWorkspaceEditSummary.query(
+                workspace: workspace,
+                in: db,
+                referenceDatabase: referenceDatabase
+            )
             guard case .available = summary.availability else {
                 throw WorkspaceReviewSemanticDiffError.unavailable(summary.availability)
             }

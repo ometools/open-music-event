@@ -40,12 +40,16 @@ public struct EventWorkspace {
         public init(
             workspace: SourceWorkspace,
             eventID: OME.Event.ID,
-            workspacePhase: SharedReader<WorkspacePhase<SourcePatch>>
+            workspacePhase: SharedReader<WorkspacePhase<SourcePatch>>,
+            referenceDatabase: SourceBaselineDatabase? = nil
         ) {
             self.workspace = workspace
             self.eventID = eventID
             self._workspacePhase = workspacePhase
-            self.changes = WorkspaceChanges.State(workspace: workspace)
+            self.changes = WorkspaceChanges.State(
+                workspace: workspace,
+                referenceDatabase: referenceDatabase
+            )
             self.reviews = WorkspaceReviews.State(workspace: workspace)
         }
 

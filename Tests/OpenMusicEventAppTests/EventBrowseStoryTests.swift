@@ -102,7 +102,6 @@ struct EventBrowseStoryTests {
             [
                 "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-06-26-gnar-fest",
                 "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-04-iona-fyfe-in-concert",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-15-open-music-event-launch-party",
                 "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-27-gray-goo-local-bands",
                 "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-01-alice-di-micele-rob-kohler",
                 "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-05-edm-dance-party",

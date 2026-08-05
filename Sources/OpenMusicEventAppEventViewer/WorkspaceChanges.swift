@@ -31,7 +31,10 @@ public struct WorkspaceChanges {
     }
 
     public struct State {
-        public init(workspace: SourceWorkspace) {
+        public init(
+            workspace: SourceWorkspace,
+            referenceDatabase: SourceBaselineDatabase? = nil
+        ) {
             self.workspace = workspace
             self._summary = Fetch(
                 wrappedValue: SourceWorkspaceEditSummary(
@@ -39,7 +42,10 @@ public struct WorkspaceChanges {
                     availability: .workspaceNeedsPreparation,
                     groups: []
                 ),
-                SourceWorkspaceEditSummaryRequest(workspace: workspace)
+                SourceWorkspaceEditSummaryRequest(
+                    workspace: workspace,
+                    referenceDatabase: referenceDatabase
+                )
             )
             self._openProposal = Fetch(
                 wrappedValue: nil,
@@ -88,6 +94,8 @@ public struct WorkspaceChanges {
     var patchGenerator
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    var workspace
 
     public var body: some Feature {
         Update { state, action in
@@ -129,11 +137,15 @@ public struct WorkspaceChanges {
             case .resetChangesButtonTapped:
                 guard state.canResetChanges else { return }
                 let workspace = state.workspace
+                let referenceDatabase = self.workspace.source.wrappedValue?.referenceDatabase
                 let workspaceResetter = workspaceResetter
                 state.resetStatus = .resetting
                 store.addTask {
                     do {
-                        try workspaceResetter.resetWorkspace(workspace)
+                        guard let referenceDatabase else {
+                            throw EventWorkspaceResetError.workspaceNeedsPreparation(workspace.id)
+                        }
+                        try workspaceResetter.resetWorkspace(workspace, referenceDatabase)
                         try store.modify {
                             $0.resetStatus = .idle
                             $0.patchStatus = .needsGeneration
@@ -174,9 +186,14 @@ public struct WorkspaceChanges {
 
 private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
     var workspace: SourceWorkspace
+    var referenceDatabase: SourceBaselineDatabase?
 
     func fetch(_ db: Database) throws -> SourceWorkspaceEditSummary {
-        try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+        try SourceWorkspaceEditSummary.query(
+            workspace: workspace,
+            in: db,
+            referenceDatabase: referenceDatabase
+        )
     }
 }
 

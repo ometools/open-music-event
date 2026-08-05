@@ -1241,12 +1241,7 @@ struct SourceDatabaseInsertionTests {
 
         let baselineDatabase = try defaultBaselineDatabase()
         defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
-        try await insertion.insert(into: baselineDatabase.database)
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
-
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
         let sourceProvenanceRecord = try await database.read { db in
             try EventSourceProvenanceRecord
                 .where { $0.id.eq(openedEventID) }
@@ -1264,7 +1259,8 @@ struct SourceDatabaseInsertionTests {
 
         let prepared = try EventWorkspaceSummary.query(
             eventID: openedEventID,
-            using: editingSession.database
+            using: database,
+            referenceDatabase: baselineDatabase
         )
         #expect(prepared.availability == .available)
 
@@ -1369,13 +1365,8 @@ struct SourceDatabaseInsertionTests {
         let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
         let database = try makeCoreDatabase(path: workingDatabasePath)
 
-        try await insertion.insert(into: baselineDatabase.database)
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
-
         try await database.write { db in
             try OME.Stage
                 .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
@@ -1383,7 +1374,7 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let summary = try await editingSession.database.read { db in
+        let summary = try await database.read { db in
             try SourceWorkspaceEditSummary.query(
                 workspace: try #require(
                     EventSourceProvenanceRecord.find(
@@ -1395,7 +1386,8 @@ struct SourceDatabaseInsertionTests {
                     .fetchOne(db)?
                     .workspace
                 ),
-                in: db
+                in: db,
+                referenceDatabase: baselineDatabase
             )
         }
 
@@ -1440,7 +1432,7 @@ struct SourceDatabaseInsertionTests {
         let baselineDatabase = try defaultBaselineDatabase()
         defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
 
-        try await insertion.insert(into: baselineDatabase.database)
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
 
         let appProvenanceRow = try database.read { db in
@@ -1473,7 +1465,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func editSummariesUseDefaultDatabaseAttachedReference() async throws {
+    func editSummariesUseDefaultDatabaseAndExplicitReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1492,13 +1484,8 @@ struct SourceDatabaseInsertionTests {
         let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
         let database = try makeCoreDatabase(path: workingDatabasePath)
 
-        try await insertion.insert(into: baselineDatabase.database)
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
-
         try await database.write { db in
             try OME.Stage
                 .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
@@ -1506,14 +1493,19 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let summaries = try await editingSession.database.read { db in
+        let summaries = try await database.read { db in
             (
-                event: try EventWorkspaceSummary.query(eventID: openedEventID, in: db),
+                event: try EventWorkspaceSummary.query(
+                    eventID: openedEventID,
+                    in: db,
+                    referenceDatabase: baselineDatabase
+                ),
                 source: try SourceWorkspaceEditSummary.query(
                     workspace: try #require(
                         EventSourceProvenanceRecord.find(openedEventID).fetchOne(db)?.workspace
                     ),
-                    in: db
+                    in: db,
+                    referenceDatabase: baselineDatabase
                 )
             )
         }
@@ -1560,7 +1552,6 @@ struct SourceDatabaseInsertionTests {
             into: database,
             and: baselineDatabase
         )
-
         // The user is viewing one event, but the source diff is the whole source database.
         try await database.write { db in
             try OME.Stage
@@ -1573,16 +1564,13 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
-        let summary = try await editingSession.database.read { db in
+        let summary = try await database.read { db in
             try SourceWorkspaceEditSummary.query(
                 workspace: try #require(
                     EventSourceProvenanceRecord.find(openedEventID).fetchOne(db)?.workspace
                 ),
-                in: db
+                in: db,
+                referenceDatabase: baselineDatabase
             )
         }
 
@@ -1676,12 +1664,12 @@ struct SourceDatabaseInsertionTests {
             try OME.Stage.update(stage).execute(db)
         }
 
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
-        let summary = try await editingSession.database.read { db in
-            try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
+        let summary = try await database.read { db in
+            try SourceWorkspaceEditSummary.query(
+                workspace: workspace,
+                in: db,
+                referenceDatabase: baselineDatabase
+            )
         }
 
         let contributorGroup = try #require(
@@ -1743,7 +1731,6 @@ struct SourceDatabaseInsertionTests {
             into: database,
             and: baselineDatabase
         )
-
         try await database.write { db in
             try OME.Stage
                 .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
@@ -1751,13 +1738,10 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
         let summary = try EventWorkspaceSummary.query(
             eventID: openedEventID,
-            using: editingSession.database
+            using: database,
+            referenceDatabase: baselineDatabase
         )
 
         #expect(summary.availability == .available)
@@ -1906,6 +1890,11 @@ struct SourceDatabaseInsertionTests {
             into: database,
             and: baselineDatabase
         )
+        let workspace = try await database.read { db in
+            try #require(
+                EventSourceProvenanceRecord.find(openedEventID).fetchOne(db)?.workspace
+            )
+        }
 
         try await database.write { db in
             try OME.Calendar
@@ -1922,31 +1911,31 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let changedSummary = try await eventWorkspaceSummary(
-            eventID: openedEventID,
-            database: database,
-            baselineDatabase: baselineDatabase
-        )
+        let changedSummary = try await database.read { db in
+            try SourceWorkspaceEditSummary.query(
+                workspace: workspace,
+                in: db,
+                referenceDatabase: baselineDatabase
+            )
+        }
         #expect(changedSummary.availability == .available)
         #expect(changedSummary.totalCount == 3)
 
-        let editingSession = try SourceEditingSession(
-            mainDatabase: database,
-            baselineDatabasePath: baselineDatabase.path
-        )
         try withDependencies {
-            $0.defaultDatabase = editingSession.database
+            $0.defaultDatabase = database
             $0.eventWorkspaceResetter = .openMusicEvent
         } operation: {
             @Dependency(\.eventWorkspaceResetter) var resetter
-            try resetter.resetEvent(openedEventID)
+            try resetter.resetWorkspace(workspace, baselineDatabase)
         }
 
-        let resetSummary = try await eventWorkspaceSummary(
-            eventID: openedEventID,
-            database: database,
-            baselineDatabase: baselineDatabase
-        )
+        let resetSummary = try await database.read { db in
+            try SourceWorkspaceEditSummary.query(
+                workspace: workspace,
+                in: db,
+                referenceDatabase: baselineDatabase
+            )
+        }
         #expect(resetSummary.availability == .available)
         #expect(resetSummary.totalCount == 0)
 
@@ -1966,18 +1955,21 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventWorkspaceSummaryUsesSourceLocalReferenceDatabase() async throws {
+    func eventWorkspaceSummaryUsesWorkspaceOwnedReferenceDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("source-testival-2026", organizerID: organizerID)
+        let openedEventID = eventID(
+            "testival-source-testival-2026",
+            organizerID: organizerID
+        )
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let repositoryURL = directoryURL.appendingPathComponent("source", isDirectory: true)
-        try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
-        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
-            kind: .local,
-            reference: repositoryURL.path
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: sourceProvenance.reference,
+            branch: try #require(sourceProvenance.ref)
         )
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -1989,26 +1981,40 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase(
             path: directoryURL.appendingPathComponent("working.sqlite").path
         )
-        try await insertion.insert(into: database)
-
-        #expect(
-            FileManager.default.fileExists(
-                atPath: repositoryURL.appending(path: ".ome/reference.sqlite").path()
-            )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
         )
+        let location = try storage.location(workspace.id)
+        try FileManager.default.createDirectory(
+            at: location.directoryURL,
+            withIntermediateDirectories: true
+        )
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: location.referenceDatabaseURL.path
+        )
+        try await insert(insertion, into: database, and: referenceDatabase)
+
+        #expect(FileManager.default.fileExists(atPath: location.referenceDatabaseURL.path))
+        #expect(!location.referenceDatabaseURL.path.hasPrefix(location.repositoryURL.path + "/"))
 
         try await database.write { db in
             try OME.Stage
-                .find(stageID("meadow", eventID: "source-testival-2026", organizerID: organizerID))
+                .find(
+                    stageID(
+                        "meadow",
+                        eventID: "testival-source-testival-2026",
+                        organizerID: organizerID
+                    )
+                )
                 .update { $0.name = "Changed through default database" }
                 .execute(db)
         }
 
-        let summary = try await withDependencies {
-            $0.defaultDatabase = database
-        } operation: {
-            try EventWorkspaceSummary.query(eventID: openedEventID, using: database)
-        }
+        let summary = try EventWorkspaceSummary.query(
+            eventID: openedEventID,
+            using: database,
+            referenceDatabase: referenceDatabase
+        )
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
@@ -2089,9 +2095,9 @@ struct SourceDatabaseInsertionTests {
         #expect(unchangedSummary.badgeCount == nil)
 
         try await database.write { db in
-            try OME.Contributor
-                .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
-                .update { $0.bio = #bind("A real edit.") }
+            try OME.Event
+                .find(openedEventID)
+                .update { $0.name = "A real edit." }
                 .execute(db)
         }
         let changedSummary = try await eventWorkspaceSummary(
@@ -2101,11 +2107,11 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(changedSummary.totalCount, 1)
-        let contributorGroup = try #require(
-            changedSummary.groups.first { $0.id == OME.Contributor.tableName }
+        let eventGroup = try #require(
+            changedSummary.groups.first { $0.id == OME.Event.tableName }
         )
-        let contributorRecord = try #require(contributorGroup.records.first)
-        #expect(contributorRecord.fieldChanges.contains { $0.columnName == "bio" })
+        let eventRecord = try #require(eventGroup.records.first)
+        #expect(eventRecord.fieldChanges.contains { $0.columnName == "name" })
     }
 
     @Test
@@ -3017,9 +3023,7 @@ struct SourceDatabaseInsertionTests {
                 .advance(prepared.source, workspace.id, submission, proposal)
 
             let persistedRevisions = try await (
-                defaultBaselineDatabase(
-                    path: prepared.source.sourceEditingSession.baselineDatabasePath
-                ).read { db in
+                prepared.source.referenceDatabase.read { db in
                     try SourceWorkspaceReferenceRecord
                         .find(workspace.id)
                         .fetchOne(db)?
@@ -4236,18 +4240,10 @@ struct SourceDatabaseInsertionTests {
         database: any DatabaseWriter,
         baselineDatabase: SourceBaselineDatabase
     ) async throws -> EventWorkspaceSummary {
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
-        let workingDatabase = try makeCoreDatabase(path: workingDatabasePath)
-        try database.backup(to: workingDatabase)
-        let editingSession = try SourceEditingSession(
-            mainDatabase: workingDatabase,
-            baselineDatabasePath: baselineDatabase.path
-        )
         return try EventWorkspaceSummary.query(
             eventID: eventID,
-            using: editingSession.database
+            using: database,
+            referenceDatabase: baselineDatabase
         )
     }
 
@@ -4256,7 +4252,7 @@ struct SourceDatabaseInsertionTests {
         into database: any DatabaseWriter,
         and baselineDatabase: SourceBaselineDatabase
     ) async throws {
-        try await insertion.insert(into: baselineDatabase.database)
+        try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
     }
 

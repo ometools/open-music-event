@@ -4,11 +4,11 @@ import SQLiteData
 
 /// Storage for a reference snapshot during controlled import and refresh operations.
 ///
-/// Editable features must use the database owned by `SourceEditingSession`, where this snapshot is
-/// already attached read-only. This database must never become `defaultDatabase`.
-public struct SourceBaselineDatabase: Sendable {
-    public var path: String
-    public var database: any DatabaseWriter
+/// Editable features use the application's `defaultDatabase` and pass this snapshot explicitly to
+/// comparison operations. This database must never become `defaultDatabase`.
+public struct SourceBaselineDatabase: Hashable, Sendable {
+    public let path: String
+    package let database: any DatabaseWriter
 
     public init(
         path: String,
@@ -24,10 +24,18 @@ public struct SourceBaselineDatabase: Sendable {
         try database.read(value)
     }
 
-    public func write<Value>(
+    package func write<Value>(
         _ updates: (Database) throws -> Value
     ) throws -> Value {
         try database.write(updates)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        ObjectIdentifier(lhs.database) == ObjectIdentifier(rhs.database)
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(database))
     }
 }
 
@@ -66,21 +74,4 @@ public func defaultBaselineDatabase(
         path: path,
         database: try DatabasePool(path: path, configuration: configuration)
     )
-}
-
-public extension DependencyValues {
-    var defaultBaselineDatabase: SourceBaselineDatabase {
-        get { self[DefaultBaselineDatabaseKey.self] }
-        set { self[DefaultBaselineDatabaseKey.self] = newValue }
-    }
-}
-
-private enum DefaultBaselineDatabaseKey: DependencyKey {
-    static var liveValue: SourceBaselineDatabase {
-        try! defaultBaselineDatabase()
-    }
-
-    static var testValue: SourceBaselineDatabase {
-        try! defaultBaselineDatabase()
-    }
 }

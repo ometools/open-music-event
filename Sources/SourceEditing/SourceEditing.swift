@@ -198,13 +198,29 @@ private struct SourceRecordDump<Record: Sendable>: Sendable, CustomDumpReflectab
 
 public struct AnySourceEditableRecordType {
     public var descriptor: SourceTableDescriptor
-    public var resolveRecordChange: (SourceRecordChange, Database, String) throws -> SourceResolvedRecordChange?
-    public var recordComparison: (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison?
+    public var resolveRecordChange: (
+        SourceRecordChange,
+        Database,
+        Database
+    ) throws -> SourceResolvedRecordChange?
+    public var recordComparison: (
+        SourceRecordChange,
+        Database,
+        Database
+    ) throws -> AnySourceRecordComparison?
 
     public init(
         descriptor: SourceTableDescriptor,
-        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceResolvedRecordChange?,
-        recordComparison: @escaping (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
+        resolveRecordChange: @escaping (
+            SourceRecordChange,
+            Database,
+            Database
+        ) throws -> SourceResolvedRecordChange?,
+        recordComparison: @escaping (
+            SourceRecordChange,
+            Database,
+            Database
+        ) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
     ) {
         self.descriptor = descriptor
         self.resolveRecordChange = resolveRecordChange
@@ -213,14 +229,22 @@ public struct AnySourceEditableRecordType {
 
     public init(
         descriptor: SourceTableDescriptor,
-        recordDiff: @escaping (SourceRecordChange, Database, String) throws -> String,
-        recordComparison: @escaping (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
+        recordDiff: @escaping (
+            SourceRecordChange,
+            Database,
+            Database
+        ) throws -> String,
+        recordComparison: @escaping (
+            SourceRecordChange,
+            Database,
+            Database
+        ) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
     ) {
         self.init(
             descriptor: descriptor,
-            resolveRecordChange: { change, db, baselineSchemaName in
+            resolveRecordChange: { change, workingDatabase, baselineDatabase in
                 var change = change
-                change.recordDiff = try recordDiff(change, db, baselineSchemaName)
+                change.recordDiff = try recordDiff(change, workingDatabase, baselineDatabase)
                 return SourceResolvedRecordChange(change: change)
             },
             recordComparison: recordComparison
@@ -250,7 +274,7 @@ public extension SourceEditableTable where QueryOutput: Sendable {
 
         return AnySourceEditableRecordType(
             descriptor: descriptor,
-            resolveRecordChange: { change, db, baselineSchemaName in
+            resolveRecordChange: { change, workingDatabase, baselineDatabase in
                 var retainedFieldChanges: [SourceFieldChange] = []
                 var rawFieldChanges: [SourceFieldChange] = []
                 var fieldComparisons: [AnySourceFieldComparison] = []
@@ -285,7 +309,7 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                     var rawChange = change
                     rawChange.fieldChanges = rawFieldChanges
                     let resolvedRawChange = try rawRecordType
-                        .resolveRecordChange(rawChange, db, baselineSchemaName)
+                        .resolveRecordChange(rawChange, workingDatabase, baselineDatabase)
                     rawRecordDiff = resolvedRawChange?.change.recordDiff
                 }
 
@@ -308,8 +332,8 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                     fieldComparisons: fieldComparisons
                 )
             },
-            recordComparison: { change, db, baselineSchemaName in
-                try rawRecordType.recordComparison(change, db, baselineSchemaName)
+            recordComparison: { change, workingDatabase, baselineDatabase in
+                try rawRecordType.recordComparison(change, workingDatabase, baselineDatabase)
             }
         )
     }
@@ -319,42 +343,38 @@ public extension SourceEditableTable where QueryOutput: Sendable {
     ) -> AnySourceEditableRecordType {
         AnySourceEditableRecordType(
             descriptor: descriptor,
-            recordDiff: { change, db, baselineSchemaName in
+            recordDiff: { change, workingDatabase, baselineDatabase in
                 let includedColumnNames = Set(
                     change.fieldChanges.map(\.columnName)
                 )
                 let baseline = SourceRecordDiffSnapshot(
                     snapshot: try sourceRecordSnapshot(
                         for: change,
-                        schemaName: baselineSchemaName,
-                        in: db
+                        in: baselineDatabase
                     ),
                     includedColumnNames: includedColumnNames
                 )
                 let working = SourceRecordDiffSnapshot(
                     snapshot: try sourceRecordSnapshot(
                         for: change,
-                        schemaName: "main",
-                        in: db
+                        in: workingDatabase
                     ),
                     includedColumnNames: includedColumnNames
                 )
 
                 return diff(baseline, working) ?? ""
             },
-            recordComparison: { change, db, baselineSchemaName in
+            recordComparison: { change, workingDatabase, baselineDatabase in
                 AnySourceRecordComparison(
                     SourceRecordComparison(
                         change: change,
                         left: try sourceRecord(
                             for: change,
-                            schemaName: baselineSchemaName,
-                            in: db
+                            in: baselineDatabase
                         ),
                         right: try sourceRecord(
                             for: change,
-                            schemaName: "main",
-                            in: db
+                            in: workingDatabase
                         )
                     )
                 )
@@ -364,12 +384,10 @@ public extension SourceEditableTable where QueryOutput: Sendable {
 
     private static func sourceRecordSnapshot(
         for change: SourceRecordChange,
-        schemaName: String,
         in db: Database
     ) throws -> SourceRecordSnapshot<QueryOutput> {
         if let record = try sourceRecord(
             for: change,
-            schemaName: schemaName,
             in: db
         ) {
             return .record(record)
@@ -379,14 +397,13 @@ public extension SourceEditableTable where QueryOutput: Sendable {
 
     static func sourceRecord(
         for change: SourceRecordChange,
-        schemaName: String,
         in db: Database
     ) throws -> QueryOutput? {
         do {
             return try SQLQueryExpression<Self>(
                 """
                 SELECT *
-                FROM \(qualifiedTable(tableName, schemaName: schemaName))
+                FROM \(qualifiedTable(tableName))
                 WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
                 LIMIT 1
                 """,
@@ -396,7 +413,7 @@ public extension SourceEditableTable where QueryOutput: Sendable {
         } catch {
             throw SourceRecordDecodingError(
                 tableName: tableName,
-                schemaName: schemaName,
+                schemaName: "main",
                 primaryKeyValues: change.primaryKeyValues,
                 changedColumnNames: change.fieldChanges.map(\.columnName),
                 underlyingError: error
@@ -859,36 +876,55 @@ public struct SourceEditingResetter: Sendable {
     public init() {}
 
     public func reset(
-        in db: Database,
-        baselineSchemaName: String,
+        workingDatabase: Database,
+        baselineDatabase: Database,
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws {
         for descriptor in descriptors.reversed() {
-            try deleteAddedRows(
+            let changes = try sourceRecordChanges(
                 descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
+                workingDatabase: workingDatabase,
+                baselineDatabase: baselineDatabase,
+                scope: scope
             )
+            for change in changes where change.kind == .added {
+                try deleteRecord(change, descriptor: descriptor, in: workingDatabase)
+            }
         }
 
         for descriptor in descriptors {
-            try insertDeletedRows(
+            let changes = try sourceRecordChanges(
                 descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
+                workingDatabase: workingDatabase,
+                baselineDatabase: baselineDatabase,
+                scope: scope
             )
+            for change in changes where change.kind == .deleted {
+                try insertBaselineRecord(
+                    change,
+                    descriptor: descriptor,
+                    baselineDatabase: baselineDatabase,
+                    workingDatabase: workingDatabase
+                )
+            }
         }
 
         for descriptor in descriptors {
-            try resetModifiedRows(
+            let changes = try sourceRecordChanges(
                 descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
+                workingDatabase: workingDatabase,
+                baselineDatabase: baselineDatabase,
+                scope: scope
             )
+            for change in changes where change.kind == .modified {
+                try resetModifiedRecord(
+                    change,
+                    descriptor: descriptor,
+                    baselineDatabase: baselineDatabase,
+                    workingDatabase: workingDatabase
+                )
+            }
         }
     }
 }
@@ -922,14 +958,14 @@ public struct SourceEditingComparer: Sendable {
     public init() {}
 
     public func summary(
-        in db: Database,
-        baselineSchemaName: String,
+        workingDatabase: Database,
+        baselineDatabase: Database,
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         let mismatches = try schemaMismatches(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
+            workingDatabase: workingDatabase,
+            baselineDatabase: baselineDatabase,
             descriptors: descriptors,
             scope: scope
         )
@@ -943,8 +979,8 @@ public struct SourceEditingComparer: Sendable {
         let groups = try descriptors.map { descriptor in
             try compare(
                 descriptor,
-                in: db,
-                baselineSchemaName: baselineSchemaName,
+                workingDatabase: workingDatabase,
+                baselineDatabase: baselineDatabase,
                 scope: scope
             )
         }
@@ -955,14 +991,14 @@ public struct SourceEditingComparer: Sendable {
     }
 
     public func summary(
-        in db: Database,
-        baselineSchemaName: String,
+        workingDatabase: Database,
+        baselineDatabase: Database,
         recordTypes: [AnySourceEditableRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         let summary = try summary(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
+            workingDatabase: workingDatabase,
+            baselineDatabase: baselineDatabase,
             descriptors: recordTypes.map(\.descriptor),
             scope: scope
         )
@@ -985,8 +1021,8 @@ public struct SourceEditingComparer: Sendable {
                 do {
                     guard let resolution = try recordType.resolveRecordChange(
                         record,
-                        db,
-                        baselineSchemaName
+                        workingDatabase,
+                        baselineDatabase
                     ) else { return nil }
                     let resolvedRecord = resolution.change
                     for comparison in resolution.fieldComparisons {
@@ -998,8 +1034,8 @@ public struct SourceEditingComparer: Sendable {
                     do {
                         if let comparison = try recordType.recordComparison(
                             resolvedRecord,
-                            db,
-                            baselineSchemaName
+                            workingDatabase,
+                            baselineDatabase
                         ) {
                             recordComparisons.append(comparison)
                         }
@@ -1027,8 +1063,8 @@ public struct SourceEditingComparer: Sendable {
     }
 
     private func schemaMismatches(
-        in db: Database,
-        baselineSchemaName: String,
+        workingDatabase: Database,
+        baselineDatabase: Database,
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope
     ) throws -> [SourceSchemaMismatch] {
@@ -1042,8 +1078,7 @@ public struct SourceEditingComparer: Sendable {
             )
 
             let workingColumnNames = try tableColumnNames(
-                in: db,
-                schemaName: "main",
+                in: workingDatabase,
                 tableName: descriptor.tableName
             )
             let missingWorkingColumnNames = requiredColumnNames.subtracting(workingColumnNames).sorted()
@@ -1058,8 +1093,7 @@ public struct SourceEditingComparer: Sendable {
             }
 
             let baselineColumnNames = try tableColumnNames(
-                in: db,
-                schemaName: baselineSchemaName,
+                in: baselineDatabase,
                 tableName: descriptor.tableName
             )
             let missingBaselineColumnNames = requiredColumnNames.subtracting(baselineColumnNames).sorted()
@@ -1079,29 +1113,16 @@ public struct SourceEditingComparer: Sendable {
 
     private func compare(
         _ descriptor: SourceTableDescriptor,
-        in db: Database,
-        baselineSchemaName: String,
+        workingDatabase: Database,
+        baselineDatabase: Database,
         scope: SourceRecordScope
     ) throws -> SourceChangeGroup {
-        let records =
-            try addedRecords(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
-            )
-            + modifiedRecords(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
-            )
-            + deletedRecords(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope,
-                in: db
-            )
+        let records = try sourceRecordChanges(
+            descriptor: descriptor,
+            workingDatabase: workingDatabase,
+            baselineDatabase: baselineDatabase,
+            scope: scope
+        )
 
         return SourceChangeGroup(
             id: descriptor.id,
@@ -1113,343 +1134,238 @@ public struct SourceEditingComparer: Sendable {
         )
     }
 
-    private func addedRecords(
-        descriptor: SourceTableDescriptor,
-        baselineSchemaName: String,
-        scope: SourceRecordScope,
-        in db: Database
-    ) throws -> [SourceRecordChange] {
-        try fetchRows(
-            addedRowsQuery(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope
-            )
-            .query,
-            in: db
-        )
-        .map { row in
-            SourceRecordChange(
-                tableID: descriptor.id,
-                kind: .added,
-                primaryKeyValues: sourceColumnValues(
-                    descriptor.primaryKeyColumns,
-                    in: row
-                ),
-                fieldChanges: descriptor.comparedColumns.map { columnName in
-                    SourceFieldChange(
-                        columnName: columnName,
-                        baselineValue: nil,
-                        workingValue: row.databaseValue(forColumn: columnName)
-                    )
-                }
-            )
-        }
-    }
-
-    private func modifiedRecords(
-        descriptor: SourceTableDescriptor,
-        baselineSchemaName: String,
-        scope: SourceRecordScope,
-        in db: Database
-    ) throws -> [SourceRecordChange] {
-        guard !descriptor.comparedColumns.isEmpty else {
-            return []
-        }
-
-        return try fetchRows(
-            modifiedRowsQuery(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope
-            )
-            .query,
-            in: db
-        )
-        .map { row in
-            let fieldChanges = descriptor.comparedColumns.compactMap { columnName -> SourceFieldChange? in
-                let baselineValue = row.databaseValue(forColumn: "baseline_\(columnName)")
-                let workingValue = row.databaseValue(forColumn: "working_\(columnName)")
-                guard baselineValue != workingValue else { return nil }
-                return SourceFieldChange(
-                    columnName: columnName,
-                    baselineValue: baselineValue,
-                    workingValue: workingValue
-                )
-            }
-
-            return SourceRecordChange(
-                tableID: descriptor.id,
-                kind: .modified,
-                primaryKeyValues: sourceColumnValues(
-                    descriptor.primaryKeyColumns,
-                    in: row
-                ),
-                fieldChanges: fieldChanges
-            )
-        }
-    }
-
-    private func deletedRecords(
-        descriptor: SourceTableDescriptor,
-        baselineSchemaName: String,
-        scope: SourceRecordScope,
-        in db: Database
-    ) throws -> [SourceRecordChange] {
-        try fetchRows(
-            deletedRowsQuery(
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope
-            )
-            .query,
-            in: db
-        )
-        .map { row in
-            SourceRecordChange(
-                tableID: descriptor.id,
-                kind: .deleted,
-                primaryKeyValues: sourceColumnValues(
-                    descriptor.primaryKeyColumns,
-                    in: row
-                ),
-                fieldChanges: descriptor.comparedColumns.map { columnName in
-                    SourceFieldChange(
-                        columnName: columnName,
-                        baselineValue: row.databaseValue(forColumn: columnName),
-                        workingValue: nil
-                    )
-                }
-            )
-        }
-    }
 }
 
 private func tableColumnNames(
     in db: Database,
-    schemaName: String,
     tableName: String
 ) throws -> Set<String> {
     Set(
         try #sql(
-            "SELECT name FROM pragma_table_info(\(bind: tableName), \(bind: schemaName))",
+            "SELECT name FROM pragma_table_info(\(bind: tableName))",
             as: String.self
         )
         .fetchAll(db)
     )
 }
 
-private func addedRowsQuery(
-    descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope
-) -> SQLQueryExpression<Any> {
-    let workingAlias = "working"
-    let baselineAlias = "baseline"
-
-    return #sql(
-        """
-        SELECT \(columnSelections(
-            descriptor.primaryKeyColumns + descriptor.comparedColumns,
-            tableAlias: workingAlias
-        ))
-        FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
-        WHERE \(scopePredicate(scope, alias: workingAlias))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: baselineAlias))
-        )
-        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: workingAlias))
-        """,
-        as: Int.self
-    )
+private struct SourceDatabaseRow {
+    var primaryKeyValues: [SourceColumnValue]
+    var values: [String: DatabaseValue]
 }
 
-private func deletedRowsQuery(
+private func sourceRecordChanges(
     descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
+    workingDatabase: Database,
+    baselineDatabase: Database,
     scope: SourceRecordScope
-) -> SQLQueryExpression<Any> {
-    let workingAlias = "working"
-    let baselineAlias = "baseline"
-
-    return #sql(
-        """
-        SELECT \(columnSelections(
-            descriptor.primaryKeyColumns + descriptor.comparedColumns,
-            tableAlias: baselineAlias
-        ))
-        FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-        WHERE \(scopePredicate(scope, alias: baselineAlias))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: workingAlias))
-        )
-        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: baselineAlias))
-        """,
-        as: Int.self
+) throws -> [SourceRecordChange] {
+    let columnNames = descriptor.primaryKeyColumns + descriptor.comparedColumns
+    let workingRows = try sourceDatabaseRows(
+        descriptor: descriptor,
+        columnNames: columnNames,
+        scope: scope,
+        in: workingDatabase
     )
+    let baselineRows = try sourceDatabaseRows(
+        descriptor: descriptor,
+        columnNames: columnNames,
+        scope: scope,
+        in: baselineDatabase
+    )
+    let workingRowsByPrimaryKey = Dictionary(
+        uniqueKeysWithValues: workingRows.map { ($0.primaryKeyValues, $0) }
+    )
+    let baselineRowsByPrimaryKey = Dictionary(
+        uniqueKeysWithValues: baselineRows.map { ($0.primaryKeyValues, $0) }
+    )
+
+    let added = workingRows.compactMap { workingRow -> SourceRecordChange? in
+        guard baselineRowsByPrimaryKey[workingRow.primaryKeyValues] == nil else { return nil }
+        return SourceRecordChange(
+            tableID: descriptor.id,
+            kind: .added,
+            primaryKeyValues: workingRow.primaryKeyValues,
+            fieldChanges: descriptor.comparedColumns.map { columnName in
+                SourceFieldChange(
+                    columnName: columnName,
+                    baselineValue: nil,
+                    workingValue: workingRow.values[columnName]
+                )
+            }
+        )
+    }
+    let modified = workingRows.compactMap { workingRow -> SourceRecordChange? in
+        guard let baselineRow = baselineRowsByPrimaryKey[workingRow.primaryKeyValues] else {
+            return nil
+        }
+        let fieldChanges = descriptor.comparedColumns.compactMap {
+            columnName -> SourceFieldChange? in
+            let baselineValue = baselineRow.values[columnName]
+            let workingValue = workingRow.values[columnName]
+            guard baselineValue != workingValue else { return nil }
+            return SourceFieldChange(
+                columnName: columnName,
+                baselineValue: baselineValue,
+                workingValue: workingValue
+            )
+        }
+        guard !fieldChanges.isEmpty else { return nil }
+        return SourceRecordChange(
+            tableID: descriptor.id,
+            kind: .modified,
+            primaryKeyValues: workingRow.primaryKeyValues,
+            fieldChanges: fieldChanges
+        )
+    }
+    let deleted = baselineRows.compactMap { baselineRow -> SourceRecordChange? in
+        guard workingRowsByPrimaryKey[baselineRow.primaryKeyValues] == nil else { return nil }
+        return SourceRecordChange(
+            tableID: descriptor.id,
+            kind: .deleted,
+            primaryKeyValues: baselineRow.primaryKeyValues,
+            fieldChanges: descriptor.comparedColumns.map { columnName in
+                SourceFieldChange(
+                    columnName: columnName,
+                    baselineValue: baselineRow.values[columnName],
+                    workingValue: nil
+                )
+            }
+        )
+    }
+    return added + modified + deleted
 }
 
-private func deleteAddedRows(
+private func sourceDatabaseRows(
     descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
+    columnNames: [String],
     scope: SourceRecordScope,
     in db: Database
-) throws {
-    let workingAlias = descriptor.tableName
-    let baselineAlias = "baseline"
+) throws -> [SourceDatabaseRow] {
+    let alias = "record"
+    let query: QueryFragment =
+        """
+        SELECT \(columnSelections(columnNames, tableAlias: alias))
+        FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: alias)
+        WHERE \(scopePredicate(scope, alias: alias))
+        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: alias))
+        """
+    return try fetchRows(query, in: db).map { row in
+        SourceDatabaseRow(
+            primaryKeyValues: sourceColumnValues(descriptor.primaryKeyColumns, in: row),
+            values: Dictionary(
+                uniqueKeysWithValues: columnNames.map { columnName in
+                    (columnName, row.databaseValue(forColumn: columnName))
+                }
+            )
+        )
+    }
+}
 
-    try #sql(
+private func sourceDatabaseRow(
+    for change: SourceRecordChange,
+    descriptor: SourceTableDescriptor,
+    columnNames: [String],
+    in db: Database
+) throws -> SourceDatabaseRow? {
+    let alias = "record"
+    let query: QueryFragment =
+        """
+        SELECT \(columnSelections(columnNames, tableAlias: alias))
+        FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: alias)
+        WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
+        LIMIT 1
+        """
+    return try fetchRows(query, in: db).first.map { row in
+        SourceDatabaseRow(
+            primaryKeyValues: sourceColumnValues(descriptor.primaryKeyColumns, in: row),
+            values: Dictionary(
+                uniqueKeysWithValues: columnNames.map { columnName in
+                    (columnName, row.databaseValue(forColumn: columnName))
+                }
+            )
+        )
+    }
+}
+
+private func deleteRecord(
+    _ change: SourceRecordChange,
+    descriptor: SourceTableDescriptor,
+    in db: Database
+) throws {
+    let query: QueryFragment =
         """
         DELETE FROM \(qualifiedTable(descriptor.tableName))
-        WHERE \(scopePredicate(scope, alias: workingAlias))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: baselineAlias))
-        )
+        WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
         """
-    )
-    .execute(db)
+    try execute(query, in: db)
 }
 
-private func insertDeletedRows(
+private func insertBaselineRecord(
+    _ change: SourceRecordChange,
     descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope,
-    in db: Database
+    baselineDatabase: Database,
+    workingDatabase: Database
 ) throws {
-    let workingAlias = "working"
-    let baselineAlias = "baseline"
-
-    try #sql(
-        """
-        INSERT INTO \(qualifiedTable(descriptor.tableName)) (\(columnNames(descriptor.resetColumnNames)))
-        SELECT \(columnSelections(descriptor.resetColumnNames, tableAlias: baselineAlias))
-        FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-        WHERE \(scopePredicate(scope, alias: baselineAlias))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: workingAlias))
-        )
-        """
-    )
-    .execute(db)
-}
-
-private func modifiedRowsQuery(
-    descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope
-) -> SQLQueryExpression<Any> {
-    let workingAlias = "working"
-    let baselineAlias = "baseline"
-
-    return #sql(
-        """
-        SELECT \(columnSelections(
-            descriptor.primaryKeyColumns,
-            tableAlias: workingAlias
-        )),
-        \(columnSelections(
-            descriptor.comparedColumns,
-            tableAlias: baselineAlias,
-            outputPrefix: "baseline_"
-        )),
-        \(columnSelections(
-            descriptor.comparedColumns,
-            tableAlias: workingAlias,
-            outputPrefix: "working_"
-        ))
-        FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
-        INNER JOIN \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-        ON \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-        WHERE \(scopePredicate(scope, alias: workingAlias))
-        AND \(scopePredicate(scope, alias: baselineAlias))
-        AND \(modifiedPredicate(descriptor.comparedColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: workingAlias))
-        """,
-        as: Int.self
-    )
-}
-
-private func resetModifiedRows(
-    descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope,
-    in db: Database
-) throws {
-    guard !descriptor.comparedColumns.isEmpty else { return }
-
-    let workingAlias = descriptor.tableName
-    let baselineAlias = "baseline"
-
-    try #sql(
-        """
-        UPDATE \(qualifiedTable(descriptor.tableName))
-        SET \(resetAssignments(
-            descriptor.comparedColumns,
-            descriptor: descriptor,
-            baselineSchemaName: baselineSchemaName,
-            scope: scope
-        ))
-        WHERE \(scopePredicate(scope, alias: workingAlias))
-        AND EXISTS (
-          SELECT 1
-          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: baselineAlias))
-        )
-        """
-    )
-    .execute(db)
-}
-
-private func resetAssignments(
-    _ columnNames: [String],
-    descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope
-) -> QueryFragment {
-    columnNames
+    guard let baselineRow = try sourceDatabaseRow(
+        for: change,
+        descriptor: descriptor,
+        columnNames: descriptor.resetColumnNames,
+        in: baselineDatabase
+    ) else { return }
+    let values = try descriptor.resetColumnNames
         .map { columnName -> QueryFragment in
-            let value = baselineValueSubquery(
-                columnName,
-                descriptor: descriptor,
-                baselineSchemaName: baselineSchemaName,
-                scope: scope
-            )
-            return "\(quote: columnName) = \(value)"
+            guard let value = baselineRow.values[columnName] else { return "NULL" }
+            return "\(try queryBinding(for: value))"
         }
         .joined(separator: ", ")
+    let query: QueryFragment =
+        """
+        INSERT INTO \(qualifiedTable(descriptor.tableName)) (\(columnNames(descriptor.resetColumnNames)))
+        VALUES (\(values))
+        """
+    try execute(query, in: workingDatabase)
 }
 
-private func baselineValueSubquery(
-    _ columnName: String,
+private func resetModifiedRecord(
+    _ change: SourceRecordChange,
     descriptor: SourceTableDescriptor,
-    baselineSchemaName: String,
-    scope: SourceRecordScope
-) -> QueryFragment {
-    let workingAlias = descriptor.tableName
-    let baselineAlias = "baseline"
-
-    return """
-        (
-          SELECT \(quote: baselineAlias).\(quote: columnName)
-          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
-          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
-          AND \(scopePredicate(scope, alias: baselineAlias))
-          LIMIT 1
-        )
+    baselineDatabase: Database,
+    workingDatabase: Database
+) throws {
+    guard !descriptor.comparedColumns.isEmpty,
+          let baselineRow = try sourceDatabaseRow(
+              for: change,
+              descriptor: descriptor,
+              columnNames: descriptor.primaryKeyColumns + descriptor.comparedColumns,
+              in: baselineDatabase
+          )
+    else { return }
+    let assignments = try descriptor.comparedColumns
+        .map { columnName -> QueryFragment in
+            guard let value = baselineRow.values[columnName] else {
+                return "\(quote: columnName) = NULL"
+            }
+            return "\(quote: columnName) = \(try queryBinding(for: value))"
+        }
+        .joined(separator: ", ")
+    let query: QueryFragment =
         """
+        UPDATE \(qualifiedTable(descriptor.tableName))
+        SET \(assignments)
+        WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
+        """
+    try execute(query, in: workingDatabase)
+}
+
+private func execute(_ query: QueryFragment, in db: Database) throws {
+    let prepared = query.prepare { _ in "?" }
+    try db.execute(
+        sql: prepared.sql,
+        arguments: StatementArguments(
+            try prepared.bindings.map { try databaseValue(for: $0) }
+        )
+    )
 }
 
 private func columnNames(_ columnNames: [String]) -> QueryFragment {
@@ -1480,25 +1396,9 @@ private func orderByColumns(
 }
 
 private func qualifiedTable(
-    _ tableName: String,
-    schemaName: String? = nil
+    _ tableName: String
 ) -> QueryFragment {
-    if let schemaName {
-        return "\(quote: schemaName).\(quote: tableName)"
-    }
     return "\(quote: tableName)"
-}
-
-private func primaryKeyPredicate(
-    _ columnNames: [String],
-    workingAlias: String,
-    baselineAlias: String
-) -> QueryFragment {
-    let predicate = columnNames.map { columnName in
-        "\(quote: workingAlias).\(quote: columnName) = \(quote: baselineAlias).\(quote: columnName)"
-    }
-    .joined(separator: " AND ")
-    return "(\(predicate))"
 }
 
 private func primaryKeyValuesPredicate(
@@ -1610,18 +1510,6 @@ private func queryBinding(for databaseValue: DatabaseValue) throws -> QueryBindi
     case let .blob(value):
         return .blob([UInt8](value))
     }
-}
-
-private func modifiedPredicate(
-    _ columnNames: [String],
-    workingAlias: String,
-    baselineAlias: String
-) -> QueryFragment {
-    let predicate = columnNames.map { columnName in
-        "\(quote: workingAlias).\(quote: columnName) IS NOT \(quote: baselineAlias).\(quote: columnName)"
-    }
-    .joined(separator: " OR ")
-    return "(\(predicate))"
 }
 
 private func scopePredicate(

@@ -33,12 +33,16 @@ public extension WorkspaceReferenceUpdateClient {
     static func openMusicEvent(
         resolveRevision: @escaping SourceWorkspaceRevisionResolver
     ) -> Self {
-        Self(
+        @Dependency(\.defaultDatabase) var mainDatabase
+
+        return Self(
             advance: { source, workspaceID, _, proposal in
                 guard source.workspace.id == workspaceID else {
                     throw SourceWorkspaceDatabaseError.resourceMismatch(workspaceID)
                 }
-                let mainDatabase = source.database
+                guard source.applicationDatabaseID == ObjectIdentifier(mainDatabase) else {
+                    throw SourceWorkspaceDatabaseError.applicationDatabaseMismatch(workspaceID)
+                }
                 let revision = try await resolveRevision(
                     Repository(url: source.repositoryURL),
                     RefName(rawValue: "HEAD")
@@ -54,9 +58,7 @@ public extension WorkspaceReferenceUpdateClient {
                     workspace: source.workspace,
                     repositoryURL: source.repositoryURL
                 )
-                let referenceDatabase = try openReferenceDatabase(
-                    path: source.sourceEditingSession.baselineDatabasePath
-                )
+                let referenceDatabase = source.referenceDatabase
                 try await insertion.replaceSourceWorkspace(
                     source.workspace,
                     revision: revision.rawValue,
@@ -79,19 +81,17 @@ public extension WorkspaceReferenceUpdateClient {
                 guard source.workspace.id == workspaceID else {
                     throw SourceWorkspaceDatabaseError.resourceMismatch(workspaceID)
                 }
-                let mainDatabase = source.database
+                guard source.applicationDatabaseID == ObjectIdentifier(mainDatabase) else {
+                    throw SourceWorkspaceDatabaseError.applicationDatabaseMismatch(workspaceID)
+                }
                 @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
                 var patchGenerator
                 @Dependency(\.sourcePatchApplier) var patchApplier
                 @Dependency(\.sourceWorkingTreeMaterializer) var materializer
 
-                let currentChanges = try await withDependencies {
-                    $0.defaultDatabase = source.database
-                } operation: {
-                    try await patchGenerator.generate(
-                        SourceWorkspacePatchRequest(workspace: source.workspace)
-                    )
-                }
+                let currentChanges = try await patchGenerator.generate(
+                    SourceWorkspacePatchRequest(workspace: source.workspace)
+                )
 
                 _ = try await TangledSourceCheckoutClient.git.checkout(
                     TangledSourceCheckoutRequest(
@@ -124,9 +124,7 @@ public extension WorkspaceReferenceUpdateClient {
                     workspace: source.workspace,
                     repositoryURL: workingTree.workingRepositoryURL
                 )
-                let referenceDatabase = try openReferenceDatabase(
-                    path: source.sourceEditingSession.baselineDatabasePath
-                )
+                let referenceDatabase = source.referenceDatabase
                 try await referenceInsertion.replaceSourceWorkspace(
                     source.workspace,
                     revision: revision.rawValue,
@@ -259,7 +257,7 @@ private func prepareOpenMusicEventSourceWorkspace(
                 revision: WorkspaceRevision(rawValue: revision.rawValue)
             )
         ),
-        source: try SourceWorkspaceResource(
+        source: SourceWorkspaceResource(
             workspace: workspace,
             repositoryURL: location.repositoryURL,
             mainDatabase: mainDatabase,
@@ -353,6 +351,7 @@ private extension WorkspaceEditingLine {
 }
 
 private enum SourceWorkspaceDatabaseError: Error, Equatable {
+    case applicationDatabaseMismatch(SourceWorkspace.ID)
     case persistedRevisionMismatch(
         workspaceID: SourceWorkspace.ID,
         repositoryRevision: String,

@@ -97,25 +97,21 @@ public extension DependencyValues {
 }
 
 public final class SourceWorkspaceResource: Sendable {
-    public let database: any DatabaseWriter
-    public let repositoryURL: URL
-    public let sourceEditingSession: SourceEditingSession
-    public let workspace: SourceWorkspace
+    package let applicationDatabaseID: ObjectIdentifier
+    package let referenceDatabase: SourceBaselineDatabase
+    package let repositoryURL: URL
+    package let workspace: SourceWorkspace
 
-    public init(
+    package init(
         workspace: SourceWorkspace,
         repositoryURL: URL,
         mainDatabase: any DatabaseWriter,
         referenceDatabase: SourceBaselineDatabase
-    ) throws {
-        let session = try SourceEditingSession(
-            mainDatabase: mainDatabase,
-            baselineDatabasePath: referenceDatabase.path
-        )
+    ) {
         self.workspace = workspace
         self.repositoryURL = repositoryURL.standardizedFileURL
-        self.database = session.database
-        self.sourceEditingSession = session
+        self.applicationDatabaseID = ObjectIdentifier(mainDatabase)
+        self.referenceDatabase = referenceDatabase
     }
 }
 
