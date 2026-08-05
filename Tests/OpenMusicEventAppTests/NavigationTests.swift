@@ -354,9 +354,9 @@ struct NavigationTests {
             [OMERecord.Event.reference(id: eventID).uri]
         )
         #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
+        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == eventID)
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.pendingScheduleLaunchAction == nil
+            store.state.root.destination?.eventViewer?.authoring.content.content.pendingScheduleLaunchAction == nil
         )
     }
 
@@ -369,7 +369,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(firstEventID, nil))))
-        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == firstEventID)
+        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(secondEventID, nil))))
 
@@ -377,7 +377,7 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == secondEventID)
-        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == secondEventID)
+        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == secondEventID)
     }
     #endif
 
@@ -397,11 +397,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.selectedFeature
+            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
                 == .contributors
         )
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.contributorsViewer?
+            store.state.root.destination?.eventViewer?.authoring.content.content.contributorsViewer?
                 .destination?.contributorDetail?.contributorID == contributorID
         )
     }
@@ -422,11 +422,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.selectedFeature
+            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
                 == .stages
         )
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.stagesViewer?
+            store.state.root.destination?.eventViewer?.authoring.content.content.stagesViewer?
                 .destination?.stageDetail?.stageID == stageID
         )
     }
@@ -463,11 +463,11 @@ struct NavigationTests {
         store.send(.root(.openRoute(route)))
 
         #expect(
-            store.state.root.eventViewer?.authoring.content.content.selectedFeature
+            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
                 == .schedule(.schedule)
         )
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.authoring.content.content.scheduleViewers.first {
+            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -486,7 +486,7 @@ struct NavigationTests {
         store.send(.root(.openRoute(.event(eventID, .performance(performanceID)))))
 
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.authoring.content.content.scheduleViewers.first {
+            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -4323,10 +4323,10 @@ struct NavigationTests {
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
             let authoringWorkspaceStore = try #require(
-                $store.scope(
-                    \.eventViewer,
-                    action: \.destination.eventViewer
-                ).wrappedValue
+                $store
+                    .scope(\.destination, action: \.destination)
+                    .eventViewer
+                    .wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,
@@ -4525,10 +4525,10 @@ struct NavigationTests {
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
             let authoringWorkspaceStore = try #require(
-                $store.scope(
-                    \.eventViewer,
-                    action: \.destination.eventViewer
-                ).wrappedValue
+                $store
+                    .scope(\.destination, action: \.destination)
+                    .eventViewer
+                    .wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,
@@ -6120,28 +6120,50 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.id == eventID)
+        #expect(store.state.root.destination?.eventViewer?.id == eventID)
         expectNoDifference(
-            store.state.root.eventViewer?.authoring.content.content.pendingScheduleLaunchAction,
+            store.state.root.destination?.eventViewer?.authoring.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
     }
 
     @Test
-    func eventViewerDestinationBindingPresentsAndDismissesStore() throws {
+    func openingAnEventPresentsItsViewerAndDismissingReturnsToTheBrowser() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/example/event-1",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
+        }
         @Bindable var store = withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            // Root navigation and the mounted viewer must resolve the same installed event.
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.omeEventInstallation = .liveValue
         } operation: {
             Store(initialState: OpenMusicEventAppRoot.State()) {
                 OpenMusicEventAppRoot()
             }
         }
 
-        store.send(.handleNavigationRequest(.event(eventID, nil)))
+        await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
+
+        // Evaluate the production root view so its presentation must scope through the child
+        // installed by OpenMusicEventAppRoot.Destination.body.
+        _ = OpenMusicEventAppRootView(store: store).body
 
         let presentation = $store
             .scope(\.destination, action: \.destination)
@@ -6151,9 +6173,8 @@ struct NavigationTests {
 
         presentation.wrappedValue = nil
 
-        #expect(store.eventViewer == nil)
+        #expect(store.destination == nil)
     }
-
 
     @Test
     func appLaunchCarriesSelectedEventLookupFailureIntoRootRestoration() throws {
@@ -6181,7 +6202,7 @@ struct NavigationTests {
                 workspaceRestorationErrorAtLaunch: error
             )
         }
-        #expect(state.eventViewer == nil)
+        #expect(state.destination == nil)
         #expect(state.workspaceRestorationError != nil)
     }
 
@@ -6215,7 +6236,7 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.authoring.content.content.eventID == eventID)
+        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == eventID)
 
         await store.send(
             .root(
@@ -6231,7 +6252,7 @@ struct NavigationTests {
             )
         )?.value
 
-        #expect(store.state.root.eventViewer == nil)
+        #expect(store.state.root.destination?.eventViewer == nil)
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }
@@ -6267,10 +6288,10 @@ struct NavigationTests {
             }
 
             let authoringWorkspaceStore = try #require(
-                $store.scope(
-                    \.eventViewer,
-                    action: \.destination.eventViewer
-                ).wrappedValue
+                $store
+                    .scope(\.destination, action: \.destination)
+                    .eventViewer
+                    .wrappedValue
             )
             let authoringStore = authoringWorkspaceStore.scope(
                 \.authoring,
@@ -6345,7 +6366,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
-        #expect(store.state.root.eventViewer?.id == eventID)
+        #expect(store.state.root.destination?.eventViewer?.id == eventID)
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
@@ -6376,7 +6397,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
-        #expect(store.state.root.eventViewer?.id == eventID)
+        #expect(store.state.root.destination?.eventViewer?.id == eventID)
 
         await store.send(
             .root(
@@ -6392,7 +6413,7 @@ struct NavigationTests {
             )
         )?.value
 
-        #expect(store.state.root.eventViewer == nil)
+        #expect(store.state.root.destination?.eventViewer == nil)
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }

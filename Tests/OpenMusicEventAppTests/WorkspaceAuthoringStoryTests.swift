@@ -250,36 +250,36 @@ struct WorkspaceAuthoringStoryTests {
                 )
                 #expect(operations.snapshot.isEmpty)
                 expectNoDifference(
-                    opened.state.content.eventViewer?.authoring.phase,
+                    opened.state.content.destination?.eventViewer?.authoring.phase,
                     .inactive(.eligible(eligibility))
                 )
 
                 // The visible Event Settings control owns authorization and workspace preparation.
                 await opened.send(
-                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped
                 )?.value
             } else {
                 // An editor deep link enters through the same eligibility and grant transition.
                 try await workspaceStoryWaitUntil {
-                    guard let authoring = opened.state.content.eventViewer?.authoring,
+                    guard let authoring = opened.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
                           case .ready(.canonical) = authoring.content.phase
                     else { return false }
                     return true
                 }
                 expectNoDifference(
-                    opened.state.content.eventViewer?.authoring.content.content
+                    opened.state.content.destination?.eventViewer?.authoring.content.content
                         .pendingAuthoringEntry,
                     nil
                 )
                 expectNoDifference(
-                    opened.state.content.eventViewer?.authoring.content.content.selectedFeature,
+                    opened.state.content.destination?.eventViewer?.authoring.content.content.selectedFeature,
                     .workspace
                 )
             }
 
-            let authoring = try #require(opened.state.content.eventViewer?.authoring)
+            let authoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             let workspace = authoring.context
             let resource = try #require(authoring.content.source)
             expectNoDifference(authoring.grant?.principal, AuthoringPrincipal(actorID: organizerID))
@@ -314,18 +314,18 @@ struct WorkspaceAuthoringStoryTests {
             // A real editor action opens the live form. TestStore.modify is the same blessed
             // binding entry point used by SwiftUI, and save writes through Workspace's database.
             await opened.send(
-                to: \.content.eventViewer!.authoring.content.content.eventInfoViewer!,
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventInfoViewer!,
                 .editButtonTapped
             )?.value
             opened.modify {
-                guard var eventViewer = $0.content.eventViewer,
+                guard var eventViewer = $0.content.destination?.eventViewer,
                       var form = eventViewer
                         .authoring.content.content.destination?
                         .eventInfoForm
                 else { return }
                 form.draft.name = "Wicked Woods 2026 - Local Edit"
                 eventViewer.authoring.content.content.destination = .eventInfoForm(form)
-                $0.content.eventViewer = eventViewer
+                $0.content.destination = .eventViewer(eventViewer)
             }
             await opened.send(
                 .content(
@@ -374,11 +374,11 @@ struct WorkspaceAuthoringStoryTests {
             )?.value
 
             let proposal = try #require(
-                opened.state.content.eventViewer?
+                opened.state.content.destination?.eventViewer?
                     .authoring.content.content.eventWorkspace?
                     .changes.openProposal
             )
-            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.eventViewer?
+            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.destination?.eventViewer?
                 .authoring.content.phase,
                 recordedProposal == proposal
             else {
@@ -394,15 +394,15 @@ struct WorkspaceAuthoringStoryTests {
 
             // Exiting revokes the grant, but the settled workspace and proposal survive by design.
             await opened.send(
-                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                 .exitAuthoringButtonTapped
             )?.value
-            #expect(opened.state.content.eventViewer?.authoring.grant == nil)
+            #expect(opened.state.content.destination?.eventViewer?.authoring.grant == nil)
             expectNoDifference(
-                opened.state.content.eventViewer?.authoring.phase,
+                opened.state.content.destination?.eventViewer?.authoring.phase,
                 .inactive(.eligible(eligibility))
             )
-            guard case let .ready(.proposal(settledProposal)) = opened.state.content.eventViewer?
+            guard case let .ready(.proposal(settledProposal)) = opened.state.content.destination?.eventViewer?
                 .authoring.content.phase,
                 settledProposal == proposal
             else {
@@ -431,12 +431,12 @@ struct WorkspaceAuthoringStoryTests {
             await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
             if target == .settings {
                 await remountedStore.send(
-                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped
                 )?.value
             } else {
                 try await workspaceStoryWaitUntil {
-                    guard let authoring = remountedStore.state.content.eventViewer?.authoring,
+                    guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
                           case .ready(.proposal) = authoring.content.phase
                     else { return false }
@@ -445,7 +445,7 @@ struct WorkspaceAuthoringStoryTests {
             }
 
             let remountedAuthoring = try #require(
-                remountedStore.state.content.eventViewer?.authoring
+                remountedStore.state.content.destination?.eventViewer?.authoring
             )
             expectNoDifference(remountedAuthoring.grant?.role, .owner)
             expectNoDifference(
@@ -476,11 +476,11 @@ struct WorkspaceAuthoringStoryTests {
             // installed to preserve authoring.
             authenticationStorage.reset()
             try await workspaceStoryWaitUntil {
-                remountedStore.state.content.eventViewer?.authoring.phase
+                remountedStore.state.content.destination?.eventViewer?.authoring.phase
                     == .inactive(.unavailable)
             }
             let revokedAuthoring = try #require(
-                remountedStore.state.content.eventViewer?.authoring
+                remountedStore.state.content.destination?.eventViewer?.authoring
             )
             expectNoDifference(revokedAuthoring.phase, .inactive(.unavailable))
             #expect(revokedAuthoring.grant == nil)
@@ -580,7 +580,7 @@ struct WorkspaceAuthoringStoryTests {
             }
             await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
             expectNoDifference(
-                opened.state.content.eventViewer?.authoring.phase,
+                opened.state.content.destination?.eventViewer?.authoring.phase,
                 .inactive(
                     .eligible(
                         AuthoringEligibility(
@@ -595,13 +595,13 @@ struct WorkspaceAuthoringStoryTests {
             // while source preparation remains independently suspended at its external boundary.
             await withExpectedIssue {
                 let entry = opened.send(
-                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped
                 )
                 await preparationGate.waitUntilFirstAttemptStarts()
 
                 let preparingAuthoring = try #require(
-                    opened.state.content.eventViewer?.authoring
+                    opened.state.content.destination?.eventViewer?.authoring
                 )
                 let preparingGrant = try #require(preparingAuthoring.grant)
                 expectNoDifference(
@@ -631,7 +631,7 @@ struct WorkspaceAuthoringStoryTests {
                 await preparationGate.failFirstAttempt()
                 await entry?.value
             }
-            let failedAuthoring = try #require(opened.state.content.eventViewer?.authoring)
+            let failedAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             guard case .sourcePreparationFailed = failedAuthoring.content.phase else {
                 Issue.record("The controlled first preparation must fail in Workspace.")
                 return
@@ -647,7 +647,7 @@ struct WorkspaceAuthoringStoryTests {
             await opened.send(
                 workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
             )?.value
-            let readyAuthoring = try #require(opened.state.content.eventViewer?.authoring)
+            let readyAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             guard case .ready(.canonical) = readyAuthoring.content.phase else {
                 Issue.record("Workspace retry must establish the canonical editing line.")
                 return
@@ -660,10 +660,10 @@ struct WorkspaceAuthoringStoryTests {
             // Exiting authoring removes Workspace from navigation even though its settled state is
             // retained for durable reentry.
             await opened.send(
-                to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                 .exitAuthoringButtonTapped
             )?.value
-            let exited = try #require(opened.state.content.eventViewer?.authoring)
+            let exited = try #require(opened.state.content.destination?.eventViewer?.authoring)
             #expect(exited.grant == nil)
             expectNoDifference(exited.content.content.authoringAccess, .attendee)
             #expect(!exited.content.content.installedFeatures.contains(.workspace))
@@ -760,9 +760,9 @@ struct WorkspaceAuthoringStoryTests {
 
             // Event Settings receives the application's one authoring phase. With no selected
             // account it is unavailable, so the view has no Enter Authoring branch to render.
-            let authoring = try #require(opened.state.content.eventViewer?.authoring)
+            let authoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             expectNoDifference(
-                opened.state.content.eventViewer?.authoring.phase,
+                opened.state.content.destination?.eventViewer?.authoring.phase,
                 .inactive(.unavailable)
             )
             #expect(authoring.grant == nil)
@@ -780,17 +780,17 @@ struct WorkspaceAuthoringStoryTests {
             // A stale presentation action is still rejected at the full application boundary.
             await withExpectedIssue {
                 await opened.send(
-                    to: \.content.eventViewer!.authoring.content.content.eventSettings!,
+                    to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped
                 )?.value
             }
             expectNoDifference(
-                opened.state.content.eventViewer?.authoring.phase,
+                opened.state.content.destination?.eventViewer?.authoring.phase,
                 .inactive(.unavailable)
             )
-            #expect(opened.state.content.eventViewer?.authoring.grant == nil)
+            #expect(opened.state.content.destination?.eventViewer?.authoring.grant == nil)
             expectNoDifference(
-                opened.state.content.eventViewer?.authoring.content.phase,
+                opened.state.content.destination?.eventViewer?.authoring.content.phase,
                 .inactive
             )
             #expect(operations.snapshot.isEmpty)
@@ -878,16 +878,16 @@ struct WorkspaceAuthoringStoryTests {
                     .deliverAuthoringAuthorizationChanges()
                 }
                 try await workspaceStoryWaitUntil {
-                    store.content.eventViewer?.authoring.phase == .inactive(.unavailable)
+                    store.content.destination?.eventViewer?.authoring.phase == .inactive(.unavailable)
                 }
 
                 expectNoDifference(
-                    store.content.eventViewer?.authoring.phase,
+                    store.content.destination?.eventViewer?.authoring.phase,
                     .inactive(.unavailable)
                 )
-                #expect(store.content.eventViewer?.authoring.grant == nil)
+                #expect(store.content.destination?.eventViewer?.authoring.grant == nil)
                 expectNoDifference(
-                    store.content.eventViewer?.authoring.content.phase,
+                    store.content.destination?.eventViewer?.authoring.content.phase,
                     .inactive
                 )
                 #expect(operations.snapshot.isEmpty)

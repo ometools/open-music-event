@@ -95,7 +95,7 @@ struct AuthenticationRootTests {
         )
         try await waitForTask(task)
 
-        #expect(store.content.eventViewer == nil)
+        #expect(store.content.destination == nil)
     }
 
     @Test

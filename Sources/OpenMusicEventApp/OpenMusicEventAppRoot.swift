@@ -72,20 +72,6 @@ public struct OpenMusicEventAppRoot {
         public var selectedEventID: OMERecord.Event.ID? {
             appState?.selectedEventID
         }
-
-        public var eventViewer: OpenMusicEventWorkspace.State? {
-            get {
-                guard case let .eventViewer(eventViewer) = destination else { return nil }
-                return eventViewer
-            }
-            set {
-                if let newValue {
-                    destination = .eventViewer(newValue)
-                } else {
-                    destination = nil
-                }
-            }
-        }
     }
 
     public enum Action {
@@ -167,7 +153,7 @@ public struct OpenMusicEventAppRoot {
                                 )
                             }
                             guard let eventViewer else { return }
-                            try store.modify { $0.eventViewer = eventViewer }
+                            try store.modify { $0.destination = .eventViewer(eventViewer) }
                             do {
                                 try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                             } catch {
@@ -200,7 +186,7 @@ public struct OpenMusicEventAppRoot {
                                 )
                             }
                             guard let eventViewer else { return }
-                            try store.modify { $0.eventViewer = eventViewer }
+                            try store.modify { $0.destination = .eventViewer(eventViewer) }
                             do {
                                 try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                             } catch {
@@ -222,7 +208,7 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .task:
-                    if let eventID = state.eventViewer?
+                    if let eventID = state.destination?.eventViewer?
                         .authoring
                         .content
                         .content
@@ -244,7 +230,7 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onChange(
-            of: store.eventViewer?
+            of: store.destination?.eventViewer?
                 .authoring
                 .content
                 .content
@@ -274,7 +260,7 @@ public struct OpenMusicEventAppRoot {
                         )
                     }
                     guard let eventViewer else { return }
-                    try store.modify { $0.eventViewer = eventViewer }
+                    try store.modify { $0.destination = .eventViewer(eventViewer) }
                     do {
                         try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                     } catch {
@@ -286,7 +272,9 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onEvent(EventViewerDismissalRequested.self) { eventID, state in
-            guard state.eventViewer?.authoring.content.content.id == eventID else { return }
+            guard state.destination?.eventViewer?.authoring.content.content.id == eventID else {
+                return
+            }
             persistSelectedEvent(nil, state)
         }
         .presentReportedErrors()
@@ -317,7 +305,9 @@ public struct OpenMusicEventAppRootView: View {
     public var body: some View {
         OpenMusicEventAppSurfaceView(store: store)
         .openMusicEventViewerPresentation(
-            item: $store.scope(\.eventViewer, action: \.destination.eventViewer)
+            item: $store
+                .scope(\.destination, action: \.destination)
+                .eventViewer
         ) { authoringWorkspaceStore in
             let authoringStore = authoringWorkspaceStore
                 .scope(\.authoring, action: \.authoring)
