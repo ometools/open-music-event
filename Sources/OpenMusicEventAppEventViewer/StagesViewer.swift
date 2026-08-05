@@ -971,7 +971,8 @@ public struct StageDetail {
                     state.destination = .performanceDetail(
                         Spawn(
                             PerformanceDetail.State(
-                                performanceID: performanceID
+                                performanceID: performanceID,
+                                eventID: state.eventID
                             )
                         )
                     )

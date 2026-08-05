@@ -2357,6 +2357,7 @@ struct NavigationTests {
     @Test
     func stageDetailPerformanceTapPresentsPerformanceDetail() async throws {
         let database = try makePreparedDatabase()
+        let ambientEventID = eventID("ambient-event")
         let eventID = eventID("event-1")
         let performanceID = performanceLocalID("meadow-friday")
         let friday = try #require(LocalDate("2026-08-07"))
@@ -2381,7 +2382,7 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.defaultEventID = ambientEventID
         } operation: {
             Store(initialState: StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)) {
                 StageDetail()
@@ -2391,6 +2392,7 @@ struct NavigationTests {
         await store.send(.performanceButtonTapped(performanceID))?.value
 
         #expect(store.destination?.performanceDetail?.performanceID == performanceID)
+        expectNoDifference(store.destination?.performanceDetail?.eventID, eventID)
     }
 
     @Test
@@ -3855,6 +3857,7 @@ struct NavigationTests {
     @Test
     func performanceDetailDisplaysPrimaryContributorsAtStageAndSupportBelow() async throws {
         let database = try makePreparedDatabase()
+        let ambientEventID = eventID("ambient-event")
         let eventID = eventID("event-1")
         let date = try #require(LocalDate("2026-08-07"))
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -3908,7 +3911,7 @@ struct NavigationTests {
         let state = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.defaultEventID = ambientEventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             PerformanceDetail.State(
@@ -3930,7 +3933,7 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.defaultEventID = ambientEventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
@@ -3947,11 +3950,13 @@ struct NavigationTests {
             store.state.destination?.contributorDetail?.contributorID
                 == contributorLocalID("stylust")
         )
+        expectNoDifference(store.state.destination?.contributorDetail?.eventID, eventID)
     }
 
     @Test
     func contributorDetailPerformanceTapPresentsPerformanceDetail() async throws {
         let database = try makePreparedDatabase()
+        let ambientEventID = eventID("ambient-event")
         let eventID = eventID("event-1")
         let date = try #require(LocalDate("2026-08-07"))
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -3984,7 +3989,7 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.defaultEventID = ambientEventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
@@ -4000,6 +4005,7 @@ struct NavigationTests {
         store.send(.performanceButtonTapped(performanceID))
 
         #expect(store.state.destination?.performanceDetail?.performanceID == performanceID)
+        expectNoDifference(store.state.destination?.performanceDetail?.eventID, eventID)
     }
 
     @Test

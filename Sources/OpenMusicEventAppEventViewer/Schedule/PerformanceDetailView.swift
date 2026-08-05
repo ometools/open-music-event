@@ -254,7 +254,8 @@ public struct PerformanceDetail {
                     state.destination = .contributorDetail(
                         Spawn(
                             ContributorDetail.State(
-                                contributorID: contributorID
+                                contributorID: contributorID,
+                                eventID: state.eventID
                             )
                         )
                     )
