@@ -133,6 +133,40 @@ struct SelectedEventRestoration {
     }
 
     public var body: some View {
+#if os(Android)
+        @Bindable var authenticationStore = store.scope(
+            \.authentication,
+            action: \.authentication
+        )
+
+        OpenMusicEventAppRootView(
+            store: store.scope(\.content, action: \.content)
+        )
+            .sheet(
+                item: $authenticationStore.scope(
+                    \.authorization,
+                    action: \.authorization
+                )
+            ) { authorizationStore in
+                OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
+            }
+            .onOpenURL { url in
+                store.send(.authentication(.handleOpenURL(.init(url))))
+            }
+            .environment(
+                \.showsTechnicalDetails,
+                TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
+            )
+            .environment(
+                \.sourceRecordComparisonStyle,
+                SourceRecordComparisonStyle.openMusicEvent.overlaying(
+                    sourceRecordComparisonStyle
+                )
+            )
+            .task {
+                logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
+            }
+#else
         OpenMusicEventAuthorizationView(store: store) { rootStore in
             OpenMusicEventAppRootView(store: rootStore)
         }
@@ -149,6 +183,7 @@ struct SelectedEventRestoration {
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }
+#endif
     }
 
     @MainActor

@@ -447,6 +447,18 @@ build_module() {
     --target "$MODULE_TARGET"
 }
 
+# SwiftPM may rewrite Package.resolved without changing its contents. Fingerprint the generated
+# package graph so a timestamp-only rewrite does not invalidate the full Android SwiftUI module.
+native_package_metadata_fingerprint() {
+  find "$APP_ROOT/.build/plugins/outputs" \
+    -type f \
+    \( -name Package.swift -o -name Package.resolved \) \
+    -exec shasum -a 256 {} + 2>/dev/null \
+    | LC_ALL=C sort \
+    | shasum -a 256 \
+    | awk '{ print $1 }'
+}
+
 native_build_config() {
   cat <<CONFIG
 version=2
@@ -459,17 +471,15 @@ skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
 ome_android_app_build=$OME_ANDROID_APP_BUILD
 configuration=$CONFIGURATION
 architectures=${ARCHITECTURES:-automatic}
+native_package_metadata_fingerprint=$(native_package_metadata_fingerprint)
 CONFIG
 }
 
 # A stale compatibility module makes unrelated packages' canImport(SwiftUI)
 # branches depend on incremental build order, exposing undeclared CJNI or MachO imports.
 invalidate_stale_swiftui_modules() {
-  local generated_root
   local metadata
   local module
-  local package_manifest
-  local package_resolved
   local should_invalidate
   local config_changed=0
 
@@ -478,17 +488,7 @@ invalidate_stale_swiftui_modules() {
   fi
 
   while IFS= read -r -d '' module; do
-    generated_root="${module%%/build/swift/*}"
-    package_manifest="$generated_root/src/main/swift/Package.swift"
-    package_resolved="$generated_root/src/main/swift/Package.resolved"
     should_invalidate="$config_changed"
-
-    if [[ -f "$package_manifest" && "$package_manifest" -nt "$module" ]]; then
-      should_invalidate=1
-    fi
-    if [[ -f "$package_resolved" && "$package_resolved" -nt "$module" ]]; then
-      should_invalidate=1
-    fi
     [[ "$should_invalidate" -eq 1 ]] || continue
 
     echo "Invalidating stale Android SwiftUI module metadata: $module"
