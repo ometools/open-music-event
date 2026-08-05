@@ -150,6 +150,73 @@ struct WorkspaceChangePresentationTests {
 @MainActor
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
+    @Test
+    func `a Tangled repository member can propose and merge`() async throws {
+        let ownerID = try #require(DID("did:plc:owner"))
+        let memberID = try #require(DID("did:plc:member"))
+        let repository = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: ownerID.description,
+            repository: "ome-workspace"
+        )
+
+        let role = try await withDependencies {
+            $0.context = .test
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(actorID: ownerID)
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, _ in
+                let path = request.url?.path ?? ""
+                let body: Data
+                if path.hasSuffix("/com.atproto.repo.listRecords") {
+                    body = Data(
+                        """
+                        {
+                          "records": [
+                            {
+                              "uri": "at://did:plc:owner/sh.tangled.repo/ome-workspace",
+                              "cid": "bafyreifakerepo",
+                              "value": {
+                                "$type": "sh.tangled.repo",
+                                "name": "ome-workspace",
+                                "repoDid": "did:plc:workspace-source-repository",
+                                "knot": "tangled.org",
+                                "createdAt": "2026-08-05T00:00:00Z"
+                              }
+                            }
+                          ]
+                        }
+                        """.utf8
+                    )
+                } else if path.hasSuffix("/sh.tangled.repo.listCollaborators") {
+                    body = Data(
+                        """
+                        {
+                          "items": [
+                            {
+                              "subject": "did:plc:member",
+                              "addedBy": "did:plc:owner",
+                              "createdAt": "2026-08-05T00:01:00Z"
+                            }
+                          ]
+                        }
+                        """.utf8
+                    )
+                } else {
+                    throw WorkspaceStoryUnexpectedNetworkRequest(url: request.url)
+                }
+                return (body, HTTPResponse(status: .ok))
+            }
+        } operation: {
+            try await TangledRepositoryMembershipClient.liveValue.role(repository, memberID)
+        }
+
+        expectNoDifference(role, .collaborator([.propose, .merge]))
+    }
+
     @Test(
         .tcaExhaustivity(.off),
         arguments: [

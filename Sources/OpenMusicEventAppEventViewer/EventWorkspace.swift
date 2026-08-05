@@ -84,14 +84,15 @@ public struct EventWorkspace {
 
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
             guard let grant,
-                  grant.workspaceID == workspace.id,
-                  grant.role.canManageCollaborators
+                  grant.workspaceID == workspace.id
             else {
                 collaborators = nil
                 if selectedPage == .collaborators { selectedPage = .changes }
                 return
             }
-            if collaborators?.workspaceID != workspace.id {
+            if collaborators?.workspaceID != workspace.id
+                || collaborators?.role != grant.role
+            {
                 collaborators = WorkspaceCollaborators.State(
                     workspace: workspace,
                     role: grant.role

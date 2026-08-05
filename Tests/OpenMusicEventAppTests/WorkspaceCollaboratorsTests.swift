@@ -1,11 +1,15 @@
 import ATProto
 import ComposableArchitecture2
+import ComposableAuthoring
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
+import SourceEditing
 import Testing
 
 @testable import OpenMusicEventAppEventViewer
@@ -13,6 +17,41 @@ import Testing
 @MainActor
 @Suite("Workspace collaborators", .serialized)
 struct WorkspaceCollaboratorsTests {
+    @Test
+    func `a Tangled member sees every workspace page with an empty collaborator roster`() throws {
+        try withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+        } operation: {
+            let ownerID = try #require(DID("did:plc:owner"))
+            let memberID = try #require(DID("did:plc:member"))
+            let workspace = workspace(ownerID: ownerID)
+            let grant = AuthoringGrant(
+                principal: AuthoringPrincipal(actorID: memberID),
+                role: .collaborator([.propose, .merge]),
+                workspaceID: workspace.id
+            )
+            var state = EventWorkspace.State(
+                workspace: workspace,
+                eventID: OME.Event.ID(
+                    organizerID: ownerID,
+                    eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
+                ),
+                workspacePhase: SharedReader(value: .inactive)
+            )
+
+            state.updateAuthoringGrant(grant)
+
+            let collaborators = try #require(state.collaborators)
+            expectNoDifference(collaborators.role, grant.role)
+            #expect(collaborators.relationships.isEmpty)
+            expectNoDifference(
+                state.availablePages(authoringAccess: grant.access),
+                EventWorkspace.Page.allCases
+            )
+        }
+    }
+
     @Test
     func ownerFindsCollaboratorsWithPredictiveSearchBeforeAddingThem() async throws {
         let database = try makePreparedDatabase()

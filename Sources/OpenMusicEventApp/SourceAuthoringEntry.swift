@@ -33,7 +33,7 @@ extension TangledRepositoryMembershipClient: DependencyKey {
                 actorID: actorID,
                 knotHost: target.knotHost
             ) else { return nil }
-            return .collaborator([.propose])
+            return .collaborator([.propose, .merge])
         }
     }
 
