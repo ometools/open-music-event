@@ -12,7 +12,9 @@ struct YamlConversion<Value: Codable & Equatable>: Conversion {
     }
 
     func unapply(_ output: Value) throws -> Data {
-        try Data(YAMLEncoder().encode(output).utf8)
+        let encoder = YAMLEncoder()
+        encoder.options.width = -1
+        return try Data(encoder.encode(output).utf8)
     }
 
     func unapply(

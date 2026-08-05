@@ -539,7 +539,7 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func legacyPerformancesBecomeCanonicalPerformanceScheduleItemsWithoutChangingTheSchedule() throws {
+    func legacyPerformancesBecomeCanonicalScheduleItemsWithoutWrappingDescriptions() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -574,18 +574,21 @@ struct OpenMusicEventSourceTests {
             encoding: .utf8
         )
 
+        let originalOpeningDescription = "Jeff brings over twenty years of experience creating therapeutic sound journeys with gongs, chimes, crystal bowls, flutes, and other sacred instruments."
+        let updatedOpeningDescription = "Jeff brings over twenty years of experience creating therapeutic and ceremonial sound journeys with gongs, chimes, crystal bowls, flutes, and other sacred instruments."
+        let closingDescription = "The second workshop description remains untouched and should stay physically on one source line after another schedule item changes."
         let legacySchedule = """
         date: 2026-08-01
         performances:
           main:
             - id: opening-set
               title: "Opening: Live"
-              description: The exact first description.
+              description: \(originalOpeningDescription)
               startTime: "18:00"
               endTime: "19:00"
             - id: closing-set
               title: Closing Set
-              description: The exact second description.
+              description: \(closingDescription)
               startTime: "19:00"
               endTime: "20:00"
         """
@@ -594,7 +597,7 @@ struct OpenMusicEventSourceTests {
 
         // An existing organizer source opens as ordered performance schedule items.
         let tree = OpenMusicEventSourceRepositoryFileTree()
-        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        var repository = try tree.read(from: repositoryURL).output.requiredValue
         let scheduleItems = try #require(
             repository.events.first?.components.schedules?.first?.data.scheduleItems["main"]
         )
@@ -606,22 +609,27 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(scheduleItems.map(\.title), ["Opening: Live", "Closing Set"])
         expectNoDifference(
             scheduleItems.map(\.description),
-            ["The exact first description.", "The exact second description."]
+            [originalOpeningDescription, closingDescription]
         )
 
         // Opening and saving without a semantic edit must not churn the organizer's source file.
         _ = try tree.rewrite(repository, at: repositoryURL)
         expectNoDifference(try Data(contentsOf: scheduleURL), originalScheduleData)
 
-        // A newly written source uses only the canonical schedule-item vocabulary.
-        let canonicalRepositoryURL = try temporaryRepositoryURL()
-        _ = try tree.write(repository, to: canonicalRepositoryURL)
+        // Changing one workshop description rewrites the schedule using canonical vocabulary.
+        var event = try #require(repository.events.first)
+        var schedules = try #require(event.components.schedules)
+        var schedule = try #require(schedules.first)
+        var editedScheduleItems = try #require(schedule.data.scheduleItems["main"])
+        editedScheduleItems[0].description = updatedOpeningDescription
+        schedule.data.scheduleItems["main"] = editedScheduleItems
+        schedules[0] = schedule
+        event.components.schedules = schedules
+        repository.events[0] = event
+        _ = try tree.rewrite(repository, at: repositoryURL)
+
         let canonicalScheduleText = try String(
-            contentsOf: canonicalRepositoryURL
-                .appending(path: "events", directoryHint: .isDirectory)
-                .appending(path: "legacy-schedule", directoryHint: .isDirectory)
-                .appending(path: "schedules", directoryHint: .isDirectory)
-                .appending(path: "saturday.yml"),
+            contentsOf: scheduleURL,
             encoding: .utf8
         )
         #expect(canonicalScheduleText.contains("scheduleItems:"))
@@ -632,7 +640,18 @@ struct OpenMusicEventSourceTests {
                 < #require(canonicalScheduleText.range(of: "Closing Set")).lowerBound
         )
         expectNoDifference(
-            try tree.read(from: canonicalRepositoryURL).output.requiredValue,
+            canonicalScheduleText
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.contains("description:") }
+                .map { $0.trimmingCharacters(in: .whitespaces) },
+            [
+                "description: \(updatedOpeningDescription)",
+                "description: \(closingDescription)",
+            ]
+        )
+        expectNoDifference(
+            try tree.read(from: repositoryURL).output.requiredValue,
             repository
         )
     }
