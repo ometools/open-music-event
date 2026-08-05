@@ -1,4 +1,5 @@
 import ATProto
+import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import ComposableWorkspace
@@ -616,28 +617,96 @@ public struct BrowseView: View {
     }
 }
 
+struct ActorCacheRequestingRow<Content: View>: View {
+    let actorID: DID
+    @Fetch var cachedActorIdentities: CachedActorIdentities
+    @Dependency(\.blueskyActorProfileCache) var actorProfileCache
+    @ViewBuilder var content: (ActorIdentity?) -> Content
+
+    init(
+        actorID: DID,
+        @ViewBuilder content: @escaping (ActorIdentity?) -> Content
+    ) {
+        self.actorID = actorID
+        self.content = content
+        _cachedActorIdentities = Fetch(
+            wrappedValue: CachedActorIdentities(),
+            CachedActorIdentitiesRequest()
+        )
+    }
+
+    var body: some View {
+        content(cachedActorIdentities[actorID.description])
+            .task(id: actorID) {
+                do {
+                    _ = try await actorProfileCache.refreshProfileIfNeeded(
+                        actorID.description,
+                        24 * 60 * 60,
+                        15 * 60
+                    )
+                } catch is CancellationError {
+                } catch {
+                    reportIssue(error)
+                }
+            }
+    }
+}
+
+struct OrganizerActorPresentation: Equatable {
+    let avatarURL: URL?
+    let title: String
+
+    init(
+        organizer: CalendarEvent.Organizer,
+        cachedIdentity: ActorIdentity?
+    ) {
+        self.avatarURL = organizer.avatarURL ?? cachedIdentity?.avatar
+        self.title = Self.attendeeFacing(organizer.displayName)
+            ?? Self.attendeeFacing(cachedIdentity?.displayName)
+            ?? Self.attendeeFacing(organizer.handle)
+            ?? Self.attendeeFacing(cachedIdentity?.handle?.rawValue)
+            ?? "Organizer"
+    }
+
+    static func attendeeFacing(_ value: String?) -> String? {
+        let value = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value, !value.isEmpty else { return nil }
+        let lowercaseValue = value.lowercased()
+        guard !lowercaseValue.hasPrefix("did:"),
+              !lowercaseValue.hasPrefix("@did:")
+        else { return nil }
+        return value
+    }
+}
+
 struct BrowseCalendarEventRow: View {
     let event: CalendarEvent
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            BrowseEventArtwork(event: event, size: 60)
+        ActorCacheRequestingRow(actorID: event.organizer.id) { cachedIdentity in
+            let organizer = OrganizerActorPresentation(
+                organizer: event.organizer,
+                cachedIdentity: cachedIdentity
+            )
+            HStack(alignment: .top, spacing: 12) {
+                BrowseEventArtwork(event: event, size: 60)
 
-            VStack(alignment: .leading, spacing: 4) {
-                if let dateText {
-                    Text(dateText)
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let dateText {
+                        Text(dateText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(event.name)
+                        .font(.headline)
+                    Text(organizer.title)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Text(event.name)
-                    .font(.headline)
-                Text(event.organizer.name)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 
     var dateText: String? {
@@ -1406,36 +1475,42 @@ struct EventOrganizerRow: View {
     let organizer: CalendarEvent.Organizer
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.secondary.opacity(0.12))
+        ActorCacheRequestingRow(actorID: organizer.id) { cachedIdentity in
+            let presentation = OrganizerActorPresentation(
+                organizer: organizer,
+                cachedIdentity: cachedIdentity
+            )
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.secondary.opacity(0.12))
 
-                ImageAssetAsyncImage(
-                    image: organizerArtwork,
-                    renderedImageSize: CGSize(width: 60, height: 60)
-                ) {
-                    MappedSystemImage(systemName: "person")
-                        .foregroundStyle(.secondary)
-                        .padding(16)
+                    ImageAssetAsyncImage(
+                        image: organizerArtwork(avatarURL: presentation.avatarURL),
+                        renderedImageSize: CGSize(width: 60, height: 60)
+                    ) {
+                        MappedSystemImage(systemName: "person")
+                            .foregroundStyle(.secondary)
+                            .padding(16)
+                    }
                 }
-            }
-            .frame(width: 60, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+                .frame(width: 60, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(organizer.name)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(presentation.title)
+                        .lineLimit(1)
 
-                Text("Organizer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text("Organizer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    var organizerArtwork: DisplayImageAsset? {
-        organizer.avatarURL.map { avatarURL in
+    func organizerArtwork(avatarURL: URL?) -> DisplayImageAsset? {
+        avatarURL.map { avatarURL in
             DisplayImageAsset(
                 asset: OME.ImageAsset(
                     source: .url(avatarURL),

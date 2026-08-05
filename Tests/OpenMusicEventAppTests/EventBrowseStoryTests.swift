@@ -1,4 +1,5 @@
 import ATProto
+import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import CustomDump
@@ -22,6 +23,42 @@ import Synchronization
 import Testing
 
 struct EventBrowseStoryTests {
+    @Test
+    func `organizer rows use the cached actor identity instead of a DID`() throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+        let avatarURL = try #require(URL(string: "https://cdn.example/wicked-woods.jpg"))
+        let identity = ActorIdentity(
+            did: organizerID,
+            handle: Atmosphere.Account.Handle(rawValue: "wickedwoods.example"),
+            displayName: "Wicked Woods",
+            avatar: avatarURL,
+            source: .canonicalResolution
+        )
+
+        let presentation = OrganizerActorPresentation(
+            organizer: CalendarEvent.Organizer(id: organizerID),
+            cachedIdentity: identity
+        )
+
+        expectNoDifference(presentation.title, "Wicked Woods")
+        expectNoDifference(presentation.avatarURL, avatarURL)
+    }
+
+    @Test
+    func `organizer rows do not expose an uncached DID`() throws {
+        let organizerID = try #require(DID("did:plc:organizer"))
+
+        let presentation = OrganizerActorPresentation(
+            organizer: CalendarEvent.Organizer(
+                id: organizerID,
+                handle: organizerID.description
+            ),
+            cachedIdentity: nil
+        )
+
+        expectNoDifference(presentation.title, "Organizer")
+    }
+
     @Test @MainActor
     func `the calendar picker preserves the local day and can clear the filter`() throws {
         let denver = try #require(TimeZone(identifier: "America/Denver"))
