@@ -653,11 +653,20 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     func resolvedTimelineWidth(totalWidth: CGFloat) -> CGFloat {
-        #if os(Android)
-        timelineContentWidth(totalWidth: totalWidth)
-        #else
-        totalWidth
-        #endif
+        Self.resolvedTimelineWidth(
+            totalWidth: totalWidth,
+            hourLabelsWidth: HourLabelsWidthPreferenceKey.defaultValue
+        )
+    }
+
+    static func resolvedTimelineWidth(
+        totalWidth: CGFloat,
+        hourLabelsWidth: CGFloat
+    ) -> CGFloat {
+        timelineContentWidth(
+            totalWidth: totalWidth,
+            hourLabelsWidth: hourLabelsWidth
+        )
     }
 
     static func timelineContentWidth(
