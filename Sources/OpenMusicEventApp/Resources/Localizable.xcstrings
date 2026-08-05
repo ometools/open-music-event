@@ -690,6 +690,9 @@
     "Unable to restore your account session." : {
 
     },
+    "Unable to save your event selection." : {
+
+    },
     "Unable to store the imported source because a file already exists." : {
 
     },
