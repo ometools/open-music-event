@@ -1,6 +1,15 @@
 {
-  "originHash" : "fc14b04f189fad0ede28c64ea80f08e805bdc82296ba750410f8794bcfcd85bf",
+  "originHash" : "58f0e78be094e331cbd1b79585d31ac5489185f6dc7bccb363915e844b95c110",
   "pins" : [
+    {
+      "identity" : "async-http-client",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swift-server/async-http-client.git",
+      "state" : {
+        "revision" : "9544287b9416c0bc71e58b9f3aead8dd14b16103",
+        "version" : "1.36.0"
+      }
+    },
     {
       "identity" : "combine-schedulers",
       "kind" : "remoteSourceControl",
@@ -47,21 +56,12 @@
       }
     },
     {
-      "identity" : "elfkit",
+      "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/marcprux/ELFKit.git",
+      "location" : "https://github.com/groue/GRDB.swift",
       "state" : {
-        "revision" : "adc9324508c2cbc6e47419c674a53567e7b74f4d",
-        "version" : "0.2.1"
-      }
-    },
-    {
-      "identity" : "grdb-sqlcipher",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swift-everywhere/grdb-sqlcipher.git",
-      "state" : {
-        "revision" : "1986ed29f5b367467b60f52134b266f44e65ab9b",
-        "version" : "7.5.0"
+        "revision" : "b83108d10f42680d78f23fe4d4d80fc88dab3212",
+        "version" : "7.11.1"
       }
     },
     {
@@ -74,12 +74,30 @@
       }
     },
     {
+      "identity" : "hummingbird",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hummingbird-project/hummingbird.git",
+      "state" : {
+        "revision" : "55bc9025a4825ee2a234b1f82b51b87be6ef74e4",
+        "version" : "2.26.0"
+      }
+    },
+    {
+      "identity" : "hummingbird-lambda",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hummingbird-project/hummingbird-lambda.git",
+      "state" : {
+        "revision" : "d66f3ef5eb338313c340b0bf3ea2a76724488f28",
+        "version" : "2.1.0"
+      }
+    },
+    {
       "identity" : "noora",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tuist/Noora",
       "state" : {
-        "revision" : "70c6d1477a982f3e4cd46ed2d122e04e9d0a0b59",
-        "version" : "0.56.0"
+        "revision" : "b01663496be276c7e8b198486febedc4b3689c2f",
+        "version" : "0.57.0"
       }
     },
     {
@@ -101,6 +119,15 @@
       }
     },
     {
+      "identity" : "skip",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip.git",
+      "state" : {
+        "revision" : "885f0c520e1ebdbec1f0e296d713293dadc5a2f4",
+        "version" : "1.9.5"
+      }
+    },
+    {
       "identity" : "skip-bridge",
       "kind" : "remoteSourceControl",
       "location" : "https://source.skip.tools/skip-bridge.git",
@@ -114,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://source.skip.tools/skip-foundation.git",
       "state" : {
-        "revision" : "bca98267dd2555469c486d9b1772b652b7a708e2",
-        "version" : "1.4.0"
+        "revision" : "94d47aeed3bb8027ef3ad8e07a8771b52529c238",
+        "version" : "1.4.2"
       }
     },
     {
@@ -125,6 +152,15 @@
       "state" : {
         "revision" : "8f3295094ad29075730284c5197c7f1d94c0f2d9",
         "version" : "1.0.2"
+      }
+    },
+    {
+      "identity" : "skip-fuse-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-fuse-ui.git",
+      "state" : {
+        "revision" : "d27fc109268b21feb98a48bc1a3f4558e162d9ca",
+        "version" : "1.18.1"
       }
     },
     {
@@ -146,12 +182,30 @@
       }
     },
     {
+      "identity" : "skip-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-ui.git",
+      "state" : {
+        "revision" : "ef7bbdd541cdf2efd3ce6ecde72337e1beb92366",
+        "version" : "1.59.1"
+      }
+    },
+    {
       "identity" : "skip-unit",
       "kind" : "remoteSourceControl",
       "location" : "https://source.skip.tools/skip-unit.git",
       "state" : {
-        "revision" : "920adff2065224ad592745a4cc028e9c2df137d4",
-        "version" : "1.6.1"
+        "revision" : "c89af47fd645e04db863e938ade39f91e1bb62b8",
+        "version" : "1.7.0"
+      }
+    },
+    {
+      "identity" : "sqlite-data",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/sqlite-data",
+      "state" : {
+        "revision" : "0c79d7a5748fc6d9ce7a1ba2b50f31b175305049",
+        "version" : "1.6.6"
       }
     },
     {
@@ -195,8 +249,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",
       "state" : {
-        "revision" : "eb50cbd14606a9161cbc5d452f18797c90ef0bab",
-        "version" : "1.7.0"
+        "revision" : "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
+        "version" : "1.7.1"
       }
     },
     {
@@ -222,8 +276,26 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-atomics.git",
       "state" : {
-        "revision" : "b601256eab081c0f92f059e12818ac1d4f178ff7",
-        "version" : "1.3.0"
+        "revision" : "0442cb5a3f98ab802acb777929fdb446bda11a34",
+        "version" : "1.3.1"
+      }
+    },
+    {
+      "identity" : "swift-aws-lambda-events",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/awslabs/swift-aws-lambda-events.git",
+      "state" : {
+        "revision" : "d18360e63624019bddf418de28d83007acd60956",
+        "version" : "1.5.0"
+      }
+    },
+    {
+      "identity" : "swift-aws-lambda-runtime",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/awslabs/swift-aws-lambda-runtime.git",
+      "state" : {
+        "revision" : "06191b2de5ca6909fca0dc4193159633c66e2ab3",
+        "version" : "2.11.0"
       }
     },
     {
@@ -232,7 +304,7 @@
       "location" : "https://github.com/pointfreeco/swift-case-paths",
       "state" : {
         "branch" : "26",
-        "revision" : "9f2b3c7f9dc1deab5e47896870d120659787da62"
+        "revision" : "c641088612486aac555d329163561f392043d162"
       }
     },
     {
@@ -240,8 +312,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-certificates.git",
       "state" : {
-        "revision" : "bde8ca32a096825dfce37467137c903418c1893d",
-        "version" : "1.19.1"
+        "revision" : "449dbbecd0f31e82b510ada227ca152caa8b5e98",
+        "version" : "1.19.4"
       }
     },
     {
@@ -250,7 +322,7 @@
       "location" : "https://github.com/pointfreeco/swift-clocks",
       "state" : {
         "branch" : "clocks-2",
-        "revision" : "dd4cac5933e614d188b26c5c8c2197e4db52a207"
+        "revision" : "94bd2487d25e0e0da24e3c2f551190b45b4ff9d2"
       }
     },
     {
@@ -258,8 +330,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections",
       "state" : {
-        "revision" : "fea17c02d767f46b23070fdfdacc28a03a39232a",
-        "version" : "1.5.1"
+        "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
+        "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "swift-composable-forms",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.woody.fm/swift-composable-forms",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0db84ba0b831f637d8c6d33dacdba88d1f93b83e"
       }
     },
     {
@@ -267,8 +348,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
       "state" : {
-        "revision" : "a90e2e40a7a840a853dd29e57cbef5dbb72c9d5b",
-        "version" : "1.4.0"
+        "revision" : "5fa253428866f2360c3754e88537f700ed2656b5",
+        "version" : "1.4.1"
+      }
+    },
+    {
+      "identity" : "swift-configuration",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-configuration.git",
+      "state" : {
+        "revision" : "be76c4ad929eb6c4bcaf3351799f2adf9e6848a9",
+        "version" : "1.2.0"
       }
     },
     {
@@ -285,8 +375,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-custom-dump",
       "state" : {
-        "revision" : "a8cd6c976f335ed361dcecddb0dc39ebda51bc3e",
-        "version" : "1.6.1"
+        "revision" : "e9c34fd54ece006b491a0e6d23fe9a6024b9a828",
+        "version" : "1.7.0"
       }
     },
     {
@@ -294,8 +384,35 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-debug-snapshots",
       "state" : {
-        "revision" : "cb00c8a9d7edb55a089c49220116c3c9e2cd7904",
-        "version" : "0.4.0"
+        "revision" : "cecb81333f525cb30ead172e3fd18eb20d25b6aa",
+        "version" : "0.4.2"
+      }
+    },
+    {
+      "identity" : "swift-dependencies",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-dependencies",
+      "state" : {
+        "branch" : "26",
+        "revision" : "929e0e2a83032fa50119457ae2963ac6eb313e69"
+      }
+    },
+    {
+      "identity" : "swift-distributed-tracing",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-distributed-tracing.git",
+      "state" : {
+        "revision" : "dc4030184203ffafbb2ec614352487235d747fe0",
+        "version" : "1.4.1"
+      }
+    },
+    {
+      "identity" : "swift-extras-base64",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swift-extras/swift-extras-base64.git",
+      "state" : {
+        "revision" : "dc8121fdd2b444c97d6b0534e8ad4ddecbe0d5f4",
+        "version" : "1.0.0"
       }
     },
     {
@@ -321,8 +438,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-http-types",
       "state" : {
-        "revision" : "45eb0224913ea070ec4fba17291b9e7ecf4749ca",
-        "version" : "1.5.1"
+        "revision" : "db774a277f60063a32d854f2980299caf06da041",
+        "version" : "1.6.0"
       }
     },
     {
@@ -348,8 +465,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "a878e7f8f46cfc0e1125e565b5c08e7d5272dc9a",
-        "version" : "1.14.0"
+        "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
+        "version" : "1.15.0"
+      }
+    },
+    {
+      "identity" : "swift-metrics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-metrics.git",
+      "state" : {
+        "revision" : "087e8074afa97040c3b870c8664fe5482fb87cc4",
+        "version" : "2.11.0"
       }
     },
     {
@@ -358,7 +484,7 @@
       "location" : "https://github.com/pointfreeco/swift-navigation",
       "state" : {
         "branch" : "relax-sendable",
-        "revision" : "05a783cd0b3a792494829b64dd569d4ebf857b25"
+        "revision" : "0453ba88c955f7dd4fce57c80d65691fee7af8ba"
       }
     },
     {
@@ -366,8 +492,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "cd3e1152083706d77b223fb29110e590efcc70c0",
-        "version" : "2.101.2"
+        "revision" : "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+        "version" : "2.101.3"
       }
     },
     {
@@ -375,8 +501,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-extras.git",
       "state" : {
-        "revision" : "d2eeec0339074034f11a040a74aa2a341a2c4506",
-        "version" : "1.34.1"
+        "revision" : "88a51340f59cf181ebde888bd1b749296b3ec029",
+        "version" : "1.34.3"
       }
     },
     {
@@ -384,8 +510,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-http2.git",
       "state" : {
-        "revision" : "61d1b44f6e4e118792be1cff88ee2bc0267c6f9a",
-        "version" : "1.44.0"
+        "revision" : "45bdf670248be5f16ec0340e125dca285536f0fb",
+        "version" : "1.45.0"
       }
     },
     {
@@ -393,8 +519,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-ssl.git",
       "state" : {
-        "revision" : "407d82d5b6cc00e1c3fb83a81b1539b70c788c5e",
-        "version" : "2.37.1"
+        "revision" : "d930168b86f46ca51a4bc09c5ca45c1833db8067",
+        "version" : "2.37.2"
       }
     },
     {
@@ -416,12 +542,12 @@
       }
     },
     {
-      "identity" : "swift-perception",
+      "identity" : "swift-service-context",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-perception",
+      "location" : "https://github.com/apple/swift-service-context.git",
       "state" : {
-        "revision" : "de219a1cf34e958134e75a9ebb134cf09bf52fc6",
-        "version" : "2.0.11"
+        "revision" : "d0997351b0c7779017f88e7a93bc30a1878d7f29",
+        "version" : "1.3.0"
       }
     },
     {
@@ -438,17 +564,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-snapshot-testing",
       "state" : {
-        "revision" : "ad5e3190cc63dc288f28546f9c6827efc1e9d495",
-        "version" : "1.19.2"
+        "revision" : "59a99c458de4d2dee580529b61b4f78dca7b7fa6",
+        "version" : "1.19.4"
       }
     },
     {
-      "identity" : "swift-sqlcipher",
+      "identity" : "swift-structured-queries",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/skiptools/swift-sqlcipher.git",
+      "location" : "https://github.com/pointfreeco/swift-structured-queries",
       "state" : {
-        "revision" : "37a25816c4cea90b3bc6f428fc3896b82dc58915",
-        "version" : "1.11.0"
+        "revision" : "859958c7cf76918abf5aa5d6ce8b068e00a77eb2",
+        "version" : "0.32.0"
       }
     },
     {
@@ -463,10 +589,10 @@
     {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-system.git",
+      "location" : "https://github.com/apple/swift-system",
       "state" : {
-        "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
-        "version" : "1.6.4"
+        "revision" : "704705c5c51156ede21172a38654d522ce487074",
+        "version" : "1.8.0"
       }
     },
     {
@@ -484,7 +610,7 @@
       "location" : "https://source.woody.fm/swift-tagged-types-macro",
       "state" : {
         "branch" : "main",
-        "revision" : "3152e90cec2a8a6c64381d19fbd7d0ece85620fc"
+        "revision" : "0a15ce1210dd528f63c012de1454e4411bed8567"
       }
     },
     {
@@ -497,21 +623,12 @@
       }
     },
     {
-      "identity" : "swift-tools-support-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-tools-support-core.git",
-      "state" : {
-        "revision" : "e8fbc8b05a155f311b862178d92d043afb216fe3",
-        "version" : "0.7.3"
-      }
-    },
-    {
       "identity" : "swift-urlqueryitem-coder",
       "kind" : "remoteSourceControl",
       "location" : "https://source.woody.fm/swift-urlqueryitem-coder",
       "state" : {
         "branch" : "main",
-        "revision" : "ad713107ad81ed5c65aada06b55c23afad5ce854"
+        "revision" : "d925953531ba5aa134d8f832ee47e70715bcf983"
       }
     },
     {
@@ -533,21 +650,12 @@
       }
     },
     {
-      "identity" : "universal",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/marcprux/universal.git",
-      "state" : {
-        "revision" : "7919463ce63685647cd3620e6fda5fb1a91fb9b0",
-        "version" : "5.3.0"
-      }
-    },
-    {
       "identity" : "xctest-dynamic-overlay",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
       "state" : {
-        "revision" : "dfd70507def84cb5fb821278448a262c6ff2bbad",
-        "version" : "1.9.0"
+        "revision" : "8f6abcf4c8950e2679d5b2fee4ca284fd7c34886",
+        "version" : "1.11.0"
       }
     },
     {
