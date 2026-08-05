@@ -428,7 +428,7 @@ public struct PerformanceDetailView: View {
                     }
 
                     if !store.displayedContributors.isEmpty {
-                        Section("Contributors") {
+                        Section {
                             ForEach(store.displayedContributorCredits) { credit in
                                 Button {
                                     store.send(.contributorButtonTapped(credit.contributorID))
