@@ -584,7 +584,10 @@ public struct BrowseView: View {
             Button {
                 store.send(.browseEventButtonTapped(event.uri))
             } label: {
-                BrowseCalendarEventRow(event: event)
+                BrowseCalendarEventRow(
+                    event: event,
+                    artworkSources: event.artworkSources
+                )
             }
             .buttonStyle(.plain)
         }
@@ -681,6 +684,7 @@ struct OrganizerActorPresentation: Equatable {
 
 struct BrowseCalendarEventRow: View {
     let event: CalendarEvent
+    let artworkSources: [HeroImageSource]
 
     var body: some View {
         ActorCacheRequestingRow(actorID: event.organizer.id) { cachedIdentity in
@@ -689,7 +693,11 @@ struct BrowseCalendarEventRow: View {
                 cachedIdentity: cachedIdentity
             )
             HStack(alignment: .top, spacing: 12) {
-                BrowseEventArtwork(event: event, size: 60)
+                BrowseEventArtwork(
+                    event: event,
+                    artworkSources: artworkSources,
+                    size: 60
+                )
 
                 VStack(alignment: .leading, spacing: 4) {
                     if let dateText {
@@ -736,6 +744,7 @@ struct BrowseCalendarEventRow: View {
 
 struct BrowseEventArtwork: View {
     let event: CalendarEvent
+    let artworkSources: [HeroImageSource]
     let size: ImageFocusCGFloat
 
     var body: some View {
@@ -744,7 +753,7 @@ struct BrowseEventArtwork: View {
                 .fill(.secondary.opacity(0.12))
 
             BrowseEventArtworkSourceChain<BrowseEventArtworkPlaceholder>(
-                sources: event.artworkSources[...],
+                sources: artworkSources[...],
                 renderedImageSize: ImageFocusCGSize(width: size, height: size)
             ) {
                 BrowseEventArtworkPlaceholder()
@@ -815,8 +824,16 @@ struct BrowseEventArtworkSourceChain<Placeholder: View>: View {
 
 extension CalendarEvent {
     var artworkSources: [HeroImageSource] {
+        artworkSources(orderedMedia: semanticallyOrderedMedia)
+    }
+
+    var organizationArtworkSources: [HeroImageSource] {
+        artworkSources(orderedMedia: organizationOrderedMedia)
+    }
+
+    func artworkSources(orderedMedia: [Media]) -> [HeroImageSource] {
         var seenURLs = Set<URL>()
-        var sources = semanticallyOrderedMedia.compactMap { media -> HeroImageSource? in
+        var sources = orderedMedia.compactMap { media -> HeroImageSource? in
             guard seenURLs.insert(media.url).inserted else { return nil }
             return media.artworkSource
         }
@@ -850,6 +867,19 @@ extension CalendarEvent {
             }
             .map(\.element)
     }
+
+    var organizationOrderedMedia: [Media] {
+        media.enumerated()
+            .filter { $0.element.normalizedRole != "sitemap" }
+            .sorted { lhs, rhs in
+                let lhsPriority = lhs.element.organizationArtworkPriority
+                let rhsPriority = rhs.element.organizationArtworkPriority
+                return lhsPriority == rhsPriority
+                    ? lhs.offset < rhs.offset
+                    : lhsPriority < rhsPriority
+            }
+            .map(\.element)
+    }
 }
 
 private extension CalendarEvent.Media {
@@ -871,6 +901,16 @@ private extension CalendarEvent.Media {
         case "icon": 4
         case "logo": 5
         default: 3
+        }
+    }
+
+    var organizationArtworkPriority: Int {
+        switch normalizedRole {
+        case "icon", "logo": 0
+        case "poster": 1
+        case "hero": 2
+        case "photo": 3
+        default: 4
         }
     }
 

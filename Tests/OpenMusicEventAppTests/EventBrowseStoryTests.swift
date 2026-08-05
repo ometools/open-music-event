@@ -173,10 +173,10 @@ struct EventBrowseStoryTests {
         let wickedWoodsOrganizerID = try #require(
             DID("did:plc:5df2u7ief6m6tn77jznicxob")
         )
+        let wickedWoodsEvents = page.events
+            .filter { $0.organizer.id == wickedWoodsOrganizerID }
         expectNoDifference(
-            page.events
-                .filter { $0.organizer.id == wickedWoodsOrganizerID }
-                .map(\.name),
+            wickedWoodsEvents.map(\.name),
             [
                 "Wicked Woods (May 2022)",
                 "Wicked Woods (September 2022)",
@@ -184,6 +184,44 @@ struct EventBrowseStoryTests {
                 "Wicked Woods 2024",
                 "Wicked Woods 2025",
                 "Wicked Woods 2026",
+            ]
+        )
+
+        // Every event keeps a solid event logo, while the 2023 mark identifies the organizer.
+        let wickedWoodsLogoURL = try #require(
+            URL(
+                string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F54F37A50-9698-41B3-AF27-2BC3EE1599FD.png?alt=media&token=d8b07305-f201-4826-bb91-1f31e209741f"
+            )
+        )
+        expectNoDifference(
+            wickedWoodsEvents.map { $0.organizer.avatarURL },
+            Array(repeating: wickedWoodsLogoURL, count: 6)
+        )
+        let eventLogoURLs = try Dictionary(
+            uniqueKeysWithValues: wickedWoodsEvents.map { event in
+                (
+                    event.name,
+                    try #require(event.media.first { $0.role == "icon" }?.url)
+                )
+            }
+        )
+        expectNoDifference(
+            eventLogoURLs,
+            [
+                "Wicked Woods (May 2022)": try #require(
+                    URL(
+                        string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FDAA28B1F-8634-49ED-B740-435A751FAAC6.png?alt=media&token=3359edfa-99c5-4b8e-bb39-417f6ce0cfe4"
+                    )
+                ),
+                "Wicked Woods (September 2022)": try #require(
+                    URL(
+                        string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FEE6A4163-01DE-4DF4-A9B7-1AC0D8BE6EAA.png?alt=media&token=4b9951c7-bcc6-405a-ba4c-aa90ab35a98d"
+                    )
+                ),
+                "Wicked Woods 2023": wickedWoodsLogoURL,
+                "Wicked Woods 2024": wickedWoodsLogoURL,
+                "Wicked Woods 2025": wickedWoodsLogoURL,
+                "Wicked Woods 2026": wickedWoodsLogoURL,
             ]
         )
 
@@ -322,6 +360,16 @@ struct EventBrowseStoryTests {
         expectNoDifference(
             calendarEvent.artworkSources.map(\.kind),
             [.primaryImage, .primaryImage, .primaryImage, .logo, .logo]
+        )
+
+        // An organization history identifies the event before trying promotional artwork.
+        expectNoDifference(
+            calendarEvent.organizationArtworkSources.map(\.image.asset.url),
+            [iconURL, posterURL, heroURL, photoURL, organizerURL]
+        )
+        expectNoDifference(
+            calendarEvent.organizationArtworkSources.map(\.kind),
+            [.logo, .primaryImage, .primaryImage, .primaryImage, .logo]
         )
     }
 

@@ -111,7 +111,7 @@ struct TemporaryOMEBrowseEvent: Decodable {
     var eventID: String
     var location: String?
     var media: [Media]
-    var mode: Mode
+    var mode: Mode?
     var name: String
     var organizerID: String
     var organizerAvatarURL: URL?
@@ -120,7 +120,7 @@ struct TemporaryOMEBrowseEvent: Decodable {
     /// The temporary browse catalog carries it inline until the AppView endpoint does.
     var source: OME.SourceRecord?
     var startDate: LocalDate
-    var status: Status
+    var status: Status?
     var timeZone: String
 
     var calendarEvent: CalendarEvent {
@@ -141,8 +141,8 @@ struct TemporaryOMEBrowseEvent: Decodable {
                 description: description,
                 startsAt: startDate.atStartOfDay(in: timeZone),
                 endsAt: endDate.at(hour: 23, minute: 59, second: 59, in: timeZone),
-                status: status.calendarEventStatus,
-                mode: mode.calendarEventMode,
+                status: status?.calendarEventStatus,
+                mode: mode?.calendarEventMode,
                 locations: location.map { [CalendarEvent.Location(name: $0)] } ?? [],
                 media: media.map {
                     CalendarEvent.Media(url: $0.url, alt: $0.alt, role: $0.role)

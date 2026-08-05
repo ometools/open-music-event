@@ -203,7 +203,10 @@ public struct OrganizationDetailView: View {
             Button {
                 store.send(.eventButtonTapped(event.uri))
             } label: {
-                BrowseCalendarEventRow(event: event)
+                BrowseCalendarEventRow(
+                    event: event,
+                    artworkSources: event.organizationArtworkSources
+                )
             }
             .buttonStyle(.plain)
         }
