@@ -1,8 +1,6 @@
 import ComposableArchitecture2
-import Dependencies
 import Foundation
 import ScheduleComponents
-import Sharing
 import SQLiteData
 import SwiftUI
 
@@ -20,14 +18,6 @@ public struct ScheduleManyStagesAtOnce {
                 OMERecord.Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
-            self.scheduleViewerState = ScheduleViewerState(
-                eventID: eventID,
-                scheduleDivision: scheduleDivision
-            )
-            self._persistedScheduleViewerState = FetchOne(
-                wrappedValue: nil,
-                ScheduleViewerState.none
-            )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
@@ -45,19 +35,10 @@ public struct ScheduleManyStagesAtOnce {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
-        public var scheduleViewerState: ScheduleViewerState
-        @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
 
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
-
-        public var scheduleOrientation: ScheduleViewerState.ScheduleKind.Orientation {
-            if case let .allStagesAtOnce(orientation) = scheduleViewerState.scheduleKind {
-                return orientation
-            }
-            return .vertical
-        }
 
         public func visiblePerformanceRows(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
@@ -90,8 +71,6 @@ public struct ScheduleManyStagesAtOnce {
             UserSchedule.ID
         )
     }
-
-    @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
         Update { _, action in
@@ -145,47 +124,12 @@ public struct ScheduleManyStagesAtOnce {
                 }
             }
         }
-        .onChange(of: store.persistedScheduleViewerState) { _, persistedState, state in
-            guard var persistedState else { return }
-            persistedState.migrateLegacyScheduleKind()
-            guard persistedState != state.scheduleViewerState else { return }
-            state.scheduleViewerState = persistedState
-        }
-        .onMount { state in
-            let eventID = state.eventID
-            let scheduleDivision = state.scheduleDivision
-            let initialState = state.scheduleViewerState
-            let persistedState = state.$persistedScheduleViewerState
-            store.addTask {
-                let subscription = try await persistedState.load(
-                    ScheduleViewerState.rows(
-                        eventID: eventID,
-                        scheduleDivision: scheduleDivision
-                    )
-                )
-                if persistedState.wrappedValue == nil {
-                    let defaultState = try await database.read { db in
-                        try ScheduleViewerStateRequest(
-                            eventID: eventID,
-                            scheduleDivision: scheduleDivision
-                        )
-                        .fetch(db)
-                    }
-                    try store.modify {
-                        guard $0.persistedScheduleViewerState == nil,
-                              $0.scheduleViewerState == initialState
-                        else { return }
-                        $0.scheduleViewerState = defaultState
-                    }
-                }
-                try await subscription.task
-            }
-        }
     }
 }
 
 public struct ScheduleManyStagesAtOnceView: View {
     @Bindable var store: StoreOf<ScheduleManyStagesAtOnce>
+    let orientation: ScheduleViewerState.ScheduleKind.Orientation
     @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
@@ -206,12 +150,14 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     public init(
         store: StoreOf<ScheduleManyStagesAtOnce>,
+        orientation: ScheduleViewerState.ScheduleKind.Orientation,
         selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
         userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool,
         performanceButtonTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void
     ) {
         self.store = store
+        self.orientation = orientation
         self._selectedScheduleID = selectedScheduleID
         self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
@@ -238,7 +184,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         availableHeight: CGFloat,
         timeRange: DateInterval?
     ) -> some View {
-        switch store.scheduleOrientation {
+        switch orientation {
         case .vertical:
             verticalScheduleBody(
                 availableWidth: availableWidth,

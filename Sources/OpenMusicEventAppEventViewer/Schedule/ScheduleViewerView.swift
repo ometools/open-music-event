@@ -411,9 +411,10 @@ public struct ScheduleViewerView: View {
                         }
                     )
 
-                case .allStagesAtOnce:
+                case let .allStagesAtOnce(orientation):
                     ScheduleManyStagesAtOnceView(
                         store: store.spawn(\.manyStagesAtOnce),
+                        orientation: orientation,
                         selectedScheduleID: _selectedScheduleID,
                         userScheduleOverlay: store.state.userScheduleOverlay,
                         showsAuthoringControls: showsAuthoringControls,
