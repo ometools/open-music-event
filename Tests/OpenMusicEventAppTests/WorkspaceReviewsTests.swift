@@ -5,6 +5,7 @@ import ComposableAuthoring
 import CustomDump
 import Dependencies
 import Foundation
+import IssueReporting
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
@@ -41,12 +42,14 @@ struct WorkspaceReviewsTests {
             sourceSnapshotRequests: sourceSnapshotRequests
         )
 
-        await store.send(.reviewButtonTapped(review))?.value
-        await waitUntil {
-            guard case let .reviewDetail(detail)? = store.destination else { return false }
-            return detail.canMerge
-                && detail.rawDiffStatus == .loaded("Rendered remote patch")
-                && !sourceSnapshotRequests.value.isEmpty
+        await withExpectedIssue {
+            await store.send(.reviewButtonTapped(review))?.value
+            await waitUntil {
+                guard case let .reviewDetail(detail)? = store.destination else { return false }
+                return detail.canMerge
+                    && detail.rawDiffStatus == .loaded("Rendered remote patch")
+                    && !sourceSnapshotRequests.value.isEmpty
+            }
         }
 
         guard case let .reviewDetail(detail)? = store.destination else {
@@ -99,10 +102,13 @@ struct WorkspaceReviewsTests {
             }
         )
 
-        await store.send(.reviewButtonTapped(review))?.value
-        await waitUntil {
-            guard case .reviewDetail? = store.destination else { return false }
-            return true
+        await withExpectedIssue {
+            await store.send(.reviewButtonTapped(review))?.value
+            await waitUntil {
+                guard case let .reviewDetail(detail)? = store.destination else { return false }
+                guard case .failed = detail.semanticDiffStatus else { return false }
+                return true
+            }
         }
 
         await store.send(

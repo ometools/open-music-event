@@ -64,6 +64,13 @@ public struct EventWorkspace {
 
         public var changeCount: Int? { changes.badgeCount }
 
+        public var workspaceStatus: WorkspaceStatus { workspacePhase.status }
+
+        public var workspaceIsReady: Bool {
+            guard case .ready = workspacePhase else { return false }
+            return true
+        }
+
         public func availablePages(authoringAccess: AuthoringAccess) -> [Page] {
             var pages: [Page] = [.changes]
             if collaborators != nil {
@@ -164,16 +171,19 @@ public struct EventWorkspaceView: View {
         let changesStore = store.scope(\.changes, action: \.changes)
 
         VStack(spacing: 0) {
+            WorkspaceStatusView(
+                status: store.workspaceStatus,
+                retrySourcePreparation: {
+                    store.send(.sourcePreparationRetryButtonTapped)
+                }
+            )
+
             switch store.selectedPage {
             case .changes:
-                if case let .sourcePreparationFailed(failure) = store.workspacePhase {
-                    WorkspacePreparationFailureView(
-                        failure: failure,
-                        retry: { store.send(.sourcePreparationRetryButtonTapped) }
-                    )
-                } else {
-                    WorkspaceChangesView(store: changesStore)
-                }
+                WorkspaceChangesView(
+                    store: changesStore,
+                    workspaceStatus: store.workspaceStatus
+                )
 
             case .collaborators:
                 if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
@@ -270,7 +280,8 @@ public struct EventWorkspaceView: View {
                 if case .available = changesStore.summary.availability,
                    store.selectedPage == .changes,
                    changesStore.changeCount > 0,
-                   authoringAccess.canPropose
+                   authoringAccess.canPropose,
+                   store.workspaceIsReady
                 {
                     Button {
                         changesStore.send(.proposalActionButtonTapped)
@@ -297,30 +308,143 @@ public struct EventWorkspaceView: View {
     }
 }
 
-struct WorkspacePreparationFailureView: View {
-    let failure: WorkspaceFailure
-    let retry: () -> Void
+struct WorkspaceStatusView: View {
+    let status: WorkspaceStatus
+    let retrySourcePreparation: () -> Void
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    var body: some View {
-        List {
-            Section("Workspace preparation") {
-                Text("Workspace preparation failed")
-                Text(
-                    "Authoring remains active. Retry preparing the organization source to load changes."
-                )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    var failure: WorkspaceFailure? {
+        guard case let .failed(_, failure) = status else { return nil }
+        return failure
+    }
 
-                if showsTechnicalDetails {
-                    Text(failure.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospaced()
+    var isPreparingSourceFailure: Bool {
+        guard case .failed(operation: .sourcePreparation, failure: _) = status else {
+            return false
+        }
+        return true
+    }
+
+    var message: String {
+        switch status {
+        case .activity(.capturingChanges):
+            return "Collecting the current workspace changes."
+        case .activity(.preparingSource):
+            return "Opening the organization source."
+        case .activity(.publishing(.pushCommit)):
+            return "Saving the captured changes to the proposal branch."
+        case .activity(.publishing(.recordProposal)):
+            return "Recording the proposal for the saved branch revision."
+        case .activity(.publishing(.updateReference)):
+            return "Updating the settled workspace after recording the proposal."
+        case .activity(.reconciling):
+            return "Reconciling the organization source."
+        case .failed(operation: .publication, failure: _),
+             .failed(operation: .submissionCapture, failure: _):
+            return "Your changes are still available. Further proposal publishing is unavailable until this failure is resolved."
+        case .failed(operation: .reconciliation, failure: _):
+            return "Your changes remain in the working database. The workspace is using its last settled source."
+        case .failed(operation: .sourcePreparation, failure: _):
+            return "Authoring remains active, but source-backed changes are unavailable until preparation succeeds."
+        case .inactive:
+            return "Enter authoring to prepare this organization source."
+        case .interrupted(.publication):
+            return "Your changes and the unfinished publication are preserved."
+        case .interrupted(.reconciliation):
+            return "Your changes remain available while the interrupted refresh is unresolved."
+        case .interrupted(.sourcePreparation):
+            return "Authoring remains active while source preparation is unresolved."
+        case .interrupted(.submissionCapture):
+            return "Your changes remain available while proposal preparation is unresolved."
+        case .ready(.canonical):
+            return "Source-backed editing and proposal creation are available."
+        case .ready(.proposal):
+            return "Source-backed editing is ready to update the open proposal."
+        case .stale:
+            return "The source changed while you were editing. Publishing is unavailable until reconciliation succeeds."
+        }
+    }
+
+    var title: String {
+        switch status {
+        case .activity(.capturingChanges):
+            return "Preparing proposal"
+        case .activity(.preparingSource):
+            return "Preparing workspace"
+        case .activity(.publishing(.pushCommit)):
+            return "Pushing proposal changes"
+        case .activity(.publishing(.recordProposal)):
+            return "Recording proposal"
+        case .activity(.publishing(.updateReference)):
+            return "Finalizing proposal"
+        case .activity(.reconciling):
+            return "Refreshing workspace"
+        case .failed(operation: .publication, failure: _),
+             .failed(operation: .submissionCapture, failure: _):
+            return "Proposal failed"
+        case .failed(operation: .reconciliation, failure: _):
+            return "Workspace refresh failed"
+        case .failed(operation: .sourcePreparation, failure: _):
+            return "Workspace preparation failed"
+        case .inactive:
+            return "Workspace inactive"
+        case .interrupted(.publication):
+            return "Proposal interrupted"
+        case .interrupted(.reconciliation):
+            return "Workspace refresh interrupted"
+        case .interrupted(.sourcePreparation):
+            return "Workspace preparation interrupted"
+        case .interrupted(.submissionCapture):
+            return "Proposal preparation interrupted"
+        case .ready(.canonical):
+            return "Workspace ready"
+        case .ready(.proposal):
+            return "Proposal workspace ready"
+        case .stale:
+            return "Workspace source changed"
+        }
+    }
+
+    var showsProgress: Bool {
+        guard case .activity = status else { return false }
+        return true
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                if showsProgress {
+                    ProgressView()
                 }
 
-                Button("Retry preparation", action: retry)
+                Text(title)
+                    .font(.headline)
             }
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if showsTechnicalDetails, let failure {
+                PortableDisclosureGroup("Technical details") {
+                    WorkspaceTechnicalValueView(
+                        label: "Error",
+                        value: failure.message
+                    )
+                    .padding(.top, 8)
+                }
+                .font(.caption)
+            }
+
+            if isPreparingSourceFailure {
+                Button("Retry preparation", action: retrySourcePreparation)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.background)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 }

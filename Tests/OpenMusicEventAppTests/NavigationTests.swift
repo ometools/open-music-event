@@ -6038,6 +6038,38 @@ struct NavigationTests {
     }
 
     @Test
+    func createStageReplacesSourceInferredSingletonStage() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try EventSingletonStage.insert(eventID: eventID, in: db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EditStage.State(eventID: eventID)
+            state.draft.name = "Meadow Stage"
+
+            return TestStore(initialState: state) {
+                EditStage()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let stages = try await database.read { db in
+            try StagesViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+        expectNoDifference(stages.map(\.id.stageID), [stageLocalID("meadow-stage")])
+        expectNoDifference(stages.map(\.name), ["Meadow Stage"])
+    }
+
+    @Test
     func editStageImagePickerImportAddsImageThroughParentDestination() async throws {
         let eventID = eventID("event-1")
         let image = ImportImages.Configuration.stagePoster.importedImage(

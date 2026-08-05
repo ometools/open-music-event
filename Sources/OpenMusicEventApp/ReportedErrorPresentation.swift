@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
+import OpenMusicEventAuthentication
 import TCATProtoAuthentication
 
 public protocol ErrorNotificationRootState {
@@ -41,11 +42,7 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
 
     func body(content: Content) -> some FeatureProtocol<State, Action> {
         content
-            .onChange(of: store.authentication.session?.accountID) {
-                oldAccountID,
-                accountID,
-                _ in
-                guard oldAccountID == nil, accountID != nil else { return }
+            .onEvent(OpenMusicEventSelectedAccountChanged.self) { _, _ in
                 store.addTask {
                     try store.content.destination?.eventViewer?
                         .authoring.content.content

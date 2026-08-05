@@ -3,6 +3,7 @@ import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
 import Foundation
+import IssueReporting
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
@@ -111,6 +112,7 @@ public struct WorkspaceChanges {
                         try store.modify { $0.patchStatus = .generated(patch) }
                     } catch {
                         try store.modify { $0.patchStatus = .failed(String(describing: error)) }
+                        reportIssue(error)
                     }
                 }
 
@@ -153,6 +155,7 @@ public struct WorkspaceChanges {
                         }
                     } catch {
                         try store.modify { $0.resetStatus = .failed(String(describing: error)) }
+                        reportIssue(error)
                     }
                 }
 
@@ -199,11 +202,16 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
+    let workspaceStatus: WorkspaceStatus?
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
-    public init(store: StoreOf<WorkspaceChanges>) {
+    public init(
+        store: StoreOf<WorkspaceChanges>,
+        workspaceStatus: WorkspaceStatus? = nil
+    ) {
         self.store = store
+        self.workspaceStatus = workspaceStatus
     }
 
     public var body: some View {
@@ -218,14 +226,21 @@ public struct WorkspaceChangesView: View {
 
             case .workspaceNeedsPreparation:
                 Section("What changed") {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Preparing workspace")
-                            Text("Your changes will appear here when the source is ready.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    if case .activity(.preparingSource)? = workspaceStatus {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Preparing workspace")
+                                Text("Your changes will appear here when the source is ready.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                    } else {
+                        Text("Workspace source unavailable")
+                        Text("Your changes will appear here when the source is ready.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 

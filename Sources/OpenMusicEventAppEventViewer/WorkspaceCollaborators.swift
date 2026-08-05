@@ -3,6 +3,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import IssueReporting
 import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
@@ -159,6 +160,7 @@ public struct WorkspaceCollaborators {
                             $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
                             $0.isSaving = false
                         }
+                        reportIssue(error)
                     }
                 }
 
@@ -208,6 +210,7 @@ public struct WorkspaceCollaborators {
                             $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
                             $0.isSaving = false
                         }
+                        reportIssue(error)
                     }
                 }
 
@@ -247,6 +250,7 @@ public struct WorkspaceCollaborators {
                             $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
                             $0.isSaving = false
                         }
+                        reportIssue(error)
                     }
                 }
             }

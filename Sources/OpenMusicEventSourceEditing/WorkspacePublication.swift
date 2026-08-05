@@ -94,6 +94,47 @@ public struct SourceWorkspaceOpenProposalStore: Sendable {
     }
 }
 
+/// A durable publication that created a local commit but has not yet settled the workspace.
+///
+/// Source preparation uses this checkpoint to distinguish an interrupted publication from an
+/// unexplained repository revision mismatch. The proposal commit remains reachable from its local
+/// branch while preparation restores the settled editing revision.
+public struct SourceWorkspacePublicationCheckpoint: Equatable, Sendable {
+    public var submission: WorkspaceSubmission<SourcePatch>
+    public var commit: WorkspaceCommit
+
+    public init(
+        submission: WorkspaceSubmission<SourcePatch>,
+        commit: WorkspaceCommit
+    ) {
+        self.submission = submission
+        self.commit = commit
+    }
+}
+
+public struct SourceWorkspacePublicationCheckpointStore: Sendable {
+    public init(database: any DatabaseWriter) {
+        self.persistence = WorkspacePublicationPersistence(database: database)
+    }
+
+    private let persistence: WorkspacePublicationPersistence
+
+    public func load(
+        _ workspaceID: SourceWorkspace.ID
+    ) throws -> SourceWorkspacePublicationCheckpoint? {
+        guard let submission = try persistence.submission(workspaceID),
+              let commit = try persistence.pushedCommit(
+                workspaceID: workspaceID,
+                submissionID: submission.id
+              )
+        else { return nil }
+        return SourceWorkspacePublicationCheckpoint(
+            submission: submission,
+            commit: commit
+        )
+    }
+}
+
 /// The proposal branch currently owned by a source workspace.
 ///
 /// This request observes the workspace publication table so database-backed viewers update when

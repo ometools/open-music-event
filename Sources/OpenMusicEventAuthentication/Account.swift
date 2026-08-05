@@ -89,6 +89,11 @@ extension View {
     }
 }
 
+public struct OpenMusicEventSelectedAccountChanged: FeatureEventKey {
+    public init() {}
+    public typealias Value = Atmosphere.Account.ID?
+}
+
 @Feature
 public struct Account {
     public init() {}
@@ -564,6 +569,11 @@ public struct Account {
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionIDStore = state.$selectedSessionID
                     store.addTask {
+                        let notification = try store.post(
+                            key: OpenMusicEventSelectedAccountChanged.self,
+                            value: selectedSessionID
+                        )
+                        await notification?.value
                         await saveOpenMusicEventAuthenticationStorage(
                             sessionStore: sessionStore,
                             selectedSessionID: selectedSessionIDStore
@@ -610,6 +620,11 @@ public struct Account {
                     state.syncRecentlyUsedAccountIDs(selectedAccountID: accountID)
                     let selectedSessionID = state.$selectedSessionID
                     store.addTask {
+                        let notification = try store.post(
+                            key: OpenMusicEventSelectedAccountChanged.self,
+                            value: accountID
+                        )
+                        await notification?.value
                         await saveOpenMusicEventSelectedSessionID(selectedSessionID)
                     }
 
@@ -747,6 +762,11 @@ public struct Account {
                             try store.modify {
                                 $0.finishAuthentication(session)
                             }
+                            let notification = try store.post(
+                                key: OpenMusicEventSelectedAccountChanged.self,
+                                value: session.accountID
+                            )
+                            await notification?.value
                             await saveOpenMusicEventAuthenticationStorage(
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
@@ -791,6 +811,11 @@ public struct Account {
                             try store.modify {
                                 $0.finishAuthentication(session)
                             }
+                            let notification = try store.post(
+                                key: OpenMusicEventSelectedAccountChanged.self,
+                                value: session.accountID
+                            )
+                            await notification?.value
                             await saveOpenMusicEventAuthenticationStorage(
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
@@ -834,6 +859,11 @@ public struct Account {
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionID = state.$selectedSessionID
                     store.addTask {
+                        let notification = try store.post(
+                            key: OpenMusicEventSelectedAccountChanged.self,
+                            value: nil
+                        )
+                        await notification?.value
                         await saveOpenMusicEventAuthenticationStorage(
                             sessionStore: sessionStore,
                             selectedSessionID: selectedSessionID

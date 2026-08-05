@@ -196,6 +196,7 @@ private func prepareOpenMusicEventSourceWorkspace(
     }
 
     let revision = try await resolveRevision(repository, RefName(rawValue: "HEAD"))
+    var editingRevision = revision.rawValue
 
     switch (referenceRevision, installedRevision) {
     case (nil, nil):
@@ -241,6 +242,27 @@ private func prepareOpenMusicEventSourceWorkspace(
     case (nil, .some):
         throw SourceWorkspaceDatabaseError.referenceMissing(workspace.id)
 
+    case let (.some(referenceRevision), .some(installedRevision))
+        where referenceRevision == installedRevision:
+        guard let checkpoint = try SourceWorkspacePublicationCheckpointStore(database: mainDatabase)
+            .load(workspace.id),
+              checkpoint.commit.parentRevision.rawValue == referenceRevision,
+              checkpoint.submission.base.editingReference.revision.rawValue == referenceRevision,
+              checkpoint.commit.source.revision.rawValue == revision.rawValue
+        else {
+            throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
+                workspaceID: workspace.id,
+                repositoryRevision: revision.rawValue,
+                referenceRevision: referenceRevision,
+                installationRevision: installedRevision
+            )
+        }
+
+        // Publication persisted its local proposal commit before its external push failed. Keep
+        // that commit checked out and preserve its branch/files for diagnosis or continuation,
+        // while exposing the settled parent as the editing line beneath the durable submission.
+        editingRevision = referenceRevision
+
     case let (referenceRevision, installedRevision):
         throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
             workspaceID: workspace.id,
@@ -254,7 +276,7 @@ private func prepareOpenMusicEventSourceWorkspace(
         line: .canonical(
             WorkspaceBranchReference(
                 branch: WorkspaceBranch(rawValue: workspace.branch),
-                revision: WorkspaceRevision(rawValue: revision.rawValue)
+                revision: WorkspaceRevision(rawValue: editingRevision)
             )
         ),
         source: SourceWorkspaceResource(

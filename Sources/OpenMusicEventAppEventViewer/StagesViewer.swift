@@ -464,7 +464,7 @@ public struct CopyStagesFromEvent {
         return sourceStages.count
     }
 
-    private static func deleteSingletonStage(
+    static func deleteSingletonStage(
         eventID: OMERecord.Event.ID,
         in db: Database
     ) throws {
@@ -1721,6 +1721,17 @@ public struct EditStage {
                 store.addTask {
                     do {
                         try database.write { db in
+                            if case .create = draftState.mode {
+                                let stages = try StagesViewer
+                                    .stagesQuery(eventID: draftState.eventID)
+                                    .fetchAll(db)
+                                if StagesViewer.hasOnlyReplaceableSingletonStage(stages) {
+                                    try CopyStagesFromEvent.deleteSingletonStage(
+                                        eventID: draftState.eventID,
+                                        in: db
+                                    )
+                                }
+                            }
                             let stageID = try draftState.stageID(in: db)
                             let preparedDraft = try draftState.preparedDraft(stageID: stageID)
                             try OMERecord.Stage.upsert {

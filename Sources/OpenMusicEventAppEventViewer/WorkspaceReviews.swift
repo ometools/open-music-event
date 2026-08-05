@@ -5,6 +5,7 @@ import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
 import Foundation
+import IssueReporting
 import GRDB
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
@@ -155,6 +156,7 @@ public struct WorkspaceReviews {
                 }
             } catch {
                 try store.modify { $0.status = .failed(String(describing: error)) }
+                reportIssue(error)
             }
         }
     }
@@ -276,6 +278,7 @@ public struct WorkspaceReviewDetail {
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
                     } catch {
                         try store.modify { $0.operation = .failed(String(describing: error)) }
+                        reportIssue(error)
                     }
                 }
 
@@ -290,6 +293,7 @@ public struct WorkspaceReviewDetail {
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
                     } catch {
                         try store.modify { $0.operation = .failed(String(describing: error)) }
+                        reportIssue(error)
                     }
                 }
 
@@ -313,6 +317,7 @@ public struct WorkspaceReviewDetail {
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
                     } catch {
                         try store.modify { $0.operation = .failed(String(describing: error)) }
+                        reportIssue(error)
                     }
                 }
 
@@ -343,6 +348,7 @@ public struct WorkspaceReviewDetail {
                     try store.modify {
                         $0.rawDiffStatus = .failed(String(describing: error))
                     }
+                    reportIssue(error)
                 }
             }
         }
@@ -373,6 +379,7 @@ public struct WorkspaceReviewDetail {
                     try store.modify {
                         $0.semanticDiffStatus = .failed(String(describing: error))
                     }
+                    reportIssue(error)
                 }
             }
         }
