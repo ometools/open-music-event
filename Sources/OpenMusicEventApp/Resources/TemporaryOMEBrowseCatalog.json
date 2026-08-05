@@ -167,6 +167,11 @@
   {
     "organizerID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
     "organizerName": "Shambhala Music Festival",
+    "source": {
+      "kind": "tangled",
+      "reference": "https://tangled.org/woody.fm/shambhala-ome",
+      "ref": "main"
+    },
     "eventID": "shambhala-ome-2026",
     "name": "Shambhala 2026",
     "startDate": "2026-07-24",
