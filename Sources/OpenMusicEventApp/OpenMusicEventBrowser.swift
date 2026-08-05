@@ -940,18 +940,15 @@ struct AndroidBrowseDatePickerComposer: ContentComposer {
     }
 
     private func datePickerMillis(from date: Date, timeZone: TimeZone) -> Long {
-        Long(
-            BrowseDatePickerConversion.datePickerMilliseconds(
-                from: date,
-                timeZone: timeZone
-            )
-        )
+        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: date))
+        return Long((date.timeIntervalSince1970 + timeZoneOffset) * 1_000)
     }
 
     private func date(fromDatePickerMillis millis: Long, timeZone: TimeZone) -> Date {
-        BrowseDatePickerConversion.date(
-            fromDatePickerMilliseconds: Double(millis),
-            timeZone: timeZone
+        let utcDate = Date(timeIntervalSince1970: Double(millis) / 1_000)
+        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: utcDate))
+        return Date(
+            timeIntervalSince1970: utcDate.timeIntervalSince1970 - timeZoneOffset
         )
     }
 }
