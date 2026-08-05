@@ -316,6 +316,10 @@ struct WorkspaceAuthoringStoryTests {
                 try OMERecord.Event.find(olderEventID).fetchOne(db) != nil
             }
             #expect(olderEventIsInstalled)
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
 
             // A real editor action opens the live form. TestStore.modify is the same blessed
             // binding entry point used by SwiftUI, and save writes through Workspace's database.
@@ -355,6 +359,11 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(
                 editedEventNames,
                 ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
+            )
+            // The event viewer mounted before authoring reflects the saved value without an app restart.
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 - Local Edit"
             )
             let editedSummary = try await resource.database.read { db in
                 try SourceWorkspaceEditSummary.query(workspace: workspace, in: db)
