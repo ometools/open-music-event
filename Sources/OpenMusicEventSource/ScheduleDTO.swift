@@ -1,15 +1,18 @@
 import Foundation
 import Lexicon
 import OpenMusicEventLexicon
+import OrderedCollections
 
 public struct ScheduleDTO: Codable, Equatable, Sendable {
+    public typealias ScheduleItems = OrderedDictionary<String, [ScheduleItem]>
+
     public var id: OMERecord.ID<OMERecord.Schedule>?
     public var eventID: OMERecord.ID<OMERecord.Event>?
     public var date: LocalDate
     public var startsAt: String?
     public var endsAt: String?
     public var customTitle: String?
-    public var scheduleItems: [String: [ScheduleItem]]
+    public var scheduleItems: ScheduleItems
 
     public init(
         id: OMERecord.ID<OMERecord.Schedule>? = nil,
@@ -18,7 +21,7 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
         startsAt: String? = nil,
         endsAt: String? = nil,
         customTitle: String? = nil,
-        scheduleItems: [String: [ScheduleItem]]
+        scheduleItems: ScheduleItems
     ) {
         self.id = id
         self.eventID = eventID
@@ -63,7 +66,7 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(startsAt, forKey: .startsAt)
         try container.encodeIfPresent(endsAt, forKey: .endsAt)
         try container.encodeIfPresent(customTitle, forKey: .customTitle)
-        try container.encode(scheduleItems, forKey: .scheduleItems)
+        try encodeScheduleItems(scheduleItems, to: &container, forKey: .scheduleItems)
     }
 }
 
@@ -72,14 +75,14 @@ public struct InlineScheduleDTO: Codable, Equatable, Sendable {
     public var startsAt: String?
     public var endsAt: String?
     public var customTitle: String?
-    public var scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
+    public var scheduleItems: ScheduleDTO.ScheduleItems
 
     public init(
         date: LocalDate? = nil,
         startsAt: String? = nil,
         endsAt: String? = nil,
         customTitle: String? = nil,
-        scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
+        scheduleItems: ScheduleDTO.ScheduleItems
     ) {
         self.date = date
         self.startsAt = startsAt
@@ -116,7 +119,7 @@ public struct InlineScheduleDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(startsAt, forKey: .startsAt)
         try container.encodeIfPresent(endsAt, forKey: .endsAt)
         try container.encodeIfPresent(customTitle, forKey: .customTitle)
-        try container.encode(scheduleItems, forKey: .scheduleItems)
+        try encodeScheduleItems(scheduleItems, to: &container, forKey: .scheduleItems)
     }
 }
 
@@ -327,7 +330,7 @@ private func decodeScheduleItems<Key: CodingKey>(
     from container: KeyedDecodingContainer<Key>,
     scheduleItemsKey: Key,
     legacyPerformancesKey: Key
-) throws -> [String: [ScheduleDTO.ScheduleItem]] {
+) throws -> ScheduleDTO.ScheduleItems {
     let containsScheduleItems = container.contains(scheduleItemsKey)
     let containsLegacyPerformances = container.contains(legacyPerformancesKey)
 
@@ -340,13 +343,63 @@ private func decodeScheduleItems<Key: CodingKey>(
     }
 
     if containsLegacyPerformances {
-        return try container
-            .decode([String: [LegacyPerformanceScheduleItem]].self, forKey: legacyPerformancesKey)
-            .mapValues { $0.map(\.scheduleItem) }
+        let legacyScheduleItems: OrderedDictionary<String, [LegacyPerformanceScheduleItem]> =
+            try decodeOrderedValues(from: container, forKey: legacyPerformancesKey)
+        return OrderedDictionary(
+            uniqueKeysWithValues: legacyScheduleItems.map { stageID, scheduleItems in
+                (stageID, scheduleItems.map(\.scheduleItem))
+            }
+        )
     }
 
-    return try container.decode(
-        [String: [ScheduleDTO.ScheduleItem]].self,
-        forKey: scheduleItemsKey
+    return try decodeOrderedValues(from: container, forKey: scheduleItemsKey)
+}
+
+private func decodeOrderedValues<Key: CodingKey, Value: Decodable>(
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key
+) throws -> OrderedDictionary<String, Value> {
+    let values = try container.nestedContainer(
+        keyedBy: ScheduleStageCodingKey.self,
+        forKey: key
     )
+    return OrderedDictionary(
+        uniqueKeysWithValues: try values.allKeys.map { stageKey in
+            (
+                stageKey.stringValue,
+                try values.decode(Value.self, forKey: stageKey)
+            )
+        }
+    )
+}
+
+private func encodeScheduleItems<Key: CodingKey>(
+    _ scheduleItems: ScheduleDTO.ScheduleItems,
+    to container: inout KeyedEncodingContainer<Key>,
+    forKey key: Key
+) throws {
+    var values = container.nestedContainer(
+        keyedBy: ScheduleStageCodingKey.self,
+        forKey: key
+    )
+    for (stageID, scheduleItems) in scheduleItems {
+        try values.encode(scheduleItems, forKey: ScheduleStageCodingKey(stageID))
+    }
+}
+
+private struct ScheduleStageCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+
+    init(_ stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(stringValue: String) {
+        self.init(stringValue)
+    }
+
+    init?(intValue: Int) {
+        return nil
+    }
 }

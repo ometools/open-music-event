@@ -549,7 +549,7 @@ public extension OME {
             var startsAt: String?
             var endsAt: String?
             var customTitle: String?
-            var scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
+            var scheduleItems: ScheduleDTO.ScheduleItems
 
             init(
                 _ schedule: ScheduleDTO,
@@ -799,7 +799,7 @@ public extension OME {
             }
 
             mutating func addGeneratedScheduleContributors(
-                from scheduleItemsByStageID: [String: [ScheduleDTO.ScheduleItem]],
+                from scheduleItemsByStageID: ScheduleDTO.ScheduleItems,
                 organizerID: OME.Organizer.ID,
                 eventID: OME.ID<OME.Event>,
                 usedContributorIDs: inout Set<OME.ID<OME.Contributor>>

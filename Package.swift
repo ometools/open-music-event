@@ -163,6 +163,7 @@ var dependencies: [Package.Dependency] = [
         traits: sharingTraits
     ),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
+    .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
@@ -413,6 +414,7 @@ var targets: [Target] = [
             .product(name: "FrontmatterParsing", package: "swift-frontmatter-parsing"),
             .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+            .product(name: "OrderedCollections", package: "swift-collections"),
             "Yams",
         ]
     ),

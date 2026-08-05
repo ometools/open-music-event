@@ -146,6 +146,124 @@ struct SourceWorkspacePatchGenerationTests {
         expectNoDifference(patch.fileChanges.map(\.kind), [.added])
     }
 
+    @Test
+    func changingOneScheduleItemPreservesTheSourceStageOrder() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let workspace = try fixture.workspace(
+            organizer: "did:plc:wickedwoods",
+            repository: "tangled.org/wickedwoods/events"
+        )
+        let expectedStageOrder = [
+            "ursus",
+            "unicorn-lounge",
+            "the-hallow",
+            "the-portal",
+            "relaxation-ridge",
+        ]
+
+        // The organizer's Friday source has a deliberate stage order.
+        try await fixture.install(
+            workspace,
+            sourceFiles: [
+                "calendar.yml": """
+                name: Wicked Woods
+                """,
+                "events/woods-2026/event.yml": """
+                name: Wicked Woods 2026
+                timeZone: America/Denver
+                """,
+                "events/woods-2026/stages/ursus.yml": """
+                name: Ursus
+                color: "0x111111"
+                """,
+                "events/woods-2026/stages/unicorn-lounge.yml": """
+                name: Unicorn Lounge
+                color: "0x222222"
+                """,
+                "events/woods-2026/stages/the-hallow.yml": """
+                name: The Hallow
+                color: "0x333333"
+                """,
+                "events/woods-2026/stages/the-portal.yml": """
+                name: The Portal
+                color: "0x444444"
+                """,
+                "events/woods-2026/stages/relaxation-ridge.yml": """
+                name: Relaxation Ridge
+                color: "0x555555"
+                """,
+                "events/woods-2026/schedules/friday.yml": """
+                date: 2026-09-04
+                performances:
+                  ursus:
+                    - id: ursus-opening
+                      title: Ursus Opening
+                      startTime: "15:00"
+                      endTime: "16:00"
+                  unicorn-lounge:
+                    - id: unicorn-opening
+                      title: Unicorn Opening
+                      startTime: "15:00"
+                      endTime: "16:00"
+                  the-hallow:
+                    - id: hallow-opening
+                      title: Hallow Opening
+                      startTime: "15:00"
+                      endTime: "16:00"
+                  the-portal:
+                    - id: portal-opening
+                      title: Portal Opening
+                      startTime: "15:00"
+                      endTime: "16:00"
+                  relaxation-ridge:
+                    - id: ridge-opening
+                      title: Ridge Opening
+                      startTime: "15:00"
+                      endTime: "16:00"
+                """,
+            ]
+        )
+        let sourceEvent = try #require(
+            try await fixture.installedEvents(for: workspace).first
+        )
+
+        // The organizer changes one item without rearranging the schedule.
+        try await fixture.database.write { db in
+            try OME.ScheduleItem.find(
+                OME.ScheduleItem.ID(
+                    organizerID: sourceEvent.id.organizerID,
+                    eventID: sourceEvent.id.eventID,
+                    scheduleItemID: OME.ID<OME.ScheduleItem>(.init("ursus-opening"))
+                )
+            )
+            .update { $0.title = "Updated Ursus Opening" }
+            .execute(db)
+        }
+
+        // The proposal should change the item while retaining the source's stage order.
+        let patch = try await fixture.patch(for: workspace)
+        expectNoDifference(
+            patch.fileChanges.map(\.path),
+            ["events/woods-2026/schedules/friday.yml"]
+        )
+        let scheduleChange = try #require(patch.fileChanges.first)
+        let scheduleSource = String(
+            decoding: try #require(scheduleChange.newContents),
+            as: UTF8.self
+        )
+        let proposedStageOrder = scheduleSource
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard line.hasPrefix("  "),
+                      !line.hasPrefix("    "),
+                      line.hasSuffix(":")
+                else { return nil }
+                return String(line.dropFirst(2).dropLast())
+            }
+        expectNoDifference(proposedStageOrder, expectedStageOrder)
+    }
+
     private static func sourceRepository(
         eventDirectories: [String],
         names: [String]
@@ -223,6 +341,38 @@ private final class Fixture {
             repository,
             to: location.repositoryURL
         )
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: repository,
+                organizerID: workspace.organizerID,
+                sourceProvenance: workspace.sourceProvenance,
+                sourceRootURL: location.repositoryURL
+            )
+        )
+        try await insertion.replaceSourceWorkspace(
+            workspace,
+            revision: "base-revision",
+            in: database
+        )
+    }
+
+    func install(
+        _ workspace: SourceWorkspace,
+        sourceFiles: [String: String]
+    ) async throws {
+        let location = try storage.location(workspace.id)
+        for (path, contents) in sourceFiles {
+            let fileURL = location.repositoryURL.appending(path: path)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+        let repository = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: location.repositoryURL)
+            .output
+            .requiredValue
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: repository,

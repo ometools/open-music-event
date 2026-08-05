@@ -4011,7 +4011,7 @@ struct SourceDatabaseInsertionTests {
         contributorLinks: [ExternalPlatform.Link]? = nil,
         contributorName: String = "Artist One",
         includeDefaultContributor: Bool = true,
-        scheduleItems: [String: [ScheduleDTO.ScheduleItem]] = [
+        scheduleItems: ScheduleDTO.ScheduleItems = [
             "meadow": [
                 .init(
                     id: id("opening-set"),
