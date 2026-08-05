@@ -494,6 +494,130 @@ struct WorkspaceAuthoringStoryTests {
     }
 
     @Test(.tcaExhaustivity(.off))
+    func `saved authoring access is available in settings while the source opens`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let storageRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "OME-SavedAuthoringAccessStory-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        defer { try? FileManager.default.removeItem(at: storageRoot) }
+        let git = try WorkspaceStoryGitFixture(
+            organizerID: organizerID,
+            rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
+        )
+        let operations = WorkspaceStorySourceControlRecorder()
+        let preparation = WorkspaceStoryPreparationPause()
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
+        let route = AppRoute.event(selectedEventID, .settings)
+        let routeURL = try #require(URL(string: "ome://saved-authoring-access\(route.path)"))
+
+        try await withDependencies {
+            $0.context = .test
+            // Keep app launch, event installation, persisted activation, and restoration live.
+            OME.prepareDependencies(&$0, database: database)
+            let liveSourceControl = $0.sourceControl
+            let livePreparation = $0[SourceWorkspacePreparationClient.self]
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            // Restoration must reopen the same durable source location after authorization succeeds.
+            $0.sourceWorkspaceStorage = .fileBacked(
+                rootURL: storageRoot.appending(path: "workspaces")
+            )
+            // The selected account remains the organizer who owns the restored grant.
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
+                organizerID: organizerID
+            )
+            // Exercise the live OME admission and restoration clients against fixture transport.
+            $0.tangledRepositoryMembership = .liveValue
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.p256Sign = { try $1.signature(for: $0).rawRepresentation }
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                organizerID: organizerID,
+                archive: git.archive
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                .sshAgent(hostKeyPolicy: .acceptForTesting)
+            }
+            $0.sourceControl = workspaceStorySourceControl(
+                live: liveSourceControl,
+                remoteURL: git.bareRepositoryURL,
+                recorder: operations
+            )
+            // Hold only source preparation so Settings can be observed after grant restoration.
+            $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient {
+                workspace in
+                try await preparation.prepare(workspace, live: livePreparation)
+            }
+        } operation: {
+            let installedEventID = try await OMEEventInstallationClient.liveValue
+                .ensureInstalled(OMERecord.Event.reference(id: selectedEventID).uri)
+            let restorableState = OpenMusicEventAppRoot.State(
+                selectedEventIDAtLaunch: installedEventID
+            )
+            let workspaceID = try #require(
+                restorableState.destination?.eventViewer?.authoring.context.id
+            )
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            try await activations.activate(
+                workspaceID,
+                AuthoringPrincipal(actorID: organizerID),
+                .owner
+            )
+
+            let store = Store(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
+                ) {
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
+            }
+
+            // The user opens Settings after relaunching with saved authoring access.
+            let opening = store.send(.content(.openURL(routeURL)))
+            await preparation.waitUntilStarted()
+
+            // The restored grant drives Settings immediately; source preparation has its own phase.
+            let authoring = try #require(store.content.destination?.eventViewer?.authoring)
+            let grant = try #require(authoring.grant)
+            expectNoDifference(authoring.phase, .active(grant))
+            expectNoDifference(authoring.content.phase, .preparingSource)
+            expectNoDifference(authoring.content.content.selectedFeature, .settings)
+            #expect(authoring.content.content.eventSettings != nil)
+
+            // Source preparation can finish without changing or replacing the restored grant.
+            await preparation.continuePreparation()
+            await opening?.value
+            try await workspaceStoryWaitUntil {
+                guard case .ready(.canonical) = store.content.destination?.eventViewer?.authoring.content.phase
+                else { return false }
+                return true
+            }
+            expectNoDifference(store.content.destination?.eventViewer?.authoring.grant, grant)
+            expectNoDifference(operations.count(of: "clone"), 1)
+        }
+    }
+
+    @Test(.tcaExhaustivity(.off))
     func `an organizer retries failed source preparation without losing authoring access`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
@@ -1188,6 +1312,41 @@ private func workspaceStoryWorkspaceAction(
 private struct WorkspaceStoryUnexpectedSourceControlOperation: Error {}
 
 private struct WorkspaceStoryFirstPreparationFailure: Error {}
+
+private actor WorkspaceStoryPreparationPause {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func continuePreparation() {
+        precondition(started, "Source preparation has not started.")
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func prepare(
+        _ workspace: SourceWorkspace,
+        live: SourceWorkspacePreparationClient
+    ) async throws -> WorkspacePreparation<SourceWorkspaceResource> {
+        precondition(!started, "Source preparation unexpectedly started more than once.")
+        await withCheckedContinuation {
+            continuation = $0
+            started = true
+            for waiter in startWaiters {
+                waiter.resume()
+            }
+            startWaiters.removeAll()
+        }
+        return try await live.prepare(workspace)
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+}
 
 private actor WorkspaceStoryPreparationGate {
     private var attempt = 0
