@@ -154,12 +154,15 @@ struct WorkspaceAuthoringStoryTests {
         .tcaExhaustivity(.off),
         arguments: [EventTarget.settings, .workspace]
     )
-    func `an eligible organizer edits an event and creates a source proposal`(
+    func `a source repository owner edits an organizer's event and creates a proposal`(
         _ target: EventTarget
     ) async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let repositoryOwnerID = try #require(
+            DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu")
         )
         let selectedEventID = workspaceStoryEventID(
             organizerID: organizerID,
@@ -180,7 +183,7 @@ struct WorkspaceAuthoringStoryTests {
             rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
         )
         let operations = WorkspaceStorySourceControlRecorder()
-        let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: repositoryOwnerID)
         let route = AppRoute.event(selectedEventID, target)
         let routeURL = try #require(URL(string: "ome://workspace-story\(route.path)"))
 
@@ -195,9 +198,9 @@ struct WorkspaceAuthoringStoryTests {
             $0.uuid = .incrementing
             // The second app mount must reopen this checkout instead of creating another one.
             $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot.appending(path: "workspaces"))
-            // The selected OAuth account is the organizer whose repository grants owner eligibility.
+            // The selected OAuth account owns the source repository but is not the event organizer.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
-                organizerID: organizerID
+                actorID: repositoryOwnerID
             )
             // Exercise OME's live membership and authorization clients against fixture transport.
             $0.tangledRepositoryMembership = .liveValue
@@ -208,7 +211,7 @@ struct WorkspaceAuthoringStoryTests {
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = workspaceStoryNetwork(
-                organizerID: organizerID,
+                organizerID: repositoryOwnerID,
                 archive: git.archive
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -237,7 +240,7 @@ struct WorkspaceAuthoringStoryTests {
             await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
 
             let eligibility = AuthoringEligibility(
-                principal: AuthoringPrincipal(actorID: organizerID),
+                principal: AuthoringPrincipal(actorID: repositoryOwnerID),
                 role: .owner
             )
 
@@ -282,7 +285,10 @@ struct WorkspaceAuthoringStoryTests {
             let authoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             let workspace = authoring.context
             let resource = try #require(authoring.content.source)
-            expectNoDifference(authoring.grant?.principal, AuthoringPrincipal(actorID: organizerID))
+            expectNoDifference(
+                authoring.grant?.principal,
+                AuthoringPrincipal(actorID: repositoryOwnerID)
+            )
             expectNoDifference(authoring.grant?.role, .owner)
             expectNoDifference(
                 authoring.phase,
@@ -535,7 +541,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             // The selected account remains the organizer who owns the restored grant.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
-                organizerID: organizerID
+                actorID: organizerID
             )
             // Exercise the live OME admission and restoration clients against fixture transport.
             $0.tangledRepositoryMembership = .liveValue
@@ -659,7 +665,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             // The selected OAuth account resolves to owner eligibility through the live client.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
-                organizerID: organizerID
+                actorID: organizerID
             )
             $0.tangledRepositoryMembership = .liveValue
             $0[XRPC.Client.self] = .liveValue
@@ -839,13 +845,13 @@ struct WorkspaceAuthoringStoryTests {
                 rootURL: storageRoot.appending(path: "workspaces")
             )
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
-                organizerID: organizerID
+                actorID: organizerID
             )
             // A signed-out app must stop before membership policy or source work is consulted.
             $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
-                _, _, _ in
+                _, _ in
                 operations.record("membership")
-                return false
+                return nil
             }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .liveValue
@@ -943,7 +949,7 @@ struct WorkspaceAuthoringStoryTests {
                 $0.uuid = .incrementing
                 // The selected account is valid, but repository membership denies authoring eligibility.
                 $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
-                    _, _, _ in false
+                    _, _ in nil
                 }
                 $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                     try FileManager.default.createDirectory(
@@ -1536,18 +1542,18 @@ private func workspaceStorySourceEvent(
 }
 
 private func workspaceStoryAccountClient(
-    organizerID: DID
+    actorID: DID
 ) -> Atmosphere.Account.Client {
     let account = Atmosphere.Account(
-        id: .init(organizerID),
+        id: .init(actorID),
         handle: Atmosphere.Account.Handle("woody.fm")
     )
     return Atmosphere.Account.Client(
         resolveHandle: { _ in
-            (account, try workspaceStoryDIDDocument(did: organizerID))
+            (account, try workspaceStoryDIDDocument(did: actorID))
         },
         resolveDID: { _ in
-            (account, try workspaceStoryDIDDocument(did: organizerID))
+            (account, try workspaceStoryDIDDocument(did: actorID))
         }
     )
 }

@@ -12,36 +12,33 @@ import XRPCClient
 /// The live network boundary that answers whether an actor can write to a Tangled repository.
 /// No cloned source data or application database state participates in authoring admission.
 struct TangledRepositoryMembershipClient: Sendable {
-    var contains: @Sendable (
+    var role: @Sendable (
         _ repository: TangledRepositoryReference,
-        _ expectedOwnerID: DID,
         _ actorID: DID
-    ) async throws -> Bool
+    ) async throws -> OME.WorkspaceRole?
 }
 
 extension TangledRepositoryMembershipClient: DependencyKey {
     static var liveValue: Self {
-        Self { repository, expectedOwnerID, actorID in
+        Self { repository, actorID in
             let ownerID = try await repository.resolvedOwnerDID()
-            guard ownerID == expectedOwnerID.description else {
-                return false
-            }
-            if expectedOwnerID == actorID {
-                return true
+            if ownerID == actorID.description {
+                return .owner
             }
 
             let target = try await repository.resolvedTangledRepositoryTarget()
             @Dependency(XRPC.Client.self) var xrpcClient
-            return try await xrpcClient.tangledContainsCollaborator(
+            guard try await xrpcClient.tangledContainsCollaborator(
                 subject: target.repositoryDID,
                 actorID: actorID,
                 knotHost: target.knotHost
-            )
+            ) else { return nil }
+            return .collaborator([.propose])
         }
     }
 
     static var testValue: Self {
-        Self { _, _, _ in false }
+        Self { _, _ in nil }
     }
 }
 
@@ -135,15 +132,11 @@ private func authoringEligibility(
     else { return nil }
 
     @Dependency(\.tangledRepositoryMembership) var membership
-    guard try await membership.contains(
+    guard let role = try await membership.role(
         repository,
-        workspace.organizerID,
         actorID
     ) else { return nil }
 
-    let role: OME.WorkspaceRole = workspace.organizerID == actorID
-        ? .owner
-        : .collaborator([.propose])
     return AuthoringEligibility(
         principal: AuthoringPrincipal(actorID: actorID),
         role: role
