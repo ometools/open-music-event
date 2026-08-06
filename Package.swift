@@ -131,11 +131,8 @@ var dependencies: [Package.Dependency] = [
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
-    .package(
-        name: "swift-composable-workspace",
-        path: packagePath("../../swift-packages/swift-composable-workspace")
-    ),
+    .package(url: "https://tangled.org/woody.fm/swift-file-tree", branch: "main"),
+    .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
     .package(path: "../../swift-packages/swift-dependencies-http-client"),
     isAndroidAppBuild
         ? .package(

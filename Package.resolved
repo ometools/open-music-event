@@ -1,5 +1,5 @@
 {
-  "originHash" : "58f0e78be094e331cbd1b79585d31ac5489185f6dc7bccb363915e844b95c110",
+  "originHash" : "f2fe07d7872c6efad99767c4f88f0456c8386b3d33e8d57c5d262e397d321b39",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -344,6 +344,15 @@
       }
     },
     {
+      "identity" : "swift-composable-workspace",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.woody.fm/swift-composable-workspace",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d60773d48e9e909319f9da9e0fe3f4e52ba420f1"
+      }
+    },
+    {
       "identity" : "swift-concurrency-extras",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
@@ -413,6 +422,15 @@
       "state" : {
         "revision" : "dc8121fdd2b444c97d6b0534e8ad4ddecbe0d5f4",
         "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "swift-file-tree",
+      "kind" : "remoteSourceControl",
+      "location" : "https://tangled.org/woody.fm/swift-file-tree",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0373602ea25b47c7818365d9ebb9213d92ab6d2d"
       }
     },
     {
