@@ -1525,13 +1525,21 @@ struct EventOrganizerRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(.secondary.opacity(0.12))
 
-                    ImageAssetAsyncImage(
-                        image: organizerArtwork(avatarURL: presentation.avatarURL),
-                        renderedImageSize: CGSize(width: 60, height: 60)
-                    ) {
-                        MappedSystemImage(systemName: "person")
-                            .foregroundStyle(.secondary)
-                            .padding(16)
+                    CachedRemoteImage(
+                        url: presentation.avatarURL,
+                        targetSize: CGSize(width: 60, height: 60)
+                    ) { phase in
+                        switch phase {
+                        case let .success(image, _):
+                            image
+                                .resizable()
+                                .scaledToFill()
+
+                        case .empty, .failure, .unavailable:
+                            MappedSystemImage(systemName: "person")
+                                .foregroundStyle(.secondary)
+                                .padding(16)
+                        }
                     }
                 }
                 .frame(width: 60, height: 60)
@@ -1546,19 +1554,6 @@ struct EventOrganizerRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-    }
-
-    func organizerArtwork(avatarURL: URL?) -> DisplayImageAsset? {
-        avatarURL.map { avatarURL in
-            DisplayImageAsset(
-                asset: OME.ImageAsset(
-                    source: .url(avatarURL),
-                    role: .logo,
-                    renderKind: .transparent,
-                    materializationPolicy: .lazy
-                )
-            )
         }
     }
 }
