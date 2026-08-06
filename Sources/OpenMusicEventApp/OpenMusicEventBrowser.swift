@@ -1244,44 +1244,44 @@ public struct EventBrowseDetailView: View {
                     }
 
                     Spacer()
-
-                    Menu {
-                        RSVPStatusButton(
-                            title: "Going",
-                            status: .going,
-                            selectedStatus: store.rsvpStatus,
-                            disabled: store.isSavingRSVP
-                        ) {
-                            store.send(.rsvpButtonTapped(.going))
-                        }
-                        RSVPStatusButton(
-                            title: "Interested",
-                            status: .interested,
-                            selectedStatus: store.rsvpStatus,
-                            disabled: store.isSavingRSVP
-                        ) {
-                            store.send(.rsvpButtonTapped(.interested))
-                        }
-                        RSVPStatusButton(
-                            title: "Not Going",
-                            status: .notGoing,
-                            selectedStatus: store.rsvpStatus,
-                            disabled: store.isSavingRSVP
-                        ) {
-                            store.send(.rsvpButtonTapped(.notGoing))
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if store.isSavingRSVP {
-                                ProgressView()
-                            }
-                            Text("RSVP")
-                            MappedSystemImage(systemName: "ellipsis")
-                                .frame(width: 20, height: 20)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(store.isSavingRSVP)
+//
+//                    Menu {
+//                        RSVPStatusButton(
+//                            title: "Going",
+//                            status: .going,
+//                            selectedStatus: store.rsvpStatus,
+//                            disabled: store.isSavingRSVP
+//                        ) {
+//                            store.send(.rsvpButtonTapped(.going))
+//                        }
+//                        RSVPStatusButton(
+//                            title: "Interested",
+//                            status: .interested,
+//                            selectedStatus: store.rsvpStatus,
+//                            disabled: store.isSavingRSVP
+//                        ) {
+//                            store.send(.rsvpButtonTapped(.interested))
+//                        }
+//                        RSVPStatusButton(
+//                            title: "Not Going",
+//                            status: .notGoing,
+//                            selectedStatus: store.rsvpStatus,
+//                            disabled: store.isSavingRSVP
+//                        ) {
+//                            store.send(.rsvpButtonTapped(.notGoing))
+//                        }
+//                    } label: {
+//                        HStack(spacing: 6) {
+//                            if store.isSavingRSVP {
+//                                ProgressView()
+//                            }
+//                            Text("RSVP")
+//                            MappedSystemImage(systemName: "ellipsis")
+//                                .frame(width: 20, height: 20)
+//                        }
+//                    }
+//                    .buttonStyle(.bordered)
+//                    .disabled(store.isSavingRSVP)
                 }
 
                 if let errorMessage = store.errorMessage {
