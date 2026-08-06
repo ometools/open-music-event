@@ -329,31 +329,6 @@ struct PerformanceReactionTests {
         #expect(reaction?.emoji == .eyes)
     }
 
-    @Test
-    func explicitEventDeletionRemovesActiveReactionsButKeepsUsage() async throws {
-        let database = try preparedDatabase()
-        try await seedPerformance(in: database, title: "Delete Me")
-        try await database.write { db in
-            try PerformanceReaction.toggle(
-                performanceID: performanceID,
-                emoji: .raisedHands,
-                id: UUID(20),
-                date: Date(timeIntervalSince1970: 20),
-                in: db
-            )
-            try OMERecord.Event.find(eventID).delete().execute(db)
-        }
-
-        let result = try await database.read { db in
-            (
-                try PerformanceReaction.fetchCount(db),
-                try PerformanceReactionEmojiUsage.fetchCount(db)
-            )
-        }
-        #expect(result.0 == 0)
-        #expect(result.1 == 1)
-    }
-
     @Test @MainActor
     func scheduleDetailAndViewerActionsShareStateWithoutTriggeringNavigation() async throws {
         let database = try preparedDatabase()

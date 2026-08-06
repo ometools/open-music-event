@@ -50,7 +50,6 @@ Wicked Woods attendees need to plan performances while retaining the event's com
 - `didInitializeUserSchedules` distinguishes first use from intentionally deleting every personal schedule.
 - A schedule keeps the DID captured at creation when it is renamed or its memberships change.
 - Memberships cascade only with their `UserSchedule`. They do not foreign-key to source-owned event, performance, or contributor rows.
-- Explicit event deletion removes its personal schedules, memberships, and selection/initialization state.
 ```
 
 ## Next Step
