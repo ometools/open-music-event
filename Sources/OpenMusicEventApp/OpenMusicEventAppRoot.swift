@@ -135,6 +135,7 @@ public struct OpenMusicEventAppRoot {
                     switch request {
                     case let .event(eventID, target):
                         let eventURI = OMERecord.Event.reference(id: eventID).uri
+                        let persistsSelectedEvent = state.persistsSelectedEvent
                         store.addTask {
                             let installedEventID = await store.withErrorHandling(
                                 fallbackMessage: .eventInstallationFailed,
@@ -154,6 +155,9 @@ public struct OpenMusicEventAppRoot {
                             }
                             guard let eventViewer else { return }
                             try store.modify { $0.destination = .eventViewer(eventViewer) }
+                            if persistsSelectedEvent {
+                                persistSelectedEvent(installedEventID, store.state)
+                            }
                             do {
                                 try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                             } catch {
@@ -168,6 +172,7 @@ public struct OpenMusicEventAppRoot {
                     switch route.navigationRequest {
                     case let .event(eventID, target):
                         let eventURI = OMERecord.Event.reference(id: eventID).uri
+                        let persistsSelectedEvent = state.persistsSelectedEvent
                         store.addTask {
                             let installedEventID = await store.withErrorHandling(
                                 fallbackMessage: .eventInstallationFailed,
@@ -187,6 +192,9 @@ public struct OpenMusicEventAppRoot {
                             }
                             guard let eventViewer else { return }
                             try store.modify { $0.destination = .eventViewer(eventViewer) }
+                            if persistsSelectedEvent {
+                                persistSelectedEvent(installedEventID, store.state)
+                            }
                             do {
                                 try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                             } catch {
@@ -229,19 +237,11 @@ public struct OpenMusicEventAppRoot {
                 )
             }
         }
-        .onChange(
-            of: store.destination?.eventViewer?
-                .authoring
-                .content
-                .content
-                .id
-        ) { _, eventID, state in
-            persistSelectedEvent(eventID, state)
-        }
         .onEvent(NavigationRequested.self) { request, state in
             switch request {
             case let .event(eventID, target):
                 let eventURI = OMERecord.Event.reference(id: eventID).uri
+                let persistsSelectedEvent = state.persistsSelectedEvent
                 store.addTask {
                     let installedEventID = await store.withErrorHandling(
                         fallbackMessage: .eventInstallationFailed,
@@ -261,6 +261,9 @@ public struct OpenMusicEventAppRoot {
                     }
                     guard let eventViewer else { return }
                     try store.modify { $0.destination = .eventViewer(eventViewer) }
+                    if persistsSelectedEvent {
+                        persistSelectedEvent(installedEventID, store.state)
+                    }
                     do {
                         try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
                     } catch {
