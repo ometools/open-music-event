@@ -672,7 +672,7 @@ struct WorkspaceAuthoringStoryTests {
                 )
             )
             if scenario.failsPush {
-                await withExpectedIssue {
+                try await expectReportedIssue(containing: "WorkspaceStoryPushFailure") {
                     await opened.send(
                         workspaceStoryProposalAction(
                             .proposalDraft(.createProposalButtonTapped)
@@ -1179,7 +1179,7 @@ struct WorkspaceAuthoringStoryTests {
 
             // The Settings action activates authoring. Workspace availability follows the grant,
             // while source preparation remains independently suspended at its external boundary.
-            await withExpectedIssue {
+            try await expectReportedIssue(containing: "WorkspaceStoryFirstPreparationFailure") {
                 let entry = opened.send(
                     to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped
@@ -1380,7 +1380,7 @@ struct WorkspaceAuthoringStoryTests {
             #expect(operations.snapshot.isEmpty)
 
             // A stale presentation action is still rejected at the full application boundary.
-            await withExpectedIssue {
+            try await expectReportedIssue(containing: "admissionUnavailable") {
                 await opened.send(
                     to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                     .enterAuthoringButtonTapped

@@ -42,7 +42,7 @@ struct WorkspaceReviewsTests {
             sourceSnapshotRequests: sourceSnapshotRequests
         )
 
-        await withExpectedIssue {
+        try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
             await store.send(.reviewButtonTapped(review))?.value
             await waitUntil {
                 guard case let .reviewDetail(detail)? = store.destination else { return false }
@@ -102,7 +102,7 @@ struct WorkspaceReviewsTests {
             }
         )
 
-        await withExpectedIssue {
+        try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
             await store.send(.reviewButtonTapped(review))?.value
             await waitUntil {
                 guard case let .reviewDetail(detail)? = store.destination else { return false }

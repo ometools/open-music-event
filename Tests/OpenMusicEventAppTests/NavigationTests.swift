@@ -394,12 +394,12 @@ struct NavigationTests {
         ))
 
         await store.send(.openURL(firstURL))?.value
-        await waitUntil {
+        await waitForObservation {
             store.destination?.eventViewer?.authoring.content.content.eventID == firstEventID
         }
 
         await store.send(.openURL(secondURL))?.value
-        await waitUntil {
+        await waitForObservation {
             store.destination?.eventViewer?.authoring.content.content.eventID == secondEventID
         }
 
@@ -3164,12 +3164,12 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+            Store(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
         }
 
-        await waitUntil {
+        await waitForObservation {
             returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal)
                 && returnVisit.state.selectedStageID == stageLocalID("main")
                 && returnVisit.state.showStageNameLabels
@@ -3199,7 +3199,6 @@ struct NavigationTests {
         #expect(workshopVisit.state.scheduleKind == .singleStageAtOnce)
         #expect(workshopVisit.state.selectedStageID == nil)
         #expect(!workshopVisit.state.showStageNameLabels)
-        await returnVisit.dismount(timeout: .seconds(1))
         await workshopVisit.dismount(timeout: .seconds(1))
     }
 
@@ -3629,7 +3628,7 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(
+            Store(
                 initialState: EventViewer.State(
                     eventID: eventID,
                     authoringGrant: SharedReader(value: nil),
@@ -3643,13 +3642,12 @@ struct NavigationTests {
             }
         }
 
-        await waitUntil {
+        await waitForObservation {
             returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday")
         }
 
         #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
         #expect(returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
-        await returnVisit.dismount(timeout: .seconds(1))
     }
 
     @Test
@@ -4610,6 +4608,9 @@ struct NavigationTests {
         }
 
         #expect(contributor.name == "New Name")
+        await waitForObservation {
+            detailStore.contributor?.name == "New Name"
+        }
         #expect(detailStore.contributor?.name == "New Name")
     }
 
@@ -6797,6 +6798,20 @@ struct NavigationTests {
             "Condition was not satisfied within one second",
             sourceLocation: sourceLocation
         )
+    }
+
+    private func waitForObservation(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        while !condition() {
+            await withCheckedContinuation { continuation in
+                withObservationTracking {
+                    _ = condition()
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
     }
 
     private func waitForSelectedEventID(

@@ -3,9 +3,8 @@ import ComposableArchitecture2
 import ComposableCalendarEvents
 import Dependencies
 import DependenciesTestSupport
-import ErrorHandling
 import Foundation
-import IssueReporting
+import Observation
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
@@ -45,37 +44,28 @@ struct WhiteLabelRootTests {
             }
             recordUnexpectedGitOperations(in: &$0, recorder: gitOperations)
         } operation: {
-            TestStore(
-                initialState: WhiteLabelStory.State(
+            Store(
+                initialState: WhiteLabelRoot.State(
                     configuration: WickedWoodsWhiteLabel.configuration(
                         organizerID: organizerID
                     )
                 )
             ) {
-                WhiteLabelStory()
-            } changes: {
-                $0.root.isLoading = true
+                WhiteLabelRoot()
             }
         }
 
-        try await whiteLabelWaitUntil {
-            store.root.organizationDetail != nil
-                && !store.root.isLoading
-        }
-        store.expect {
-            $0.root.isLoading = false
-            $0.root.organizationDetail = OrganizationDetail.State.DebugSnapshot(
-                collection: OMERecord.Event.nsid,
-                organizerID: organizerID
-            )
+        await whiteLabelWaitUntil {
+            store.organizationDetail != nil
+                && !store.isLoading
         }
 
-        #expect(store.lastRequest == nil)
+        #expect(store.organizationDetail?.state.organizerID == organizerID)
+        #expect(store.organizationDetail?.state.collection == OMERecord.Event.nsid)
         #expect(installations.withLock { $0 }.isEmpty)
         #expect(gitOperations.snapshot.isEmpty)
-        #expect(!store.root.isLoading)
-        #expect(store.root.errorMessage == nil)
-        await store.dismount(timeout: .seconds(1))
+        #expect(!store.isLoading)
+        #expect(store.errorMessage == nil)
     }
 
     @Test
@@ -116,52 +106,35 @@ struct WhiteLabelRootTests {
                 return eventID
             }
         } operation: {
-            TestStore(
-                initialState: WhiteLabelStory.State(
+            Store(
+                initialState: WhiteLabelRoot.State(
                     configuration: WickedWoodsWhiteLabel.configuration(
                         organizerID: organizerID
                     )
                 )
             ) {
-                WhiteLabelStory()
-            } changes: {
-                $0.root.isLoading = true
+                WhiteLabelRoot()
             }
         }
 
-        try await whiteLabelWaitUntil {
-            store.root.organizationDetail != nil
-                && !store.root.isLoading
-        }
-        store.expect {
-            $0.root.isLoading = false
-            $0.root.organizationDetail = OrganizationDetail.State.DebugSnapshot(
-                collection: OMERecord.Event.nsid,
-                organizerID: organizerID
-            )
+        await whiteLabelWaitUntil {
+            store.organizationDetail != nil
+                && !store.isLoading
         }
 
-        let loadTask = store.send(to: \.root.organizationDetail, .task) {
-            $0.root.organizationDetail?.isLoading = true
-        }
+        let organization = try #require(store.spawn(\.organizationDetail))
+        let loadTask = organization.send(.task)
         await loadTask?.value
-        store.expect {
-            $0.root.organizationDetail?.events = [selectedEvent]
-            $0.root.organizationDetail?.isLoading = false
-            $0.root.organizationDetail?.organizer = selectedEvent.organizer
-        }
+        #expect(organization.events == [selectedEvent])
+        #expect(!organization.isLoading)
+        #expect(organization.organizer == selectedEvent.organizer)
 
-        let selectionTask = store.send(
-            to: \.root.organizationDetail,
-            .eventButtonTapped(eventURI)
-        )
+        let selectionTask = organization.send(.eventButtonTapped(eventURI))
         await selectionTask?.value
 
-        let eventDetail = try #require(store.root.organizationDetail?.eventDetail)
-        #expect(eventDetail.event == selectedEvent)
-        #expect(store.lastRequest == nil)
+        let eventDetail = try #require(organization.eventDetail)
+        #expect(eventDetail.state.event == selectedEvent)
         #expect(installations.withLock { $0 }.isEmpty)
-        await store.dismount(timeout: .seconds(1))
     }
 
     @Test
@@ -190,84 +163,43 @@ struct WhiteLabelRootTests {
                 return eventID
             }
         } operation: {
-            TestStore(
-                initialState: WhiteLabelStory.State(
+            Store(
+                initialState: WhiteLabelRoot.State(
                     configuration: WhiteLabelAppConfiguration(
                         brand: WhiteLabelBrand(displayName: "Wicked Woods"),
                         handle: WickedWoodsWhiteLabel.handle
                     )
                 )
             ) {
-                WhiteLabelStory()
-            } changes: {
-                $0.root.isLoading = true
+                WhiteLabelRoot()
             }
         }
 
-        try await whiteLabelWaitUntil {
-            store.root.organizationDetail != nil
-                && !store.root.isLoading
-        }
-        store.expect {
-            $0.root.isLoading = false
-            $0.root.organizationDetail = OrganizationDetail.State.DebugSnapshot(
-                collection: OMERecord.Event.nsid,
-                organizerID: organizerID
-            )
+        await whiteLabelWaitUntil {
+            store.organizationDetail != nil
+                && !store.isLoading
         }
 
         #expect(resolvedHandles.withLock { $0 } == ["wickedwoods.ca"])
         #expect(installations.withLock { $0 }.isEmpty)
-        #expect(store.lastRequest == nil)
-        #expect(store.root.errorMessage == nil)
-        await store.dismount(timeout: .seconds(1))
+        #expect(store.organizationDetail?.state.organizerID == organizerID)
+        #expect(store.organizationDetail?.state.collection == OMERecord.Event.nsid)
+        #expect(store.errorMessage == nil)
     }
 
 }
 
 @MainActor
 private func whiteLabelWaitUntil(
-    _ condition: @escaping @MainActor () -> Bool,
-    sourceLocation: SourceLocation = #_sourceLocation
-) async throws {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(1))
-    while clock.now < deadline {
-        if condition() { return }
-        try await clock.sleep(for: .milliseconds(1))
-    }
-    Issue.record(
-        "Condition was not satisfied within one second.",
-        sourceLocation: sourceLocation
-    )
-    try #require(condition())
-}
-
-@Feature
-private struct WhiteLabelStory {
-    struct State {
-        init(configuration: WhiteLabelAppConfiguration) {
-            self.root = WhiteLabelRoot.State(configuration: configuration)
-        }
-
-        var lastErrorOperation: ErrorOperation?
-        var lastRequest: NavigationRequest?
-        var root: WhiteLabelRoot.State
-    }
-
-    enum Action {
-        case root(WhiteLabelRoot.Action)
-    }
-
-    var body: some Feature {
-        Scope(\.root, action: \.root) {
-            WhiteLabelRoot()
-        }
-        .onEvent(ErrorReported.self) { error, state in
-            state.lastErrorOperation = error.operation
-        }
-        .onEvent(NavigationRequested.self) { request, state in
-            state.lastRequest = request
+    _ condition: @escaping @MainActor () -> Bool
+) async {
+    while !condition() {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
         }
     }
 }

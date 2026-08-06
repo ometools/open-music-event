@@ -4,6 +4,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import IssueReporting
+import Observation
 import Sharing
 import SQLiteData
 import TCATProtoAuthentication
@@ -93,7 +94,7 @@ struct AuthenticationRootTests {
                 )
             )
         )
-        try await waitForTask(task)
+        await task?.value
 
         #expect(store.content.destination == nil)
     }
@@ -162,15 +163,15 @@ struct AuthenticationRootTests {
             }
         }
 
-        try await withIssueReporters([]) {
+        await withIssueReporters([]) {
             let task = store.send(.authentication(.directAuthorization(.submit)))
-            try await waitForTask(task)
+            await task?.value
         }
 
-        try await waitForCondition {
+        await waitForCondition {
             store.authentication.authorizationFailure != nil
         }
-        try await waitForCondition {
+        await waitForCondition {
             store.content.errorNotifications.state.latestError != nil
         }
         expectNoDifference(
@@ -226,29 +227,14 @@ private func failingOAuthClient(_ failure: any Error) -> OAuth.Client {
 @MainActor
 private func waitForCondition(
     _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(1))
-    while clock.now < deadline {
-        if condition() { return }
-        try await clock.sleep(for: .milliseconds(1))
-    }
-    try #require(condition())
-}
-
-@MainActor
-private func waitForTask(_ task: Task<Void, Never>?) async throws {
-    guard let task else { return }
-    let completed = LockIsolated(false)
-    let completion = Task {
-        await task.value
-        completed.withValue { $0 = true }
-    }
-    do {
-        try await waitForCondition { completed.value }
-    } catch {
-        task.cancel()
-        completion.cancel()
-        throw error
+) async {
+    while !condition() {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
+        }
     }
 }
