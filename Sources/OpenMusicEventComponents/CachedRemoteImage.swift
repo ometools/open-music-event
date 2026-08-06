@@ -8,6 +8,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
+#if os(Android) || canImport(SwiftUI)
 // SKIP INSERT: import skip.ui.*
 
 #if os(Android)
@@ -303,4 +304,5 @@ func decodeCachedRemoteCGImage(
     }
     return image
 }
+#endif
 #endif

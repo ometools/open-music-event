@@ -52,32 +52,37 @@ if let skipRootPath {
     skipDependency = .package(url: "https://source.skip.tools/skip.git", from: "1.8.6")
     skipFuseUIDependency = .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0")
 }
-let skipSharingPath = [
-    ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
-        URL(fileURLWithPath: $0)
-            .deletingLastPathComponent()
-            .appendingPathComponent("skip-sharing")
-            .path
-    },
-    "../../swift-packages/3rd-party/skip/skip-sharing",
-    "../../../swift-packages/3rd-party/skip/skip-sharing",
-].compactMap { $0 }
-    .map(packagePath)
-    .first { FileManager.default.fileExists(atPath: $0) }
-    ?? packagePath("../../swift-packages/3rd-party/skip/skip-sharing")
-let skipAndroidBridgePath = [
-    ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
-        URL(fileURLWithPath: $0)
-            .deletingLastPathComponent()
-            .appendingPathComponent("skip-android-bridge")
-            .path
-    },
-    "../../swift-packages/3rd-party/skip/skip-android-bridge",
-    "../../../swift-packages/3rd-party/skip/skip-android-bridge",
-].compactMap { $0 }
-    .map(packagePath)
-    .first { FileManager.default.fileExists(atPath: $0) }
-    ?? packagePath("../../swift-packages/3rd-party/skip/skip-android-bridge")
+let skipSharingDependency: Package.Dependency
+let skipAndroidBridgeDependency: Package.Dependency
+if let skipRootPath {
+    skipSharingDependency = .package(
+        name: "skip-sharing",
+        path: skipRootPath.appendingPathComponent("skip-sharing").path
+    )
+    skipAndroidBridgeDependency = .package(
+        name: "skip-android-bridge",
+        path: skipRootPath.appendingPathComponent("skip-android-bridge").path
+    )
+} else {
+    let skipSharingPath = [
+        "../../swift-packages/3rd-party/skip/skip-sharing",
+        "../../../swift-packages/3rd-party/skip/skip-sharing",
+    ]
+        .map(packagePath)
+        .first { FileManager.default.fileExists(atPath: $0) }
+        ?? packagePath("../../swift-packages/3rd-party/skip/skip-sharing")
+    let skipAndroidBridgePath = [
+        "../../swift-packages/3rd-party/skip/skip-android-bridge",
+        "../../../swift-packages/3rd-party/skip/skip-android-bridge",
+    ]
+        .map(packagePath)
+        .first { FileManager.default.fileExists(atPath: $0) }
+        ?? packagePath("../../swift-packages/3rd-party/skip/skip-android-bridge")
+    skipSharingDependency = .package(name: "skip-sharing", path: skipSharingPath)
+    skipAndroidBridgeDependency = isAndroidAppBuild
+        ? .package(name: "skip-android-bridge", path: skipAndroidBridgePath)
+        : .package(url: "https://source.skip.tools/skip-android-bridge.git", from: "0.6.1")
+}
 #else
 let skipstonePlugins: [Target.PluginUsage] = []
 #endif
@@ -131,9 +136,9 @@ var dependencies: [Package.Dependency] = [
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(url: "https://tangled.org/woody.fm/swift-file-tree", branch: "main"),
+    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(path: "../../swift-packages/swift-dependencies-http-client"),
+    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
             name: "swift-composable-atmosphere",
@@ -141,24 +146,20 @@ var dependencies: [Package.Dependency] = [
             traits: composableAtmosphereTraits
         )
         : .package(
-            name: "swift-composable-atmosphere",
-            path: packagePath("../../swift-packages/swift-composable-atmosphere"),
+            url: "https://source.woody.fm/swift-composable-atmosphere",
+            branch: "main",
             traits: ["TCA26"]
         ),
-    .package(name: "composable-atmosphere-constellation", path: workspacePackagePath("composable-atmosphere-constellation")),
-    .package(name: "composable-atmosphere-tangled", path: workspacePackagePath("composable-atmosphere-tangled")),
+    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
+    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
-    .package(path: workspacePackagePath("swift-dependencies-source-control-client")),
+    .package(url: "https://source.woody.fm/swift-dependencies-source-control-client", branch: "main"),
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
-    .package(
-        name: "swift-sharing",
-        path: workspacePackagePath("swift-sharing"),
-        traits: sharingTraits
-    ),
+    .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.8.1", traits: sharingTraits),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
@@ -177,8 +178,8 @@ var dependencies: [Package.Dependency] = [
             traits: tcaTraits
         )
         : .package(
-            name: "TCA26",
-            path: packagePath("../../swift-packages/3rd-party/PointFree/TCA26"),
+            url: "https://github.com/pointfreeco/TCA26",
+            branch: "main",
             traits: ["Dependencies"]
         ),
     .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
@@ -205,11 +206,13 @@ if !isAndroidAppBuild {
 dependencies.append(contentsOf: [
     skipDependency,
     skipFuseUIDependency,
-    .package(name: "skip-android-bridge", path: skipAndroidBridgePath),
-    .package(name: "skip-sharing", path: skipSharingPath),
+    skipAndroidBridgeDependency,
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
 ])
+if isAndroidAppBuild {
+    dependencies.append(skipSharingDependency)
+}
 #endif
 
 var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
@@ -250,11 +253,15 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
 #if os(macOS)
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
-    .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android])),
 ])
-openMusicEventSourceCloneDependencies.append(
-    .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
-)
+if isAndroidAppBuild {
+    openMusicEventAuthenticationDependencies.append(
+        .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
+    )
+    openMusicEventSourceCloneDependencies.append(
+        .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
+    )
+}
 #endif
 
 var openMusicEventComponentsDependencies: [Target.Dependency] = []

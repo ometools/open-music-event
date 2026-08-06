@@ -81,7 +81,7 @@ struct ErrorHandlingTests {
     }
 
     @Test
-    func cleanupRunsOnFailure() async {
+    func cleanupRunsOnFailure() async throws {
         let clock = TestClock()
         let store = withDependencies {
             $0.continuousClock = clock
@@ -98,13 +98,18 @@ struct ErrorHandlingTests {
         }
 
         #expect(store.state.isRunning == false)
-        let latestError = store.state.errorNotifications.state.latestError
-        #expect(latestError?.kind == .unhandled)
-        #expect(latestError?.message.fallback == "Fallback")
-        #expect(latestError?.operation == .test)
+        let latestError = try #require(store.state.errorNotifications.state.latestError)
+        #expect(latestError.kind == .unhandled)
+        #expect(latestError.message.fallback == "Fallback")
+        #expect(latestError.operation == .test)
 
         await clock.advance(by: ErrorNotifications.automaticDismissDelay)
-        store.expect {
+        await store.receive(
+            from: \.errorNotifications,
+            \.latestErrorAutomaticallyDismissed,
+            .equals(latestError.id),
+            timeout: .seconds(1)
+        ) {
             $0.errorNotifications.latestError = nil
         }
     }
