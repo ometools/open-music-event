@@ -41,8 +41,12 @@ extension UserStoryTests {
             #expect(firstVisit.state.userScheduleOverlay.selectedSchedule == nil)
 
             // The attendee chooses My Schedule from the schedule picker.
-            await firstVisit.send(.userScheduleButtonTapped(schedule.id))?.value
+            let selectionTask = firstVisit.send(.userScheduleButtonTapped(schedule.id))
             #expect(firstVisit.state.userScheduleOverlay.selectedSchedule?.title == "My Schedule")
+            await selectionTask?.value
+            try await waitUntil {
+                firstVisit.state.userScheduleOverlay.selectedSchedule?.title == "My Schedule"
+            }
             await firstVisit.dismount(timeout: .seconds(1))
 
             // Returning to the event restores the attendee's chosen personal schedule.

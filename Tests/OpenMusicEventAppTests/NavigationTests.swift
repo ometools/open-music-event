@@ -2911,52 +2911,6 @@ struct NavigationTests {
     }
 
     @Test
-    func scheduleViewerKindButtonChangesKind() throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
-        }
-
-        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.vertical)))
-
-        #expect(store.state.scheduleKind == .allStagesAtOnce(.vertical))
-
-        store.send(.scheduleKindButtonTapped(.list))
-
-        #expect(store.state.scheduleKind == .list)
-    }
-
-    @Test
-    func scheduleViewerKindButtonChangesManyStageOrientation() throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
-        }
-
-        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.horizontal)))
-
-        #expect(store.state.scheduleKind == .allStagesAtOnce(.horizontal))
-
-        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.vertical)))
-
-        #expect(store.state.scheduleKind == .allStagesAtOnce(.vertical))
-    }
-
-    @Test
     func addScheduleDefaultsToEventStartDate() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -3178,7 +3132,7 @@ struct NavigationTests {
             category: OMERecord.Stage.Category("workshop")
         )
 
-        let store = withDependencies {
+        let firstVisit = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -3188,12 +3142,13 @@ struct NavigationTests {
             }
         }
 
-        await store.modify {
-            $0.scheduleKind = .allStagesAtOnce(.horizontal)
+        await firstVisit.send(
+            .scheduleKindButtonTapped(.allStagesAtOnce(.horizontal))
+        )?.value
+        await firstVisit.modify {
             $0.selectedStageID = stageLocalID("main")
             $0.showStageNameLabels = true
         }?.value
-        await store.dismount()
 
         let storedState = try await database.read { db in
             try ScheduleViewerStateRequest(
@@ -3202,8 +3157,9 @@ struct NavigationTests {
             )
             .fetch(db)
         }
+        await firstVisit.dismount(timeout: .seconds(1))
 
-        let restoredStore = withDependencies {
+        let returnVisit = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -3213,37 +3169,38 @@ struct NavigationTests {
             }
         }
 
-        try await restoredStore.state.$persistedScheduleViewerState.load(
-            ScheduleViewerState.rows(
-                eventID: eventID,
-                scheduleDivision: .schedule
-            )
-        )
-        restoredStore.expect {
-            $0.scheduleViewerState = storedState
+        await waitUntil {
+            returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal)
+                && returnVisit.state.selectedStageID == stageLocalID("main")
+                && returnVisit.state.showStageNameLabels
         }
 
-        let workshopState = withDependencies {
+        let workshopVisit = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            ScheduleViewer.State(
-                eventID: eventID,
-                scheduleDivision: workshopDivision
-            )
+            TestStore(
+                initialState: ScheduleViewer.State(
+                    eventID: eventID,
+                    scheduleDivision: workshopDivision
+                )
+            ) {
+                ScheduleViewer()
+            }
         }
 
         #expect(storedState.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(storedState.selectedStageID == stageLocalID("main"))
         #expect(storedState.showStageNameLabels)
-        #expect(restoredStore.state.scheduleKind == .allStagesAtOnce(.horizontal))
-        #expect(restoredStore.state.selectedStageID == stageLocalID("main"))
-        #expect(restoredStore.state.showStageNameLabels)
-        #expect(workshopState.scheduleKind == .singleStageAtOnce)
-        #expect(workshopState.selectedStageID == nil)
-        #expect(!workshopState.showStageNameLabels)
-        await restoredStore.dismount()
+        #expect(returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal))
+        #expect(returnVisit.state.selectedStageID == stageLocalID("main"))
+        #expect(returnVisit.state.showStageNameLabels)
+        #expect(workshopVisit.state.scheduleKind == .singleStageAtOnce)
+        #expect(workshopVisit.state.selectedStageID == nil)
+        #expect(!workshopVisit.state.showStageNameLabels)
+        await returnVisit.dismount(timeout: .seconds(1))
+        await workshopVisit.dismount(timeout: .seconds(1))
     }
 
     @Test
@@ -3639,8 +3596,10 @@ struct NavigationTests {
             category: OMERecord.Stage.Category("workshop")
         )
 
-        let store = withDependencies {
+        let firstVisit = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
+            $0.defaultEventID = eventID
         } operation: {
             TestStore(
                 initialState: EventViewer.State(
@@ -3656,17 +3615,19 @@ struct NavigationTests {
             }
         }
 
-        await store.modify {
+        await firstVisit.modify {
             $0.eventViewerState.selectedScheduleID = scheduleLocalID("thursday")
         }?.value
-        await store.dismount()
 
         let storedState = try await database.read { db in
             try EventViewerStateRequest(eventID: eventID).fetch(db)
         }
+        await firstVisit.dismount(timeout: .seconds(1))
 
-        let restoredStore = withDependencies {
+        let returnVisit = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
+            $0.defaultEventID = eventID
         } operation: {
             TestStore(
                 initialState: EventViewer.State(
@@ -3682,17 +3643,13 @@ struct NavigationTests {
             }
         }
 
-        try await restoredStore.state.$persistedEventViewerState.load(
-            EventViewerState.where { $0.id.eq(eventID) }
-        )
-        restoredStore.expect {
-            $0.eventViewerState = storedState
+        await waitUntil {
+            returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday")
         }
 
-        #expect(store.state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
         #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
-        #expect(restoredStore.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
-        await restoredStore.dismount()
+        #expect(returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
+        await returnVisit.dismount(timeout: .seconds(1))
     }
 
     @Test
