@@ -1530,6 +1530,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
+            $0.uuid = .incrementing
         } operation: {
             let store = Store(initialState: ScheduleViewer.State(eventID: fixture.eventID)) {
                 ScheduleViewer()
@@ -1658,6 +1659,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
+            $0.uuid = .incrementing
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()

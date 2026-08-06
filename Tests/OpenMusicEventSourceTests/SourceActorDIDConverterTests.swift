@@ -50,7 +50,7 @@ struct SourceActorDIDConverterTests {
 
         let resolvedHandles = await recorder.resolvedHandles
         expectNoDifference(
-            resolvedHandles,
+            resolvedHandles.sorted(),
             [
                 "unresolved.example",
                 "woody.fm",

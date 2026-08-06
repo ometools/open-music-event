@@ -195,6 +195,7 @@ private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
 @MainActor
 @Suite(
     .dependencies {
+        $0.date = .constant(Date(timeIntervalSince1970: 0))
         $0.uuid = .incrementing
     },
     .tcaExhaustivity(.off)
@@ -3889,13 +3890,15 @@ struct NavigationTests {
                 db,
                 eventID: eventID,
                 performanceID: "opening",
-                contributorID: "zara"
+                contributorID: "zara",
+                sortIndex: 1
             )
             try Self.insertPerformanceContributor(
                 db,
                 eventID: eventID,
                 performanceID: "opening",
-                contributorID: "amy"
+                contributorID: "amy",
+                sortIndex: 0
             )
         }
 

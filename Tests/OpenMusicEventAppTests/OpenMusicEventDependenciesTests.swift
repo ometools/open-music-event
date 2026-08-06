@@ -6,7 +6,7 @@ import Testing
 
 struct OpenMusicEventDependenciesTests {
     @Test
-    func preparedDependenciesUseConstellationBackfillForTangledPullReviews() throws {
+    func preparedDependenciesUseTangledXRPCForTangledPullReviews() throws {
         let source = try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -15,6 +15,6 @@ struct OpenMusicEventDependenciesTests {
             return source
         }
 
-        #expect(source == .constellationBackfill)
+        #expect(source == .tangledXRPC)
     }
 }

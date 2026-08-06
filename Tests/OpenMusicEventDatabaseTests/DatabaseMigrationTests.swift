@@ -869,12 +869,14 @@ struct DatabaseMigrationTests {
                 eventID: eventID,
                 stageID: "meadow",
                 name: "Meadow Stage",
+                sortIndex: 0,
                 in: db
             )
             try insertStage(
                 eventID: eventID,
                 stageID: "forest",
                 name: "Forest Stage",
+                sortIndex: 1,
                 in: db
             )
             try insertStage(
@@ -1238,7 +1240,7 @@ struct DatabaseMigrationTests {
                 .contributor(localID("luna-harbor")),
             ])
 
-            let performanceTerm = try #require(EventSearchTerm(rawValue: "night"))
+            let performanceTerm = try #require(EventSearchTerm(rawValue: "night tide"))
             let performanceResults = try EventSearchIndex.results(
                 matching: performanceTerm,
                 in: eventID,

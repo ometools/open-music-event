@@ -151,9 +151,14 @@ struct TechnicalDetailsTests {
 @Suite(.tcaExhaustivity(.off))
 struct SettingsFeatureTests {
     @Test
-    func testErrorButtonReportsGlobalError() async {
-        let store = TestStore(initialState: SettingsErrorHost.State()) {
-            SettingsErrorHost()
+    func testErrorButtonReportsGlobalError() async throws {
+        let database = try makePreparedDatabase()
+        let store = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SettingsErrorHost.State()) {
+                SettingsErrorHost()
+            }
         }
 
         await withIssueReporters([]) {

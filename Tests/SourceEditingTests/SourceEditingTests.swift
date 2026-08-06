@@ -1,6 +1,7 @@
 import CustomDump
 import Foundation
 import GRDB
+import IssueReporting
 import SourceEditing
 import SQLiteData
 import Testing
@@ -337,7 +338,13 @@ struct SourceEditingTests {
             attachment: malformedAttachment
         )
 
-        let summary = try fixture.typedTodoSummary()
+        let reporter = SourceEditingIssueRecorder()
+        let summary = try withIssueReporters([reporter]) {
+            try fixture.typedTodoSummary()
+        }
+
+        expectNoDifference(reporter.messages.count, 1)
+        #expect(reporter.messages[0].contains("Unable to resolve source record fields."))
 
         let group = try #require(summary.groups.first)
         #expect(group.modified == 1)
@@ -618,6 +625,28 @@ struct SourceEditingTests {
             otherListRecord,
             Todo(id: 5, listID: "list-2", title: "Other list changed", note: nil, localCache: nil)
         )
+    }
+}
+
+private final class SourceEditingIssueRecorder: @unchecked Sendable, IssueReporter {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.withLock { recordedMessages }
+    }
+
+    func reportIssue(
+        _ message: @autoclosure () -> String?,
+        severity: IssueSeverity,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(message() ?? "")
+        }
     }
 }
 
