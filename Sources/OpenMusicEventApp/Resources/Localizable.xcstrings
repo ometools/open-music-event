@@ -492,9 +492,6 @@
     "Previous" : {
 
     },
-    "RSVP" : {
-
-    },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
       "extractionState" : "stale",

@@ -1340,19 +1340,19 @@ public struct EventBrowseDetailView: View {
                 if let location = store.event.locations.first?.summary {
                     LabeledContent("Location", value: location)
                 }
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("RSVP")
-
-                        if let status = store.rsvpStatus {
-                            Text(status.eventBrowseTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Spacer()
+//
+//                HStack(spacing: 12) {
+//                    VStack(alignment: .leading, spacing: 3) {
+//                        Text("RSVP")
+//
+//                        if let status = store.rsvpStatus {
+//                            Text(status.eventBrowseTitle)
+//                                .font(.caption)
+//                                .foregroundStyle(.secondary)
+//                        }
+//                    }
+//
+//                    Spacer()
 //
 //                    Menu {
 //                        RSVPStatusButton(
@@ -1391,7 +1391,7 @@ public struct EventBrowseDetailView: View {
 //                    }
 //                    .buttonStyle(.bordered)
 //                    .disabled(store.isSavingRSVP)
-                }
+//                }
 
                 if let errorMessage = store.errorMessage {
                     Text(errorMessage)
