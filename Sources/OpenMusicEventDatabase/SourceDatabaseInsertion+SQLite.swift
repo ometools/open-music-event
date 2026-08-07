@@ -325,6 +325,7 @@ private struct PreparedSourceDatabaseInsertion {
     var calendars: [OME.Calendar.Draft]
     var calendarEntries: [OME.CalendarEntry.Draft]
     var events: [OME.Event.Draft]
+    var siteMaps: [OME.Event.SiteMap]
     var eventOrganizers: [OME.EventOrganizer.Draft]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
     var stages: [OME.Stage.Draft]
@@ -379,6 +380,7 @@ private struct PreparedSourceDatabaseInsertion {
             )
         }
         self.events = sourceInsertion.events
+        self.siteMaps = sourceInsertion.siteMaps
         self.eventOrganizers = sourceInsertion.eventOrganizers
         self.stages = sourceInsertion.stages
         self.schedules = sourceInsertion.schedules
@@ -426,6 +428,15 @@ private struct PreparedSourceDatabaseInsertion {
                 parentLocalID: eventID.eventID.rawValue.rawValue
             )
             events[index] = result.value
+            localImageBlobs.append(contentsOf: result.blobs)
+        }
+
+        for index in siteMaps.indices {
+            let result = try await materializer.materialize(
+                siteMap: siteMaps[index],
+                pendingFileAssets: pendingFileAssets
+            )
+            siteMaps[index] = result.value
             localImageBlobs.append(contentsOf: result.blobs)
         }
 
@@ -483,6 +494,9 @@ private struct PreparedSourceDatabaseInsertion {
         }
         if !events.isEmpty {
             try OME.Event.insert { events }.execute(db)
+        }
+        if !siteMaps.isEmpty {
+            try OME.Event.SiteMap.insert { siteMaps }.execute(db)
         }
         if !eventOrganizers.isEmpty {
             try OME.EventOrganizer.insert {
@@ -628,6 +642,34 @@ private extension LocalImageMaterializer {
         var commsPost = commsPost
         commsPost.images = images.images
         return .init(value: commsPost, blobs: images.blobs)
+    }
+
+    func materialize(
+        siteMap: OME.Event.SiteMap,
+        pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset]
+    ) async throws -> Result<OME.Event.SiteMap> {
+        var siteMap = siteMap
+        var blobs: [LocalImageBlob] = []
+        for index in siteMap.styles.indices {
+            let styleID = siteMap.styles[index].id.rawValue.rawValue
+            let images = try await materializeImages(
+                images: [siteMap.styles[index].image],
+                organizerID: siteMap.id.organizerID,
+                eventID: siteMap.id.eventID,
+                parentKind: .event,
+                parentLocalID: [
+                    siteMap.id.eventID.rawValue.rawValue,
+                    "site-map",
+                    styleID,
+                ].joined(separator: "|"),
+                pendingFileAssets: pendingFileAssets
+            )
+            if let image = images.images?.first {
+                siteMap.styles[index].image = image
+            }
+            blobs.append(contentsOf: images.blobs)
+        }
+        return .init(value: siteMap, blobs: blobs)
     }
 
     func materialize(

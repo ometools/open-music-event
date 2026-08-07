@@ -351,6 +351,76 @@ struct NavigationTests {
     }
 
     @Test
+    func siteMapViewerStartsWithTheSourceDefaultAndSwitchesStyles() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let festivalStyleID = OMERecord.ID<OMERecord.Event.SiteMap.Style>(.init("festival"))
+        let campingStyleID = OMERecord.ID<OMERecord.Event.SiteMap.Style>(.init("camping"))
+        let festivalURL = URL(string: "https://example.com/maps/festival.png")!
+        let campingURL = URL(string: "https://example.com/maps/camping.png")!
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: eventID.organizerID)
+            try OMERecord.Event.insert {
+                OMERecord.Event.Draft(
+                    id: eventID,
+                    name: "Event 1",
+                    timeZone: TimeZone(secondsFromGMT: 0)!
+                )
+            }
+            .execute(db)
+            try OMERecord.Event.SiteMap.insert {
+                OMERecord.Event.SiteMap(
+                    id: OMERecord.Event.SiteMap.ID(eventID: eventID),
+                    title: "Festival Map",
+                    defaultStyleID: festivalStyleID,
+                    styles: [
+                        OMERecord.Event.SiteMap.Style(
+                            id: festivalStyleID,
+                            title: "Festival",
+                            image: OMERecord.ImageAsset(
+                                source: .url(festivalURL),
+                                role: .siteMap,
+                                renderKind: .fullImage,
+                                materializationPolicy: .lazy
+                            )
+                        ),
+                        OMERecord.Event.SiteMap.Style(
+                            id: campingStyleID,
+                            title: "Camping",
+                            image: OMERecord.ImageAsset(
+                                source: .url(campingURL),
+                                role: .siteMap,
+                                renderKind: .fullImage,
+                                materializationPolicy: .lazy
+                            )
+                        ),
+                    ]
+                )
+            }
+            .execute(db)
+        }
+        let store = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SiteMapViewer.State(eventID: eventID)) {
+                SiteMapViewer()
+            }
+        }
+
+        // The map opens on its source-defined style and exposes the layer switcher.
+        #expect(store.state.selectedStyle?.title == "Festival")
+        #expect(store.state.selectedAsset?.url == festivalURL)
+        #expect(store.state.showsStyleSwitcher)
+
+        // The attendee switches to Camping for this viewer session.
+        store.send(.styleButtonTapped(campingStyleID)) {
+            $0.selectedStyleID = campingStyleID
+        }
+        #expect(store.state.selectedStyle?.title == "Camping")
+        #expect(store.state.selectedAsset?.url == campingURL)
+    }
+
+    @Test
     func navigationRequestInstallsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

@@ -207,6 +207,65 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceInsertionPersistsNamedSiteMapStylesWithStableAssetKeys() async throws {
+        var source = try makeSourceRepository()
+        source.events[0].components.siteMap = SiteMapDTO(
+            title: "Festival Map",
+            defaultStyleID: id("festival"),
+            styles: [
+                SiteMapDTO.Style(
+                    id: id("festival"),
+                    title: "Festival",
+                    image: SiteMapDTO.Style.Image(
+                        source: .url(URL(string: "https://example.com/maps/festival.png")!)
+                    )
+                ),
+                SiteMapDTO.Style(
+                    id: id("camping"),
+                    title: "Camping",
+                    image: SiteMapDTO.Style.Image(
+                        source: .url(URL(string: "https://example.com/maps/camping.png")!)
+                    )
+                ),
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let siteMap = try #require(insertion.siteMaps.first)
+        let database = try makeCoreDatabase()
+
+        // Importing source installs the named styles beside their owning event record.
+        try await insertion.insert(into: database)
+
+        let persistedSiteMap = try await database.read { db in
+            try OME.Event.SiteMap.find(siteMap.id).fetchOne(db)
+        }
+        expectNoDifference(persistedSiteMap, siteMap)
+        #expect(siteMap.defaultStyle?.title == "Festival")
+        #expect(siteMap.styles[0].image.assetKey != siteMap.styles[1].image.assetKey)
+        #expect(siteMap.styles[0].image.assetKey?.contains("site-map|festival") == true)
+        #expect(siteMap.styles[1].image.assetKey?.contains("site-map|camping") == true)
+
+        // Replacing or removing the owning event cannot leave stale map configuration behind.
+        try await database.write { db in
+            try OME.Event.find(
+                OME.Event.ID(
+                    organizerID: siteMap.id.organizerID,
+                    eventID: siteMap.id.eventID
+                )
+            )
+            .delete()
+            .execute(db)
+        }
+        let removedSiteMap = try await database.read { db in
+            try OME.Event.SiteMap.find(siteMap.id).fetchOne(db)
+        }
+        #expect(removedSiteMap == nil)
+    }
+
+    @Test
     func unknownScheduleItemKindRoundTripsThroughCanonicalSQLiteRows() async throws {
         let unknownKind = "app.example.scheduleItem#future"
         let source = try makeSourceRepository(

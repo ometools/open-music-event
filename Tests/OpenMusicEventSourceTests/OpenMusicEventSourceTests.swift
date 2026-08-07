@@ -60,6 +60,24 @@ struct OpenMusicEventSourceTests {
             [try fixtureURL("Organizer").standardizedFileURL.path()]
         )
         #expect(result.organizerID == organizerID)
+        let siteMap = try #require(result.insertion.siteMaps.first)
+        #expect(siteMap.title == "Festival Map")
+        #expect(siteMap.defaultStyle?.title == "Festival")
+        expectNoDifference(
+            siteMap.styles.map { $0.id.rawValue.rawValue },
+            ["festival", "camping"]
+        )
+        expectNoDifference(
+            siteMap.styles.map(\.title),
+            ["Festival", "Camping"]
+        )
+        expectNoDifference(
+            siteMap.styles.map(\.image.url),
+            [
+                URL(string: "https://example.com/maps/festival.png"),
+                URL(string: "https://example.com/maps/camping.png"),
+            ]
+        )
     }
 
     @Test
@@ -130,6 +148,29 @@ struct OpenMusicEventSourceTests {
                     materializationPolicy: .lazy
                 ),
             ]
+        )
+        expectNoDifference(
+            testival.siteMap,
+            SiteMapDTO(
+                title: "Festival Map",
+                defaultStyleID: OME.ID<OME.Event.SiteMap.Style>(.init("festival")),
+                styles: [
+                    SiteMapDTO.Style(
+                        id: OME.ID<OME.Event.SiteMap.Style>(.init("festival")),
+                        title: "Festival",
+                        image: SiteMapDTO.Style.Image(
+                            source: .url(URL(string: "https://example.com/maps/festival.png")!)
+                        )
+                    ),
+                    SiteMapDTO.Style(
+                        id: OME.ID<OME.Event.SiteMap.Style>(.init("camping")),
+                        title: "Camping",
+                        image: SiteMapDTO.Style.Image(
+                            source: .url(URL(string: "https://example.com/maps/camping.png")!)
+                        )
+                    ),
+                ]
+            )
         )
 
         let stage = try #require(testival.stages?.first)
@@ -254,6 +295,7 @@ struct OpenMusicEventSourceTests {
         #expect(minimal.posters == nil)
         #expect(minimal.schedules == nil)
         #expect(minimal.channels == nil)
+        #expect(minimal.siteMap == nil)
     }
 
     @Test

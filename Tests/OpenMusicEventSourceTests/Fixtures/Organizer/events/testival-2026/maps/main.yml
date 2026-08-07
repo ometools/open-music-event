@@ -1,0 +1,13 @@
+title: Festival Map
+defaultStyleID: festival
+styles:
+  - id: festival
+    title: Festival
+    image:
+      source:
+        url: https://example.com/maps/festival.png
+  - id: camping
+    title: Camping
+    image:
+      source:
+        url: https://example.com/maps/camping.png

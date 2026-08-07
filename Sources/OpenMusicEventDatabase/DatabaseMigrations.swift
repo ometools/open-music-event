@@ -973,7 +973,6 @@ public extension OME {
                     """)
                     .execute(db)
             }
-
             migrator.registerMigration("Track explicitly installed OpenMusicEvent events") { db in
                 // There is deliberately no event foreign key. Published refresh replaces event
                 // records transactionally and must not erase the attendee's installation intent.
@@ -1041,6 +1040,23 @@ public extension OME {
                 try #sql("""
                     CREATE TABLE "sourceWorkspaceCanonicalResets" (
                       "id" TEXT PRIMARY KEY NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Create OpenMusicEvent event site maps") { db in
+                try #sql("""
+                    CREATE TABLE "eventSiteMaps" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "title" TEXT NOT NULL,
+                      "defaultStyleID" TEXT,
+                      "styles" TEXT NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "app.openmusicevent.event"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)

@@ -33,6 +33,11 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
             File("event", "yml")
                 .convert(YamlConversion<EventDTO>())
 
+            Directory.Optional("maps") {
+                File("main", "yml")
+                    .convert(YamlConversion<SiteMapDTO>())
+            }
+
             Directory.Optional("stages") {
                 File.Many(withExtension: "yml")
                     .map(FileContentConversion(YamlConversion<StageDTO>()))
@@ -194,6 +199,7 @@ private struct RepositoryConversion: Conversion {
 private struct EventConversion: Conversion {
     typealias Input = (
         EventDTO,
+        SiteMapDTO?,
         [FileContent<StageDTO>]?,
         [FileContent<ContributorDTO>]?,
         [FileContent<PosterDTO>]?,
@@ -206,23 +212,25 @@ private struct EventConversion: Conversion {
     func apply(_ input: Input) throws -> Output {
         OpenMusicEventSourceEvent(
             event: input.0,
-            stages: input.1,
-            contributors: input.2,
-            posters: input.3,
-            schedules: input.4,
+            stages: input.2,
+            contributors: input.3,
+            posters: input.4,
+            schedules: input.5,
             channels: try Self.mergedChannels(
-                modernChannels: input.5,
-                legacyCommunications: input.6
+                modernChannels: input.6,
+                legacyCommunications: input.7
             ),
             communicationPosts: Self.communicationPosts(
-                legacyCommunications: input.6
-            )
+                legacyCommunications: input.7
+            ),
+            siteMap: input.1
         )
     }
 
     func unapply(_ output: Output) throws -> Input {
         (
             output.event,
+            output.siteMap,
             output.stages,
             output.contributors,
             output.posters,

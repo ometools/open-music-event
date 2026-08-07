@@ -46,10 +46,13 @@ public extension OME {
                 incomingSourceReference: String
             )
             case duplicateEventID(OME.Event.ID)
+            case duplicateSiteMapStyleID(OME.Event.SiteMap.Style.ID)
             case duplicateWorkspaceCollaborator(DID)
             case invalidWorkspaceRelationship(String)
             case invalidLocalTime(String)
             case missingPosterImage(String)
+            case missingSiteMapDefaultStyle(OME.Event.SiteMap.Style.ID)
+            case missingSiteMapStyleImage(OME.Event.SiteMap.Style.ID)
             case missingSourceRootForFileAsset(String)
             case missingScheduleItemEndTime(
                 scheduleID: OME.Schedule.ID,
@@ -64,6 +67,7 @@ public extension OME {
             )
             case missingInlineScheduleDate(OME.Event.ID)
             case duplicateScheduleID(OME.Schedule.ID)
+            case siteMapHasNoStyles(OME.Event.ID)
         }
 
         public struct PendingFileImageAsset: Equatable, Sendable {
@@ -185,6 +189,7 @@ public extension OME {
         public var calendars: [OME.Calendar.Draft]
         public var calendarEntries: [OME.CalendarEntry.Draft]
         public var events: [OME.Event.Draft]
+        public var siteMaps: [OME.Event.SiteMap]
         public var eventOrganizers: [OME.EventOrganizer.Draft]
         public var stages: [OME.Stage.Draft]
         public var schedules: [OME.Schedule.Draft]
@@ -207,6 +212,7 @@ public extension OME {
             self.calendarEntries = []
             self.eventSourceProvenances = []
             self.events = []
+            self.siteMaps = []
             self.eventOrganizers = []
             self.stages = []
             self.schedules = []
@@ -312,6 +318,15 @@ public extension OME {
                 parentLocalID: localEventID.rawValue.rawValue,
                 sourceDirectoryURL: eventDirectoryURL
             )
+            if let sourceSiteMap = sourceEvent.siteMap {
+                siteMaps.append(
+                    try resolve(
+                        sourceSiteMap,
+                        eventID: eventID,
+                        sourceDirectoryURL: eventDirectoryURL
+                    )
+                )
+            }
             events.append(event)
             if let sourceProvenance {
                 eventSourceProvenances.append(
@@ -984,6 +999,56 @@ public extension OME {
         private static let pendingRelationshipCreatedAt = "1970-01-01T00:00:00Z"
 
         private mutating func resolve(
+            _ sourceSiteMap: SiteMapDTO,
+            eventID: OME.Event.ID,
+            sourceDirectoryURL: URL?
+        ) throws -> OME.Event.SiteMap {
+            guard !sourceSiteMap.styles.isEmpty else {
+                throw Error.siteMapHasNoStyles(eventID)
+            }
+
+            var resolvedStyleIDs: Set<OME.Event.SiteMap.Style.ID> = []
+            let styles = try sourceSiteMap.styles.map { sourceStyle in
+                guard resolvedStyleIDs.insert(sourceStyle.id).inserted else {
+                    throw Error.duplicateSiteMapStyleID(sourceStyle.id)
+                }
+                let parentLocalID = [
+                    eventID.eventID.rawValue.rawValue,
+                    "site-map",
+                    sourceStyle.id.rawValue.rawValue,
+                ]
+                .joined(separator: "|")
+                guard let image = try resolve(
+                    [sourceStyle.image.sourceImageAsset],
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    parentKind: "event",
+                    parentLocalID: parentLocalID,
+                    sourceDirectoryURL: sourceDirectoryURL
+                )?.first else {
+                    throw Error.missingSiteMapStyleImage(sourceStyle.id)
+                }
+                return OME.Event.SiteMap.Style(
+                    id: sourceStyle.id,
+                    title: sourceStyle.title,
+                    image: image
+                )
+            }
+
+            if let defaultStyleID = sourceSiteMap.defaultStyleID,
+               !resolvedStyleIDs.contains(defaultStyleID) {
+                throw Error.missingSiteMapDefaultStyle(defaultStyleID)
+            }
+
+            return OME.Event.SiteMap(
+                id: OME.Event.SiteMap.ID(eventID: eventID),
+                title: sourceSiteMap.title,
+                defaultStyleID: sourceSiteMap.defaultStyleID,
+                styles: styles
+            )
+        }
+
+        private mutating func resolve(
             _ sourceImages: [SourceImageAsset]?,
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>?,
@@ -1200,6 +1265,9 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
         case let .duplicateEventID(eventID):
             return "Source resolves more than one event to '\(eventID.eventID.rawValue.rawValue)' for organizer '\(eventID.organizerID)'. Give each event a unique explicit ID."
 
+        case let .duplicateSiteMapStyleID(styleID):
+            return "Site map contains more than one style with ID '\(styleID.rawValue.rawValue)'. Give each style a unique ID."
+
         case let .duplicateWorkspaceCollaborator(actorID):
             return "Workspace source contains more than one collaborator relationship for '\(actorID)'. Keep one active relationship per collaborator."
 
@@ -1211,6 +1279,12 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
 
         case let .missingPosterImage(fileName):
             return "Poster \(fileName) is missing an image asset."
+
+        case let .missingSiteMapDefaultStyle(styleID):
+            return "Site map default style '\(styleID.rawValue.rawValue)' does not match any style in the map."
+
+        case let .missingSiteMapStyleImage(styleID):
+            return "Site map style '\(styleID.rawValue.rawValue)' is missing an image asset."
 
         case let .missingSourceRootForFileAsset(path):
             return "Cannot resolve file-backed image asset without a source root URL: \(path)"
@@ -1226,6 +1300,9 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
 
         case let .duplicateScheduleID(scheduleID):
             return "Source resolves more than one schedule to '\(scheduleID.scheduleID.rawValue.rawValue)' for event '\(scheduleID.eventID.rawValue.rawValue)'. Give each schedule a unique ID."
+
+        case let .siteMapHasNoStyles(eventID):
+            return "Site map for event '\(eventID.eventID.rawValue.rawValue)' must contain at least one style."
         }
     }
 }

@@ -15,17 +15,54 @@ public struct SiteMapViewer {
     public struct State {
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
+        @FetchOne public var siteMap: OMERecord.Event.SiteMap?
+        public var selectedStyleID: OMERecord.Event.SiteMap.Style.ID?
 
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
             _event = FetchOne(OMERecord.Event.where { $0.id.eq(eventID) })
+            _siteMap = FetchOne(
+                OMERecord.Event.SiteMap.where {
+                    $0.id.eq(OMERecord.Event.SiteMap.ID(eventID: eventID))
+                }
+            )
+        }
+
+        public var selectedAsset: OMERecord.ImageAsset? {
+            selectedStyle?.image ?? event?.images?.imageAsset(role: .siteMap)
+        }
+
+        public var selectedStyle: OMERecord.Event.SiteMap.Style? {
+            if let selectedStyleID,
+               let style = siteMap?.styles.first(where: { $0.id == selectedStyleID }) {
+                return style
+            }
+            return siteMap?.defaultStyle
+        }
+
+        public var selectedStyleIdentity: String {
+            selectedStyle?.id.rawValue.rawValue ?? "legacy-site-map"
+        }
+
+        public var showsStyleSwitcher: Bool {
+            (siteMap?.styles.count ?? 0) > 1
         }
     }
 
-    public enum Action {}
+    public enum Action {
+        case styleButtonTapped(OMERecord.Event.SiteMap.Style.ID)
+    }
 
     public var body: some Feature {
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case let .styleButtonTapped(styleID):
+                guard state.siteMap?.styles.contains(where: { $0.id == styleID }) == true else {
+                    return
+                }
+                state.selectedStyleID = styleID
+            }
+        }
     }
 }
 
@@ -38,12 +75,16 @@ public struct SiteMapViewerView: View {
 
     public var body: some View {
         Group {
-            if let event = store.event,
-                let asset = event.images?.imageAsset(role: .siteMap) {
+            if let event = store.event, let asset = store.selectedAsset {
                 #if os(Android)
-                AndroidSiteMapZoomView(asset: asset, eventID: event.id)
+                AndroidSiteMapZoomView(
+                    asset: asset,
+                    eventID: event.id,
+                    styleIdentity: store.selectedStyleIdentity
+                )
                 #else
                 SwiftUISiteMapZoomView(asset: asset, eventID: event.id)
+                    .id(store.selectedStyleIdentity)
                 #endif
             } else if store.event != nil {
                 SiteMapPlaceholderView()
@@ -53,7 +94,40 @@ public struct SiteMapViewerView: View {
             }
         }
         .background(.background)
-        .navigationTitle("Site Map")
+        .navigationTitle(store.siteMap?.title ?? "Site Map")
+        .toolbar {
+            if store.showsStyleSwitcher {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        ForEach(store.siteMap?.styles ?? []) { style in
+                            Button {
+                                store.send(.styleButtonTapped(style.id))
+                            } label: {
+                                HStack {
+                                    Text(style.title)
+                                    if style.id == store.selectedStyle?.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .accessibilityIdentifier(
+                                "site-map-style-\(style.id.rawValue.rawValue)"
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "layers")
+                    }
+                    .accessibilityLabel(
+                        Text(
+                            "Map Style",
+                            bundle: .module,
+                            comment: "Accessibility label for the site map style menu"
+                        )
+                    )
+                    .accessibilityIdentifier("site-map-style-switcher")
+                }
+            }
+        }
     }
 }
 
@@ -61,6 +135,7 @@ public struct SiteMapViewerView: View {
 struct AndroidSiteMapZoomView: View {
     let asset: OME.ImageAsset
     let eventID: OMERecord.Event.ID
+    let styleIdentity: String
 
     var body: some View {
         ImageAssetAsyncImage(
@@ -72,7 +147,7 @@ struct AndroidSiteMapZoomView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .composeModifier {
-            AndroidSiteMapZoomModifier()
+            AndroidSiteMapZoomModifier(styleIdentity: styleIdentity)
         }
     }
 }
@@ -247,18 +322,20 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 
 struct AndroidSiteMapZoomModifier: ContentModifier {
+    let styleIdentity: String
+
     func modify(view: any View) -> any View {
         ComposeView { context in
-            let size = remember { mutableStateOf(IntSize.Zero) }
-            let magnification = remember { mutableStateOf(Float(1.0)) }
-            let translationX = remember { mutableStateOf(Float(0.0)) }
-            let translationY = remember { mutableStateOf(Float(0.0)) }
+            let size = remember(styleIdentity) { mutableStateOf(IntSize.Zero) }
+            let magnification = remember(styleIdentity) { mutableStateOf(Float(1.0)) }
+            let translationX = remember(styleIdentity) { mutableStateOf(Float(0.0)) }
+            let translationY = remember(styleIdentity) { mutableStateOf(Float(0.0)) }
 
             Box(
                 modifier: context.modifier
                     .clipToBounds()
                     .onSizeChanged { size.value = $0 }
-                    .pointerInput(true) {
+                    .pointerInput(styleIdentity) {
                         detectTransformGestures(
                             panZoomLock: true,
                             onGesture: { centroid, pan, zoom, _ in
