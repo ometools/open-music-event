@@ -510,6 +510,7 @@ var applicationTargets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Lexicon", package: "swift-composable-atmosphere"),
         ]
     ),

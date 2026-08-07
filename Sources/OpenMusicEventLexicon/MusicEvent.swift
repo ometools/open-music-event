@@ -119,7 +119,7 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.organizer")
-    public struct Organizer: Equatable, Sendable, Identifiable {
+    public struct Organizer: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.organizer")
 
         @Column(primaryKey: true)
@@ -135,7 +135,7 @@ extension OpenMusicEvent {
 
 
     @Table("app.openmusicevent.event")
-    public struct Event: Equatable, Sendable, Identifiable {
+    public struct Event: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.event")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -306,7 +306,7 @@ extension OpenMusicEvent.Event {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.calendar")
-    public struct Calendar: Equatable, Sendable, Identifiable {
+    public struct Calendar: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.calendar")
         public static let defaultID = OME.ID<OME.Calendar>(.init("self"))
 
@@ -347,7 +347,7 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.calendar.entry")
-    public struct CalendarEntry: Equatable, Sendable, Identifiable {
+    public struct CalendarEntry: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.calendar.entry")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -394,7 +394,7 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.event.organizer")
-    public struct EventOrganizer: Equatable, Sendable, Identifiable {
+    public struct EventOrganizer: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.event.organizer")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -533,7 +533,7 @@ extension OpenMusicEvent.Stage {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.schedule")
-    public struct Schedule: Equatable, Sendable, Identifiable {
+    public struct Schedule: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.schedule")
         public static let singletonID = OME.ID<OME.Schedule>(.init("schedule"))
 
@@ -673,7 +673,7 @@ extension OpenMusicEvent.ScheduleItem.Contributor {
 // MARK: - Performance compatibility projection  (app.openmusicevent.performance)
 extension OpenMusicEvent {
     @Table("app.openmusicevent.performance")
-    public struct Performance: Equatable, Sendable, Identifiable, TimelineRepresentable {
+    public struct Performance: Codable, Equatable, Sendable, Identifiable, TimelineRepresentable {
         public static let nsid = ATProto.NSID("app.openmusicevent.performance")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -747,7 +747,7 @@ extension OpenMusicEvent.Performance.Contributors {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.contributor")
-    public struct Contributor: Equatable, Sendable, Identifiable {
+    public struct Contributor: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.contributor")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -783,7 +783,7 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent.Contributor {
     @Table("app.openmusicevent.contributor.claim")
-    public struct Claim: Equatable, Sendable, Identifiable {
+    public struct Claim: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.contributor.claim")
 
         @Column(primaryKey: true) public var id: OME.ID<Self>
@@ -795,7 +795,7 @@ extension OpenMusicEvent.Contributor {
 
 extension OpenMusicEvent {
     @Table("app.openmusicevent.channel")
-    public struct Channel: Equatable, Sendable, Identifiable {
+    public struct Channel: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.channel")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -839,7 +839,7 @@ extension OpenMusicEvent.Channel {
 //
 extension OpenMusicEvent {
     @Table("app.openmusicevent.poster")
-    public struct Poster: Equatable, Sendable, Identifiable {
+    public struct Poster: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.poster")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
