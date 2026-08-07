@@ -1,5 +1,5 @@
 {
-  "originHash" : "a1f57c1a714fbefb0d325608f3b7b9ef21f563c7dd79038e1efdb6603713e78e",
+  "originHash" : "fb9d8446efc4b5b67f637441617b02a634d1063ab55177e6bec19eaf292dc157",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -25,7 +25,7 @@
       "location" : "https://source.woody.fm/composable-atmosphere-constellation",
       "state" : {
         "branch" : "main",
-        "revision" : "4da8ad0f9fcdbce3dd8b153857b58e4c612ce189"
+        "revision" : "290f404a04e39b5465909e1361b85a7e6849b8f2"
       }
     },
     {
@@ -34,7 +34,7 @@
       "location" : "https://source.woody.fm/composable-atmosphere-tangled",
       "state" : {
         "branch" : "main",
-        "revision" : "86543a2eff63fd288502f117e3a5404efc0d5dc2"
+        "revision" : "b6a3afdd41f3ff26905a81555f2d3ee06d665d60"
       }
     },
     {
@@ -44,6 +44,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "733b2e542a08ccb17648d96edf0870d85611f301"
+      }
+    },
+    {
+      "identity" : "compress-nio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/adam-fowler/compress-nio.git",
+      "state" : {
+        "revision" : "e1caa19077dda4b00441142ef57da3db02acd466",
+        "version" : "1.4.2"
       }
     },
     {
@@ -322,7 +331,7 @@
       "location" : "https://github.com/pointfreeco/swift-case-paths",
       "state" : {
         "branch" : "26",
-        "revision" : "c641088612486aac555d329163561f392043d162"
+        "revision" : "b636146bc9a96cc6897c6cb7e2527a3a66594005"
       }
     },
     {
@@ -358,7 +367,7 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "e98edb10108661fc582acf9b0d1b03127dc81ee9"
+        "revision" : "5ceb7df"
       }
     },
     {
@@ -547,7 +556,7 @@
       "location" : "https://github.com/pointfreeco/swift-navigation",
       "state" : {
         "branch" : "relax-sendable",
-        "revision" : "0453ba88c955f7dd4fce57c80d65691fee7af8ba"
+        "revision" : "47933497ee1ca26fd3904fc9927ccce2b98c0dae"
       }
     },
     {
@@ -722,12 +731,21 @@
       }
     },
     {
+      "identity" : "swift-websocket",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hummingbird-project/swift-websocket",
+      "state" : {
+        "revision" : "126df9655565068bd97838c072c1db11f9fd42ee",
+        "version" : "1.6.1"
+      }
+    },
+    {
       "identity" : "tca26",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/TCA26",
       "state" : {
         "branch" : "main",
-        "revision" : "25dd5e55eac7d6402c8ceadc83d5cca0133275d4"
+        "revision" : "cf2f6b58c7be7736a9705dc194c7ff81513bd28d"
       }
     },
     {

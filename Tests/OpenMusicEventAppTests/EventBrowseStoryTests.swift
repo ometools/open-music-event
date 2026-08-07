@@ -27,6 +27,7 @@ import Synchronization
 import Testing
 import XRPCClient
 
+@Suite(.serialized)
 struct EventBrowseStoryTests {
     @Test @MainActor
     func `an empty app browses the in-memory OME AppView through XRPC`() async throws {
@@ -38,7 +39,6 @@ struct EventBrowseStoryTests {
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0)
         )
-
         try await app.test(.router) { server in
             await withDependencies {
                 $0.context = .test
@@ -101,6 +101,54 @@ struct EventBrowseStoryTests {
                 }
             }
         }
+
+    }
+
+    @Test
+    func `the OME AppView client preserves pagination through XRPC`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        let requests = Mutex<[HTTPRequest]>([])
+
+        let page = try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                requests.withLock { $0.append(request) }
+                return Data(Self.omeAppViewPageResponse.utf8)
+            }
+        } operation: {
+            try await CalendarEventsClient
+                .openMusicEventAndAtmo(database: database)
+                .browse(
+                    CalendarEvent.PageRequest(
+                        collection: OME.Event.nsid,
+                        cursor: "page-2",
+                        limit: 12
+                    )
+                )
+        }
+
+        let request = try #require(requests.withLock { $0.first })
+        expectNoDifference(request.method, .get)
+        expectNoDifference(request.url?.host(), "openmusicevent.app")
+        expectNoDifference(
+            request.url?.path(),
+            "/xrpc/app.openmusicevent.calendar.getEvents"
+        )
+        expectNoDifference(
+            Set(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems ?? []),
+            [
+                URLQueryItem(name: "catalog", value: OME.Event.nsid.rawValue),
+                URLQueryItem(name: "cursor", value: "page-2"),
+                URLQueryItem(name: "limit", value: "12"),
+            ]
+        )
+        expectNoDifference(page.events.map(\.name), ["Network Festival"])
+        expectNoDifference(page.cursor, "page-3")
+        expectNoDifference(page.events.first?.source.appViewHost, "openmusicevent.app")
     }
 
     @Test
@@ -758,6 +806,42 @@ struct EventBrowseStoryTests {
 }
 
 extension EventBrowseStoryTests {
+    static let omeAppViewPageResponse = #"""
+        {
+          "events": [
+            {
+              "uri": "at://did:plc:organizer/app.openmusicevent.event/network-festival",
+              "name": "Network Festival",
+              "startsAt": "2026-09-04T06:00:00Z",
+              "locations": [],
+              "links": [],
+              "media": [],
+              "organizer": {
+                "id": "did:plc:organizer",
+                "displayName": "Network Organizer"
+              },
+              "attendance": {
+                "going": 0,
+                "interested": 0,
+                "notGoing": 0
+              },
+              "source": {
+                "collection": "app.openmusicevent.event",
+                "appViewHost": "openmusicevent.app",
+                "sourceRecord": {
+                  "$type": "app.openmusicevent.source",
+                  "kind": "tangled",
+                  "reference": "https://tangled.org/example.com/network-festival",
+                  "ref": "main"
+                }
+              },
+              "timeZoneIdentifier": "America/Denver"
+            }
+          ],
+          "cursor": "page-3"
+        }
+        """#
+
     static let installedEventAppViewPageResponse = #"""
         {
           "events": [

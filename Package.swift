@@ -59,6 +59,12 @@ func workspacePackagePath(_ name: String) -> String {
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
+let composableNotificationsPath = [
+    workspacePackagePath("swift-composable-notifications"),
+    packagePath("../../swift-packages/swift-composable-notifications"),
+]
+.first { FileManager.default.fileExists(atPath: $0) }
+    ?? packagePath("../../swift-packages/swift-composable-notifications")
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
@@ -156,6 +162,10 @@ var applicationDependencies: [Package.Dependency] = [
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
     ),
+    .package(
+        name: "swift-composable-notifications",
+        path: composableNotificationsPath
+    ),
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
@@ -232,6 +242,10 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
 ] + (packageBuild == .appView ? [
+    .package(
+        name: "swift-composable-notifications",
+        path: composableNotificationsPath
+    ),
     .package(
         url: "https://source.woody.fm/swift-composable-atmosphere",
         branch: "main",
@@ -877,6 +891,7 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
+            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
