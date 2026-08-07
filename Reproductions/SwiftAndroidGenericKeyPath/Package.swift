@@ -6,8 +6,8 @@ let package = Package(
     name: "SwiftAndroidGenericKeyPath",
     platforms: [.macOS(.v10_15)],
     dependencies: [
-        .package(path: "../../../swift-sharing"),
-        .package(path: "../../../../../swift-packages/3rd-party/skip/skip-sharing")
+        .package(path: "../../../worktrees/swift-sharing"),
+        .package(path: "../../../../swift-packages/3rd-party/skip/skip-sharing")
     ],
     targets: [
         .testTarget(
