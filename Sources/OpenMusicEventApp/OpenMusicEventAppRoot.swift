@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableAuthoringWorkspace
 import ComposableWorkspace
+import ComposableNotifications
 import Dependencies
 import ErrorHandling
 import IssueReporting
@@ -61,6 +62,7 @@ public struct OpenMusicEventAppRoot {
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var destination: Destination.State?
         public var errorNotifications = Spawn(ErrorNotifications.State())
+        @Trigger<AppDelegateEvent> public var appDelegateEvent
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
@@ -281,6 +283,13 @@ public struct OpenMusicEventAppRoot {
             persistSelectedEvent(nil, state)
         }
         .presentReportedErrors()
+        .onTrigger(store.appDelegateEvent) { (event: AppDelegateEvent, state: inout State) in
+            guard state.variant == .generic else { return }
+            guard case .notification = event else { return }
+            store.addTask {
+                _ = try store.browser.browse.refresh()
+            }
+        }
         .spawn(\.browser) {
             OpenMusicEventBrowser()
         }

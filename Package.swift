@@ -649,6 +649,7 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
     .product(name: "ComposableAuthoringWorkspace", package: "swift-composable-workspace"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
+    .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
     .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),

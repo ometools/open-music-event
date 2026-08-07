@@ -275,6 +275,7 @@ public struct Browse {
         public var eventDetail: EventBrowseDetail.State?
         public var events: [CalendarEvent]
         public var isLoading = false
+        @Trigger public var refresh
         public var referenceDate: Date
         public var searchText = ""
         public var selectedDay: CalendarEvent.Day?
@@ -422,6 +423,11 @@ public struct Browse {
 
             case let .sortSelected(sort):
                 state.sort = sort
+            }
+        }
+        .onTrigger(store.refresh) { _ in
+            store.addTask {
+                try await store.send(.didPullToRefresh)?.value
             }
         }
         .ifLet(\.eventDetail, action: \.eventDetail) {

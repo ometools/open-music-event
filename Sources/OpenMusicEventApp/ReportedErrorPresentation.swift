@@ -3,6 +3,7 @@ import Dependencies
 import ErrorHandling
 import OpenMusicEventAuthentication
 import TCATProtoAuthentication
+import ComposableNotifications
 
 public protocol ErrorNotificationRootState {
     var errorNotifications: Spawn<ErrorNotifications> { get set }
@@ -16,8 +17,8 @@ public extension FeatureProtocol where State: ErrorNotificationRootState {
 
 public extension FeatureProtocol
 where
-    State == OAuthAuthorization<OpenMusicEventAppRoot>.State,
-    Action == OAuthAuthorization<OpenMusicEventAppRoot>.Action
+    State == OpenMusicEventApplication.State,
+    Action == OpenMusicEventApplication.Action
 {
     func presentAuthorizationFailures() -> some Feature {
         self.modifier(OAuthAuthorizationFailurePresentationModifier())
@@ -26,8 +27,8 @@ where
 
 public extension FeatureProtocol
 where
-    State == OAuthAuthorization<OpenMusicEventAppRoot>.State,
-    Action == OAuthAuthorization<OpenMusicEventAppRoot>.Action
+    State == OpenMusicEventApplication.State,
+    Action == OpenMusicEventApplication.Action
 {
     func deliverAuthoringAuthorizationChanges() -> some Feature {
         self.modifier(AuthoringAuthorizationDeliveryModifier())
@@ -35,8 +36,8 @@ where
 }
 
 struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
-    typealias State = OAuthAuthorization<OpenMusicEventAppRoot>.State
-    typealias Action = OAuthAuthorization<OpenMusicEventAppRoot>.Action
+    typealias State = OpenMusicEventApplication.State
+    typealias Action = OpenMusicEventApplication.Action
 
     let store = FeatureStore<State, Action>()
 
@@ -60,8 +61,8 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
 }
 
 private struct OAuthAuthorizationFailurePresentationModifier: FeatureModifier {
-    typealias State = OAuthAuthorization<OpenMusicEventAppRoot>.State
-    typealias Action = OAuthAuthorization<OpenMusicEventAppRoot>.Action
+    typealias State = OpenMusicEventApplication.State
+    typealias Action = OpenMusicEventApplication.Action
 
     @Dependency(\.continuousClock) var clock
     @Dependency(\.errorNotificationPresentation) var errorNotificationPresentation
@@ -70,13 +71,13 @@ private struct OAuthAuthorizationFailurePresentationModifier: FeatureModifier {
 
     func body(content: Content) -> some FeatureProtocol<State, Action> {
         content
-            .onEvent(OAuthAuthorizationFailed.self) { failure, state in
+            .onEvent(OAuthAuthorizationFailed.self) { failure, state -> FeatureEventPropagation in
                 guard let error = resolvedHandledError(
                     from: failure.originalError,
                     fallbackMessage: .authenticationAuthorizationFailed,
                     operation: .authenticationAuthorization
                 ) else {
-                    return
+                    return .stop
                 }
                 state.content.errorNotifications.state.report(error)
                 store.addTask {
@@ -88,6 +89,7 @@ private struct OAuthAuthorizationFailurePresentationModifier: FeatureModifier {
                         $0.content.errorNotifications.state.dismiss(id: error.id)
                     }
                 }
+                return .stop
             }
     }
 }

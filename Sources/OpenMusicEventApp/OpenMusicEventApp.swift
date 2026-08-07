@@ -4,7 +4,9 @@ import SwiftUI
 import ATProtoOAuth
 import BlueskyActorCache
 import ComposableCalendarEvents
+import ComposableNotifications
 import Dependencies
+import ErrorHandling
 import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
@@ -63,6 +65,9 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        dependencies.appDelegateClient = AppDelegateClient(
+            events: { OpenMusicEventAppDelegate.shared.appDelegateEvents() }
+        )
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
 #if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
@@ -93,9 +98,64 @@ extension OME {
 
 }
 
+/// The application's authenticated content is wrapped by the platform-neutral delegate bridge
+/// before it reaches the OAuth boundary. This keeps lifecycle and delivered-notification routing
+/// outside the authentication feature while still giving OME one explicit app-owned handler.
+public typealias OpenMusicEventApplicationContent = AppDelegateFeature<OpenMusicEventAppRoot>
+
 /// The application's single authentication boundary. Its entire root receives the authenticated
 /// OAuth session, authorization requests, and authorization broker from `OAuthAuthorization`.
-public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAppRoot>
+public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventApplicationContent>
+
+// Preserve the authenticated-root state surface while the delegate wrapper owns the child
+// feature's runtime. This keeps existing app and test code focused on OME content rather than
+// the transport wrapper's implementation detail.
+extension OpenMusicEventApplicationContent.State {
+    public var variant: OpenMusicEventAppVariant {
+        get { content.variant }
+        set { content.variant = newValue }
+    }
+
+    public var destination: OpenMusicEventAppRoot.Destination.State? {
+        get { content.destination }
+        set { content.destination = newValue }
+    }
+
+    public var errorNotifications: Spawn<ErrorNotifications> {
+        get { content.errorNotifications }
+        set { content.errorNotifications = newValue }
+    }
+
+    public var appDelegateEvent: Trigger<AppDelegateEvent> {
+        get { content.appDelegateEvent }
+        set { content.appDelegateEvent = newValue }
+    }
+}
+
+extension OAuthAuthorization where Content == OpenMusicEventApplicationContent {
+    init(
+        storage: OAuthSessionStorage,
+        requestCenter: AuthorizationRequestCenter = AuthorizationRequestCenter(),
+        makeContent: @escaping @Sendable () -> OpenMusicEventAppRoot
+    ) {
+        self.init(storage: storage, requestCenter: requestCenter) {
+            AppDelegateFeature(eventTrigger: \.appDelegateEvent) {
+                makeContent()
+            }
+        }
+    }
+}
+
+extension OAuthAuthorization<OpenMusicEventApplicationContent>.State {
+    init(
+        storage: OAuthSessionStorage,
+        makeContentState: () -> OpenMusicEventAppRoot.State
+    ) {
+        self.init(storage: storage) {
+            AppDelegateFeature.State(content: makeContentState())
+        }
+    }
+}
 
 struct SelectedEventRestoration {
     var eventID: OMERecord.Event.ID?
@@ -138,9 +198,16 @@ struct SelectedEventRestoration {
             \.authentication,
             action: \.authentication
         )
+        let applicationContentStore = store.scope(
+            \.content,
+            action: \.content
+        )
 
         OpenMusicEventAppRootView(
-            store: store.scope(\.content, action: \.content)
+            store: applicationContentStore.scope(
+                \.content,
+                action: \.content
+            )
         )
             .sheet(
                 item: $authenticationStore.scope(
@@ -168,7 +235,12 @@ struct SelectedEventRestoration {
             }
 #else
         OpenMusicEventAuthorizationView(store: store) { rootStore in
-            OpenMusicEventAppRootView(store: rootStore)
+            OpenMusicEventAppRootView(
+                store: rootStore.scope(
+                    \.content,
+                    action: \.content
+                )
+            )
         }
             .environment(
                 \.showsTechnicalDetails,
@@ -231,37 +303,56 @@ struct SelectedEventRestoration {
 /* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
     /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate()
 
+    private let appDelegateEventContinuation: AsyncStream<AppDelegateEvent>.Continuation
+    private let appDelegateEventStream: AsyncStream<AppDelegateEvent>
+
     private init() {
+        let (stream, continuation) = AsyncStream<AppDelegateEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(64)
+        )
+        self.appDelegateEventContinuation = continuation
+        self.appDelegateEventStream = stream
+    }
+
+    /* SKIP @bridge */public func appDelegateEvents() -> AsyncStream<AppDelegateEvent> {
+        appDelegateEventStream
     }
 
     /* SKIP @bridge */public func onInit() {
 //        OME.bootstrapIfNeeded()
+        appDelegateEventContinuation.yield(.initialized)
         logger.debug("onInit")
     }
 
     /* SKIP @bridge */public func onLaunch() {
+        appDelegateEventContinuation.yield(.launched)
         logger.debug("onLaunch")
         enforceStoredAuthenticationFreshness()
     }
 
     /* SKIP @bridge */public func onResume() {
+        appDelegateEventContinuation.yield(.resumed)
         logger.debug("onResume")
         enforceStoredAuthenticationFreshness()
     }
 
     /* SKIP @bridge */public func onPause() {
+        appDelegateEventContinuation.yield(.paused)
         logger.debug("onPause")
     }
 
     /* SKIP @bridge */public func onStop() {
+        appDelegateEventContinuation.yield(.stopped)
         logger.debug("onStop")
     }
 
     /* SKIP @bridge */public func onDestroy() {
+        appDelegateEventContinuation.yield(.destroyed)
         logger.debug("onDestroy")
     }
 
     /* SKIP @bridge */public func onLowMemory() {
+        appDelegateEventContinuation.yield(.lowMemory)
         logger.debug("onLowMemory")
     }
 
