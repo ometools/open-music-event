@@ -79,6 +79,14 @@ public extension UserFacingText {
         "Test error.",
         fallback: "Test error."
     )
+    static let feedbackBoardLoadFailed = Self(
+        "Unable to load feedback.",
+        fallback: "Unable to load feedback."
+    )
+    static let feedbackSubmissionFailed = Self(
+        "Unable to send feedback.",
+        fallback: "Unable to send feedback."
+    )
     static let eventDeletionFailed = Self(
         "Unable to delete event.",
         fallback: "Unable to delete event."
@@ -106,6 +114,8 @@ public extension ErrorOperation {
     static let eventDeletion = Self("event.delete")
     static let eventInstallation = Self("event.install")
     static let eventWorkspaceRestore = Self("event.workspace.restore")
+    static let feedbackBoardLoad = Self("feedback.board.load")
+    static let feedbackSubmission = Self("feedback.submit")
     static let selectedEventPersistence = Self("event.selection.persist")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")

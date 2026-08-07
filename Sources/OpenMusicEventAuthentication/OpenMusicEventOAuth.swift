@@ -1,5 +1,6 @@
 import ATProto
 import ATProtoOAuth
+import ComposableAtmosphereUserInput
 import Dependencies
 import Foundation
 import HTTPClient
@@ -95,6 +96,13 @@ public enum OpenMusicEventOAuth {
             sourceRecordCreatePermission,
             sourceRecordUpdatePermission,
         ]
+    )
+
+    public static let userInputDiscussionCreateAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            UserInputCollection.discussion.repoPermission(actions: [.create])
+        ],
+        reason: "Post feedback to the Open Music Event product board."
     )
 
     static let sessionStoreKeychainItem = KeychainStorageItem(
@@ -262,6 +270,7 @@ public enum OpenMusicEventOAuth {
             tangledPullMergeAuthRequirement,
             tangledRepositoryManagementAuthRequirement,
             sourceRecordAuthRequirement,
+            userInputDiscussionCreateAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ]
     )

@@ -67,6 +67,13 @@ let composableNotificationsPath = [
     ?? packagePath("../../swift-packages/swift-composable-notifications")
 let composableAtmosphereConstellationPath = workspacePackagePath("composable-atmosphere-constellation")
 let composableAtmosphereTangledPath = workspacePackagePath("composable-atmosphere-tangled")
+let composableAtmosphereUserInputPath = [
+    workspacePackagePath("composable-atmosphere-userinput"),
+    packagePath("../composable-atmosphere-userinput"),
+    packagePath("../../composable-atmosphere-userinput"),
+]
+.first { FileManager.default.fileExists(atPath: $0) }
+    ?? packagePath("../composable-atmosphere-userinput")
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
@@ -160,6 +167,10 @@ let routingDependency: Package.Dependency = .package(
 )
 
 var applicationDependencies: [Package.Dependency] = [
+    .package(
+        name: "composable-atmosphere-userinput",
+        path: composableAtmosphereUserInputPath
+    ),
     .package(
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
@@ -279,6 +290,10 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
     "BlueskyActorCache",
     "OpenMusicEventSourceClone",
     "OpenMusicEventComponents",
+    .product(
+        name: "ComposableAtmosphereUserInput",
+        package: "composable-atmosphere-userinput"
+    ),
     .product(name: "ATProto", package: "swift-composable-atmosphere"),
     .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
     .product(name: "ATProtoServer", package: "swift-composable-atmosphere"),
@@ -641,6 +656,14 @@ var applicationTargets: [Target] = [
 var openMusicEventAppDependencies: [Target.Dependency] = [
     "BlueskyActorCache",
     .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+    .product(
+        name: "ComposableAtmosphereUserInput",
+        package: "composable-atmosphere-userinput"
+    ),
+    .product(
+        name: "ComposableAtmosphereUserInputUI",
+        package: "composable-atmosphere-userinput"
+    ),
     "ErrorHandling",
     "OpenMusicEventAppEventViewer",
     "OpenMusicEventAuthentication",
@@ -790,6 +813,10 @@ applicationTargets.append(contentsOf: [
             "BlueskyActorCache",
             "OpenMusicEventAuthentication",
             .product(name: "Clocks", package: "swift-clocks"),
+            .product(
+                name: "ComposableAtmosphereUserInput",
+                package: "composable-atmosphere-userinput"
+            ),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
@@ -804,6 +831,14 @@ applicationTargets.append(contentsOf: [
         dependencies: [
             "BlueskyActorCache",
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(
+                name: "ComposableAtmosphereUserInput",
+                package: "composable-atmosphere-userinput"
+            ),
+            .product(
+                name: "ComposableAtmosphereUserInputUI",
+                package: "composable-atmosphere-userinput"
+            ),
             "ErrorHandling",
             "OpenMusicEventApp",
             "OpenMusicEventAppViewServer",

@@ -1,6 +1,8 @@
 import ATProto
 import BlueskyActorCache
 import Clocks
+import ComposableAtmosphereUserInput
+import ComposableAtmosphereUserInputUI
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
@@ -150,6 +152,43 @@ struct TechnicalDetailsTests {
 @MainActor
 @Suite(.tcaExhaustivity(.off))
 struct SettingsFeatureTests {
+    @Test
+    func canonicalFeedbackBoardMapsToUserInputConfiguration() throws {
+        let configuration = try #require(
+            OpenMusicEventAppConfiguration.openMusicEvent
+                .productFeedbackBoard?
+                .userInputConfiguration
+        )
+
+        expectNoDifference(
+            configuration.space.uri.description,
+            "at://did:plc:42p4f3krv45gtkxjooaekbnw/app.userinput.space/3moixlle7bs25"
+        )
+        expectNoDifference(
+            configuration.externalURL,
+            URL(
+                string: "https://userinput.app/s/did:plc:42p4f3krv45gtkxjooaekbnw/3moixlle7bs25"
+            )
+        )
+    }
+
+    @Test
+    func missingFeedbackBoardDoesNotCreateDestination() {
+        let store = withDependencies {
+            $0.openMusicEventAppConfiguration = OpenMusicEventAppConfiguration(
+                productFeedbackBoard: nil
+            )
+        } operation: {
+            TestStore(initialState: Settings.State()) {
+                Settings()
+            }
+        }
+
+        #expect(!store.showsFeedbackBoard)
+        store.send(.feedbackButtonTapped)
+        #expect(store.destination == nil)
+    }
+
     @Test
     func testErrorButtonReportsGlobalError() async throws {
         let database = try makePreparedDatabase()
