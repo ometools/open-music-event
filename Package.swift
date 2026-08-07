@@ -403,6 +403,7 @@ var applicationTargets: [Target] = [
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
             .product(name: "Tagged", package: "swift-tagged"),
+            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     .target(
