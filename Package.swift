@@ -59,7 +59,9 @@ func workspacePackagePath(_ name: String) -> String {
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
-let skipstonePlugins: [Target.PluginUsage] = [.plugin(name: "skipstone", package: "skip")]
+let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
+    ? []
+    : [.plugin(name: "skipstone", package: "skip")]
 let skipRootPath = environment["SKIPLOCAL"].map {
     URL(fileURLWithPath: $0).deletingLastPathComponent()
 }
@@ -229,7 +231,25 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
-]
+] + (packageBuild == .appView ? [
+    .package(
+        url: "https://source.woody.fm/swift-composable-atmosphere",
+        branch: "main",
+        traits: []
+    ),
+    .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
+    .package(
+        url: "https://github.com/pointfreeco/sqlite-data",
+        from: "1.0.0",
+        traits: ["SQLiteDataTagged"]
+    ),
+    .package(
+        url: "https://github.com/pointfreeco/swift-structured-queries",
+        exact: "0.32.0",
+        traits: ["StructuredQueriesTagged"]
+    ),
+    .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+] : [])
 
 // Target dependencies
 
@@ -295,9 +315,11 @@ var scheduleComponentsDependencies: [Target.Dependency] = [
 openMusicEventComponentsDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
-openMusicEventTimeZonesDependencies.append(
-    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
-)
+if packageBuild != .appView {
+    openMusicEventTimeZonesDependencies.append(
+        .product(name: "SkipFuseUI", package: "skip-fuse-ui")
+    )
+}
 openMusicEventWhiteLabelDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
@@ -318,6 +340,36 @@ let routingTestTarget = Target.testTarget(
     name: "OpenMusicEventRoutingTests",
     dependencies: [
         "OpenMusicEventRouting",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+    ]
+)
+
+let openMusicEventTimeZonesTarget = Target.target(
+    name: "OpenMusicEventTimeZones",
+    dependencies: openMusicEventTimeZonesDependencies,
+    exclude: packageBuild == .appView ? ["Skip"] : [],
+    plugins: skipstonePlugins
+)
+
+let openMusicEventLexiconTarget = Target.target(
+    name: "OpenMusicEventLexicon",
+    dependencies: [
+        "OpenMusicEventTimeZones",
+        .product(name: "ATProto", package: "swift-composable-atmosphere"),
+        .product(name: "CasePaths", package: "swift-case-paths"),
+        .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+        .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
+        .product(name: "SQLiteData", package: "sqlite-data"),
+        .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
+        .product(name: "Tagged", package: "swift-tagged"),
+        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+    ]
+)
+
+let openMusicEventLexiconTestTarget = Target.testTarget(
+    name: "OpenMusicEventLexiconTests",
+    dependencies: [
+        "OpenMusicEventLexicon",
         .product(name: "CustomDump", package: "swift-custom-dump"),
     ]
 )
@@ -392,20 +444,7 @@ var applicationTargets: [Target] = [
         dependencies: openMusicEventWhiteLabelDependencies,
         plugins: skipstonePlugins
     ),
-    .target(
-        name: "OpenMusicEventLexicon",
-        dependencies: [
-            "OpenMusicEventTimeZones",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "CasePaths", package: "swift-case-paths"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
-            .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
-            .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
-            .product(name: "Tagged", package: "swift-tagged"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ]
-    ),
+    openMusicEventLexiconTarget,
     .target(
         name: "OpenMusicEventSourceEditing",
         dependencies: [
@@ -454,11 +493,7 @@ var applicationTargets: [Target] = [
         name: "OpenMusicEventSourceClone",
         dependencies: openMusicEventSourceCloneDependencies
     ),
-    .target(
-        name: "OpenMusicEventTimeZones",
-        dependencies: openMusicEventTimeZonesDependencies,
-        plugins: skipstonePlugins
-    ),
+    openMusicEventTimeZonesTarget,
     .executableTarget(
         name: "OpenMusicEventCLI",
         dependencies: [
@@ -506,15 +541,7 @@ var applicationTargets: [Target] = [
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
-    .testTarget(
-        name: "OpenMusicEventLexiconTests",
-        dependencies: [
-            "OpenMusicEventLexicon",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "CustomDump", package: "swift-custom-dump"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
-        ]
-    ),
+    openMusicEventLexiconTestTarget,
     .testTarget(
         name: "OpenMusicEventReleaseToolsTests",
         dependencies: [
@@ -846,10 +873,14 @@ let appViewTargets: [Target] = [
     .target(
         name: "OpenMusicEventAppViewServer",
         dependencies: [
+            "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
             .product(name: "Hummingbird", package: "hummingbird"),
+            .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
+            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
         resources: [
+            .copy("Resources/TemporaryOMEBrowseCatalog.json"),
             .copy("Resources/Site"),
             .copy("Resources/WellKnown"),
         ]
@@ -863,6 +894,7 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventAppViewServer",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
         ]
     ),
@@ -902,7 +934,13 @@ case .androidApp:
 case .appView:
     products = appViewProducts
     dependencies = [routingDependency] + appViewDependencies
-    targets = [routingTarget] + appViewTargets
+    targets = [
+        routingTarget,
+        openMusicEventTimeZonesTarget,
+        openMusicEventLexiconTarget,
+        openMusicEventLexiconTestTarget,
+    ]
+        + appViewTargets
 }
 
 let package = Package(

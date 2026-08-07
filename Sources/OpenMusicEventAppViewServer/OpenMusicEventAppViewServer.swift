@@ -1,6 +1,9 @@
 import Foundation
 import Hummingbird
+import OpenMusicEventLexicon
 import OpenMusicEventRouting
+import XRPCClient
+import XRPCHummingbird
 
 public enum OpenMusicEventAppViewServer {
     public static func router(configuration: AppViewConfiguration = .init()) -> Router<BasicRequestContext> {
@@ -41,6 +44,29 @@ public enum OpenMusicEventAppViewServer {
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles
     ) {
+        hummingbirdRouter.register(OME.CalendarEvent.GetEvents.self) { parameters, _ in
+            guard parameters.catalog == OME.Event.nsid else {
+                throw XRPC.ResponseError(
+                    .notFound,
+                    error: "UnknownCatalog",
+                    message: "The requested calendar event catalog is not available."
+                )
+            }
+
+            do {
+                return try BundledCalendarEventCatalog.page(
+                    cursor: parameters.cursor,
+                    limit: parameters.limit
+                )
+            } catch BundledCalendarEventCatalogError.invalidCursor {
+                throw XRPC.ResponseError(
+                    .badRequest,
+                    error: "InvalidCursor",
+                    message: "The XRPC cursor is invalid."
+                )
+            }
+        }
+
         hummingbirdRouter.get("/.well-known/{file}") { request, context async throws -> Response in
             try response(
                 host: request.authority,

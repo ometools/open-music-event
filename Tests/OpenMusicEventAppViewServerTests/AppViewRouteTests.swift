@@ -1,12 +1,126 @@
 import AWSLambdaEvents
+import CustomDump
 import Foundation
 import HummingbirdLambda
 import HummingbirdLambdaTesting
 import HummingbirdTesting
 import OpenMusicEventAppViewServer
+import OpenMusicEventLexicon
 import Testing
+import XRPCClient
 
 struct AppViewRouteTests {
+    @Test
+    func `serves the bundled OME catalog through its shared XRPC definition`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+
+        let app = try OpenMusicEventAppViewServer.application(configuration: roots.configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.contentType] == "application/json; charset=utf-8")
+
+                let page = try decodeCalendarEventPage(response.body)
+                expectNoDifference(page.events.count, 20)
+                expectNoDifference(page.cursor, nil)
+
+                let wickedWoods = try #require(page.events.first)
+                expectNoDifference(wickedWoods.name, "Wicked Woods 2026")
+                expectNoDifference(wickedWoods.source.collection, OME.Event.nsid)
+                #expect(wickedWoods.event != nil)
+            }
+        }
+    }
+
+    @Test
+    func `pages through the bundled OME catalog with XRPC cursor and limit`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+
+        let app = try OpenMusicEventAppViewServer.application(configuration: roots.configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event&limit=2",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+
+                let page = try decodeCalendarEventPage(response.body)
+                expectNoDifference(page.events.map(\.name), ["Wicked Woods 2026", "Wicked Woods 2025"])
+                expectNoDifference(page.cursor, "2")
+            }
+
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event&cursor=2&limit=2",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+
+                let page = try decodeCalendarEventPage(response.body)
+                expectNoDifference(page.events.map(\.name), ["Wicked Woods 2024", "Wicked Woods 2023"])
+                expectNoDifference(page.cursor, "4")
+            }
+        }
+    }
+
+    @Test
+    func `returns standard XRPC errors for invalid catalog parameters`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+
+        let app = try OpenMusicEventAppViewServer.application(configuration: roots.configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event&limit=0",
+                method: .get
+            ) { response in
+                #expect(response.status == .badRequest)
+                expectNoDifference(
+                    try decodeXRPCError(response.body),
+                    XRPC.ErrorResponse(
+                        error: "InvalidRequest",
+                        message: "Invalid XRPC query parameters."
+                    )
+                )
+            }
+
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event&cursor=not-a-cursor",
+                method: .get
+            ) { response in
+                #expect(response.status == .badRequest)
+                expectNoDifference(
+                    try decodeXRPCError(response.body),
+                    XRPC.ErrorResponse(
+                        error: "InvalidCursor",
+                        message: "The XRPC cursor is invalid."
+                    )
+                )
+            }
+
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=community.lexicon.calendar.event",
+                method: .get
+            ) { response in
+                #expect(response.status == .notFound)
+                expectNoDifference(
+                    try decodeXRPCError(response.body),
+                    XRPC.ErrorResponse(
+                        error: "UnknownCatalog",
+                        message: "The requested calendar event catalog is not available."
+                    )
+                )
+            }
+        }
+    }
+
     @Test
     func servesSharedRoutesThroughLocalHummingbirdApp() async throws {
         let roots = try TestAppViewRoots()
@@ -90,6 +204,16 @@ struct AppViewRouteTests {
             }
         }
     }
+}
+
+private func decodeCalendarEventPage(_ body: ByteBuffer) throws -> OME.CalendarEvent.Page {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(OME.CalendarEvent.Page.self, from: Data(body.readableBytesView))
+}
+
+private func decodeXRPCError(_ body: ByteBuffer) throws -> XRPC.ErrorResponse {
+    try JSONDecoder().decode(XRPC.ErrorResponse.self, from: Data(body.readableBytesView))
 }
 
 private struct TestAppViewRoots {

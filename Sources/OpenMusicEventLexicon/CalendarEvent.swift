@@ -219,9 +219,8 @@ public extension OpenMusicEvent.CalendarEvent {
         case unknown(String)
     }
 
-    struct GetEvents: XRPC.Request, Sendable {
+    struct GetEvents: XRPC.Query, Sendable {
         public static let nsid = ATProto.NSID("app.openmusicevent.calendar.getEvents")
-        public static let type: XRPC.RequestType = .query
 
         public typealias Input = Never
         public typealias Output = OpenMusicEvent.CalendarEvent.Page
@@ -254,6 +253,27 @@ public extension OpenMusicEvent.CalendarEvent {
             public var catalog: ATProto.NSID
             public var cursor: String?
             public var limit: Int
+
+            enum CodingKeys: String, CodingKey {
+                case catalog
+                case cursor
+                case limit
+            }
+
+            public init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.catalog = try container.decode(ATProto.NSID.self, forKey: .catalog)
+                self.cursor = try container.decodeIfPresent(String.self, forKey: .cursor)
+                self.limit = try container.decodeIfPresent(Int.self, forKey: .limit) ?? 100
+
+                guard (1...100).contains(limit) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .limit,
+                        in: container,
+                        debugDescription: "XRPC limit must be between 1 and 100."
+                    )
+                }
+            }
         }
     }
 }
