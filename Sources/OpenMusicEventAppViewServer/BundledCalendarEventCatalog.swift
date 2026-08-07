@@ -62,6 +62,7 @@ private struct BundledCalendarEvent: Decodable {
     var organizerAvatarURL: URL?
     var organizerID: String
     var organizerName: String
+    var source: OME.SourceRecord?
     var startDate: LocalDate
     var status: OME.Event.Status?
     var timeZone: String
@@ -117,7 +118,11 @@ private struct BundledCalendarEvent: Decodable {
                     displayName: organizerName,
                     avatarURL: organizerAvatarURL
                 ),
-                source: OME.CalendarEvent.Source(collection: OME.Event.nsid),
+                source: OME.CalendarEvent.Source(
+                    collection: OME.Event.nsid,
+                    appViewHost: "openmusicevent.app",
+                    sourceRecord: source
+                ),
                 timeZoneIdentifier: timeZone.identifier,
                 event: event
             )

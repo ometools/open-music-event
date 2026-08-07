@@ -132,7 +132,22 @@
       "required": ["collection"],
       "properties": {
         "collection": { "type": "string", "format": "nsid" },
-        "appViewHost": { "type": "string" }
+        "appViewHost": { "type": "string" },
+        "sourceRecord": { "type": "ref", "ref": "#sourceRecord" }
+      }
+    },
+    "sourceRecord": {
+      "type": "object",
+      "description": "The canonical organizer source record resolved by the AppView for this event.",
+      "required": ["kind", "reference"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "knownValues": ["tangled"]
+        },
+        "reference": { "type": "string" },
+        "ref": { "type": "string" },
+        "createdAt": { "type": "string", "format": "datetime" }
       }
     }
   }

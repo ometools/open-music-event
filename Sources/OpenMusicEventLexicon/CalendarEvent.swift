@@ -200,14 +200,17 @@ public extension OpenMusicEvent.CalendarEvent {
     struct Source: Codable, Equatable, Sendable {
         public init(
             collection: ATProto.NSID,
-            appViewHost: ATProto.PDSHost? = nil
+            appViewHost: ATProto.PDSHost? = nil,
+            sourceRecord: OpenMusicEvent.SourceRecord? = nil
         ) {
             self.collection = collection
             self.appViewHost = appViewHost
+            self.sourceRecord = sourceRecord
         }
 
         public var collection: ATProto.NSID
         public var appViewHost: ATProto.PDSHost?
+        public var sourceRecord: OpenMusicEvent.SourceRecord?
     }
 
     enum Status: Equatable, Hashable, Sendable {

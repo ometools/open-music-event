@@ -41,13 +41,14 @@ extension OMEEventInstallationClient: DependencyKey {
                 return eventID
             }
 
-            guard let catalogEvent = try CalendarEventsClient
-                .temporaryOpenMusicEventRecords()
-                .first(where: { record in
-                    record.organizerID == eventID.organizerID.description
-                        && record.eventID == eventID.eventID.rawValue.rawValue
-                }),
-                let installationRequest = catalogEvent.installationRequest(
+            let page = try await CalendarEventsClient.openMusicEventPage(
+                CalendarEvent.PageRequest(
+                    collection: OME.Event.nsid,
+                    limit: 100
+                )
+            )
+            guard let catalogEvent = page.events.first(where: { $0.uri == eventURI }),
+                let installationRequest = catalogEvent.source.installationRequest(
                     organizerID: eventID.organizerID
                 )
             else {

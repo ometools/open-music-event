@@ -32,6 +32,15 @@ struct AppViewRouteTests {
                 let wickedWoods = try #require(page.events.first)
                 expectNoDifference(wickedWoods.name, "Wicked Woods 2026")
                 expectNoDifference(wickedWoods.source.collection, OME.Event.nsid)
+                expectNoDifference(wickedWoods.source.appViewHost, "openmusicevent.app")
+                expectNoDifference(
+                    wickedWoods.source.sourceRecord,
+                    OME.SourceRecord(
+                        kind: .tangled,
+                        reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
+                        ref: "main"
+                    )
+                )
                 #expect(wickedWoods.event != nil)
             }
         }

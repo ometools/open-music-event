@@ -8,6 +8,8 @@ import DependenciesTestSupport
 import ErrorHandling
 import FileTree
 import Foundation
+import HTTPClient
+import HTTPTypes
 import IssueReporting
 @testable import OpenMusicEventApp
 import OpenMusicEventDatabase
@@ -21,8 +23,57 @@ import SourceControlClient
 import SQLiteData
 import Synchronization
 import Testing
+import XRPCClient
 
 struct EventBrowseStoryTests {
+    @Test
+    func `an empty app browses the OME AppView catalog through XRPC`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        let requests = Mutex<[HTTPRequest]>([])
+
+        let page = try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                requests.withLock { $0.append(request) }
+                return Data(Self.omeAppViewPageResponse.utf8)
+            }
+        } operation: {
+            try await CalendarEventsClient
+                .openMusicEventAndAtmo(database: database)
+                .browse(
+                    CalendarEvent.PageRequest(
+                        collection: OME.Event.nsid,
+                        cursor: "page-2",
+                        limit: 12
+                    )
+                )
+        }
+
+        let firstRequest = requests.withLock { $0.first }
+        let request = try #require(firstRequest)
+        expectNoDifference(request.method, .get)
+        expectNoDifference(request.url?.host(), "openmusicevent.app")
+        expectNoDifference(
+            request.url?.path(),
+            "/xrpc/app.openmusicevent.calendar.getEvents"
+        )
+        expectNoDifference(
+            Set(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems ?? []),
+            [
+                URLQueryItem(name: "catalog", value: OME.Event.nsid.rawValue),
+                URLQueryItem(name: "cursor", value: "page-2"),
+                URLQueryItem(name: "limit", value: "12"),
+            ]
+        )
+        expectNoDifference(page.events.map(\.name), ["Network Festival"])
+        expectNoDifference(page.cursor, "page-3")
+        expectNoDifference(page.events.first?.source.appViewHost, "openmusicevent.app")
+    }
+
     @Test
     func `organizer rows use the cached actor identity instead of a DID`() throws {
         let organizerID = try #require(DID("did:plc:organizer"))
@@ -89,158 +140,6 @@ struct EventBrowseStoryTests {
         expectNoDifference(store.selectedDay, selectedDay)
         store.send(.daySelected(nil))
         #expect(store.selectedDay == nil)
-    }
-
-    @Test
-    func `an empty app still browses the temporary OME catalog`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
-
-        let client = CalendarEventsClient.openMusicEventAndAtmo(database: database)
-
-        // Browse is useful before the attendee has installed an event.
-        let page = try await client.browse(
-            CalendarEvent.PageRequest(collection: OME.Event.nsid)
-        )
-        expectNoDifference(
-            Set(page.events.map(\.name)),
-            [
-                "Alice Di Micele & Rob Kohler",
-                "Daniel Donato’s Cosmic Country",
-                "EDM DANCE PARTY",
-                "Four Schillings Short",
-                "Gnar Fest",
-                "Goners U.K./ Me, Grimlock/ Seditious Activity/ Prints",
-                "Goth Night",
-                "Gray Goo + Local Bands",
-                "Iona Fyfe in Concert",
-                "Montana Folk Festival 2026",
-                "Open Music Event Launch Party",
-                "Second Saturday Square Dance",
-                "Shambhala 2026",
-                "Wicked Woods (May 2022)",
-                "Wicked Woods (September 2022)",
-                "Wicked Woods 2023",
-                "Wicked Woods 2024",
-                "Wicked Woods 2025",
-                "Wicked Woods 2026",
-            ]
-        )
-
-        let laborTempleOrganizerID = try #require(
-            DID("did:web:gallatinlabortemple.org")
-        )
-        expectNoDifference(
-            page.events
-                .filter { $0.organizer.id == laborTempleOrganizerID }
-                .map { $0.uri.description },
-            [
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-06-26-gnar-fest",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-04-iona-fyfe-in-concert",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-08-27-gray-goo-local-bands",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-01-alice-di-micele-rob-kohler",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-05-edm-dance-party",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-19-four-schillings-short",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-09-26-goth-night",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-02-goners-u-k-me-grimlock-seditious-activity-prints",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-10-second-saturday-square-dance",
-                "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-24-goth-night",
-            ]
-        )
-
-        // Every Gallatin listing enters through the organizer's canonical Tangled source.
-        let gallatinSourceRequest = OpenMusicEventSourceValidationRequest(
-            source: "https://tangled.org/woody.fm/gallatin-labor-temple-ome",
-            organizerID: laborTempleOrganizerID,
-            ref: "main"
-        )
-        let laborTempleRecords = try CalendarEventsClient
-            .temporaryOpenMusicEventRecords()
-            .filter { $0.organizerID == laborTempleOrganizerID.description }
-        for record in laborTempleRecords {
-            let request = try #require(
-                record.installationRequest(organizerID: laborTempleOrganizerID)
-            )
-            expectNoDifference(
-                request,
-                gallatinSourceRequest
-            )
-        }
-
-        // The Wicked Woods organization exposes its complete event history on a fresh install.
-        let wickedWoodsOrganizerID = try #require(
-            DID("did:plc:5df2u7ief6m6tn77jznicxob")
-        )
-        let wickedWoodsEvents = page.events
-            .filter { $0.organizer.id == wickedWoodsOrganizerID }
-        expectNoDifference(
-            wickedWoodsEvents.map(\.name),
-            [
-                "Wicked Woods (May 2022)",
-                "Wicked Woods (September 2022)",
-                "Wicked Woods 2023",
-                "Wicked Woods 2024",
-                "Wicked Woods 2025",
-                "Wicked Woods 2026",
-            ]
-        )
-
-        // Every event keeps a solid event logo, while the 2023 mark identifies the organizer.
-        let wickedWoodsLogoURL = try #require(
-            URL(
-                string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2F54F37A50-9698-41B3-AF27-2BC3EE1599FD.png?alt=media&token=d8b07305-f201-4826-bb91-1f31e209741f"
-            )
-        )
-        expectNoDifference(
-            wickedWoodsEvents.map { $0.organizer.avatarURL },
-            Array(repeating: wickedWoodsLogoURL, count: 6)
-        )
-        let eventLogoURLs = try Dictionary(
-            uniqueKeysWithValues: wickedWoodsEvents.map { event in
-                (
-                    event.name,
-                    try #require(event.media.first { $0.role == "icon" }?.url)
-                )
-            }
-        )
-        expectNoDifference(
-            eventLogoURLs,
-            [
-                "Wicked Woods (May 2022)": try #require(
-                    URL(
-                        string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FDAA28B1F-8634-49ED-B740-435A751FAAC6.png?alt=media&token=3359edfa-99c5-4b8e-bb39-417f6ce0cfe4"
-                    )
-                ),
-                "Wicked Woods (September 2022)": try #require(
-                    URL(
-                        string: "https://firebasestorage.googleapis.com:443/v0/b/festivl.appspot.com/o/userContent%2FEE6A4163-01DE-4DF4-A9B7-1AC0D8BE6EAA.png?alt=media&token=4b9951c7-bcc6-405a-ba4c-aa90ab35a98d"
-                    )
-                ),
-                "Wicked Woods 2023": wickedWoodsLogoURL,
-                "Wicked Woods 2024": wickedWoodsLogoURL,
-                "Wicked Woods 2025": wickedWoodsLogoURL,
-                "Wicked Woods 2026": wickedWoodsLogoURL,
-            ]
-        )
-
-        // The checked-in OME source catalog carries its real semantic artwork.
-        let danielDonato = try #require(
-            page.events.first { $0.name == "Daniel Donato’s Cosmic Country" }
-        )
-        expectNoDifference(
-            danielDonato.media.map(\.role),
-            ["poster", "icon"]
-        )
-
-        // The same URI hydrates detail without inventing a second identity.
-        let wickedWoods = try #require(
-            page.events.first { $0.name == "Wicked Woods 2026" }
-        )
-        let detail = try await client.event(wickedWoods.uri)
-        expectNoDifference(detail.uri, wickedWoods.uri)
-        expectNoDifference(detail.name, wickedWoods.name)
     }
 
     @Test
@@ -314,10 +213,16 @@ struct EventBrowseStoryTests {
             .execute(db)
         }
 
-        let client = CalendarEventsClient.openMusicEventAndAtmo(database: database)
-        let page = try await client.browse(
-            CalendarEvent.PageRequest(collection: OME.Event.nsid)
-        )
+        let page = try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { _, _ in
+                Data(Self.installedEventAppViewPageResponse.utf8)
+            }
+        } operation: {
+            try await CalendarEventsClient
+                .openMusicEventAndAtmo(database: database)
+                .browse(CalendarEvent.PageRequest(collection: OME.Event.nsid))
+        }
         let event = try #require(page.events.first { $0.name == "Summer Art Festival" })
 
         // Poster is the primary visual; hero and icon remain useful failure fallbacks.
@@ -675,10 +580,18 @@ struct EventBrowseStoryTests {
             organizerID: organizerID,
             eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
         )
-        let wickedWoods = try #require(
-            try CalendarEventsClient.temporaryOpenMusicEvents().first {
-                $0.uri == OME.Event.reference(id: eventID).uri
-            }
+        let wickedWoods = CalendarEvent(
+            uri: OME.Event.reference(id: eventID).uri,
+            name: "Wicked Woods 2026",
+            startsAt: nil,
+            organizer: CalendarEvent.Organizer(
+                id: organizerID,
+                displayName: "Wicked Woods"
+            ),
+            source: CalendarEvent.Source(
+                collection: OME.Event.nsid,
+                appViewHost: "openmusicevent.app"
+            )
         )
         let downloadUUID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-000000000026")
@@ -688,6 +601,10 @@ struct EventBrowseStoryTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { _, _ in
+                Data(Self.wickedWoodsAppViewPageResponse.utf8)
+            }
             $0.omeEventInstallation = .liveValue
             $0.uuid = .constant(downloadUUID)
             $0.sourceControl.clone = { _ in
@@ -726,7 +643,7 @@ struct EventBrowseStoryTests {
             }
         }
 
-        // Entering starts from the temporary browse identity and uses the existing viewer route.
+        // Entering starts from the AppView browse identity and uses the existing viewer route.
         let enterEventTask = store.send(.detail(.enterEventButtonTapped))
         #expect(store.detail.isEnteringEvent)
         await enterEventTask?.value
@@ -809,6 +726,103 @@ struct EventBrowseStoryTests {
             timeZoneIdentifier: "America/Denver"
         )
     }
+}
+
+extension EventBrowseStoryTests {
+    static let omeAppViewPageResponse = #"""
+        {
+          "events": [
+            {
+              "uri": "at://did:plc:organizer/app.openmusicevent.event/network-festival",
+              "name": "Network Festival",
+              "startsAt": "2026-09-04T06:00:00Z",
+              "locations": [],
+              "links": [],
+              "media": [],
+              "organizer": {
+                "id": "did:plc:organizer",
+                "displayName": "Network Organizer"
+              },
+              "attendance": {
+                "going": 0,
+                "interested": 0,
+                "notGoing": 0
+              },
+              "source": {
+                "collection": "app.openmusicevent.event",
+                "appViewHost": "openmusicevent.app",
+                "sourceRecord": {
+                  "$type": "app.openmusicevent.source",
+                  "kind": "tangled",
+                  "reference": "https://tangled.org/example.com/network-festival",
+                  "ref": "main"
+                }
+              },
+              "timeZoneIdentifier": "America/Denver"
+            }
+          ],
+          "cursor": "page-3"
+        }
+        """#
+
+    static let installedEventAppViewPageResponse = #"""
+        {
+          "events": [
+            {
+              "uri": "at://did:plc:artfestival/app.openmusicevent.event/summer-art-festival",
+              "name": "Summer Art Festival",
+              "locations": [],
+              "links": [],
+              "media": [],
+              "organizer": {
+                "id": "did:plc:artfestival"
+              },
+              "attendance": {
+                "going": 0,
+                "interested": 0,
+                "notGoing": 0
+              },
+              "source": {
+                "collection": "app.openmusicevent.event",
+                "appViewHost": "openmusicevent.app"
+              }
+            }
+          ]
+        }
+        """#
+
+    static let wickedWoodsAppViewPageResponse = #"""
+        {
+          "events": [
+            {
+              "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
+              "name": "Wicked Woods 2026",
+              "locations": [],
+              "links": [],
+              "media": [],
+              "organizer": {
+                "id": "did:plc:5df2u7ief6m6tn77jznicxob",
+                "displayName": "Wicked Woods"
+              },
+              "attendance": {
+                "going": 0,
+                "interested": 0,
+                "notGoing": 0
+              },
+              "source": {
+                "collection": "app.openmusicevent.event",
+                "appViewHost": "openmusicevent.app",
+                "sourceRecord": {
+                  "$type": "app.openmusicevent.source",
+                  "kind": "tangled",
+                  "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+                  "ref": "main"
+                }
+              }
+            }
+          ]
+        }
+        """#
 }
 
 @Feature

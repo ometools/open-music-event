@@ -1,19 +1,28 @@
 import ATProto
 import ComposableCalendarEvents
+import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import SQLiteData
+import XRPCClient
 
 extension CalendarEventsClient {
-    static func openMusicEventAndAtmo(database: any DatabaseWriter) -> Self {
+    static func openMusicEventAndAtmo(
+        database: any DatabaseWriter,
+        appViewHost: ATProto.PDSHost = "openmusicevent.app"
+    ) -> Self {
         let atmo = Self.atmoRSVP
         return Self(
             browse: { request in
                 guard request.collection == OME.Event.nsid else {
                     return try await atmo.browse(request)
                 }
+                let page = try await Self.openMusicEventPage(
+                    request,
+                    appViewHost: appViewHost
+                )
                 let installedEvents = try await database.read { db in
                     let events = try OME.Event
                         .order { ($0.startDate.asc(), $0.name) }
@@ -29,20 +38,15 @@ extension CalendarEventsClient {
                         event.calendarEvent(posters: postersByEventID[event.id] ?? [])
                     }
                 }
-                var eventsByURI = Dictionary(
-                    uniqueKeysWithValues: try Self.temporaryOpenMusicEvents().map {
-                        ($0.uri, $0)
-                    }
+                let installedEventsByURI = Dictionary(
+                    uniqueKeysWithValues: installedEvents.map { ($0.uri, $0) }
                 )
-                for event in installedEvents {
-                    eventsByURI[event.uri] = event
-                }
                 return CalendarEvent.Page(
-                    events: Array(
-                        eventsByURI.values
-                            .sorted(by: CalendarEvent.isSooner)
-                            .prefix(request.limit)
-                    )
+                    events: page.events.map { event in
+                        installedEventsByURI[event.uri]
+                            ?? event.calendarEvent(appViewHost: appViewHost)
+                    },
+                    cursor: page.cursor
                 )
             },
             event: { uri in
@@ -64,146 +68,149 @@ extension CalendarEventsClient {
                 }) {
                     return event
                 }
-                guard let event = try Self.temporaryOpenMusicEvents().first(where: {
-                    $0.uri == uri
-                }) else {
+                let page = try await Self.openMusicEventPage(
+                    CalendarEvent.PageRequest(
+                        collection: OME.Event.nsid,
+                        limit: 100
+                    ),
+                    appViewHost: appViewHost
+                )
+                guard let event = page.events.first(where: { $0.uri == uri }) else {
                     throw CalendarEventsClientError.missingEventRecord
                 }
-                return event
+                return event.calendarEvent(appViewHost: appViewHost)
             },
             organizer: { organizerID in
-                if let organizer = try Self.temporaryOpenMusicEvents()
+                let page = try await Self.openMusicEventPage(
+                    CalendarEvent.PageRequest(
+                        collection: OME.Event.nsid,
+                        limit: 100
+                    ),
+                    appViewHost: appViewHost
+                )
+                if let organizer = page.events
                     .first(where: { $0.organizer.id == organizerID })?
                     .organizer {
-                    return organizer
+                    return organizer.calendarEventOrganizer
                 }
-                return CalendarEvent.Organizer(id: organizerID)
+                return try await atmo.organizer(organizerID)
             }
         )
     }
 
-    static func temporaryOpenMusicEvents() throws -> [CalendarEvent] {
-        try temporaryOpenMusicEventRecords().map { try $0.calendarEvent }
-    }
-
-    static func temporaryOpenMusicEventRecords() throws -> [TemporaryOMEBrowseEvent] {
-        guard let resourceURL = Bundle.module.url(
-            forResource: "TemporaryOMEBrowseCatalog",
-            withExtension: "json"
-        ) else {
-            throw TemporaryOMEBrowseCatalogError.missingResource
-        }
-        return try JSONDecoder()
-            .decode([TemporaryOMEBrowseEvent].self, from: Data(contentsOf: resourceURL))
-    }
-}
-
-enum TemporaryOMEBrowseCatalogError: Error, Equatable {
-    case invalidOrganizerID(String)
-    case invalidTimeZone(String)
-    case invalidURI(String)
-    case missingResource
-}
-
-struct TemporaryOMEBrowseEvent: Decodable {
-    var description: String?
-    var endDate: LocalDate
-    var eventID: String
-    var location: String?
-    var media: [Media]
-    var mode: Mode?
-    var name: String
-    var organizerID: String
-    var organizerAvatarURL: URL?
-    var organizerName: String
-    /// The organizer's canonical source record resolved by the AppView for this event.
-    /// The temporary browse catalog carries it inline until the AppView endpoint does.
-    var source: OME.SourceRecord?
-    var startDate: LocalDate
-    var status: Status?
-    var timeZone: String
-
-    var calendarEvent: CalendarEvent {
-        get throws {
-            guard let organizerID = DID(organizerID) else {
-                throw TemporaryOMEBrowseCatalogError.invalidOrganizerID(organizerID)
-            }
-            guard let timeZone = TimeZone(identifier: timeZone) else {
-                throw TemporaryOMEBrowseCatalogError.invalidTimeZone(self.timeZone)
-            }
-            let uriString = "at://\(organizerID)/\(OME.Event.nsid)/\(eventID)"
-            guard let uri = ATProto.URI(uriString) else {
-                throw TemporaryOMEBrowseCatalogError.invalidURI(uriString)
-            }
-            return CalendarEvent(
-                uri: uri,
-                name: name,
-                description: description,
-                startsAt: startDate.atStartOfDay(in: timeZone),
-                endsAt: endDate.at(hour: 23, minute: 59, second: 59, in: timeZone),
-                status: status?.calendarEventStatus,
-                mode: mode?.calendarEventMode,
-                locations: location.map { [CalendarEvent.Location(name: $0)] } ?? [],
-                media: media.map {
-                    CalendarEvent.Media(url: $0.url, alt: $0.alt, role: $0.role)
-                },
-                organizer: CalendarEvent.Organizer(
-                    id: organizerID,
-                    displayName: organizerName,
-                    avatarURL: organizerAvatarURL
-                ),
-                source: CalendarEvent.Source(collection: OME.Event.nsid),
-                timeZoneIdentifier: timeZone.identifier
+    static func openMusicEventPage(
+        _ request: CalendarEvent.PageRequest,
+        appViewHost: ATProto.PDSHost = "openmusicevent.app"
+    ) async throws -> OME.CalendarEvent.Page {
+        @Dependency(XRPC.Client.self) var xrpcClient
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try await withDependencies {
+            $0.pdsHost = appViewHost
+            $0.jsonDecoder = decoder
+        } operation: {
+            try await xrpcClient.run(
+                OME.CalendarEvent.GetEvents(
+                    catalog: request.collection,
+                    cursor: request.cursor,
+                    limit: request.limit
+                )
             )
         }
     }
+}
 
+extension OME.CalendarEvent.Source {
     func installationRequest(
         organizerID: OME.Organizer.ID
     ) -> OpenMusicEventSourceValidationRequest? {
-        guard let source, source.kind == .tangled else { return nil }
+        guard let sourceRecord, sourceRecord.kind == .tangled else { return nil }
         return OpenMusicEventSourceValidationRequest(
-            source: source.reference,
+            source: sourceRecord.reference,
             organizerID: organizerID,
-            ref: source.ref ?? "main"
+            ref: sourceRecord.ref ?? "main"
         )
     }
+}
 
-    struct Media: Decodable {
-        var alt: String?
-        var role: String?
-        var url: URL
+extension OME.CalendarEvent {
+    func calendarEvent(appViewHost: ATProto.PDSHost) -> CalendarEvent {
+        CalendarEvent(
+            uri: uri,
+            cid: cid,
+            name: name,
+            description: description,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            createdAt: createdAt,
+            status: status?.calendarEventStatus,
+            mode: mode?.calendarEventMode,
+            locations: locations.map {
+                CalendarEvent.Location(
+                    name: $0.name,
+                    street: $0.street,
+                    locality: $0.locality,
+                    region: $0.region,
+                    postalCode: $0.postalCode,
+                    country: $0.country,
+                    latitude: $0.latitude,
+                    longitude: $0.longitude,
+                    source: $0.source
+                )
+            },
+            links: links.map {
+                CalendarEvent.Link(name: $0.name, uri: $0.uri, source: $0.source)
+            },
+            media: media.map {
+                CalendarEvent.Media(url: $0.url, alt: $0.alt, role: $0.role)
+            },
+            organizer: organizer.calendarEventOrganizer,
+            attendance: CalendarEvent.Attendance(
+                going: attendance.going,
+                interested: attendance.interested,
+                notGoing: attendance.notGoing
+            ),
+            source: CalendarEvent.Source(
+                collection: source.collection,
+                appViewHost: source.appViewHost ?? appViewHost
+            ),
+            timeZoneIdentifier: timeZoneIdentifier
+        )
     }
+}
 
-    enum Mode: String, Decodable {
-        case hybrid
-        case inPerson
-        case virtual
+private extension OME.CalendarEvent.Organizer {
+    var calendarEventOrganizer: CalendarEvent.Organizer {
+        CalendarEvent.Organizer(
+            id: id,
+            handle: handle,
+            displayName: displayName,
+            description: description,
+            avatarURL: avatarURL
+        )
+    }
+}
 
-        var calendarEventMode: CalendarEvent.Mode {
-            switch self {
-            case .hybrid: .hybrid
-            case .inPerson: .inPerson
-            case .virtual: .virtual
-            }
+private extension OME.CalendarEvent.Mode {
+    var calendarEventMode: CalendarEvent.Mode {
+        switch self {
+        case .hybrid: .hybrid
+        case .inPerson: .inPerson
+        case .virtual: .virtual
+        case .unknown(let value): .unknown(value)
         }
     }
+}
 
-    enum Status: String, Decodable {
-        case cancelled
-        case planned
-        case postponed
-        case rescheduled
-        case scheduled
-
-        var calendarEventStatus: CalendarEvent.Status {
-            switch self {
-            case .cancelled: .cancelled
-            case .planned: .planned
-            case .postponed: .postponed
-            case .rescheduled: .rescheduled
-            case .scheduled: .scheduled
-            }
+private extension OME.CalendarEvent.Status {
+    var calendarEventStatus: CalendarEvent.Status {
+        switch self {
+        case .cancelled: .cancelled
+        case .planned: .planned
+        case .postponed: .postponed
+        case .rescheduled: .rescheduled
+        case .scheduled: .scheduled
+        case .unknown(let value): .unknown(value)
         }
     }
 }

@@ -19,6 +19,10 @@ struct CalendarEventLexiconTests {
         let calendarEventProperties = try #require(calendarEvent["properties"] as? [String: Any])
         let hydratedEvent = try #require(calendarEventProperties["event"] as? [String: Any])
         #expect(hydratedEvent["type"] as? String == "unknown")
+        let source = try #require(definitionsBody["source"] as? [String: Any])
+        let sourceProperties = try #require(source["properties"] as? [String: Any])
+        let sourceRecord = try #require(sourceProperties["sourceRecord"] as? [String: Any])
+        #expect(sourceRecord["ref"] as? String == "#sourceRecord")
 
         let page = try #require(definitionsBody["page"] as? [String: Any])
         let pageProperties = try #require(page["properties"] as? [String: Any])
@@ -46,7 +50,15 @@ struct CalendarEventLexiconTests {
             eventID: OME.ID<OME.Event>(.init("wicked-woods-2026"))
         )
         let event = try makeEvent(id: eventID)
-        let source = OME.CalendarEvent.Source(collection: OME.Event.nsid)
+        let source = OME.CalendarEvent.Source(
+            collection: OME.Event.nsid,
+            appViewHost: "openmusicevent.app",
+            sourceRecord: OME.SourceRecord(
+                kind: .tangled,
+                reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
+                ref: "main"
+            )
+        )
         let organizer = OME.CalendarEvent.Organizer(
             id: organizerID,
             handle: "wickedwoods.bsky.social",
@@ -97,6 +109,10 @@ struct CalendarEventLexiconTests {
         let encodedEvents = try #require(json["events"] as? [[String: Any]])
         #expect(encodedEvents[0]["event"] != nil)
         #expect(encodedEvents[1]["event"] == nil)
+        let encodedSource = try #require(encodedEvents[0]["source"] as? [String: Any])
+        let encodedSourceRecord = try #require(encodedSource["sourceRecord"] as? [String: Any])
+        #expect(encodedSourceRecord["$type"] as? String == OME.SourceRecord.nsid.rawValue)
+        #expect(encodedSourceRecord["reference"] as? String == "https://tangled.org/wickedwoods.ca/ome-workspace")
     }
 
     @Test
