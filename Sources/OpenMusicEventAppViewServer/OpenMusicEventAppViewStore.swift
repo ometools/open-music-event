@@ -112,6 +112,26 @@ public struct OpenMusicEventAppViewStore: Sendable {
         )
     }
 
+    public func communityCalendarEvent(
+        uri: ATProto.URI
+    ) throws -> OME.CalendarEvent? {
+        let encodedEvent = try database.read { database in
+            let tableName = CommunityCalendarEventProjection.tableName
+            return try Data.fetchOne(
+                database,
+                sql: """
+                    SELECT "event"
+                    FROM "\(tableName)"
+                    WHERE "uri" = ?
+                    """,
+                arguments: [uri.description]
+            )
+        }
+        return try encodedEvent.map {
+            try JSONDecoder().decode(OME.CalendarEvent.self, from: $0)
+        }
+    }
+
     var communityCalendarEventIndexer: AppViewRecordIndexer {
         AppViewRecordIndexer {
             AppViewRecordIndex<Community.CalendarEvent>(

@@ -93,6 +93,26 @@ public enum OpenMusicEventAppViewServer {
         wellKnownFiles: WellKnownFiles,
         store: OpenMusicEventAppViewStore?
     ) {
+        hummingbirdRouter.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
+            let event: OME.CalendarEvent?
+            if parameters.uri.collection == OME.Event.nsid {
+                event = try BundledCalendarEventCatalog.event(uri: parameters.uri)
+            } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
+                event = try store.communityCalendarEvent(uri: parameters.uri)
+            } else {
+                event = nil
+            }
+
+            guard let event else {
+                throw XRPC.ResponseError(
+                    .notFound,
+                    error: "EventNotFound",
+                    message: "The requested calendar event is not available."
+                )
+            }
+            return event
+        }
+
         hummingbirdRouter.register(OME.CalendarEvent.GetEvents.self) { parameters, _ in
             do {
                 if parameters.catalog == OME.Event.nsid {

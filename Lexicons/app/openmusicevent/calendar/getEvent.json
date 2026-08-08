@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.calendar.getEvent",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get one lightweight calendar event projection from the OpenMusicEvent AppView.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The canonical event record URI."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "app.openmusicevent.calendar.defs#calendarEvent"
+        }
+      },
+      "errors": [{ "name": "EventNotFound" }]
+    }
+  }
+}

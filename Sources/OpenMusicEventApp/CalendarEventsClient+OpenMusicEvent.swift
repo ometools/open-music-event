@@ -16,7 +16,9 @@ extension CalendarEventsClient {
         let atmo = Self.atmoRSVP
         return Self(
             browse: { request in
-                guard request.collection == OME.Event.nsid else {
+                guard request.collection == OME.Event.nsid
+                    || request.collection == Community.CalendarEvent.nsid
+                else {
                     return try await atmo.browse(request)
                 }
                 let page = try await Self.openMusicEventPage(
@@ -50,34 +52,33 @@ extension CalendarEventsClient {
                 )
             },
             event: { uri in
-                guard uri.collection == OME.Event.nsid else {
+                guard uri.collection == OME.Event.nsid
+                    || uri.collection == Community.CalendarEvent.nsid
+                else {
                     return try await atmo.event(uri)
                 }
-                guard let eventID = OME.Event.ID(uri) else {
-                    throw CalendarEventsClientError.invalidEventURI(uri.description)
-                }
-                if let event = try await database.read({ db -> CalendarEvent? in
-                    guard let event = try OME.Event.find(eventID).fetchOne(db) else {
-                        return nil
+                if uri.collection == OME.Event.nsid {
+                    guard let eventID = OME.Event.ID(uri) else {
+                        throw CalendarEventsClientError.invalidEventURI(uri.description)
                     }
-                    let posters = try OME.Poster
-                        .where { $0.id.organizerID.eq(eventID.organizerID) }
-                        .where { $0.id.eventID.eq(eventID.eventID) }
-                        .fetchAll(db)
-                    return event.calendarEvent(posters: posters)
-                }) {
-                    return event
+                    if let event = try await database.read({ db -> CalendarEvent? in
+                        guard let event = try OME.Event.find(eventID).fetchOne(db) else {
+                            return nil
+                        }
+                        let posters = try OME.Poster
+                            .where { $0.id.organizerID.eq(eventID.organizerID) }
+                            .where { $0.id.eventID.eq(eventID.eventID) }
+                            .fetchAll(db)
+                        return event.calendarEvent(posters: posters)
+                    }) {
+                        return event
+                    }
                 }
-                let page = try await Self.openMusicEventPage(
-                    CalendarEvent.PageRequest(
-                        collection: OME.Event.nsid,
-                        limit: 100
-                    ),
+
+                let event = try await Self.openMusicEvent(
+                    uri,
                     appViewHost: appViewHost
                 )
-                guard let event = page.events.first(where: { $0.uri == uri }) else {
-                    throw CalendarEventsClientError.missingEventRecord
-                }
                 return event.calendarEvent(appViewHost: appViewHost)
             },
             organizer: { organizerID in
@@ -116,6 +117,21 @@ extension CalendarEventsClient {
                     limit: request.limit
                 )
             )
+        }
+    }
+
+    static func openMusicEvent(
+        _ uri: ATProto.URI,
+        appViewHost: ATProto.PDSHost = "openmusicevent.app"
+    ) async throws -> OME.CalendarEvent {
+        @Dependency(XRPC.Client.self) var xrpcClient
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try await withDependencies {
+            $0.pdsHost = appViewHost
+            $0.jsonDecoder = decoder
+        } operation: {
+            try await xrpcClient.run(OME.CalendarEvent.GetEvent(uri: uri))
         }
     }
 }

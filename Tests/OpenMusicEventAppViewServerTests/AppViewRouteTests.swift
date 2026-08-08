@@ -178,6 +178,19 @@ struct AppViewRouteTests {
             }
 
             try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3Afestival%2Fcommunity.lexicon.calendar.event%2Ffirst",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                let event = try decodeCalendarEvent(response.body)
+                expectNoDifference(event.name, "First Community Event")
+                expectNoDifference(event.cid, ATProto.CID("bafy-first"))
+                expectNoDifference(event.source.collection, Community.CalendarEvent.nsid)
+                expectNoDifference(event.source.sourceRecord, nil)
+                expectNoDifference(event.event, nil)
+            }
+
+            try await client.execute(
                 uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=community.lexicon.calendar.event&cursor=1&limit=1",
                 method: .get
             ) { response in
@@ -249,6 +262,23 @@ struct AppViewRouteTests {
                     )
                 )
                 #expect(wickedWoods.event != nil)
+            }
+
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3A5df2u7ief6m6tn77jznicxob%2Fapp.openmusicevent.event%2Fome-workspace-2026",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                let event = try decodeCalendarEvent(response.body)
+                expectNoDifference(event.name, "Wicked Woods 2026")
+                expectNoDifference(
+                    event.source.sourceRecord,
+                    OME.SourceRecord(
+                        kind: .tangled,
+                        reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
+                        ref: "main"
+                    )
+                )
             }
         }
     }
@@ -331,6 +361,20 @@ struct AppViewRouteTests {
                     XRPC.ErrorResponse(
                         error: "UnknownCatalog",
                         message: "The requested calendar event catalog is not available."
+                    )
+                )
+            }
+
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3Amissing%2Fapp.openmusicevent.event%2Fmissing",
+                method: .get
+            ) { response in
+                #expect(response.status == .notFound)
+                expectNoDifference(
+                    try decodeXRPCError(response.body),
+                    XRPC.ErrorResponse(
+                        error: "EventNotFound",
+                        message: "The requested calendar event is not available."
                     )
                 )
             }
@@ -616,6 +660,12 @@ private func decodeCalendarEventPage(_ body: ByteBuffer) throws -> OME.CalendarE
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     return try decoder.decode(OME.CalendarEvent.Page.self, from: Data(body.readableBytesView))
+}
+
+private func decodeCalendarEvent(_ body: ByteBuffer) throws -> OME.CalendarEvent {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(OME.CalendarEvent.self, from: Data(body.readableBytesView))
 }
 
 private func decodeXRPCError(_ body: ByteBuffer) throws -> XRPC.ErrorResponse {

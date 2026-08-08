@@ -41,16 +41,10 @@ extension OMEEventInstallationClient: DependencyKey {
                 return eventID
             }
 
-            let page = try await CalendarEventsClient.openMusicEventPage(
-                CalendarEvent.PageRequest(
-                    collection: OME.Event.nsid,
-                    limit: 100
-                )
+            let catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
+            guard let installationRequest = catalogEvent.source.installationRequest(
+                organizerID: eventID.organizerID
             )
-            guard let catalogEvent = page.events.first(where: { $0.uri == eventURI }),
-                let installationRequest = catalogEvent.source.installationRequest(
-                    organizerID: eventID.organizerID
-                )
             else {
                 throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
             }

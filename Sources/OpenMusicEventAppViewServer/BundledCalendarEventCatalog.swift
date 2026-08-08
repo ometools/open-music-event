@@ -3,6 +3,10 @@ import Foundation
 import OpenMusicEventLexicon
 
 enum BundledCalendarEventCatalog {
+    static func event(uri: ATProto.URI) throws -> OME.CalendarEvent? {
+        try events().first { $0.uri == uri }
+    }
+
     static func page(
         cursor: String?,
         limit: Int

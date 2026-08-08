@@ -35,6 +35,7 @@ struct EventBrowseStoryTests {
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
+        let appViewRequests = Mutex<[String]>([])
 
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0)
@@ -56,6 +57,7 @@ struct EventBrowseStoryTests {
                     let uri = components.percentEncodedQuery.map {
                         "\(components.percentEncodedPath)?\($0)"
                     } ?? components.percentEncodedPath
+                    appViewRequests.withLock { $0.append(uri) }
                     let response = try await server.execute(
                         uri: uri,
                         method: request.method,
@@ -99,6 +101,19 @@ struct EventBrowseStoryTests {
                     )
                     withExtendedLifetime(store) {}
                 }
+
+                let firstEventURI = await MainActor.run { browse.events.first?.uri }
+                let eventURI = try #require(firstEventURI)
+                let event = try await CalendarEventsClient
+                    .openMusicEventAndAtmo(database: database)
+                    .event(eventURI)
+                expectNoDifference(event.name, "Wicked Woods 2026")
+                expectNoDifference(event.uri, eventURI)
+                #expect(
+                    appViewRequests.withLock { $0.last }?.hasPrefix(
+                        "/xrpc/app.openmusicevent.calendar.getEvent?uri="
+                    ) == true
+                )
             }
         }
 

@@ -222,6 +222,27 @@ public extension OpenMusicEvent.CalendarEvent {
         case unknown(String)
     }
 
+    struct GetEvent: XRPC.Query, Sendable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.calendar.getEvent")
+
+        public typealias Input = Never
+        public typealias Output = OpenMusicEvent.CalendarEvent
+
+        public init(uri: ATProto.URI) {
+            self.parameters = Parameters(uri: uri)
+        }
+
+        public var parameters: Parameters
+
+        public struct Parameters: Codable, Equatable, Sendable {
+            public init(uri: ATProto.URI) {
+                self.uri = uri
+            }
+
+            public var uri: ATProto.URI
+        }
+    }
+
     struct GetEvents: XRPC.Query, Sendable {
         public static let nsid = ATProto.NSID("app.openmusicevent.calendar.getEvents")
 

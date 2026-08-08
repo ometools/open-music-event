@@ -7,11 +7,13 @@ import Testing
 @Suite("OME calendar event XRPC contract")
 struct CalendarEventLexiconTests {
     @Test
-    func `getEvents returns the shared calendar event page`() throws {
+    func `calendar queries return the shared calendar event contracts`() throws {
         let definitions = try lexicon(named: "defs")
+        let getEvent = try lexicon(named: "getEvent")
         let getEvents = try lexicon(named: "getEvents")
 
         #expect(definitions["id"] as? String == "app.openmusicevent.calendar.defs")
+        #expect(getEvent["id"] as? String == OME.CalendarEvent.GetEvent.nsid.description)
         #expect(getEvents["id"] as? String == OME.CalendarEvent.GetEvents.nsid.description)
 
         let definitionsBody = try #require(definitions["defs"] as? [String: Any])
@@ -30,6 +32,18 @@ struct CalendarEventLexiconTests {
         let eventItems = try #require(events["items"] as? [String: Any])
         #expect(eventItems["ref"] as? String == "#calendarEvent")
 
+        let getEventDefinitions = try #require(getEvent["defs"] as? [String: Any])
+        let getEventMain = try #require(getEventDefinitions["main"] as? [String: Any])
+        #expect(getEventMain["type"] as? String == "query")
+        let getEventParameters = try #require(getEventMain["parameters"] as? [String: Any])
+        #expect(getEventParameters["required"] as? [String] == ["uri"])
+        let getEventOutput = try #require(getEventMain["output"] as? [String: Any])
+        let getEventSchema = try #require(getEventOutput["schema"] as? [String: Any])
+        #expect(
+            getEventSchema["ref"] as? String
+                == "app.openmusicevent.calendar.defs#calendarEvent"
+        )
+
         let getEventsDefinitions = try #require(getEvents["defs"] as? [String: Any])
         let main = try #require(getEventsDefinitions["main"] as? [String: Any])
         #expect(main["type"] as? String == "query")
@@ -40,6 +54,18 @@ struct CalendarEventLexiconTests {
         let output = try #require(main["output"] as? [String: Any])
         let schema = try #require(output["schema"] as? [String: Any])
         #expect(schema["ref"] as? String == "app.openmusicevent.calendar.defs#page")
+    }
+
+    @Test
+    func `getEvent carries its canonical record URI`() throws {
+        let uri = try #require(ATProto.URI(
+            "at://did:plc:wickedwoods/app.openmusicevent.event/wicked-woods-2026"
+        ))
+
+        expectNoDifference(
+            OME.CalendarEvent.GetEvent(uri: uri).parameters,
+            OME.CalendarEvent.GetEvent.Parameters(uri: uri)
+        )
     }
 
     @Test
