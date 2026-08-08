@@ -445,7 +445,7 @@
     {
       "identity" : "swift-dependencies-http-client",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-dependencies-http-client",
+      "location" : "https://tangled.org/woody.fm/swift-dependencies-http-client",
       "state" : {
         "branch" : "main",
         "revision" : "ee8d199837ba0528b44a0ba0e7246335aa438c29"

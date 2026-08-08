@@ -74,6 +74,32 @@ let composableAtmosphereUserInputPath = [
 ]
 .first { FileManager.default.fileExists(atPath: $0) }
     ?? packagePath("../composable-atmosphere-userinput")
+let appViewComposableCalendarEventsDependency: Package.Dependency
+if let composableCalendarEventsPath = environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"] {
+    appViewComposableCalendarEventsDependency = .package(
+        name: "composable-calendar-events",
+        path: composableCalendarEventsPath
+    )
+} else {
+    appViewComposableCalendarEventsDependency = .package(
+        url: "https://source.woody.fm/composable-calendar-events",
+        branch: "main"
+    )
+}
+let appViewComposableAtmosphereDependency: Package.Dependency
+if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
+    appViewComposableAtmosphereDependency = .package(
+        name: "swift-composable-atmosphere",
+        path: composableAtmospherePath,
+        traits: []
+    )
+} else {
+    appViewComposableAtmosphereDependency = .package(
+        url: "https://source.woody.fm/swift-composable-atmosphere",
+        branch: "main",
+        traits: []
+    )
+}
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
@@ -260,17 +286,13 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
+    .package(url: "https://github.com/swift-server/swift-service-lifecycle", from: "2.6.0"),
 ] + (packageBuild == .appView ? [
-    .package(
-        name: "swift-composable-notifications",
-        path: composableNotificationsPath
-    ),
-    .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
-        traits: []
-    ),
+    appViewComposableCalendarEventsDependency,
+    appViewComposableAtmosphereDependency,
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
+    .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
     .package(
         url: "https://github.com/pointfreeco/sqlite-data",
         from: "1.0.0",
@@ -282,6 +304,7 @@ let appViewDependencies: [Package.Dependency] = [
         traits: ["StructuredQueriesTagged"]
     ),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+    .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
 ] : [])
 
 // Target dependencies
@@ -935,8 +958,17 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
-            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+            .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
+            .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
+            .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(name: "Dependencies", package: "swift-dependencies"),
+            .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Hummingbird", package: "hummingbird"),
+            .product(name: "HydrantClient", package: "swift-composable-atmosphere"),
+            .product(name: "HydrantClientHummingbird", package: "swift-composable-atmosphere"),
+            .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+            .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+            .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
@@ -964,9 +996,14 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventAppViewServer",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
+            .product(name: "HydrantClient", package: "swift-composable-atmosphere"),
+            .product(name: "SQLiteData", package: "sqlite-data"),
         ],
         resources: [
             .copy("Resources/Site"),

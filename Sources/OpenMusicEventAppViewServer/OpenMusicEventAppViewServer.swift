@@ -1,18 +1,30 @@
+import ComposableCalendarEvents
 import Foundation
 import Hummingbird
+import HydrantClient
+import HydrantClientHummingbird
 import OpenMusicEventLexicon
 import OpenMusicEventRouting
+import ServiceLifecycle
 import XRPCClient
 import XRPCHummingbird
 
 public enum OpenMusicEventAppViewServer {
-    public static func router(configuration: AppViewConfiguration = .init()) -> Router<BasicRequestContext> {
-        router(context: BasicRequestContext.self, configuration: configuration)
+    public static func router(
+        configuration: AppViewConfiguration = .init(),
+        store: OpenMusicEventAppViewStore? = nil
+    ) -> Router<BasicRequestContext> {
+        router(
+            context: BasicRequestContext.self,
+            configuration: configuration,
+            store: store
+        )
     }
 
     public static func router<Context: RequestContext>(
         context: Context.Type,
-        configuration: AppViewConfiguration = .init()
+        configuration: AppViewConfiguration = .init(),
+        store: OpenMusicEventAppViewStore? = nil
     ) -> Router<Context> {
         let hummingbirdRouter = Router(context: context, options: [.autoGenerateHeadEndpoints])
         let routeResolver = OpenMusicEventRouter()
@@ -23,18 +35,54 @@ public enum OpenMusicEventAppViewServer {
             on: hummingbirdRouter,
             routeResolver: routeResolver,
             staticSiteFiles: staticSiteFiles,
-            wellKnownFiles: wellKnownFiles
+            wellKnownFiles: wellKnownFiles,
+            store: store
         )
 
         return hummingbirdRouter
     }
 
-    public static func application(configuration: AppViewConfiguration = .init()) throws -> some ApplicationProtocol {
-        let hummingbirdRouter = router(configuration: configuration)
+    public static func application(
+        configuration: AppViewConfiguration = .init(),
+        store providedStore: OpenMusicEventAppViewStore? = nil,
+        hydrantClient: HydrantClient? = nil
+    ) throws -> some ApplicationProtocol {
+        let store: OpenMusicEventAppViewStore?
+        if let providedStore {
+            store = providedStore
+        } else if let databaseURL = configuration.databaseURL {
+            store = try OpenMusicEventAppViewStore(
+                databaseURL: databaseURL,
+                initiallyReady: configuration.ingestion == nil
+            )
+        } else {
+            store = nil
+        }
+
+        let services: [any Service]
+        if let ingestion = configuration.ingestion {
+            guard let store else {
+                throw OpenMusicEventAppViewServerError.ingestionRequiresDatabase
+            }
+            services = [
+                OpenMusicEventAppViewIngestion(
+                    store: store,
+                    configuration: ingestion,
+                    client: hydrantClient ?? .hummingbird()
+                )
+            ]
+        } else {
+            services = []
+        }
+        let hummingbirdRouter = router(
+            configuration: configuration,
+            store: store
+        )
 
         return Application(
             router: hummingbirdRouter,
-            configuration: configuration.hummingbirdConfiguration
+            configuration: configuration.hummingbirdConfiguration,
+            services: services
         )
     }
 
@@ -42,23 +90,35 @@ public enum OpenMusicEventAppViewServer {
         on hummingbirdRouter: Router<Context>,
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
-        wellKnownFiles: WellKnownFiles
+        wellKnownFiles: WellKnownFiles,
+        store: OpenMusicEventAppViewStore?
     ) {
         hummingbirdRouter.register(OME.CalendarEvent.GetEvents.self) { parameters, _ in
-            guard parameters.catalog == OME.Event.nsid else {
+            do {
+                if parameters.catalog == OME.Event.nsid {
+                    return try BundledCalendarEventCatalog.page(
+                        cursor: parameters.cursor,
+                        limit: parameters.limit
+                    )
+                }
+                if parameters.catalog == Community.CalendarEvent.nsid, let store {
+                    return try store.communityCalendarEventPage(
+                        cursor: parameters.cursor,
+                        limit: parameters.limit
+                    )
+                }
                 throw XRPC.ResponseError(
                     .notFound,
                     error: "UnknownCatalog",
                     message: "The requested calendar event catalog is not available."
                 )
-            }
-
-            do {
-                return try BundledCalendarEventCatalog.page(
-                    cursor: parameters.cursor,
-                    limit: parameters.limit
-                )
             } catch BundledCalendarEventCatalogError.invalidCursor {
+                throw XRPC.ResponseError(
+                    .badRequest,
+                    error: "InvalidCursor",
+                    message: "The XRPC cursor is invalid."
+                )
+            } catch OpenMusicEventAppViewStoreError.invalidCursor {
                 throw XRPC.ResponseError(
                     .badRequest,
                     error: "InvalidCursor",
@@ -68,7 +128,7 @@ public enum OpenMusicEventAppViewServer {
         }
 
         hummingbirdRouter.get("/.well-known/{file}") { request, context async throws -> Response in
-            try response(
+            return try response(
                 host: request.authority,
                 path: "/.well-known/\(context.parameters.get("file") ?? "")",
                 routeResolver: routeResolver,
@@ -98,7 +158,10 @@ public enum OpenMusicEventAppViewServer {
         }
 
         hummingbirdRouter.get("/readyz") { request, _ async throws -> Response in
-            try response(
+            if let store, case .catchingUp = await store.readiness.snapshot() {
+                return textResponse("catching up", status: .serviceUnavailable)
+            }
+            return try response(
                 host: request.authority,
                 path: "/readyz",
                 routeResolver: routeResolver,
@@ -236,13 +299,20 @@ public enum OpenMusicEventAppViewServer {
         }
     }
 
-    private static func textResponse(_ text: String) -> Response {
+    private static func textResponse(
+        _ text: String,
+        status: HTTPResponse.Status = .ok
+    ) -> Response {
         Response(
-            status: .ok,
+            status: status,
             headers: [.contentType: "text/plain; charset=utf-8"],
             body: .init(byteBuffer: .init(data: Data(text.utf8)))
         )
     }
+}
+
+public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
+    case ingestionRequiresDatabase
 }
 
 private extension Request {
