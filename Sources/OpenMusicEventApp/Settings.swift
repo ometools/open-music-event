@@ -91,13 +91,18 @@ public struct Settings {
         .onEvent(UserInputFeedbackBoardOperationFailed.self) { failure, _ in
             store.addTask {
                 switch failure.operation {
-                case .createDiscussion:
+                case .createDiscussion,
+                     .createReply,
+                     .deleteDiscussion,
+                     .deleteReply,
+                     .toggleUpvote:
                     await store.reportError(
                         failure.underlyingError,
                         fallbackMessage: .feedbackSubmissionFailed,
                         operation: .feedbackSubmission
                     )
-                case .loadBoard:
+                case .loadBoard,
+                     .loadDiscussion:
                     await store.reportError(
                         failure.underlyingError,
                         fallbackMessage: .feedbackBoardLoadFailed,

@@ -224,7 +224,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
             name: "swift-composable-atmosphere",
@@ -274,7 +274,7 @@ var applicationDependencies: [Package.Dependency] = [
             branch: "main",
             traits: ["Dependencies"]
         ),
-    .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
+    .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     isAndroidAppBuild
         ? .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"])
         : .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
