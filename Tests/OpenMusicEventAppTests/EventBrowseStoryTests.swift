@@ -70,7 +70,7 @@ struct EventBrowseStoryTests {
                     }
                 }
                 let browse = await MainActor.run {
-                    store.spawn(\.browser).spawn(\.browse)
+                    store.scope(\.browser, action: \.browser).spawn(\.browse)
                 }
 
                 let browseTask = await MainActor.run {

@@ -59,7 +59,7 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
-        public var browser = Spawn(OpenMusicEventBrowser.State())
+        public var browser = OpenMusicEventBrowser.State()
         public var destination: Destination.State?
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
@@ -77,6 +77,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
+        case browser(OpenMusicEventBrowser.Action)
         case destination(Destination.Action)
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
@@ -130,6 +131,9 @@ public struct OpenMusicEventAppRoot {
         Features {
             Update { state, action in
                 switch action {
+                case .browser:
+                    break
+
                 case .destination:
                     break
 
@@ -227,6 +231,9 @@ public struct OpenMusicEventAppRoot {
                     }
                 }
             }
+            Scope(\.browser, action: \.browser) {
+                OpenMusicEventBrowser()
+            }
         }
         .onMount { state in
             guard let error = state.workspaceRestorationError else { return }
@@ -289,9 +296,6 @@ public struct OpenMusicEventAppRoot {
             store.addTask {
                 _ = try store.browser.browse.refresh()
             }
-        }
-        .spawn(\.browser) {
-            OpenMusicEventBrowser()
         }
         .spawn(\.errorNotifications) {
             ErrorNotifications()
@@ -366,7 +370,9 @@ struct OpenMusicEventAppSurfaceView: View {
         Group {
             switch store.variant {
             case .generic:
-                OpenMusicEventBrowserView(store: store.spawn(\.browser))
+                OpenMusicEventBrowserView(
+                    store: store.scope(\.browser, action: \.browser)
+                )
 
             case .whiteLabel:
                 if let whiteLabelStore = store.spawn(\.whiteLabelRoot) {

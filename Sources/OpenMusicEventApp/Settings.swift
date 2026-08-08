@@ -1,4 +1,7 @@
+import ATProto
+import BlueskyActorCache
 import ComposableArchitecture2
+import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import Dependencies
 import ErrorHandling
@@ -38,7 +41,7 @@ public struct Settings {
     @Feature
     public enum Destination {
         case aboutOpenMusicEvent(AboutOpenMusicEvent)
-        case feedbackBoard(Spawn<UserInputFeedbackBoard>)
+        case feedbackBoard(UserInputFeedbackBoard)
     }
 
     @Dependency(\.openMusicEventAppConfiguration) var configuration
@@ -59,7 +62,7 @@ public struct Settings {
                     return
                 }
                 state.destination = .feedbackBoard(
-                    Spawn(UserInputFeedbackBoard.State())
+                    UserInputFeedbackBoard.State()
                 )
 
             case .testErrorButtonTapped:
@@ -80,6 +83,9 @@ public struct Settings {
             Destination.body
                 .transformDependency(\.userInputFeedbackBoardConfiguration) {
                     $0 = configuration.productFeedbackBoard?.userInputConfiguration
+                }
+                .transformDependency(\.userInputActorProfileLookup) {
+                    $0 = .openMusicEventActorCache
                 }
         }
         .onEvent(UserInputFeedbackBoardOperationFailed.self) { failure, _ in
@@ -121,7 +127,7 @@ public struct SettingsFeatureView: View {
                     Button {
                         store.send(.feedbackButtonTapped)
                     } label: {
-                        Label("Feedback", systemImage: "chatbubbles")
+                        Label("Feedback", systemImage: "bubble.left.and.bubble.right")
                     }
                     .navigationLinkListRowStyle()
                 }
@@ -180,4 +186,34 @@ private struct SettingsTestError: UserFacingErrorConvertible {
 
 private func throwSettingsTestError() async throws {
     throw SettingsTestError()
+}
+
+extension UserInputActorProfileLookupClient {
+    static var openMusicEventActorCache: Self {
+        Self { dids in
+            @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+
+            var profiles: [DID: UserInputActorProfile] = [:]
+            for did in dids {
+                let refreshedProfile = try? await blueskyActorProfileCache
+                    .refreshProfileIfNeeded(
+                        did.description,
+                        60 * 60 * 24,
+                        60 * 15
+                    )
+                let cachedProfile = try? await blueskyActorProfileCache
+                    .cachedProfile(did.description)
+                guard let profile = refreshedProfile ?? cachedProfile,
+                      let profileDID = profile.didValue
+                else { continue }
+                profiles[profileDID] = UserInputActorProfile(
+                    did: profileDID,
+                    handle: profile.handle,
+                    displayName: profile.displayName,
+                    avatar: profile.avatar
+                )
+            }
+            return profiles
+        }
+    }
 }

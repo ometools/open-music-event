@@ -14,7 +14,7 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
 
     func background(_ configuration: Configuration) -> Color {
         #if os(iOS)
-        configuration.isPressed ? Color(.tertiarySystemBackground) : Color(.systemBackground)
+        configuration.isPressed ? Color(.tertiarySystemFill) : Color.clear
         #elseif os(Android) || ROBOLECTRIC || os(macOS)
         Color.clear
         #else
