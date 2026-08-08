@@ -41,7 +41,7 @@ struct EventBrowseStoryTests {
             configuration: AppViewConfiguration(port: 0)
         )
         try await app.test(.router) { server in
-            await withDependencies {
+            try await withDependencies {
                 $0.context = .test
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
                 OME.prepareDependencies(&$0, database: database)

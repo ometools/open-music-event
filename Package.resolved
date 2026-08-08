@@ -1,5 +1,5 @@
 {
-  "originHash" : "fb9d8446efc4b5b67f637441617b02a634d1063ab55177e6bec19eaf292dc157",
+  "originHash" : "d75b2693ddde8a32ebce242286e92a6bd4788a11cd3dcb79eb14583427134224",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -20,30 +20,12 @@
       }
     },
     {
-      "identity" : "composable-atmosphere-constellation",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-constellation",
-      "state" : {
-        "branch" : "main",
-        "revision" : "290f404a04e39b5465909e1361b85a7e6849b8f2"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-tangled",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-tangled",
-      "state" : {
-        "branch" : "main",
-        "revision" : "b6a3afdd41f3ff26905a81555f2d3ee06d665d60"
-      }
-    },
-    {
       "identity" : "composable-calendar-events",
       "kind" : "remoteSourceControl",
       "location" : "https://source.woody.fm/composable-calendar-events",
       "state" : {
         "branch" : "main",
-        "revision" : "733b2e542a08ccb17648d96edf0870d85611f301"
+        "revision" : "16f68e728095e5cb781392494bbe788af114ada5"
       }
     },
     {
@@ -367,7 +349,7 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "5ceb7df"
+        "revision" : "9f863655532c0571a7eb0146d688784a8fe6b939"
       }
     },
     {

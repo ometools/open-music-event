@@ -32,7 +32,7 @@ let sharingTraits: Set<Package.Dependency.Trait> =
 let sqliteDataTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild
     ? ["SQLiteDataTagged", "GRDBCIPHER"]
-    : [.defaults, "SQLiteDataTagged", "GRDBCIPHER"]
+    : [.defaults, "SQLiteDataTagged"]
 let tcaTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild
     ? ["Dependencies"]
@@ -51,11 +51,24 @@ func packagePath(_ relativePath: String) -> String {
         .path
 }
 func workspacePackagePath(_ name: String) -> String {
-    let workspaceParent = packageDirectory.deletingLastPathComponent()
-    let candidates = [
-        workspaceParent.appendingPathComponent(name),
-        workspaceParent.appendingPathComponent("worktrees").appendingPathComponent(name),
-    ]
+    let workspaceContainer = packageDirectory.deletingLastPathComponent()
+    let workspaceRoot = workspaceContainer.lastPathComponent == "worktrees"
+        ? workspaceContainer.deletingLastPathComponent()
+        : workspaceContainer
+    let candidates: [URL]
+    if isAndroidAppBuild {
+        candidates = [
+            workspaceRoot.appendingPathComponent("worktrees").appendingPathComponent(name),
+            workspaceContainer.appendingPathComponent(name),
+            workspaceRoot.appendingPathComponent(name),
+        ]
+    } else {
+        candidates = [
+            workspaceRoot.appendingPathComponent(name),
+            workspaceContainer.appendingPathComponent(name),
+            workspaceRoot.appendingPathComponent("worktrees").appendingPathComponent(name),
+        ]
+    }
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
@@ -211,7 +224,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
             name: "swift-composable-atmosphere",
