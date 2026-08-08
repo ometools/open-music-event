@@ -12,19 +12,22 @@ import XRPCHummingbird
 public enum OpenMusicEventAppViewServer {
     public static func router(
         configuration: AppViewConfiguration = .init(),
-        store: OpenMusicEventAppViewStore? = nil
+        store: OpenMusicEventAppViewStore? = nil,
+        commsPostSubmission: CommsPostSubmission? = nil
     ) -> Router<BasicRequestContext> {
         router(
             context: BasicRequestContext.self,
             configuration: configuration,
-            store: store
+            store: store,
+            commsPostSubmission: commsPostSubmission
         )
     }
 
     public static func router<Context: RequestContext>(
         context: Context.Type,
         configuration: AppViewConfiguration = .init(),
-        store: OpenMusicEventAppViewStore? = nil
+        store: OpenMusicEventAppViewStore? = nil,
+        commsPostSubmission: CommsPostSubmission? = nil
     ) -> Router<Context> {
         let hummingbirdRouter = Router(context: context, options: [.autoGenerateHeadEndpoints])
         let routeResolver = OpenMusicEventRouter()
@@ -36,7 +39,8 @@ public enum OpenMusicEventAppViewServer {
             routeResolver: routeResolver,
             staticSiteFiles: staticSiteFiles,
             wellKnownFiles: wellKnownFiles,
-            store: store
+            store: store,
+            commsPostSubmission: commsPostSubmission
         )
 
         return hummingbirdRouter
@@ -45,7 +49,8 @@ public enum OpenMusicEventAppViewServer {
     public static func application(
         configuration: AppViewConfiguration = .init(),
         store providedStore: OpenMusicEventAppViewStore? = nil,
-        hydrantClient: HydrantClient? = nil
+        hydrantClient: HydrantClient? = nil,
+        commsPostSubmission: CommsPostSubmission? = nil
     ) throws -> some ApplicationProtocol {
         let store: OpenMusicEventAppViewStore?
         if let providedStore {
@@ -76,7 +81,8 @@ public enum OpenMusicEventAppViewServer {
         }
         let hummingbirdRouter = router(
             configuration: configuration,
-            store: store
+            store: store,
+            commsPostSubmission: commsPostSubmission
         )
 
         return Application(
@@ -91,8 +97,35 @@ public enum OpenMusicEventAppViewServer {
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
-        store: OpenMusicEventAppViewStore?
+        store: OpenMusicEventAppViewStore?,
+        commsPostSubmission: CommsPostSubmission?
     ) {
+        if let commsPostSubmission {
+            hummingbirdRouter.register(
+                OME.Comms.SubmitPost.self,
+                authenticatingWith: commsPostSubmission.verifier
+            ) { input, authentication, _ in
+                guard input.uri.authority == .did(authentication.issuer) else {
+                    throw XRPC.ResponseError(
+                        .forbidden,
+                        error: "PostAuthorityMismatch",
+                        message: "The authenticated account does not own the submitted post."
+                    )
+                }
+                guard input.uri.collection == OME.Announcement.nsid,
+                      input.uri.rkey != nil
+                else {
+                    throw XRPC.ResponseError(
+                        .badRequest,
+                        error: "UnsupportedPostCollection",
+                        message: "The submitted post must be an OpenMusicEvent announcement record."
+                    )
+                }
+
+                return try await commsPostSubmission.submit(input, authentication)
+            }
+        }
+
         hummingbirdRouter.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
             let event: OME.CalendarEvent?
             if parameters.uri.collection == OME.Event.nsid {

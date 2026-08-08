@@ -13,6 +13,11 @@ Yp  "service": [
       "id": "#atproto_pds",
       "type": "AtprotoPersonalDataServer",
       "serviceEndpoint": "https://bsky.social"
+    },
+    {
+      "id": "#ome_appview",
+      "type": "OpenMusicEventAppView",
+      "serviceEndpoint": "https://openmusicevent.app"
     }
   ]
 }
