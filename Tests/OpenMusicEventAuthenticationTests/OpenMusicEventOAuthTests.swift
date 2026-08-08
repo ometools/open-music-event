@@ -52,7 +52,9 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("rpc:sh.tangled.repo.setContributors"))
         #expect(permissions.contains("repo:app.openmusicevent.source?action=create"))
         #expect(permissions.contains("repo:app.openmusicevent.source?action=update"))
-        #expect(permissions.contains("repo:app.userinput.discussion?action=create"))
+        #expect(permissions.contains("include:app.userinput.authFull"))
+        #expect(permissions.contains("blob:image/*"))
+        #expect(!permissions.contains("repo:app.userinput.discussion?action=create"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
         #expect(
@@ -93,7 +95,7 @@ struct OpenMusicEventOAuthTests {
         #expect(
             OpenMusicEventOAuth.appManifest.maximumPermissions
                 .missing(
-                    OpenMusicEventOAuth.userInputDiscussionCreateAuthRequirement.permissions
+                    UserInputAuthorization.authFullRequirement.permissions
                 )
                 .isEmpty
         )

@@ -2,7 +2,7 @@
   "client_id": "https://openmusicevent.app/.well-known/oauth-client-metadata.json",
   "client_name": "Open Music Event",
   "application_type": "native",
-  "scope": "atproto include:app.userinput.authFull blob:image/* blob:application/gzip blob:text/x-patch repo:app.openmusicevent.source?action=create repo:app.openmusicevent.source?action=update repo:sh.tangled.publicKey?action=create repo:sh.tangled.repo.pull.status?action=create repo:sh.tangled.repo.pull.status?action=delete repo:sh.tangled.repo.pull.status?action=update repo:sh.tangled.repo.pull?action=create repo:sh.tangled.repo.pull?action=delete repo:sh.tangled.repo.pull?action=update repo:sh.tangled.repo?action=create repo:sh.tangled.repo?action=delete repo:sh.tangled.repo?action=update rpc:sh.tangled.repo.create?aud=* rpc:sh.tangled.repo.merge?aud=* rpc:sh.tangled.repo.setContributors",
+  "scope": "atproto blob:application/gzip blob:image/* blob:text/x-patch include:app.userinput.authFull repo:app.openmusicevent.source?action=create repo:app.openmusicevent.source?action=update repo:sh.tangled.publicKey?action=create repo:sh.tangled.repo.pull.status?action=create repo:sh.tangled.repo.pull.status?action=delete repo:sh.tangled.repo.pull.status?action=update repo:sh.tangled.repo.pull?action=create repo:sh.tangled.repo.pull?action=delete repo:sh.tangled.repo.pull?action=update repo:sh.tangled.repo?action=create repo:sh.tangled.repo?action=delete repo:sh.tangled.repo?action=update rpc:sh.tangled.repo.create?aud=* rpc:sh.tangled.repo.merge?aud=* rpc:sh.tangled.repo.setContributors",
   "response_types": [
     "code"
   ],

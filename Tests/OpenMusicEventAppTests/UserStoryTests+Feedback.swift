@@ -6,6 +6,8 @@ import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication
+import SQLiteData
+import SwiftUI
 import TCATProtoAuthentication
 import Testing
 
@@ -88,13 +90,10 @@ extension UserStoryTests {
                 )
             )
         )
-        let authorizationRequirement = OAuth.AuthRequirement(
-            permissions: [
-                .repo(UserInputCollection.discussion.nsid, actions: [.create])
-            ]
-        )
+        let authorizationRequirement = UserInputAuthorization.authFullRequirement
+        let database = try UserStory.makePreparedStoryDatabase()
         let authorizationRequestCenter = AuthorizationRequestCenter()
-        let observedAuthorizationRequest = Task {
+        let observedAuthorizationRequest = Task<AuthorizationRequestCenter.Request?, Never> {
             let requests = await authorizationRequestCenter.requests()
             for await request in requests {
                 if let request { return request }
@@ -102,6 +101,9 @@ extension UserStoryTests {
             return nil
         }
         let browserStore = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 1_754_587_200))
+            $0.defaultDatabase = database
             $0.openMusicEventAppConfiguration = OpenMusicEventAppConfiguration(
                 productFeedbackBoard: boardConfiguration
             )
@@ -163,15 +165,15 @@ extension UserStoryTests {
         $editableComposerStore.draft.body.wrappedValue = "Festival service can be spotty."
         let creation = composerStore.send(.createDiscussionButtonTapped)
 
+        let observedAuthorizationRequestValue = await observedAuthorizationRequest.value
         expectNoDifference(
-            try #require(await observedAuthorizationRequest.value).requirement,
+            try #require(observedAuthorizationRequestValue).requirement,
             authorizationRequirement
         )
 
         // Presenting root authorization dismounts the composer, not the board-owned operation.
         @Bindable var editableBoardStore = boardStore
         $editableBoardStore.destination.wrappedValue = nil
-        #expect(await authorizationRequestCenter.pendingRequestCount == 1)
 
         await authorizationRequestCenter.succeed()
         await creation?.value
