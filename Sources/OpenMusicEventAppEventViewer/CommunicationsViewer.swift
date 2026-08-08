@@ -1,8 +1,10 @@
 import ComposableArchitecture2
+import ComposableAuthoring
 import Dependencies
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -209,6 +211,8 @@ public struct CommunicationChannelDetail {
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
         public var errorMessage: String?
+        public var postingKind: CommsPostPublicationKind?
+        public var emergencyPostingAvailable = false
 
         @FetchOne public var channel: OMERecord.Channel?
         @FetchOne public var preference: ChannelPreferences?
@@ -251,6 +255,7 @@ public struct CommunicationChannelDetail {
 
     public enum Action {
         case notifyMeButtonTapped
+        case newPostButtonTapped
         case postButtonTapped(CommsPost.ID)
         case stopNotifyingMeButtonTapped
         case destination(Destination.Action)
@@ -258,10 +263,17 @@ public struct CommunicationChannelDetail {
 
     @Feature
     public enum Destination {
+        case composer(CommsPostComposer)
         case postDetail(Spawn<CommsPostDetail>)
     }
 
+    @Dependency(\.commsPostingConfiguration) var postingConfiguration
+    @Dependency(\.commsPostPublisher) var postPublisher
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+    var authoring
+    @StoreTaskID var submitPostTask
 
     static func channelQuery(
         channelID: OMERecord.ID<OMERecord.Channel>,
@@ -300,6 +312,16 @@ public struct CommunicationChannelDetail {
             case .notifyMeButtonTapped:
                 updateNotificationState(.subscribed, state: state)
 
+            case .newPostButtonTapped:
+                guard let kind = state.postingKind else { return }
+                state.destination = .composer(
+                    CommsPostComposer.State(
+                        channelID: state.channelRecordID,
+                        kind: kind,
+                        emergencyAvailable: state.emergencyPostingAvailable
+                    )
+                )
+
             case let .postButtonTapped(postID):
                 guard let post = state.posts.first(where: { $0.id == postID })
                 else { return }
@@ -320,6 +342,72 @@ public struct CommunicationChannelDetail {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
+        .onEvent(CommsPostSubmissionRequested.self) { submission, state in
+            guard let configuration = postingConfiguration,
+                  var composer = state.destination?.composer,
+                  composer.draft == submission.draft,
+                  composer.mutation == submission.mutation
+            else { return }
+
+            composer.isSubmitting = true
+            state.destination = .composer(composer)
+            let authorizationBroker = authorizationBroker
+            let postPublisher = postPublisher
+            store.addTask(id: submitPostTask) {
+                do {
+                    try await authorizationBroker.authorize(submission.kind.authorizationRequirement)
+                    try await postPublisher.submit(configuration, submission)
+                    try store.modify {
+                        guard let composer = $0.destination?.composer,
+                              composer.isSubmitting,
+                              composer.draft == submission.draft,
+                              composer.mutation == submission.mutation
+                        else { return }
+                        $0.destination = nil
+                    }
+                } catch is CancellationError {
+                } catch {
+                    try store.modify {
+                        guard var composer = $0.destination?.composer,
+                              composer.isSubmitting,
+                              composer.draft == submission.draft,
+                              composer.mutation == submission.mutation
+                        else { return }
+                        composer.isSubmitting = false
+                        $0.destination = .composer(composer)
+                    }
+                    let task = try store.post(
+                        key: CommsPostPublishingFailed.self,
+                        value: .init(submission: submission, underlyingError: error)
+                    )
+                    await task?.value
+                }
+            }
+        }
+        .onMount { state in
+            updatePostingAvailability(state: &state)
+        }
+        .onChange(of: authoring.grant.wrappedValue) { _, _, state in
+            updatePostingAvailability(state: &state)
+        }
+    }
+
+    private func updatePostingAvailability(state: inout CommunicationChannelDetail.State) {
+        guard let configuration = postingConfiguration,
+              let grant = authoring.grant.wrappedValue,
+              grant.role.canPropose
+        else {
+            state.emergencyPostingAvailable = false
+            state.postingKind = nil
+            return
+        }
+
+        state.emergencyPostingAvailable = configuration.emergencyChannelIDs.contains(
+            state.channelRecordID
+        )
+        state.postingKind = grant.role == .owner && grant.principal.actorID == configuration.publisherDID
+            ? .direct
+            : .proposal
     }
 
     private func updateNotificationState(
@@ -420,9 +508,22 @@ public struct CommunicationChannelDetailView: View {
                 .navigationDestination(item: $store.scope(\.destination, action: \.destination).postDetail) { postStore in
                     CommsPostDetailView(store: postStore)
                 }
+                .sheet(item: $store.scope(\.destination, action: \.destination).composer) { composerStore in
+                    NavigationStack {
+                        CommsPostComposerView(store: composerStore)
+                    }
+                }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         HStack(spacing: 8) {
+                            if store.postingKind != nil {
+                                Button {
+                                    store.send(.newPostButtonTapped)
+                                } label: {
+                                    Label("New Post", systemImage: "square.and.pencil")
+                                }
+                            }
+
                             if store.isSubscribed {
                                 Image(systemName: "bell.fill")
                                     .foregroundStyle(Color.accentColor)

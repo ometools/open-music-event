@@ -98,6 +98,23 @@ public enum OpenMusicEventOAuth {
         ]
     )
 
+    public static let commsAnnouncementAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            OAuth.Permission("repo:app.openmusicevent.announcement?action=create"),
+            OAuth.Permission("repo:app.openmusicevent.announcement?action=update"),
+            OAuth.Permission("repo:app.openmusicevent.announcement?action=delete"),
+        ],
+        reason: "Publish, update, or delete official event communications."
+    )
+
+    public static let commsAnnouncementProposalAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            OAuth.Permission("repo:app.openmusicevent.announcement.proposal?action=create"),
+            OAuth.Permission("repo:app.openmusicevent.announcement.proposal?action=update"),
+            OAuth.Permission("repo:app.openmusicevent.announcement.proposal?action=delete"),
+        ],
+        reason: "Create, update, or delete proposed event communications."
+    )
     static let sessionStoreKeychainItem = KeychainStorageItem(
         service: "fm.woody.openMusicEvent",
         account: "oauth.sessionStore"
@@ -263,6 +280,8 @@ public enum OpenMusicEventOAuth {
             tangledPullMergeAuthRequirement,
             tangledRepositoryManagementAuthRequirement,
             sourceRecordAuthRequirement,
+            commsAnnouncementAuthRequirement,
+            commsAnnouncementProposalAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ],
         components: [UserInputAuthorization.appManifestComponent]

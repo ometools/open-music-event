@@ -55,6 +55,12 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("include:app.userinput.authFull"))
         #expect(permissions.contains("blob:image/*"))
         #expect(!permissions.contains("repo:app.userinput.discussion?action=create"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement?action=create"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement?action=update"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement?action=delete"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement.proposal?action=create"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement.proposal?action=update"))
+        #expect(permissions.contains("repo:app.openmusicevent.announcement.proposal?action=delete"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
         #expect(

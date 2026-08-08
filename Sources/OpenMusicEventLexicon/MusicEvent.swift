@@ -831,8 +831,66 @@ extension OpenMusicEvent.Channel {
         case subscribed, unsubscribed
     }
 }
-// //// MARK: - Announcement  (app.openmusicevent.announcement)
+// MARK: - Announcement  (app.openmusicevent.announcement)
 
+extension OpenMusicEvent {
+    public enum AnnouncementCollection: String, Codable, Equatable, Hashable, Sendable {
+        case announcement = "app.openmusicevent.announcement"
+        case proposal = "app.openmusicevent.announcement.proposal"
+
+        public var nsid: ATProto.NSID { ATProto.NSID(rawValue) }
+    }
+
+    /// The authoritative PDS record for a channel announcement.
+    ///
+    /// AppView projects these records into `CommsPost`; the application database never authors
+    /// the projection. `markdown` is the canonical body, including for emergency announcements.
+    public struct Announcement: Codable, Equatable, Sendable {
+        public static let collection = AnnouncementCollection.announcement
+        public static let nsid = collection.nsid
+
+        public enum Delivery: String, Codable, Equatable, Sendable {
+            case emergency
+            case silent
+            case standard
+        }
+
+        public var type: String
+        public var organizerID: OME.Organizer.ID
+        public var eventID: OME.ID<OME.Event>
+        public var channelID: OME.ID<OME.Channel>
+        public var title: String
+        public var markdown: String
+        public var delivery: Delivery
+        public var requestsOperatingSystemEmergencyAlert: Bool
+        public var createdAt: String
+        public var updatedAt: String?
+
+        public init(
+            type: String = Self.collection.rawValue,
+            organizerID: OME.Organizer.ID,
+            eventID: OME.ID<OME.Event>,
+            channelID: OME.ID<OME.Channel>,
+            title: String,
+            markdown: String,
+            delivery: Delivery = .standard,
+            requestsOperatingSystemEmergencyAlert: Bool = false,
+            createdAt: String,
+            updatedAt: String? = nil
+        ) {
+            self.type = type
+            self.organizerID = organizerID
+            self.eventID = eventID
+            self.channelID = channelID
+            self.title = title
+            self.markdown = markdown
+            self.delivery = delivery
+            self.requestsOperatingSystemEmergencyAlert = requestsOperatingSystemEmergencyAlert
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+        }
+    }
+}
 
 //
 //// MARK: - Poster  (app.openmusicevent.poster)

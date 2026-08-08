@@ -3,13 +3,17 @@ import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import Dependencies
 import Foundation
+import OpenMusicEventAppEventViewer
 
 public struct OpenMusicEventAppConfiguration: Equatable, Sendable {
+    public var commsPosting: CommsPostingConfiguration?
     public var productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration?
 
     public init(
-        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp
+        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp,
+        commsPosting: CommsPostingConfiguration? = nil
     ) {
+        self.commsPosting = commsPosting
         self.productFeedbackBoard = productFeedbackBoard
     }
 
