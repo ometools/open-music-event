@@ -107,31 +107,6 @@ public typealias OpenMusicEventApplicationContent = AppDelegateFeature<OpenMusic
 /// OAuth session, authorization requests, and authorization broker from `OAuthAuthorization`.
 public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventApplicationContent>
 
-// Preserve the authenticated-root state surface while the delegate wrapper owns the child
-// feature's runtime. This keeps existing app and test code focused on OME content rather than
-// the transport wrapper's implementation detail.
-extension OpenMusicEventApplicationContent.State {
-    public var variant: OpenMusicEventAppVariant {
-        get { content.variant }
-        set { content.variant = newValue }
-    }
-
-    public var destination: OpenMusicEventAppRoot.Destination.State? {
-        get { content.destination }
-        set { content.destination = newValue }
-    }
-
-    public var errorNotifications: Spawn<ErrorNotifications> {
-        get { content.errorNotifications }
-        set { content.errorNotifications = newValue }
-    }
-
-    public var appDelegateEvent: Trigger<AppDelegateEvent> {
-        get { content.appDelegateEvent }
-        set { content.appDelegateEvent = newValue }
-    }
-}
-
 extension OAuthAuthorization where Content == OpenMusicEventApplicationContent {
     init(
         storage: OAuthSessionStorage,
@@ -142,17 +117,6 @@ extension OAuthAuthorization where Content == OpenMusicEventApplicationContent {
             AppDelegateFeature(eventTrigger: \.appDelegateEvent) {
                 makeContent()
             }
-        }
-    }
-}
-
-extension OAuthAuthorization<OpenMusicEventApplicationContent>.State {
-    init(
-        storage: OAuthSessionStorage,
-        makeContentState: () -> OpenMusicEventAppRoot.State
-    ) {
-        self.init(storage: storage) {
-            AppDelegateFeature.State(content: makeContentState())
         }
     }
 }
@@ -204,10 +168,7 @@ struct SelectedEventRestoration {
         )
 
         OpenMusicEventAppRootView(
-            store: applicationContentStore.scope(
-                \.content,
-                action: \.content
-            )
+            store: applicationContentStore
         )
             .sheet(
                 item: $authenticationStore.scope(
@@ -236,10 +197,7 @@ struct SelectedEventRestoration {
 #else
         OpenMusicEventAuthorizationView(store: store) { rootStore in
             OpenMusicEventAppRootView(
-                store: rootStore.scope(
-                    \.content,
-                    action: \.content
-                )
+                store: rootStore
             )
         }
             .environment(

@@ -65,6 +65,8 @@ let composableNotificationsPath = [
 ]
 .first { FileManager.default.fileExists(atPath: $0) }
     ?? packagePath("../../swift-packages/swift-composable-notifications")
+let composableAtmosphereConstellationPath = workspacePackagePath("composable-atmosphere-constellation")
+let composableAtmosphereTangledPath = workspacePackagePath("composable-atmosphere-tangled")
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
@@ -184,8 +186,14 @@ var applicationDependencies: [Package.Dependency] = [
             branch: "main",
             traits: ["TCA26"]
         ),
-    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
-    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
+    .package(
+        name: "composable-atmosphere-constellation",
+        path: composableAtmosphereConstellationPath
+    ),
+    .package(
+        name: "composable-atmosphere-tangled",
+        path: composableAtmosphereTangledPath
+    ),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),

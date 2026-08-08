@@ -90,12 +90,12 @@ public extension AppContributorsClient {
                 throw AppContributorsClientError.missingPDSHost(appDID.description)
             }
 
-            var cursor: String?
+            var cursor: ATProto.Repository.Cursor?
             var listedRecords: [ATProto.Repository.ListedRecord<OMERecord.Relationship>] = []
             repeat {
                 let page = try await xrpcClient.listRecords(
                     OMERecord.Relationship.self,
-                    repo: appDID.description,
+                    repo: .did(appDID),
                     collection: OMERecord.Relationship.nsid,
                     limit: 100,
                     cursor: cursor,

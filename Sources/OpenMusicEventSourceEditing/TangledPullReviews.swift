@@ -578,7 +578,7 @@ private struct TangledPullReviewMergeRepository: Sendable {
                 )
             }
 
-            cursor = output.cursor
+            cursor = output.cursor?.rawValue
         } while cursor != nil
 
         throw TangledPullReviewClientError.repositoryRecordNotFound(
