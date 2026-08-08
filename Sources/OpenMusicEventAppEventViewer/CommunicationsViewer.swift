@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import ComposableAuthoring
 import Dependencies
@@ -264,6 +265,7 @@ public struct CommunicationChannelDetail {
     @Dependency(\.commsPostingConfiguration) var postingConfiguration
     @Dependency(\.commsPostPublisher) var postPublisher
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
@@ -387,10 +389,7 @@ public struct CommunicationChannelDetail {
     }
 
     private func updatePostingAvailability(state: inout CommunicationChannelDetail.State) {
-        guard let configuration = postingConfiguration,
-              let grant = authoring.grant.wrappedValue,
-              grant.role.canPropose
-        else {
+        guard let configuration = postingConfiguration else {
             state.emergencyPostingAvailable = false
             state.postingKind = nil
             return
@@ -399,9 +398,26 @@ public struct CommunicationChannelDetail {
         state.emergencyPostingAvailable = configuration.emergencyChannelIDs.contains(
             state.channelRecordID
         )
-        state.postingKind = grant.role == .owner && grant.principal.actorID == configuration.publisherDID
-            ? .direct
-            : .proposal
+        state.postingKind = Self.postingKind(
+            configuration: configuration,
+            selectedAccountID: getSelectedOAuthSessionID()
+                .flatMap { DID($0.rawValue.description) },
+            grant: authoring.grant.wrappedValue
+        )
+    }
+
+    static func postingKind(
+        configuration: CommsPostingConfiguration,
+        selectedAccountID: DID?,
+        grant: AuthoringGrant?
+    ) -> CommsPostPublicationKind? {
+        if selectedAccountID == configuration.publisherDID {
+            return .direct
+        }
+        if grant?.role.canPropose == true {
+            return .proposal
+        }
+        return nil
     }
 
     private func updateNotificationState(
@@ -508,41 +524,43 @@ public struct CommunicationChannelDetailView: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        HStack(spacing: 8) {
-                            if store.postingKind != nil {
-                                Button {
-                                    store.send(.newPostButtonTapped)
-                                } label: {
-                                    Label("New Post", systemImage: "square.and.pencil")
-                                }
-                            }
-
-                            if store.isSubscribed {
-                                Image(systemName: "bell.fill")
-                                    .foregroundStyle(Color.accentColor)
-                                    .font(.caption)
-                            }
-
-                            Menu {
-                                if store.isSubscribed {
-                                    Button {
-                                        store.send(.stopNotifyingMeButtonTapped)
-                                    } label: {
-                                        Label("Don't Notify Me For New Posts", systemImage: "bell.slash")
-                                    }
-                                } else {
-                                    Button {
-                                        store.send(.notifyMeButtonTapped)
-                                    } label: {
-                                        Label("Notify Me For New Posts", systemImage: "bell")
-                                    }
-                                }
+                    if store.postingKind != nil {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                store.send(.newPostButtonTapped)
                             } label: {
-                                Label("Options", systemImage: "ellipsis")
+                                Label("New Post", systemImage: "square.and.pencil")
                             }
-                            .disabled(channel.notificationsRequired)
                         }
+                    }
+
+                    if store.isSubscribed {
+                        ToolbarItem(placement: .primaryAction) {
+                            Image(systemName: "bell.fill")
+                                .foregroundStyle(Color.accentColor)
+                                .font(.caption)
+                        }
+                    }
+
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            if store.isSubscribed {
+                                Button {
+                                    store.send(.stopNotifyingMeButtonTapped)
+                                } label: {
+                                    Label("Don't Notify Me For New Posts", systemImage: "bell.slash")
+                                }
+                            } else {
+                                Button {
+                                    store.send(.notifyMeButtonTapped)
+                                } label: {
+                                    Label("Notify Me For New Posts", systemImage: "bell")
+                                }
+                            }
+                        } label: {
+                            Label("Options", systemImage: "ellipsis")
+                        }
+                        .disabled(channel.notificationsRequired)
                     }
                 }
             } else {

@@ -18,6 +18,12 @@ public struct OpenMusicEventAppConfiguration: Equatable, Sendable {
     }
 
     public static let openMusicEvent = Self()
+
+    public static let wickedWoods = Self(
+        commsPosting: CommsPostingConfiguration(
+            publisherDID: DID("did:plc:5df2u7ief6m6tn77jznicxob")!
+        )
+    )
 }
 
 public struct OpenMusicEventFeedbackBoardConfiguration: Equatable, Sendable {

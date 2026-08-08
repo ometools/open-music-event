@@ -33,6 +33,17 @@ public enum OpenMusicEventAppVariant: Equatable, Sendable {
 }
 
 extension OpenMusicEventAppVariant {
+    var appConfiguration: OpenMusicEventAppConfiguration {
+        switch self {
+        case .generic:
+            .openMusicEvent
+        case let .whiteLabel(configuration) where configuration.handle == WickedWoodsWhiteLabel.handle:
+            .wickedWoods
+        case .whiteLabel:
+            .openMusicEvent
+        }
+    }
+
     var persistsSelectedEvent: Bool {
         switch self {
         case .generic:
@@ -221,20 +232,24 @@ struct SelectedEventRestoration {
         variant: OpenMusicEventAppVariant
     ) -> StoreOf<OpenMusicEventApplication> {
         let selectedEventRestoration = selectedEventRestoration(for: variant)
-        return StoreOf<OpenMusicEventApplication>(
-            initialState: .init(storage: OpenMusicEventOAuth.storage) {
-                OpenMusicEventAppRoot.State(
-                    variant: variant,
-                    selectedEventIDAtLaunch: selectedEventRestoration.eventID,
-                    workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
-                )
+        return withDependencies {
+            $0.openMusicEventAppConfiguration = variant.appConfiguration
+        } operation: {
+            StoreOf<OpenMusicEventApplication>(
+                initialState: .init(storage: OpenMusicEventOAuth.storage) {
+                    OpenMusicEventAppRoot.State(
+                        variant: variant,
+                        selectedEventIDAtLaunch: selectedEventRestoration.eventID,
+                        workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
+                    )
+                }
+            ) {
+                OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                    OpenMusicEventAppRoot()
+                }
+                .presentAuthorizationFailures()
+                .deliverAuthoringAuthorizationChanges()
             }
-        ) {
-            OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
-                OpenMusicEventAppRoot()
-            }
-            .presentAuthorizationFailures()
-            .deliverAuthoringAuthorizationChanges()
         }
     }
 

@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import OpenMusicEventLexicon
 import Testing
@@ -7,6 +8,19 @@ import Testing
 @MainActor
 @Suite("Comms posting", .serialized)
 struct CommsPostingTests {
+    @Test
+    func `the configured publisher can post without source authoring`() throws {
+        let publisherDID = try #require(DID("did:plc:wickedwoods"))
+
+        #expect(
+            CommunicationChannelDetail.postingKind(
+                configuration: CommsPostingConfiguration(publisherDID: publisherDID),
+                selectedAccountID: publisherDID,
+                grant: nil
+            ) == .direct
+        )
+    }
+
     @Test
     func `a direct post emits canonical markdown for the channel owner`() async throws {
         let channelID = channelID()
@@ -29,12 +43,12 @@ struct CommsPostingTests {
 
         await store.receive(
             key: CommsPostSubmissionRequested.self,
-            value: CommsPostSubmission(
+            value: .equals(CommsPostSubmission(
                 channelID: channelID,
                 kind: .direct,
                 mutation: .create,
                 draft: draft
-            )
+            ))
         )
     }
 
@@ -71,12 +85,12 @@ struct CommsPostingTests {
 
         await store.receive(
             key: CommsPostSubmissionRequested.self,
-            value: CommsPostSubmission(
+            value: .equals(CommsPostSubmission(
                 channelID: channelID,
                 kind: .direct,
                 mutation: .create,
                 draft: draft
-            )
+            ))
         )
     }
 

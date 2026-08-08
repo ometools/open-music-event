@@ -66,6 +66,17 @@ struct AuthenticationRootTests {
     }
 
     @Test
+    func `Wicked Woods white label configures its Comms publisher`() throws {
+        let variant = OpenMusicEventAppVariant.whiteLabel(
+            WickedWoodsWhiteLabel.configuration()
+        )
+
+        let publisherDID = try #require(variant.appConfiguration.commsPosting?.publisherDID)
+
+        #expect(publisherDID == DID("did:plc:5df2u7ief6m6tn77jznicxob"))
+    }
+
+    @Test
     func oauthCallbackURLIsConsumedByTheSharedAuthorizationWrapper() async throws {
         let database = try makePreparedDatabase()
         let storage = makeStorage()
