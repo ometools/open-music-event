@@ -126,13 +126,7 @@ public struct CommunicationsViewerView: View {
                     if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
                         Section("Incident Reporting") {
                             ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
-                                Link(destination: reportingLink.url) {
-                                    ReportingLinkLabel(reportingLink: reportingLink)
-                                }
-                                .buttonStyle(.plain)
-                                .portableAccessibilityHint(
-                                    Text("Opens \(reportingLink.name) in a browser.")
-                                )
+                                IncidentReportingLinkRow(reportingLink: reportingLink)
                             }
                         }
                     }
@@ -728,17 +722,20 @@ struct CommunicationChannelRowView: View {
     }
 }
 
-struct ReportingLinkLabel: View {
+struct IncidentReportingLinkRow: View {
     let reportingLink: OMERecord.Event.ReportingLink
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(reportingLink.name)
-                .font(.headline.weight(.bold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .foregroundStyle(.white)
-                .background(.red, in: RoundedRectangle(cornerRadius: 8))
+            Link(destination: reportingLink.url) {
+                Text(reportingLink.name)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .portableAccessibilityHint(
+                Text("Opens \(reportingLink.name) in a browser.")
+            )
 
             if let description = reportingLink.displayDescription {
                 Text(description)
