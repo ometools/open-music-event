@@ -133,6 +133,9 @@ if let skipRootPath {
 }
 let skipSharingDependency: Package.Dependency
 let skipAndroidBridgeDependency: Package.Dependency
+let skipKeychainDependency: Package.Dependency? = isAndroidAppBuild
+    ? .package(url: "https://source.skip.tools/skip-keychain.git", "0.3.2"..<"2.0.0")
+    : nil
 if let skipRootPath {
     skipSharingDependency = .package(
         name: "skip-sharing",
@@ -224,7 +227,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
             name: "swift-composable-atmosphere",
@@ -293,6 +296,9 @@ var applicationDependencies: [Package.Dependency] = [
 
 if isAndroidAppBuild {
     applicationDependencies.append(skipSharingDependency)
+    if let skipKeychainDependency {
+        applicationDependencies.append(skipKeychainDependency)
+    }
 }
 
 let appViewDependencies: [Package.Dependency] = [
@@ -335,6 +341,8 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
     .product(name: "ATProtoServer", package: "swift-composable-atmosphere"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
     .product(name: "ComposableForms", package: "swift-composable-forms"),
+    .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+    .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
     .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
@@ -367,6 +375,9 @@ openMusicEventAuthenticationDependencies.append(contentsOf: [
 if isAndroidAppBuild {
     openMusicEventAuthenticationDependencies.append(
         .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
+    )
+    openMusicEventAuthenticationDependencies.append(
+        .product(name: "SkipKeychain", package: "skip-keychain", condition: .when(platforms: [.android]))
     )
     openMusicEventSourceCloneDependencies.append(
         .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
@@ -717,6 +728,7 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "ComposableAuthoringWorkspace", package: "swift-composable-workspace"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
     .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+    .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
     .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
@@ -770,6 +782,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
+            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
             .product(name: "ComposableForms", package: "swift-composable-forms"),
             .product(name: "DateRangePicker", package: "DateRangePicker", condition: .when(platforms: [.iOS])),

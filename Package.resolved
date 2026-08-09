@@ -1,5 +1,5 @@
 {
-  "originHash" : "5fc37b2115fc7b43b19c42fbbf7bf93f6c7290a98b5c5a160d9fbb6c8829714f",
+  "originHash" : "c20a30bcc2728751053565661477bbbe33655d696852d53e3f5ec5d4d6df8f92",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -454,7 +454,7 @@
     {
       "identity" : "swift-dependencies-http-client",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-dependencies-http-client",
+      "location" : "https://tangled.org/woody.fm/swift-dependencies-http-client",
       "state" : {
         "branch" : "main",
         "revision" : "ee8d199837ba0528b44a0ba0e7246335aa438c29"

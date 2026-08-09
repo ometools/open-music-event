@@ -71,14 +71,27 @@ typealias AppType = NSApplication
         AppDelegate.shared.onLowMemory()
     }
 
-    // support for SkipNotify.fetchNotificationToken()
-
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        NotificationCenter.default.post(name: NSNotification.Name("didRegisterForRemoteNotificationsWithDeviceToken"), object: application, userInfo: ["deviceToken": deviceToken])
+        AppDelegate.shared.onRegisteredForRemoteNotifications(deviceToken: deviceToken)
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
-        NotificationCenter.default.post(name: NSNotification.Name("didFailToRegisterForRemoteNotificationsWithError"), object: application, userInfo: ["error": error])
+        AppDelegate.shared.onRemoteNotificationRegistrationFailed()
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        let data = userInfo.reduce(into: [String: String]()) { result, element in
+            guard let key = element.key as? String,
+                  let value = element.value as? String
+            else { return }
+            result[key] = value
+        }
+        AppDelegate.shared.onRemoteNotification(data: data)
+        completionHandler(.newData)
     }
     #elseif canImport(AppKit)
     func applicationWillFinishLaunching(_ notification: Notification) {

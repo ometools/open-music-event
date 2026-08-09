@@ -64,6 +64,7 @@ public struct OpenMusicEventAppRoot {
         public var destination: Destination.State?
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
+        @Trigger<NotificationSignal> public var notificationSignal
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
@@ -291,11 +292,12 @@ public struct OpenMusicEventAppRoot {
             persistSelectedEvent(nil, state)
         }
         .presentReportedErrors()
-        .onTrigger(store.appDelegateEvent) { (event: AppDelegateEvent, state: inout State) in
+        .onTrigger(store.notificationSignal) {
+            (signal: NotificationSignal, state: inout State) in
             guard state.variant == .generic else { return }
-            guard case .notification = event else { return }
+            guard case .sourceAvailable = signal else { return }
             store.addTask {
-                _ = try store.browser.browse.refresh()
+                try await store.browser.browse.refresh()?.value
             }
         }
         .spawn(\.errorNotifications) {
@@ -307,6 +309,10 @@ public struct OpenMusicEventAppRoot {
         .ifLet(\.whiteLabelRoot) {
             WhiteLabelRoot()
         }
+        .notifications(
+            appDelegateEventTrigger: \.appDelegateEvent,
+            signalTrigger: \.notificationSignal
+        )
     }
 }
 

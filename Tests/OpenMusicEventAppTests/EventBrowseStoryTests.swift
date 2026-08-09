@@ -2,6 +2,7 @@ import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableCalendarEvents
+import ComposableNotifications
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -30,7 +31,7 @@ import XRPCClient
 @Suite(.serialized)
 struct EventBrowseStoryTests {
     @Test @MainActor
-    func `an empty app browses the in-memory OME AppView through XRPC`() async throws {
+    func `an empty app browses and refreshes from a delivered notification`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -40,11 +41,30 @@ struct EventBrowseStoryTests {
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0)
         )
+        let (events, eventContinuation) = AsyncStream<AppDelegateEvent>.makeStream()
+        defer { eventContinuation.finish() }
+        let getEventsRequestCount: @Sendable () -> Int = {
+            appViewRequests.withLock {
+                $0.filter {
+                    $0.hasPrefix("/xrpc/app.openmusicevent.calendar.getEvents")
+                }.count
+            }
+        }
         try await app.test(.router) { server in
             try await withDependencies {
                 $0.context = .test
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
                 OME.prepareDependencies(&$0, database: database)
+                $0.appDelegateClient = AppDelegateClient(events: { events })
+                $0.notificationTokenClient = NotificationTokenClient(
+                    tokens: { AsyncStream { $0.finish() } }
+                )
+                $0.notificationsClient = NotificationsClient(
+                    registerDestination: { _ in },
+                    replaceSubscriptions: { _ in },
+                    synchronize: {},
+                    signals: { AsyncStream { $0.finish() } }
+                )
                 $0[XRPC.Client.self] = .liveValue
                 $0.httpClient = .liveValue
                 $0.requestInterceptors = []
@@ -68,7 +88,9 @@ struct EventBrowseStoryTests {
             } operation: {
                 let store = await MainActor.run {
                     Store(initialState: OpenMusicEventAppRoot.State()) {
-                        OpenMusicEventAppRoot()
+                        OpenMusicEventApplicationContent(eventTrigger: \.appDelegateEvent) {
+                            OpenMusicEventAppRoot()
+                        }
                     }
                 }
                 let browse = await MainActor.run {
@@ -79,6 +101,30 @@ struct EventBrowseStoryTests {
                     browse.send(.task)
                 }
                 await browseTask?.value
+                expectNoDifference(getEventsRequestCount(), 1)
+
+                eventContinuation.yield(
+                    .notification(
+                        NotificationEvent(
+                            signal: .sourceAvailable(
+                                NotificationSource(
+                                    id: .init(rawValue: "openmusicevent.app"),
+                                    version: .init(rawValue: "1")
+                                )
+                            ),
+                            delivery: .silent
+                        )
+                    )
+                )
+
+                let refreshDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+                while ContinuousClock.now < refreshDeadline {
+                    let didFinishRefresh = await MainActor.run {
+                        getEventsRequestCount() >= 2 && !browse.isLoading
+                    }
+                    guard !didFinishRefresh else { break }
+                    await Task.yield()
+                }
 
                 await MainActor.run {
                     expectNoDifference(browse.catalog, .openMusicEvent)
@@ -99,6 +145,10 @@ struct EventBrowseStoryTests {
                         browse.events.first?.source.appViewHost,
                         "openmusicevent.app"
                     )
+                    expectNoDifference(
+                        getEventsRequestCount(),
+                        2
+                    )
                     withExtendedLifetime(store) {}
                 }
 
@@ -117,6 +167,82 @@ struct EventBrowseStoryTests {
             }
         }
 
+    }
+
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    @Test(.tcaExhaustivity(.off)) @MainActor
+    func `entering an event publishes its canonical notification subscription`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:wickedwoods"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "2026")
+        )
+        try await database.write { database in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(database)
+            try OME.Event.insert {
+                testEventDraft(id: eventID, name: "Wicked Woods 2026")
+            }
+            .execute(database)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/woody.fm/wicked-woods",
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "wicked-woods-2026"
+                )
+            }
+            .execute(database)
+        }
+
+        let expectedSubscription = NotificationSubscription(
+            sourceID: .init(
+                rawValue: "at://did:plc:wickedwoods/app.openmusicevent.event/2026"
+            )
+        )
+        let (replacements, replacementContinuation) =
+            AsyncStream<Set<NotificationSubscription>>.makeStream()
+        defer { replacementContinuation.finish() }
+
+        await withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.uuid = .incrementing
+            OME.prepareDependencies(&$0, database: database)
+            $0.notificationTokenClient = NotificationTokenClient(
+                tokens: { AsyncStream { $0.finish() } }
+            )
+            $0.notificationsClient = NotificationsClient(
+                registerDestination: { _ in },
+                replaceSubscriptions: { replacementContinuation.yield($0) },
+                synchronize: {},
+                signals: { AsyncStream { $0.finish() } }
+            )
+        } operation: {
+            var replacementIterator = replacements.makeAsyncIterator()
+            let store = await TestStoreActor(
+                initialState: OpenMusicEventAppRoot.State(
+                    selectedEventIDAtLaunch: eventID
+                )
+            ) {
+                OpenMusicEventAppRoot()
+            }
+
+            let subscriptions = await replacementIterator.next()
+            expectNoDifference(subscriptions, Optional(Set([expectedSubscription])))
+            await store.dismount(timeout: .seconds(1))
+        }
     }
 
     @Test

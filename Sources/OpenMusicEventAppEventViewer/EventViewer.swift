@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import ComposableAuthoring
+import ComposableNotifications
 import ComposableWorkspace
 import Dependencies
 import ErrorHandling
@@ -336,6 +337,18 @@ public struct EventViewer {
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
+
+        var notificationSubscriptions: Set<NotificationSubscription> {
+            [
+                NotificationSubscription(
+                    sourceID: .init(
+                        rawValue: OMERecord.Event.reference(id: eventID)
+                            .uri
+                            .description
+                    )
+                )
+            ]
+        }
 
         public var scheduleViewers: [Spawn<ScheduleViewer>] = []
         public var contributorsViewer: Spawn<ContributorsViewer>?
@@ -861,6 +874,10 @@ public struct EventViewer {
     public var body: some Feature {
 //        let _ = Self._logChanges()
         Features {
+            AnyFeature(
+                EmptyFeature<State, Action>()
+                    .notificationSubscriptions(\.notificationSubscriptions)
+            )
             AnyFeature(
                 Update { state, action in
                     switch action {

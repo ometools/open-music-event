@@ -5,6 +5,7 @@ import ATProtoOAuth
 import BlueskyActorCache
 import ComposableCalendarEvents
 import ComposableNotifications
+import ComposableNotificationsHTTP
 import Dependencies
 import ErrorHandling
 import SQLiteData
@@ -23,6 +24,9 @@ import SourceControlClientGit
 #endif
 import SourceEditing
 import TCATProtoAuthentication
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A logger for the OpenMusicEventApp module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
@@ -78,6 +82,12 @@ extension OME {
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         dependencies.appDelegateClient = AppDelegateClient(
             events: { OpenMusicEventAppDelegate.shared.appDelegateEvents() }
+        )
+        dependencies.notificationTokenClient = NotificationTokenClient(
+            tokens: { OpenMusicEventAppDelegate.shared.notificationTokens() }
+        )
+        dependencies.notificationsClient = .http(
+            baseURL: OpenMusicEventNotificationAuthorization.serverURL
         )
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
@@ -278,6 +288,8 @@ struct SelectedEventRestoration {
 
     private let appDelegateEventContinuation: AsyncStream<AppDelegateEvent>.Continuation
     private let appDelegateEventStream: AsyncStream<AppDelegateEvent>
+    private let notificationTokenContinuation: AsyncStream<Push.Destination>.Continuation
+    private let notificationTokenStream: AsyncStream<Push.Destination>
 
     private init() {
         let (stream, continuation) = AsyncStream<AppDelegateEvent>.makeStream(
@@ -285,10 +297,19 @@ struct SelectedEventRestoration {
         )
         self.appDelegateEventContinuation = continuation
         self.appDelegateEventStream = stream
+        let (tokenStream, tokenContinuation) = AsyncStream<Push.Destination>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.notificationTokenContinuation = tokenContinuation
+        self.notificationTokenStream = tokenStream
     }
 
     /* SKIP @bridge */public func appDelegateEvents() -> AsyncStream<AppDelegateEvent> {
         appDelegateEventStream
+    }
+
+    public func notificationTokens() -> AsyncStream<Push.Destination> {
+        notificationTokenStream
     }
 
     /* SKIP @bridge */public func onInit() {
@@ -300,7 +321,53 @@ struct SelectedEventRestoration {
     /* SKIP @bridge */public func onLaunch() {
         appDelegateEventContinuation.yield(.launched)
         logger.debug("onLaunch")
+#if canImport(UIKit)
+        Task { @MainActor in
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+#endif
         enforceStoredAuthenticationFreshness()
+    }
+
+    /* SKIP @bridge */public func onRegisteredForRemoteNotifications(deviceToken: Data) {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            logger.error("Remote notification registration has no application bundle identifier")
+            return
+        }
+#if SKIP
+        logger.info("Remote notification destination available for \(bundleIdentifier)")
+#else
+        logger.info(
+            "Remote notification destination available for \(bundleIdentifier, privacy: .public)"
+        )
+#endif
+        let value = deviceToken.map { String(format: "%02x", $0) }.joined()
+        notificationTokenContinuation.yield(
+            .apns(
+                Push.APNS(
+                    applicationID: .init(rawValue: bundleIdentifier),
+                    deviceToken: .init(rawValue: value)
+                )
+            )
+        )
+    }
+
+    /* SKIP @bridge */public func onRemoteNotificationRegistrationFailed() {
+        logger.error("Remote notification registration failed")
+    }
+
+    /// Normalizes provider data at the platform boundary before it enters the feature tree.
+    /// FCM's `RemoteMessage.data` can be forwarded here without exposing FCM types to OME.
+    /* SKIP @bridge */public func onRemoteNotification(data: [String: String]) {
+        do {
+            appDelegateEventContinuation.yield(
+                .notification(
+                    try NotificationProviderMessage(data: data).event(delivery: .silent)
+                )
+            )
+        } catch {
+            logger.error("Ignoring an invalid remote notification payload")
+        }
     }
 
     /* SKIP @bridge */public func onResume() {

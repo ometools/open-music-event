@@ -314,6 +314,7 @@ public enum OpenMusicEventOAuth {
     }
 
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {
+        OpenMusicEventNotificationAuthorization.prepareDependencies(&dependencies)
         let authorizationRequests = dependencies.openMusicEventAuthorizationRequests
             .openMusicEventDefaultingSignUpServerConfiguration(
                 dependencies.openMusicEventSignUpServerConfiguration
