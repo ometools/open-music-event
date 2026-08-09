@@ -308,8 +308,7 @@ public struct CommsPostComposerView: View {
             } else {
                 Section("Post") {
                     TextField("Title", text: $store.draft.title)
-                    TextEditor(text: $store.draft.markdown)
-                        .frame(minHeight: 180)
+                    CommsMarkdownEditor(markdown: $store.draft.markdown)
                 }
             }
 
@@ -386,5 +385,116 @@ public struct CommsPostComposerView: View {
         } message: {
             Text("This may bypass Silent mode and Focus for people who receive it.")
         }
+    }
+}
+
+struct CommsMarkdownEditor: View {
+    @Binding var markdown: String
+
+    var body: some View {
+        #if os(Android)
+        CommsMarkdownSourceEditor(markdown: $markdown)
+        #else
+        if #available(iOS 26.0, macOS 26.0, *) {
+            CommsRichMarkdownEditor(markdown: $markdown)
+        } else {
+            CommsMarkdownSourceEditor(markdown: $markdown)
+        }
+        #endif
+    }
+}
+
+#if !os(Android)
+@available(iOS 26.0, macOS 26.0, *)
+private struct CommsRichMarkdownEditor: View {
+    @Binding var markdown: String
+    @State private var richText: AttributedString
+    @State private var selection = AttributedTextSelection()
+
+    init(markdown: Binding<String>) {
+        self._markdown = markdown
+        self._richText = State(initialValue: CommsMarkdown.richEditorText(markdown.wrappedValue))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                formattingButton("Bold", intent: .stronglyEmphasized)
+                formattingButton("Italic", intent: .emphasized)
+                formattingButton("Code", intent: .code)
+            }
+
+            TextEditor(text: $richText, selection: $selection)
+                .frame(minHeight: 180)
+                .onChange(of: richText) { _, value in
+                    markdown = CommsMarkdown.markdown(from: value)
+                }
+                .onChange(of: markdown) { _, value in
+                    guard value != CommsMarkdown.markdown(from: richText) else { return }
+                    richText = CommsMarkdown.richEditorText(value)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func formattingButton(_ title: String, intent: InlinePresentationIntent) -> some View {
+        Button(title) {
+            toggle(intent)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private func toggle(_ intent: InlinePresentationIntent) {
+        var selection = selection
+
+        richText.transformAttributes(in: &selection) { attributes in
+            var intents = attributes.inlinePresentationIntent ?? []
+            if intents.contains(intent) {
+                intents.remove(intent)
+            } else {
+                intents.insert(intent)
+            }
+            attributes.inlinePresentationIntent = intents
+        }
+        self.selection = selection
+        markdown = CommsMarkdown.markdown(from: richText)
+    }
+}
+#endif
+
+struct CommsMarkdownSourceEditor: View {
+    @Binding var markdown: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    formatButton("Bold", template: "**bold text**")
+                    formatButton("Italic", template: "*emphasized text*")
+                    formatButton("Heading", template: "## Heading")
+                    formatButton("List", template: "- List item")
+                    formatButton("Link", template: "[link text](https://)")
+                }
+            }
+
+            TextEditor(text: $markdown)
+                .frame(minHeight: 180)
+
+            Text("Markdown is saved as entered. Use Preview to see the published post.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func formatButton(_ title: String, template: String) -> some View {
+        Button(title) {
+            if markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                markdown = template
+            } else {
+                markdown += "\n\n" + template
+            }
+        }
+        .buttonStyle(.bordered)
     }
 }
