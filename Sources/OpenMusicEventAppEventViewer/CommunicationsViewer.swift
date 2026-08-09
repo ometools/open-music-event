@@ -171,7 +171,7 @@ public struct CommunicationsViewer {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
-        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
+        .onChange(of: authoring.grant., initial: true) { _, grant, state in
             state.canManageChannels = grant?.access.canEditContent == true
         }
     }
