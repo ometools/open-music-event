@@ -475,6 +475,15 @@ struct SourceDatabaseInsertionTests {
                     title: "Welcome",
                     contents: "Welcome to Postival.",
                     headerImageURL: URL(string: "https://example.com/welcome.png")!,
+                    images: [
+                        OME.ImageAsset(
+                            assetKey: "\(organizerID)|\(resolvedEventID)|communicationPost|general|welcome|photo|default",
+                            source: .url(URL(string: "https://example.com/welcome-gallery.png")!),
+                            role: .photo,
+                            renderKind: .fullImage,
+                            materializationPolicy: .lazy
+                        )
+                    ],
                     timestamp: nil,
                     isPinned: true,
                     sortIndex: 1
@@ -4186,6 +4195,14 @@ struct SourceDatabaseInsertionTests {
                                 title: "Welcome",
                                 contents: "Welcome to Postival.",
                                 headerImageURL: URL(string: "https://example.com/welcome.png")!,
+                                images: [
+                                    SourceImageAsset(
+                                        source: .url(URL(string: "https://example.com/welcome-gallery.png")!),
+                                        role: .photo,
+                                        renderKind: .fullImage,
+                                        materializationPolicy: .lazy
+                                    )
+                                ],
                                 isPinned: true
                             )
                         ),

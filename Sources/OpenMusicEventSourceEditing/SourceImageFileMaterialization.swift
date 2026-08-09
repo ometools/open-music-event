@@ -83,6 +83,22 @@ extension OpenMusicEventSourceEvent {
                 return poster
             }
         }
+        event.communicationPosts = try event.communicationPosts?.map { directory in
+            try directory.map { posts in
+                try posts.map { file in
+                    try file.map { post in
+                        var post = post
+                        post.images = try Self.materialize(
+                            post.images,
+                            at: eventURL,
+                            parentFileName: "\(directory.directoryName)-\(file.fileName)",
+                            usedPaths: &usedPaths
+                        )
+                        return post
+                    }
+                }
+            }
+        }
 
         return event
     }
@@ -235,6 +251,13 @@ private extension OpenMusicEventSourceEvent {
                 if case let .file(path) = variant.payload.source {
                     paths.insert(path)
                 }
+            }
+        }
+        for directory in event.communicationPosts ?? [] {
+            for post in directory.components {
+                paths.formUnion(
+                    OpenMusicEventSourceRepository.sourceImageFilePaths(in: post.data.images)
+                )
             }
         }
     }

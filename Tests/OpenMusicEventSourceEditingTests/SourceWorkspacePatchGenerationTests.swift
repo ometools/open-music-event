@@ -6,13 +6,92 @@ import GRDB
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
-import OpenMusicEventSourceEditing
+@testable import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
 import Testing
 
 @Suite("Source workspace patch generation", .serialized)
 struct SourceWorkspacePatchGenerationTests {
+    @Test
+    func attachedPostImageIsCopiedIntoTheEventSource() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let selectedImageURL = rootURL.appending(path: "selected.png")
+        let selectedImageData = Data("selected image".utf8)
+        try selectedImageData.write(to: selectedImageURL)
+
+        let source = OpenMusicEventSourceRepository(
+            events: [
+                DirectoryContent(
+                    directoryName: "postival",
+                    components: OpenMusicEventSourceEvent(
+                        event: EventDTO(
+                            id: nil,
+                            name: "Postival",
+                            description: nil,
+                            startDate: nil,
+                            endDate: nil,
+                            status: nil,
+                            mode: nil,
+                            locations: nil,
+                            uris: nil,
+                            timeZone: try #require(TimeZone(identifier: "America/Denver")),
+                            images: nil,
+                            contactNumbers: nil,
+                            categoryConfigs: nil
+                        ),
+                        communicationPosts: [
+                            DirectoryContent(
+                                directoryName: "general",
+                                components: [
+                                    try FileContent(
+                                        fileName: "welcome",
+                                        fileType: "md",
+                                        data: CommunicationPostDTO(
+                                            title: "Welcome",
+                                            contents: "Welcome to Postival.",
+                                            images: [
+                                                SourceImageAsset(
+                                                    source: .url(selectedImageURL),
+                                                    role: .photo,
+                                                    renderKind: .fullImage,
+                                                    materializationPolicy: .lazy
+                                                )
+                                            ]
+                                        )
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        let repositoryURL = rootURL.appending(path: "repository", directoryHint: .isDirectory)
+        let materialized = try source.materializingLocalImageFiles(at: repositoryURL)
+        let image = try #require(
+            materialized.events.first?.components.communicationPosts?.first?.components.first?.data.images?.first
+        )
+        guard case let .file(path) = image.source else {
+            Issue.record("Expected the attached post image to use a repository-relative file path.")
+            return
+        }
+
+        #expect(path.hasPrefix("images/general-welcome-photo"))
+        #expect(
+            try Data(
+                contentsOf: repositoryURL
+                    .appending(path: "events/postival")
+                    .appending(path: path)
+            ) == selectedImageData
+        )
+    }
+
     @Test
     func onePatchCapturesEveryEventOwnedByTheSourceWorkspace() async throws {
         let fixture = try Fixture()

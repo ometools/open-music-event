@@ -110,6 +110,7 @@ public extension OME {
                 title: String,
                 contents: String,
                 headerImageURL: URL? = nil,
+                images: [OME.ImageAsset]? = nil,
                 timestamp: Date? = nil,
                 isPinned: Bool = false,
                 sortIndex: Int
@@ -118,6 +119,7 @@ public extension OME {
                 self.title = title
                 self.contents = contents
                 self.headerImageURL = headerImageURL
+                self.images = images
                 self.timestamp = timestamp
                 self.isPinned = isPinned
                 self.sortIndex = sortIndex
@@ -127,6 +129,7 @@ public extension OME {
             public var title: String
             public var contents: String
             public var headerImageURL: URL?
+            public var images: [OME.ImageAsset]?
             public var timestamp: Date?
             public var isPinned: Bool
             public var sortIndex: Int
@@ -434,20 +437,29 @@ public extension OME {
             )
 
             communicationPosts.append(
-                contentsOf: sourceEvent.communicationPosts?.flatMap { channelPosts in
+                contentsOf: try sourceEvent.communicationPosts?.flatMap { channelPosts in
                     let channelID = channelIDsByFileName[channelPosts.directoryName]
                         ?? Self.localID(channelPosts.directoryName)
-                    return channelPosts.components.enumerated().map { index, post in
-                        CommunicationPost(
+                    return try channelPosts.components.enumerated().map { index, post in
+                        let postID: OME.ID<CommunicationPost> = Self.localID(post.fileName)
+                        return CommunicationPost(
                             id: .init(
                                 organizerID: organizerID,
                                 eventID: localEventID,
                                 channelID: channelID,
-                                postID: Self.localID(post.fileName)
+                                postID: postID
                             ),
                             title: post.data.title,
                             contents: post.data.contents,
                             headerImageURL: post.data.headerImageURL,
+                            images: try resolve(
+                                post.data.images,
+                                organizerID: organizerID,
+                                eventID: localEventID,
+                                parentKind: "communicationPost",
+                                parentLocalID: "\(channelID.rawValue.rawValue)|\(postID.rawValue.rawValue)",
+                                sourceDirectoryURL: eventDirectoryURL
+                            ),
                             timestamp: post.data.timestamp,
                             isPinned: post.data.isPinned,
                             sortIndex: index

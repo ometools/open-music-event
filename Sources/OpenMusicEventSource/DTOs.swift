@@ -644,12 +644,14 @@ public struct CommunicationPostDTO: Equatable, Sendable {
         title: String,
         contents: String,
         headerImageURL: URL? = nil,
+        images: [SourceImageAsset]? = nil,
         timestamp: Date? = nil,
         isPinned: Bool = false
     ) {
         self.title = title
         self.contents = contents
         self.headerImageURL = headerImageURL
+        self.images = images?.bundlingAppearancePairs()
         self.timestamp = timestamp
         self.isPinned = isPinned
     }
@@ -657,6 +659,7 @@ public struct CommunicationPostDTO: Equatable, Sendable {
     public var title: String
     public var contents: String
     public var headerImageURL: URL?
+    public var images: [SourceImageAsset]?
     public var timestamp: Date?
     public var isPinned: Bool
 }

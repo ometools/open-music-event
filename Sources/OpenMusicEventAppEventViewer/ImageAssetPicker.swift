@@ -13,7 +13,7 @@ import SwiftUI
 public struct ImageAssetPicker {
     public init() {}
 
-    public struct State {
+    public struct State: Sendable {
         public init(
             configuration: ImportImages.Configuration,
             cacheContext: LocalImageCacheContext? = nil,

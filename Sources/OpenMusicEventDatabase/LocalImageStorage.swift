@@ -49,6 +49,7 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
         case stage
         case contributor
         case poster
+        case communicationPost
     }
 }
 
@@ -59,6 +60,7 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         case stage(OME.Stage.ID)
         case contributor(OME.Contributor.ID)
         case poster(OME.Poster.ID)
+        case communicationPost(CommsPost.ID)
     }
 
     public init(calendarID: OME.Calendar.ID) {
@@ -81,6 +83,10 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         self.parent = .poster(posterID)
     }
 
+    public init(commsPostID: CommsPost.ID) {
+        self.parent = .communicationPost(commsPostID)
+    }
+
     public var parent: Parent
 
     public var organizerID: OME.Organizer.ID {
@@ -94,6 +100,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         case let .contributor(id):
             id.organizerID
         case let .poster(id):
+            id.organizerID
+        case let .communicationPost(id):
             id.organizerID
         }
     }
@@ -110,6 +118,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             id.eventID
         case let .poster(id):
             id.eventID
+        case let .communicationPost(id):
+            id.eventID
         }
     }
 
@@ -125,6 +135,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             .contributor
         case .poster:
             .poster
+        case .communicationPost:
+            .communicationPost
         }
     }
 
@@ -140,6 +152,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             id.contributorID.rawValue.rawValue
         case let .poster(id):
             id.posterID.rawValue.rawValue
+        case let .communicationPost(id):
+            "\(id.channelID.rawValue.rawValue)|\(id.postID.rawValue)"
         }
     }
 }
@@ -917,6 +931,14 @@ private func updateCachedImage(
         }
         poster.image = cachedImage
         try OME.Poster.upsert { poster }.execute(db)
+        return true
+
+    case let .communicationPost(id):
+        guard var post = try CommsPost.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &post.images) else {
+            return false
+        }
+        try CommsPost.upsert { post }.execute(db)
         return true
     }
 }

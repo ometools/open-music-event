@@ -399,6 +399,17 @@ struct OpenMusicEventSourceTests {
         isPinned: true
         sendPush: true
         headerImageURL: https://example.com/header.png
+        images:
+        - source:
+            url: https://example.com/gallery-one.png
+          role: photo
+          renderKind: fullImage
+          materializationPolicy: lazy
+        - source:
+            url: https://example.com/gallery-two.png
+          role: photo
+          renderKind: fullImage
+          materializationPolicy: lazy
         ---
 
         Welcome to the event.
@@ -435,6 +446,23 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(posts[0].data.isPinned, false)
         expectNoDifference(posts[1].data.title, "Welcome to Postival")
         expectNoDifference(posts[1].data.headerImageURL, URL(string: "https://example.com/header.png")!)
+        expectNoDifference(
+            posts[1].data.images,
+            [
+                SourceImageAsset(
+                    source: .url(URL(string: "https://example.com/gallery-one.png")!),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                ),
+                SourceImageAsset(
+                    source: .url(URL(string: "https://example.com/gallery-two.png")!),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                ),
+            ]
+        )
         expectNoDifference(posts[1].data.isPinned, true)
         expectNoDifference(posts[1].data.contents, "Welcome to the event.")
     }

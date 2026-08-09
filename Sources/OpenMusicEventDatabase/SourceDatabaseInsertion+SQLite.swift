@@ -291,6 +291,15 @@ private struct PreparedSourceDatabaseInsertion {
             contributors[index] = result.value
             localImageBlobs.append(contentsOf: result.blobs)
         }
+
+        for index in commsPosts.indices {
+            let result = try await materializer.materialize(
+                commsPost: commsPosts[index],
+                pendingFileAssets: pendingFileAssets
+            )
+            commsPosts[index] = result.value
+            localImageBlobs.append(contentsOf: result.blobs)
+        }
     }
 
     func insert(into db: Database) throws {
@@ -422,6 +431,7 @@ private extension CommsPost {
             title: post.title,
             contents: post.contents,
             headerImageURL: post.headerImageURL,
+            images: post.images,
             timestamp: post.timestamp,
             isPinned: post.isPinned,
             sortIndex: post.sortIndex
@@ -443,6 +453,24 @@ public extension OpenMusicEventSourceValidator {
 }
 
 private extension LocalImageMaterializer {
+    func materialize(
+        commsPost: CommsPost,
+        pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset]
+    ) async throws -> Result<CommsPost> {
+        let context = LocalImageCacheContext(commsPostID: commsPost.id)
+        let images = try await materializeImages(
+            images: commsPost.images,
+            organizerID: context.organizerID,
+            eventID: context.eventID,
+            parentKind: context.parentKind,
+            parentLocalID: context.parentLocalID,
+            pendingFileAssets: pendingFileAssets
+        )
+        var commsPost = commsPost
+        commsPost.images = images.images
+        return .init(value: commsPost, blobs: images.blobs)
+    }
+
     func materialize(
         calendar: OME.Calendar.Draft,
         pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset],

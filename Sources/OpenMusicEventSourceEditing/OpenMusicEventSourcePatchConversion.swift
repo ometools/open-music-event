@@ -692,13 +692,24 @@ private extension OpenMusicEventSourceEvent {
                     }
                     .map { post in
                         let fileName = post.id.postID.rawValue
+                        let dto = CommunicationPostDTO(post)
                         if let sourceFile = sourceFilesByPostID[fileName] {
-                            return try sourceFile.map { _ in CommunicationPostDTO(post) }
+                            return try sourceFile.map { sourcePost in
+                                dto.preservingSourceImageReferences(
+                                    from: sourcePost,
+                                    context: SourceImageReferenceContext(
+                                        organizerID: post.id.organizerID,
+                                        eventID: post.id.eventID,
+                                        parentKind: .communicationPost,
+                                        parentLocalID: "\(post.id.channelID.rawValue.rawValue)|\(fileName)"
+                                    )
+                                )
+                            }
                         }
                         return try FileContent(
                             fileName: fileName,
                             fileType: "md",
-                            data: CommunicationPostDTO(post)
+                            data: dto
                         )
                     }
                 return DirectoryContent(
@@ -717,6 +728,7 @@ private extension CommunicationPostDTO {
             title: post.title,
             contents: post.contents,
             headerImageURL: post.headerImageURL,
+            images: post.images?.sourceImageAssets(),
             timestamp: post.timestamp,
             isPinned: post.isPinned
         )
@@ -729,6 +741,7 @@ private enum SourceImageParentKind: String, Sendable {
     case stage
     case contributor
     case poster
+    case communicationPost
 }
 
 private struct SourceImageReferenceContext: Sendable {
@@ -792,6 +805,20 @@ private extension StageDTO {
 private extension ContributorDTO {
     func preservingSourceImageReferences(
         from source: ContributorDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        dto.images = images?.preservingSourceImageReferences(
+            from: source.images,
+            context: context
+        )
+        return dto
+    }
+}
+
+private extension CommunicationPostDTO {
+    func preservingSourceImageReferences(
+        from source: CommunicationPostDTO,
         context: SourceImageReferenceContext
     ) -> Self {
         var dto = self

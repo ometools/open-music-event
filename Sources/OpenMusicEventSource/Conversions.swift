@@ -166,6 +166,7 @@ public struct CommunicationPostMarkdownConversion: Conversion {
                 title: frontMatter.title,
                 contents: (markdown.body ?? "").removingLeadingNewlines,
                 headerImageURL: frontMatter.headerImageURLValue,
+                images: frontMatter.images,
                 timestamp: frontMatter.timestamp,
                 isPinned: frontMatter.isPinned ?? false
             )
@@ -189,17 +190,20 @@ public struct CommunicationPostMarkdownConversion: Conversion {
 private struct CommunicationPostFrontMatter: Codable, Equatable {
     var title: String
     var headerImageURL: String?
+    var images: [SourceImageAsset]?
     var timestamp: Date?
     var isPinned: Bool?
 
     init(
         title: String,
         headerImageURL: String? = nil,
+        images: [SourceImageAsset]? = nil,
         timestamp: Date? = nil,
         isPinned: Bool? = nil
     ) {
         self.title = title
         self.headerImageURL = headerImageURL
+        self.images = images
         self.timestamp = timestamp
         self.isPinned = isPinned
     }
@@ -208,6 +212,7 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
         self.init(
             title: post.title,
             headerImageURL: post.headerImageURL?.absoluteString,
+            images: post.images,
             timestamp: post.timestamp,
             isPinned: post.isPinned ? true : nil
         )

@@ -3,6 +3,7 @@ import Dependencies
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
@@ -884,6 +885,19 @@ public struct CommsPostDetailView: View {
 
                 CommsMarkdownText(store.post.contents)
                     .multilineTextAlignment(.leading)
+
+                ForEach((store.post.images ?? []).indices, id: \.self) { index in
+                    let image = (store.post.images ?? [])[index]
+                    ImageAssetAsyncImage(
+                        asset: image,
+                        cacheContext: LocalImageCacheContext(commsPostID: store.post.id),
+                        contentMode: .fit
+                    ) {
+                        ImageAssetPickerThumbnailPlaceholder()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)

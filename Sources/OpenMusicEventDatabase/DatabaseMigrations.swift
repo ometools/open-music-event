@@ -282,6 +282,14 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Add attached images to OpenMusicEvent comms posts") { db in
+                try #sql("""
+                    ALTER TABLE "commsPosts"
+                    ADD COLUMN "images" TEXT
+                    """)
+                    .execute(db)
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
             WorkspacePublicationMigrations.register(into: &migrator)
 

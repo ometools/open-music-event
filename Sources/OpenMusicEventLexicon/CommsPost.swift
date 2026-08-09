@@ -31,6 +31,7 @@ public struct CommsPost: Equatable, Sendable, Identifiable {
         title: String,
         contents: String,
         headerImageURL: URL? = nil,
+        images: [OME.ImageAsset]? = nil,
         timestamp: Date? = nil,
         isPinned: Bool = false,
         sortIndex: Int
@@ -39,6 +40,7 @@ public struct CommsPost: Equatable, Sendable, Identifiable {
         self.title = title
         self.contents = contents
         self.headerImageURL = headerImageURL
+        self.images = images
         self.timestamp = timestamp
         self.isPinned = isPinned
         self.sortIndex = sortIndex
@@ -48,6 +50,8 @@ public struct CommsPost: Equatable, Sendable, Identifiable {
     public var title: String
     public var contents: String
     public var headerImageURL: URL?
+    @Column(as: [OME.ImageAsset].JSONRepresentation?.self)
+    public var images: [OME.ImageAsset]?
     public var timestamp: Date?
     public var isPinned: Bool
     public var sortIndex: Int

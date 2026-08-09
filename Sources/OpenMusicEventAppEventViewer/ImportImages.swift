@@ -286,6 +286,16 @@ public extension ImportImages {
             )
         }
 
+        public static var communicationPostPhotos: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Post Images",
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        }
+
         public static var stageHero: Self {
             Self(
                 cardinality: .single,

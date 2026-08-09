@@ -40,11 +40,16 @@ public struct CommsPostComposer {
         ) {
             self.channelID = channelID
             self.draft = draft
+            self.imagePicker = ImageAssetPicker.State(
+                configuration: .communicationPostPhotos
+            )
         }
 
         public var channelID: OMERecord.Channel.ID
+        public var destination: Destination.State?
         public var draft: CommsPostDraft
         public var errorMessage: String?
+        public var imagePicker: ImageAssetPicker.State
         public var isPreviewing = false
         public var isSaving = false
 
@@ -55,22 +60,51 @@ public struct CommsPostComposer {
 
     public enum Action {
         case cancelButtonTapped
+        case destination(Destination.Action)
+        case imagePicker(ImageAssetPicker.Action)
         case saveButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
+        case importImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
+        Scope(\.imagePicker, action: \.imagePicker) {
+            ImageAssetPicker()
+        }
         Update { state, action in
             switch action {
             case .cancelButtonTapped:
                 store.addTask { try store.dismiss() }
 
+            case .destination:
+                break
+
+            case .imagePicker(.addButtonTapped):
+                state.destination = .importImages(
+                    Spawn(state.imagePicker.importImagesState())
+                )
+
+            case let .imagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.imagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .imageInfo(Spawn(imageInfoState))
+
+            case .imagePicker:
+                break
+
             case .saveButtonTapped:
                 guard state.canSubmit else { return }
                 let channelID = state.channelID
                 let draft = state.draft
+                let imagePicker = state.imagePicker
                 let timestamp = now
                 state.errorMessage = nil
                 state.isSaving = true
@@ -82,15 +116,23 @@ public struct CommsPostComposer {
                                 .where { $0.id.eventID.eq(channelID.eventID) }
                                 .where { $0.id.channelID.eq(channelID.channelID) }
                                 .fetchAll(db)
+                            var post = Self.newPost(
+                                channelID: channelID,
+                                draft: draft,
+                                existingPosts: existingPosts,
+                                timestamp: timestamp
+                            )
+                            let preparedImages = try imagePicker.materializedImages(
+                                context: LocalImageCacheContext(commsPostID: post.id)
+                            )
+                            post.images = preparedImages.images.isEmpty ? nil : preparedImages.images
                             try CommsPost.insert {
-                                Self.newPost(
-                                    channelID: channelID,
-                                    draft: draft,
-                                    existingPosts: existingPosts,
-                                    timestamp: timestamp
-                                )
+                                post
                             }
                             .execute(db)
+                            if !preparedImages.blobs.isEmpty {
+                                try LocalImageBlob.insert { preparedImages.blobs }.execute(db)
+                            }
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -105,6 +147,26 @@ public struct CommsPostComposer {
                     }
                 }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.importImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.imagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            guard case .importImages = state.destination else { return }
+            state.imagePicker.append(images)
         }
     }
 
@@ -181,6 +243,10 @@ public struct CommsPostComposerView: View {
                         .foregroundStyle(.red)
                 }
             }
+
+            ImageAssetPickerSection(
+                store: store.scope(\.imagePicker, action: \.imagePicker)
+            )
         }
         .navigationTitle("New Post")
         .toolbar {
@@ -190,6 +256,16 @@ public struct CommsPostComposerView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { store.send(.saveButtonTapped) }
                     .disabled(!store.canSubmit)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).importImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
     }
@@ -224,47 +300,15 @@ private struct CommsRichMarkdownEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                formattingButton("Bold", intent: .stronglyEmphasized)
-                formattingButton("Italic", intent: .emphasized)
-                formattingButton("Code", intent: .code)
+        TextEditor(text: $richText, selection: $selection)
+            .frame(minHeight: 180)
+            .onChange(of: richText) { _, value in
+                markdown = CommsMarkdown.markdown(from: value)
             }
-
-            TextEditor(text: $richText, selection: $selection)
-                .frame(minHeight: 180)
-                .onChange(of: richText) { _, value in
-                    markdown = CommsMarkdown.markdown(from: value)
-                }
-                .onChange(of: markdown) { _, value in
-                    guard value != CommsMarkdown.markdown(from: richText) else { return }
-                    richText = CommsMarkdown.richEditorText(value)
-                }
-        }
-    }
-
-    @ViewBuilder
-    private func formattingButton(_ title: String, intent: InlinePresentationIntent) -> some View {
-        Button(title) {
-            toggle(intent)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private func toggle(_ intent: InlinePresentationIntent) {
-        var selection = selection
-
-        richText.transformAttributes(in: &selection) { attributes in
-            var intents = attributes.inlinePresentationIntent ?? []
-            if intents.contains(intent) {
-                intents.remove(intent)
-            } else {
-                intents.insert(intent)
+            .onChange(of: markdown) { _, value in
+                guard value != CommsMarkdown.markdown(from: richText) else { return }
+                richText = CommsMarkdown.richEditorText(value)
             }
-            attributes.inlinePresentationIntent = intents
-        }
-        self.selection = selection
-        markdown = CommsMarkdown.markdown(from: richText)
     }
 }
 #endif
