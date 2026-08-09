@@ -5644,6 +5644,225 @@ struct NavigationTests {
     }
 
     @Test
+    func channelFormAddsSourceBackedChannelWithRequiredNotifications() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general-updates",
+                name: "General Updates",
+                sortIndex: 4
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: ChannelForm.State(
+                    eventID: eventID,
+                    formValue: ChannelForm.FormValue(
+                        name: "  General Updates  ",
+                        description: "  Important information for everyone.  ",
+                        defaultNotificationState: .unsubscribed,
+                        notificationsRequired: true
+                    )
+                )
+            ) {
+                ChannelForm()
+            }
+        }
+
+        await store.send(
+            ChannelForm.Action.formSubmitted(
+                ChannelForm.FormValue(
+                    name: "  General Updates  ",
+                    description: "  Important information for everyone.  ",
+                    defaultNotificationState: .unsubscribed,
+                    notificationsRequired: true
+                )
+            )
+        )?.value
+
+        let channel = try await database.read { db in
+            try #require(
+                try CommunicationsViewer
+                    .channelsQuery(eventID: eventID)
+                    .fetchAll(db)
+                    .first(where: { $0.id.channelID == channelLocalID("general-updates-2") })
+            )
+        }
+
+        expectNoDifference(channel.name, "General Updates")
+        expectNoDifference(channel.description, "Important information for everyone.")
+        expectNoDifference(channel.sortIndex, 5)
+        expectNoDifference(channel.defaultNotificationState, .subscribed)
+        #expect(channel.notificationsRequired)
+        #expect(store.isPresented == false)
+    }
+
+    @Test
+    func channelFormEditsTheExistingChannelWithoutChangingItsIDOrOrder() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                description: "Original updates.",
+                sortIndex: 4,
+                defaultNotificationState: .unsubscribed
+            )
+        }
+
+        let channel = try await database.read { db in
+            try #require(
+                try CommunicationsViewer
+                    .channelsQuery(eventID: eventID)
+                    .fetchAll(db)
+                    .first
+            )
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: ChannelForm.State(channel: channel)) {
+                ChannelForm()
+            }
+        }
+
+        await store.send(
+            .formSubmitted(
+                ChannelForm.FormValue(
+                    name: "  Camp Updates  ",
+                    description: "  Messages for campers.  ",
+                    defaultNotificationState: .subscribed,
+                    notificationsRequired: false
+                )
+            )
+        )?.value
+
+        let savedChannel = try await database.read { db in
+            try #require(
+                try CommunicationsViewer
+                    .channelsQuery(eventID: eventID)
+                    .fetchAll(db)
+                    .first
+            )
+        }
+
+        expectNoDifference(savedChannel.id.channelID, channelID)
+        expectNoDifference(savedChannel.name, "Camp Updates")
+        expectNoDifference(savedChannel.description, "Messages for campers.")
+        expectNoDifference(savedChannel.sortIndex, 4)
+        expectNoDifference(savedChannel.defaultNotificationState, .subscribed)
+        #expect(!savedChannel.notificationsRequired)
+        #expect(store.isPresented == false)
+    }
+
+    @Test
+    func communicationsViewerChannelActionsEditAndDeleteTheSelectedChannel() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+        let channel = try await database.read { db in
+            try #require(
+                try CommunicationsViewer
+                    .channelsQuery(eventID: eventID)
+                    .fetchAll(db)
+                    .first
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = CommunicationsViewer.State(eventID: eventID)
+            state.canManageChannels = true
+            return TestStore(initialState: state) {
+                CommunicationsViewer()
+            }
+        }
+
+        store.send(.editChannelButtonTapped(channel))
+
+        #expect(store.state.destination?.channelForm?.state.channelID == channelID)
+
+        store.send(.deleteChannelButtonTapped(channelID))
+
+        #expect(store.state.destination?.deleteChannelConfirmation?.channelID == channelID)
+
+        await store.send(
+            .destination(
+                .deleteChannelConfirmation(
+                    .deleteButtonTapped(channelID)
+                )
+            )
+        )?.value
+
+        let channels = try await database.read { db in
+            try CommunicationsViewer.channelsQuery(eventID: eventID).fetchAll(db)
+        }
+        #expect(channels.isEmpty)
+    }
+
+    @Test
+    func communicationChannelDetailChannelActionsOpenTheEditorAndDeleteTheChannel() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+        let channel = try await database.read { db in
+            try #require(
+                try CommunicationsViewer
+                    .channelsQuery(eventID: eventID)
+                    .fetchAll(db)
+                    .first
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = CommunicationChannelDetail.State(channelID: channelID, eventID: eventID)
+            state.canEditChannel = true
+            return TestStore(initialState: state) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        store.send(.editChannelButtonTapped(channel))
+
+        #expect(store.state.destination?.channelForm?.state.channelID == channelID)
+
+        store.send(.deleteChannelButtonTapped)
+
+        #expect(store.state.destination?.deleteChannelConfirmation?.channelID == channelID)
+    }
+
+    @Test
     func communicationsViewerRowsPreferStoredPreferenceBeforeChannelDefault() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

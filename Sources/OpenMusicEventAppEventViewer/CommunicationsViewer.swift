@@ -22,12 +22,30 @@ struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
 }
 
 @Feature
+public struct ChannelDeleteConfirmation: Prompt {
+    public struct State: Identifiable {
+        public init(channelID: OMERecord.ID<OMERecord.Channel>) {
+            self.channelID = channelID
+        }
+
+        public let channelID: OMERecord.ID<OMERecord.Channel>
+        public var id: OMERecord.ID<OMERecord.Channel> { channelID }
+    }
+
+    public enum Action {
+        case deleteButtonTapped(OMERecord.ID<OMERecord.Channel>)
+    }
+}
+
+@Feature
 public struct CommunicationsViewer {
     public init() {}
 
     public struct State {
         public let eventID: OMERecord.Event.ID
+        public var canManageChannels = false
         public var destination: Destination.State?
+        public var errorMessage: String?
 
         @FetchAll public var channels: [OMERecord.Channel]
         @FetchAll public var channelPreferences: [ChannelPreferences]
@@ -62,14 +80,23 @@ public struct CommunicationsViewer {
     }
 
     public enum Action {
+        case addChannelButtonTapped
         case channelButtonTapped(OMERecord.ID<OMERecord.Channel>)
+        case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
         case destination(Destination.Action)
+        case editChannelButtonTapped(OMERecord.Channel)
     }
 
     @Feature
     public enum Destination {
+        case channelForm(Spawn<ChannelForm>)
         case channelDetail(Spawn<CommunicationChannelDetail>)
+        case deleteChannelConfirmation(ChannelDeleteConfirmation)
     }
+
+    @Dependency(\.defaultDatabase) var database
+    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
+    var authoring
 
     static func channelsQuery(
         eventID: OMERecord.Event.ID
@@ -91,6 +118,12 @@ public struct CommunicationsViewer {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addChannelButtonTapped:
+                guard state.canManageChannels else { return }
+                state.destination = .channelForm(
+                    Spawn(ChannelForm.State(eventID: state.eventID))
+                )
+
             case let .channelButtonTapped(channelID):
                 store.withDependencies {
                     state.destination = .channelDetail(
@@ -103,12 +136,43 @@ public struct CommunicationsViewer {
                     )
                 }
 
+            case let .deleteChannelButtonTapped(channelID):
+                state.destination = .deleteChannelConfirmation(
+                    ChannelDeleteConfirmation.State(channelID: channelID)
+                )
+
+            case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
+                let recordID = OMERecord.Channel.ID(
+                    organizerID: state.eventID.organizerID,
+                    eventID: state.eventID.eventID,
+                    channelID: channelID
+                )
+                state.destination = nil
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try OMERecord.Channel.find(recordID).delete().execute(db)
+                        }
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete this channel."
+                        }
+                    }
+                }
+
+            case let .editChannelButtonTapped(channel):
+                state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
+
             case .destination:
                 break
             }
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
+            state.canManageChannels = grant?.access.canEditContent == true
         }
     }
 }
@@ -132,19 +196,51 @@ public struct CommunicationsViewerView: View {
                     } else {
                         Section("Channels") {
                             ForEach(store.channelRows) { row in
-                                Button {
-                                    store.send(.channelButtonTapped(row.channel.id.channelID))
-                                } label: {
-                                    CommunicationChannelRowView(row: row)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .portableContentShape(Rectangle())
+                                HStack(spacing: 12) {
+                                    Button {
+                                        store.send(.channelButtonTapped(row.channel.id.channelID))
+                                    } label: {
+                                        CommunicationChannelRowView(row: row)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .portableContentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if store.canManageChannels {
+                                        Menu {
+                                            Button {
+                                                store.send(
+                                                    .editChannelButtonTapped(row.channel)
+                                                )
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+
+                                            Button(role: .destructive) {
+                                                store.send(
+                                                    .deleteChannelButtonTapped(row.channel.id.channelID)
+                                                )
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        } label: {
+                                            Label("Channel actions", systemImage: "ellipsis")
+                                                .labelStyle(.iconOnly)
+                                        }
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
                 }
-                .navigationTitle("Comms")
             } else {
                 ViewerPlaceholderView(
                     title: "Comms",
@@ -155,8 +251,48 @@ public struct CommunicationsViewerView: View {
                 )
             }
         }
+        .navigationTitle("Comms")
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).channelDetail) { detailStore in
             CommunicationChannelDetailView(store: detailStore)
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).channelForm) { formStore in
+            NavigationStack {
+                ChannelFormView(store: formStore)
+            }
+        }
+        .toolbar {
+            if store.canManageChannels {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.addChannelButtonTapped)
+                    } label: {
+                        Label("Add Channel", systemImage: "plus")
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete Channel?",
+            isPresented: $store.scope(
+                \.destination,
+                action: \.destination
+            ).deleteChannelConfirmation.isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Channel", role: .destructive) {
+                if let channelID = store.destination?.deleteChannelConfirmation?.channelID {
+                    store.send(
+                        .destination(
+                            .deleteChannelConfirmation(
+                                .deleteButtonTapped(channelID)
+                            )
+                        )
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the channel. Posts already published in it are not changed.")
         }
     }
 }
@@ -198,6 +334,7 @@ public struct CommunicationChannelDetail {
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
         public var errorMessage: String?
+        public var canEditChannel = false
         public var postingKind: CommsPostPublicationKind?
         public var emergencyPostingAvailable = false
 
@@ -241,6 +378,8 @@ public struct CommunicationChannelDetail {
     }
 
     public enum Action {
+        case deleteChannelButtonTapped
+        case editChannelButtonTapped(OMERecord.Channel)
         case notifyMeButtonTapped
         case newPostButtonTapped
         case postButtonTapped(CommsPost.ID)
@@ -250,7 +389,9 @@ public struct CommunicationChannelDetail {
 
     @Feature
     public enum Destination {
+        case channelForm(Spawn<ChannelForm>)
         case composer(CommsPostComposer)
+        case deleteChannelConfirmation(ChannelDeleteConfirmation)
         case postDetail(Spawn<CommsPostDetail>)
     }
 
@@ -300,6 +441,14 @@ public struct CommunicationChannelDetail {
             case .notifyMeButtonTapped:
                 updateNotificationState(.subscribed, state: state)
 
+            case .deleteChannelButtonTapped:
+                state.destination = .deleteChannelConfirmation(
+                    ChannelDeleteConfirmation.State(channelID: state.channelID)
+                )
+
+            case let .editChannelButtonTapped(channel):
+                state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
+
             case .newPostButtonTapped:
                 guard let kind = state.postingKind else { return }
                 state.destination = .composer(
@@ -322,6 +471,23 @@ public struct CommunicationChannelDetail {
             case .stopNotifyingMeButtonTapped:
                 guard state.canChangeNotificationState else { return }
                 updateNotificationState(.unsubscribed, state: state)
+
+            case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
+                guard channelID == state.channelID else { return }
+                let recordID = state.channelRecordID
+                state.destination = nil
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try OMERecord.Channel.find(recordID).delete().execute(db)
+                        }
+                        try store.dismiss()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete this channel."
+                        }
+                    }
+                }
 
             case .destination:
                 break
@@ -374,9 +540,11 @@ public struct CommunicationChannelDetail {
         }
         .onMount { state in
             updatePostingAvailability(state: &state)
+            state.canEditChannel = authoring.grant.wrappedValue?.access.canEditContent == true
         }
         .onChange(of: authoring.grant.wrappedValue) { _, _, state in
             updatePostingAvailability(state: &state)
+            state.canEditChannel = authoring.grant.wrappedValue?.access.canEditContent == true
         }
     }
 
@@ -515,6 +683,11 @@ public struct CommunicationChannelDetailView: View {
                         CommsPostComposerView(store: composerStore)
                     }
                 }
+                .sheet(item: $store.scope(\.destination, action: \.destination).channelForm) { formStore in
+                    NavigationStack {
+                        ChannelFormView(store: formStore)
+                    }
+                }
                 .toolbar {
                     if store.postingKind != nil {
                         ToolbarItem(placement: .primaryAction) {
@@ -554,6 +727,47 @@ public struct CommunicationChannelDetailView: View {
                         }
                         .disabled(channel.notificationsRequired)
                     }
+
+                    if store.canEditChannel {
+                        ToolbarItem(placement: .primaryAction) {
+                            Menu {
+                                Button {
+                                    store.send(.editChannelButtonTapped(channel))
+                                } label: {
+                                    Label("Edit Channel", systemImage: "pencil")
+                                }
+
+                                Button(role: .destructive) {
+                                    store.send(.deleteChannelButtonTapped)
+                                } label: {
+                                    Label("Delete Channel", systemImage: "trash")
+                                }
+                            } label: {
+                                Label("Channel actions", systemImage: "ellipsis")
+                            }
+                        }
+                    }
+                }
+                .confirmationDialog(
+                    "Delete Channel?",
+                    isPresented: $store.scope(
+                        \.destination,
+                        action: \.destination
+                    ).deleteChannelConfirmation.isPresented,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete Channel", role: .destructive) {
+                        store.send(
+                            .destination(
+                                .deleteChannelConfirmation(
+                                    .deleteButtonTapped(store.channelID)
+                                )
+                            )
+                        )
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes the channel. Posts already published in it are not changed.")
                 }
             } else {
                 ViewerPlaceholderView(
