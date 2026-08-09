@@ -76,6 +76,7 @@ public extension Label where Title == Text, Icon == Image {
 
 #if SKIP
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.__
 import androidx.compose.material.icons.outlined.__
 import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -132,8 +133,18 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.Inventory2
         case "bell":
             imageVector = Icons.Outlined.Notifications
+        case "bell.badge":
+            imageVector = Icons.Outlined.NotificationImportant
+        case "bell.fill":
+            imageVector = Icons.Filled.Notifications
+        case "bell.slash":
+            imageVector = Icons.Outlined.NotificationsOff
+        case "checkmark":
+            imageVector = Icons.Outlined.Check
         case "gearshape":
             imageVector = Icons.Outlined.Settings
+        case "square.and.pencil":
+            imageVector = Icons.Outlined.Edit
         default:
             imageVector = Icons.Outlined.Warning
         }

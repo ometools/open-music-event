@@ -5923,6 +5923,88 @@ struct NavigationTests {
     }
 
     @Test
+    func communicationsViewerNotificationActionWritesPreference() async throws {
+        // An attendee changes a channel preference from either the row's long-press
+        // menu or its swipe action. Both UI surfaces send this same feature action.
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelRecordID("general", eventID: eventID)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .unsubscribed
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        let preferenceTask = store.send(
+            .notificationStateButtonTapped(channelID, .subscribed)
+        )
+        await preferenceTask?.value
+
+        let preference = try await database.read { db in
+            try ChannelPreferences
+                .where { $0.id.eq(channelID) }
+                .fetchOne(db)
+        }
+
+        #expect(preference?.notificationState == .subscribed)
+    }
+
+    @Test
+    func communicationsViewerRequiredChannelDoesNotWriteUnsubscribePreference() async throws {
+        // Required channels still show the complete notification menu, but the
+        // feature boundary refuses an unsubscribe even if an action reaches it.
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelRecordID("general", eventID: eventID)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .subscribed,
+                notificationsRequired: true
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        store.send(.notificationStateButtonTapped(channelID, .unsubscribed))
+
+        let preference = try await database.read { db in
+            try ChannelPreferences
+                .where { $0.id.eq(channelID) }
+                .fetchOne(db)
+        }
+
+        #expect(preference == nil)
+    }
+
+    @Test
     func communicationsViewerChannelTapPresentsChannelDetail() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -5973,7 +6055,7 @@ struct NavigationTests {
             }
         }
 
-        let notifyTask = store.send(.notifyMeButtonTapped)
+        let notifyTask = store.send(.notificationStateButtonTapped(.subscribed))
         await notifyTask?.value
 
         let preference = try await database.read { db in
@@ -6016,7 +6098,7 @@ struct NavigationTests {
             }
         }
 
-        let notifyTask = store.send(.stopNotifyingMeButtonTapped)
+        let notifyTask = store.send(.notificationStateButtonTapped(.unsubscribed))
         await notifyTask?.value
 
         let preference = try await database.read { db in
@@ -6060,7 +6142,7 @@ struct NavigationTests {
             }
         }
 
-        store.send(.stopNotifyingMeButtonTapped)
+        store.send(.notificationStateButtonTapped(.unsubscribed))
 
         let preference = try await database.read { db in
             try ChannelPreferences

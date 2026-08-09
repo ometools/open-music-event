@@ -16,7 +16,16 @@ struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
     var id: OMERecord.Channel.ID { channel.id }
 
     var effectiveNotificationState: OMERecord.Channel.NotificationState {
-        preference?.notificationState ?? channel.defaultNotificationState
+        if channel.notificationsRequired {
+            return .subscribed
+        }
+        return preference?.notificationState ?? channel.defaultNotificationState
+    }
+
+    var notificationSystemImage: String {
+        channel.notificationsRequired
+            ? "bell.badge"
+            : effectiveNotificationState.systemImage
     }
 }
 
@@ -84,6 +93,10 @@ public struct CommunicationsViewer {
         case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
         case destination(Destination.Action)
         case editChannelButtonTapped(OMERecord.Channel)
+        case notificationStateButtonTapped(
+            OMERecord.Channel.ID,
+            OMERecord.Channel.NotificationState
+        )
     }
 
     @Feature
@@ -163,6 +176,31 @@ public struct CommunicationsViewer {
             case let .editChannelButtonTapped(channel):
                 state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
 
+            case let .notificationStateButtonTapped(channelID, notificationState):
+                guard
+                    let channel = state.channels.first(where: { $0.id == channelID }),
+                    notificationState != .unsubscribed || !channel.notificationsRequired
+                else { return }
+
+                let channelPreference = ChannelPreferences(
+                    id: channelID,
+                    notificationState: notificationState
+                )
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try ChannelPreferences.upsert { channelPreference }.execute(db)
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to update notification preference."
+                        }
+                    }
+                }
+
             case .destination:
                 break
             }
@@ -195,36 +233,124 @@ public struct CommunicationsViewerView: View {
                     } else {
                         Section("Channels") {
                             ForEach(store.channelRows) { row in
-                                HStack(spacing: 12) {
-                                    Button {
-                                        store.send(.channelButtonTapped(row.channel.id.channelID))
-                                    } label: {
-                                        CommunicationChannelRowView(row: row)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .portableContentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    if store.canManageChannels {
-                                        Menu {
+                                Button {
+                                    store.send(.channelButtonTapped(row.channel.id.channelID))
+                                } label: {
+                                    CommunicationChannelRowView(row: row)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .portableContentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    if !row.channel.notificationsRequired {
+                                        if row.effectiveNotificationState == .subscribed {
                                             Button {
                                                 store.send(
-                                                    .editChannelButtonTapped(row.channel)
+                                                    .notificationStateButtonTapped(
+                                                        row.channel.id,
+                                                        .unsubscribed
+                                                    )
                                                 )
                                             } label: {
-                                                Label("Edit", systemImage: "pencil")
+                                                Label(
+                                                    "Don't Notify Me For New Posts",
+                                                    mappedSystemImage: "bell.slash"
+                                                )
                                             }
-
-                                            Button(role: .destructive) {
+                                        } else {
+                                            Button {
                                                 store.send(
-                                                    .deleteChannelButtonTapped(row.channel.id.channelID)
+                                                    .notificationStateButtonTapped(
+                                                        row.channel.id,
+                                                        .subscribed
+                                                    )
                                                 )
                                             } label: {
-                                                Label("Delete", systemImage: "trash")
+                                                Label(
+                                                    "Notify Me For New Posts",
+                                                    mappedSystemImage: "bell"
+                                                )
                                             }
+                                        }
+                                    }
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if store.canManageChannels {
+                                        Button {
+                                            store.send(.editChannelButtonTapped(row.channel))
                                         } label: {
-                                            Label("Channel actions", systemImage: "ellipsis")
-                                                .labelStyle(.iconOnly)
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+
+                                        Button(role: .destructive) {
+                                            store.send(
+                                                .deleteChannelButtonTapped(row.channel.id.channelID)
+                                            )
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                                .contextMenu {
+                                    Menu {
+                                        Button {
+                                            store.send(
+                                                .notificationStateButtonTapped(
+                                                    row.channel.id,
+                                                    .subscribed
+                                                )
+                                            )
+                                        } label: {
+                                            Label(
+                                                "Notify Me For New Posts",
+                                                mappedSystemImage: row.effectiveNotificationState == .subscribed
+                                                    ? "checkmark"
+                                                    : "bell"
+                                            )
+                                        }
+                                        .disabled(row.effectiveNotificationState == .subscribed)
+
+                                        Button {
+                                            store.send(
+                                                .notificationStateButtonTapped(
+                                                    row.channel.id,
+                                                    .unsubscribed
+                                                )
+                                            )
+                                        } label: {
+                                            Label(
+                                                "Don't Notify Me For New Posts",
+                                                mappedSystemImage: row.effectiveNotificationState == .unsubscribed
+                                                    ? "checkmark"
+                                                    : "bell.slash"
+                                            )
+                                        }
+                                        .disabled(
+                                            row.channel.notificationsRequired
+                                                || row.effectiveNotificationState == .unsubscribed
+                                        )
+                                    } label: {
+                                        Label(
+                                            "Notifications: \(row.effectiveNotificationState.menuTitle)",
+                                            mappedSystemImage: row.notificationSystemImage
+                                        )
+                                    }
+
+                                    if store.canManageChannels {
+                                        Divider()
+
+                                        Button {
+                                            store.send(.editChannelButtonTapped(row.channel))
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+
+                                        Button(role: .destructive) {
+                                            store.send(
+                                                .deleteChannelButtonTapped(row.channel.id.channelID)
+                                            )
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -354,11 +480,10 @@ public struct CommunicationChannelDetail {
         }
 
         var effectiveNotificationState: OMERecord.Channel.NotificationState? {
-            preference?.notificationState ?? channel?.defaultNotificationState
-        }
-
-        var isSubscribed: Bool {
-            effectiveNotificationState == .subscribed
+            if channel?.notificationsRequired == true {
+                return .subscribed
+            }
+            return preference?.notificationState ?? channel?.defaultNotificationState
         }
 
         var pinnedPosts: [CommsPost] {
@@ -377,10 +502,9 @@ public struct CommunicationChannelDetail {
     public enum Action {
         case deleteChannelButtonTapped
         case editChannelButtonTapped(OMERecord.Channel)
-        case notifyMeButtonTapped
         case newPostButtonTapped
+        case notificationStateButtonTapped(OMERecord.Channel.NotificationState)
         case postButtonTapped(CommsPost.ID)
-        case stopNotifyingMeButtonTapped
         case destination(Destination.Action)
     }
 
@@ -430,9 +554,6 @@ public struct CommunicationChannelDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .notifyMeButtonTapped:
-                updateNotificationState(.subscribed, state: state)
-
             case .deleteChannelButtonTapped:
                 state.destination = .deleteChannelConfirmation(
                     ChannelDeleteConfirmation.State(channelID: state.channelID)
@@ -449,6 +570,13 @@ public struct CommunicationChannelDetail {
                     )
                 )
 
+            case let .notificationStateButtonTapped(notificationState):
+                guard
+                    notificationState != .unsubscribed
+                        || state.canChangeNotificationState
+                else { return }
+                updateNotificationState(notificationState, state: state)
+
             case let .postButtonTapped(postID):
                 guard let post = state.posts.first(where: { $0.id == postID })
                 else { return }
@@ -457,10 +585,6 @@ public struct CommunicationChannelDetail {
                         Spawn(CommsPostDetail.State(post: post))
                     )
                 }
-
-            case .stopNotifyingMeButtonTapped:
-                guard state.canChangeNotificationState else { return }
-                updateNotificationState(.unsubscribed, state: state)
 
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }
@@ -566,22 +690,21 @@ public struct CommunicationChannelDetailView: View {
                         }
                     }
 
-                    Section("Notifications") {
-                        LabeledContent("Default", value: channel.defaultNotificationState.menuTitle)
-
-                        if let effectiveNotificationState = store.effectiveNotificationState {
-                            LabeledContent("Current", value: effectiveNotificationState.menuTitle)
-                        }
-
-                        if channel.notificationsRequired {
-                            Label("Notifications are required for this channel.", systemImage: "bell.badge")
+                    if channel.notificationsRequired || store.errorMessage != nil {
+                        Section("Notifications") {
+                            if channel.notificationsRequired {
+                                Label(
+                                    "Notifications are required for this channel.",
+                                    mappedSystemImage: "bell.badge"
+                                )
                                 .foregroundStyle(.secondary)
-                        }
+                            }
 
-                        if let errorMessage = store.errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
+                            if let errorMessage = store.errorMessage {
+                                Text(errorMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                            }
                         }
                     }
                 }
@@ -605,38 +728,49 @@ public struct CommunicationChannelDetailView: View {
                             Button {
                                 store.send(.newPostButtonTapped)
                             } label: {
-                                Label("New Post", systemImage: "square.and.pencil")
+                                Label("New Post", mappedSystemImage: "square.and.pencil")
                             }
-                        }
-                    }
-
-                    if store.isSubscribed {
-                        ToolbarItem(placement: .primaryAction) {
-                            Image(systemName: "bell.fill")
-                                .foregroundStyle(Color.accentColor)
-                                .font(.caption)
                         }
                     }
 
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
-                            if store.isSubscribed {
-                                Button {
-                                    store.send(.stopNotifyingMeButtonTapped)
-                                } label: {
-                                    Label("Don't Notify Me For New Posts", systemImage: "bell.slash")
-                                }
-                            } else {
-                                Button {
-                                    store.send(.notifyMeButtonTapped)
-                                } label: {
-                                    Label("Notify Me For New Posts", systemImage: "bell")
-                                }
+                            Button {
+                                store.send(.notificationStateButtonTapped(.subscribed))
+                            } label: {
+                                Label(
+                                    "Notify Me For New Posts",
+                                    mappedSystemImage: store.effectiveNotificationState == .subscribed
+                                        ? "checkmark"
+                                        : "bell"
+                                )
                             }
+                            .disabled(store.effectiveNotificationState == .subscribed)
+
+                            Button {
+                                store.send(.notificationStateButtonTapped(.unsubscribed))
+                            } label: {
+                                Label(
+                                    "Don't Notify Me For New Posts",
+                                    mappedSystemImage: store.effectiveNotificationState == .unsubscribed
+                                        ? "checkmark"
+                                        : "bell.slash"
+                                )
+                            }
+                            .disabled(
+                                channel.notificationsRequired
+                                    || store.effectiveNotificationState == .unsubscribed
+                            )
                         } label: {
-                            Label("Options", systemImage: "ellipsis")
+                            Label(
+                                channel.notificationsRequired
+                                    ? "Notifications Required"
+                                    : "Notifications: \(store.effectiveNotificationState?.menuTitle ?? channel.defaultNotificationState.menuTitle)",
+                                mappedSystemImage: channel.notificationsRequired
+                                    ? "bell.badge"
+                                    : (store.effectiveNotificationState ?? channel.defaultNotificationState).systemImage
+                            )
                         }
-                        .disabled(channel.notificationsRequired)
                     }
 
                     if store.canEditChannel {
@@ -654,7 +788,7 @@ public struct CommunicationChannelDetailView: View {
                                     Label("Delete Channel", systemImage: "trash")
                                 }
                             } label: {
-                                Label("Channel actions", systemImage: "ellipsis")
+                                Label("Channel Settings", mappedSystemImage: "gearshape")
                             }
                         }
                     }
@@ -905,10 +1039,12 @@ struct CommunicationChannelRowView: View {
     @ViewBuilder
     var notificationImage: some View {
         if row.channel.notificationsRequired {
-            Image(systemName: "bell.badge")
+            MappedSystemImage(systemName: "bell.badge")
+                .frame(width: 20, height: 20)
                 .accessibilityLabel("Notifications required")
         } else if row.effectiveNotificationState == .subscribed {
-            Image(systemName: "bell.fill")
+            MappedSystemImage(systemName: "bell.fill")
+                .frame(width: 20, height: 20)
                 .accessibilityLabel("Notifications enabled")
         }
     }
@@ -962,6 +1098,15 @@ private extension OMERecord.Channel.NotificationState {
             "Subscribed"
         case .unsubscribed:
             "Unsubscribed"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .subscribed:
+            "bell.fill"
+        case .unsubscribed:
+            "bell.slash"
         }
     }
 }
