@@ -215,6 +215,22 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
+    case .communicationPost:
+        guard let post = comparedRecord(
+            for: record,
+            as: CommsPost.self,
+            in: recordComparisons
+        ) else { return [] }
+        return try eventSourcePath(
+            eventID: OME.Event.ID(
+                organizerID: post.id.organizerID,
+                eventID: post.id.eventID
+            ),
+            filePath: "communications/\(post.id.channelID.rawValue.rawValue)/\(post.id.postID.rawValue).md",
+            eventDirectoriesByID: &eventDirectoriesByID,
+            in: db
+        )
+
     default:
         return []
     }

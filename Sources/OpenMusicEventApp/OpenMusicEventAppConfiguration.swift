@@ -3,27 +3,19 @@ import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import Dependencies
 import Foundation
-import OpenMusicEventAppEventViewer
 
 public struct OpenMusicEventAppConfiguration: Equatable, Sendable {
-    public var commsPosting: CommsPostingConfiguration?
     public var productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration?
 
     public init(
-        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp,
-        commsPosting: CommsPostingConfiguration? = nil
+        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp
     ) {
-        self.commsPosting = commsPosting
         self.productFeedbackBoard = productFeedbackBoard
     }
 
     public static let openMusicEvent = Self()
 
-    public static let wickedWoods = Self(
-        commsPosting: CommsPostingConfiguration(
-            publisherDID: DID("did:plc:5df2u7ief6m6tn77jznicxob")!
-        )
-    )
+    public static let wickedWoods = Self()
 }
 
 public struct OpenMusicEventFeedbackBoardConfiguration: Equatable, Sendable {

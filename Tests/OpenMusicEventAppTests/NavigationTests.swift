@@ -5838,20 +5838,42 @@ struct NavigationTests {
                 try CommunicationsViewer
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
-                    .first
+                .first
             )
         }
+        let workspace = SourceWorkspace(
+            organizerID: eventID.organizerID,
+            repository: "tangled.org/example/events",
+            branch: "main"
+        )
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(
+                actorID: try #require(DID(eventID.organizerID.description))
+            ),
+            role: .owner,
+            workspaceID: workspace.id
+        )
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = CommunicationChannelDetail.State(channelID: channelID, eventID: eventID)
-            state.canEditChannel = true
-            return TestStore(initialState: state) {
+            TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
                 CommunicationChannelDetail()
+                    .environment(
+                        ComposableAuthoring.AuthoringContext(
+                            grant: SharedReader(value: grant)
+                        )
+                    )
             }
         }
+
+        #expect(store.state.canEditChannel)
 
         store.send(.editChannelButtonTapped(channel))
 
@@ -6178,6 +6200,60 @@ struct NavigationTests {
 
         #expect(store.state.destination?.postDetail?.state.post.id == postID)
         #expect(store.state.destination?.postDetail?.state.post.title == "Welcome")
+    }
+
+    @Test
+    func `an author saves a comms post to the event database`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelRecordID("general", eventID: eventID)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+
+        // The author writes the announcement in the same form opened from the channel.
+        let store = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommsPostComposer.State(
+                    channelID: channelID,
+                    draft: CommsPostDraft(
+                        title: "  Gates are open  ",
+                        markdown: "  **Welcome** to Wicked Woods.  "
+                    )
+                )
+            ) {
+                CommsPostComposer()
+            }
+        }
+
+        // Saving dismisses the form and leaves the source-backed change in defaultDatabase.
+        await store.send(.saveButtonTapped) {
+            $0.isSaving = true
+        }?.value
+        #expect(store.isPresented == false)
+
+        let post = try await database.read { db in
+            try CommsPost.fetchOne(db)
+        }
+        expectNoDifference(
+            post,
+            CommsPost(
+                id: CommsPost.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    channelID: channelID.channelID,
+                    postID: CommsPost.PostID("gates-are-open")
+                ),
+                title: "Gates are open",
+                contents: "**Welcome** to Wicked Woods.",
+                timestamp: Date(timeIntervalSince1970: 0),
+                sortIndex: 0
+            )
+        )
     }
 
     @Test

@@ -90,6 +90,17 @@ struct LegacyCommunicationChannelDTO: Codable, Equatable, Sendable {
     var defaultNotificationState: OMERecord.Channel.NotificationState?
     var notificationsRequired: Bool?
 
+    init(_ channel: ChannelDTO) {
+        self.id = channel.id
+        self.name = channel.name
+        self.description = channel.description
+        self.iconImageURL = channel.iconImageURL
+        self.headerImageURL = channel.headerImageURL
+        self.sortIndex = channel.sortIndex
+        self.defaultNotificationState = channel.defaultNotificationState
+        self.notificationsRequired = channel.notificationsRequired
+    }
+
     var recordDraft: ChannelDTO {
         OMERecord.Channel.Draft(
             id: id,
@@ -188,8 +199,35 @@ private struct EventConversion: Conversion {
             output.posters,
             output.schedules,
             output.channels,
-            nil
+            Self.legacyCommunications(
+                channels: output.channels,
+                communicationPosts: output.communicationPosts
+            )
         )
+    }
+
+    private static func legacyCommunications(
+        channels: [FileContent<ChannelDTO>]?,
+        communicationPosts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]?
+    ) -> [DirectoryContent<LegacyCommunicationDTO>]? {
+        let channelsByFileName = Dictionary(
+            uniqueKeysWithValues: (channels ?? []).map { ($0.fileName, $0.data) }
+        )
+        let communications = (communicationPosts ?? []).map { directory in
+            guard let channel = channelsByFileName[directory.directoryName] else {
+                preconditionFailure(
+                    "Communication posts require a matching channel: \(directory.directoryName)"
+                )
+            }
+            return DirectoryContent(
+                directoryName: directory.directoryName,
+                components: LegacyCommunicationDTO(
+                    channel: LegacyCommunicationChannelDTO(channel),
+                    posts: directory.components
+                )
+            )
+        }
+        return communications.isEmpty ? nil : communications
     }
 
     private static func mergedChannels(

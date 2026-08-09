@@ -214,7 +214,7 @@ func sourceScope(
         .openMusicEventCalendar(organizerID: workspace.organizerID)
     case .collaborator:
         .openMusicEventWorkspace(workspace.id)
-    case .event, .stage, .contributor, .schedule, .channel, .poster:
+    case .event, .stage, .contributor, .schedule, .channel, .communicationPost, .poster:
         .openMusicEventOrganizer(workspace.organizerID)
     }
 }

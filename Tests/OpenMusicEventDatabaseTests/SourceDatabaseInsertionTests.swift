@@ -1139,6 +1139,7 @@ struct SourceDatabaseInsertionTests {
                 ObjectIdentifier(OME.ScheduleItem.PerformanceDetails.self),
                 ObjectIdentifier(OME.ScheduleItem.Contributor.self),
                 ObjectIdentifier(OME.Channel.self),
+                ObjectIdentifier(CommsPost.self),
                 ObjectIdentifier(OME.Poster.self),
             ]
         )
@@ -1175,6 +1176,7 @@ struct SourceDatabaseInsertionTests {
                 SourceProjectionAssertion(tableID: OME.ScheduleItem.PerformanceDetails.tableName, fileFamily: .schedule),
                 SourceProjectionAssertion(tableID: OME.ScheduleItem.Contributor.tableName, fileFamily: .schedule),
                 SourceProjectionAssertion(tableID: OME.Channel.tableName, fileFamily: .channel),
+                SourceProjectionAssertion(tableID: CommsPost.tableName, fileFamily: .communicationPost),
                 SourceProjectionAssertion(tableID: OME.Poster.tableName, fileFamily: .poster),
             ]
         )

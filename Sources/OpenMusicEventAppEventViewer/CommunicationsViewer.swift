@@ -1,4 +1,3 @@
-import ATProto
 import ComposableArchitecture2
 import ComposableAuthoring
 import Dependencies
@@ -171,7 +170,7 @@ public struct CommunicationsViewer {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
-        .onChange(of: authoring.grant., initial: true) { _, grant, state in
+        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
             state.canManageChannels = grant?.access.canEditContent == true
         }
     }
@@ -335,8 +334,6 @@ public struct CommunicationChannelDetail {
         public var destination: Destination.State?
         public var errorMessage: String?
         public var canEditChannel = false
-        public var postingKind: CommsPostPublicationKind?
-        public var emergencyPostingAvailable = false
 
         @FetchOne public var channel: OMERecord.Channel?
         @FetchOne public var preference: ChannelPreferences?
@@ -395,14 +392,9 @@ public struct CommunicationChannelDetail {
         case postDetail(Spawn<CommsPostDetail>)
     }
 
-    @Dependency(\.commsPostingConfiguration) var postingConfiguration
-    @Dependency(\.commsPostPublisher) var postPublisher
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
-    @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
-    @StoreTaskID var submitPostTask
 
     static func channelQuery(
         channelID: OMERecord.ID<OMERecord.Channel>,
@@ -450,12 +442,10 @@ public struct CommunicationChannelDetail {
                 state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
 
             case .newPostButtonTapped:
-                guard let kind = state.postingKind else { return }
+                guard state.canEditChannel else { return }
                 state.destination = .composer(
                     CommsPostComposer.State(
-                        channelID: state.channelRecordID,
-                        kind: kind,
-                        emergencyAvailable: state.emergencyPostingAvailable
+                        channelID: state.channelRecordID
                     )
                 )
 
@@ -496,88 +486,9 @@ public struct CommunicationChannelDetail {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
-        .onEvent(CommsPostSubmissionRequested.self) { submission, state in
-            guard let configuration = postingConfiguration,
-                  var composer = state.destination?.composer,
-                  composer.draft == submission.draft,
-                  composer.mutation == submission.mutation
-            else { return }
-
-            composer.isSubmitting = true
-            state.destination = .composer(composer)
-            let authorizationBroker = authorizationBroker
-            let postPublisher = postPublisher
-            store.addTask(id: submitPostTask) {
-                do {
-                    try await authorizationBroker.authorize(submission.kind.authorizationRequirement)
-                    try await postPublisher.submit(configuration, submission)
-                    try store.modify {
-                        guard let composer = $0.destination?.composer,
-                              composer.isSubmitting,
-                              composer.draft == submission.draft,
-                              composer.mutation == submission.mutation
-                        else { return }
-                        $0.destination = nil
-                    }
-                } catch is CancellationError {
-                } catch {
-                    try store.modify {
-                        guard var composer = $0.destination?.composer,
-                              composer.isSubmitting,
-                              composer.draft == submission.draft,
-                              composer.mutation == submission.mutation
-                        else { return }
-                        composer.isSubmitting = false
-                        $0.destination = .composer(composer)
-                    }
-                    let task = try store.post(
-                        key: CommsPostPublishingFailed.self,
-                        value: .init(submission: submission, underlyingError: error)
-                    )
-                    await task?.value
-                }
-            }
+        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
+            state.canEditChannel = grant?.access.canEditContent == true
         }
-        .onMount { state in
-            updatePostingAvailability(state: &state)
-            state.canEditChannel = authoring.grant.wrappedValue?.access.canEditContent == true
-        }
-        .onChange(of: authoring.grant.wrappedValue) { _, _, state in
-            updatePostingAvailability(state: &state)
-            state.canEditChannel = authoring.grant.wrappedValue?.access.canEditContent == true
-        }
-    }
-
-    private func updatePostingAvailability(state: inout CommunicationChannelDetail.State) {
-        guard let configuration = postingConfiguration else {
-            state.emergencyPostingAvailable = false
-            state.postingKind = nil
-            return
-        }
-
-        state.emergencyPostingAvailable = configuration.emergencyChannelIDs.contains(
-            state.channelRecordID
-        )
-        state.postingKind = Self.postingKind(
-            configuration: configuration,
-            selectedAccountID: getSelectedOAuthSessionID()
-                .flatMap { DID($0.rawValue.description) },
-            grant: authoring.grant.wrappedValue
-        )
-    }
-
-    static func postingKind(
-        configuration: CommsPostingConfiguration,
-        selectedAccountID: DID?,
-        grant: AuthoringGrant?
-    ) -> CommsPostPublicationKind? {
-        if selectedAccountID == configuration.publisherDID {
-            return .direct
-        }
-        if grant?.role.canPropose == true {
-            return .proposal
-        }
-        return nil
     }
 
     private func updateNotificationState(
@@ -689,7 +600,7 @@ public struct CommunicationChannelDetailView: View {
                     }
                 }
                 .toolbar {
-                    if store.postingKind != nil {
+                    if store.canEditChannel {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 store.send(.newPostButtonTapped)

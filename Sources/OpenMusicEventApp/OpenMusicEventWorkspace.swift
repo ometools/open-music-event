@@ -17,8 +17,6 @@ public struct OpenMusicEventWorkspace: FeatureProtocol {
 
     public init() {}
 
-    @Dependency(\.openMusicEventAppConfiguration) var appConfiguration
-
     public var body: some FeatureProtocol<State, Action> {
         Composition {
             EventViewer()
@@ -37,7 +35,6 @@ public struct OpenMusicEventWorkspace: FeatureProtocol {
                     SourcePatch
                 >.openMusicEvent
             )
-            .dependency(\.commsPostingConfiguration, appConfiguration.commsPosting)
     }
 }
 

@@ -110,6 +110,78 @@ struct SourceWorkspacePatchGenerationTests {
     }
 
     @Test
+    func `a saved comms post becomes the normal source proposal patch`() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let workspace = try fixture.workspace(
+            organizer: "did:plc:wickedwoods",
+            repository: "tangled.org/wickedwoods/events"
+        )
+        try await fixture.install(
+            workspace,
+            sourceFiles: [
+                "calendar.yml": """
+                name: Wicked Woods
+                """,
+                "events/woods-2026/event.yml": """
+                name: Wicked Woods 2026
+                timeZone: America/Denver
+                """,
+                "events/woods-2026/channels/general.yml": """
+                name: General
+                description: Official updates.
+                defaultNotificationState: subscribed
+                notificationsRequired: false
+                """,
+                "events/woods-2026/communications/general/channel-info.yaml": """
+                name: General
+                description: Official updates.
+                defaultNotificationState: subscribed
+                notificationsRequired: false
+                """,
+                "events/woods-2026/communications/general/welcome.md": """
+                ---
+                title: Welcome
+                ---
+
+                The gates open Friday.
+                """,
+            ]
+        )
+        let sourceEvent = try #require(
+            try await fixture.installedEvents(for: workspace).first
+        )
+        let postID = CommsPost.ID(
+            organizerID: sourceEvent.id.organizerID,
+            eventID: sourceEvent.id.eventID,
+            channelID: OME.ID<OME.Channel>(rawValue: "general"),
+            postID: CommsPost.PostID("welcome")
+        )
+
+        // The post form has saved the author's changes into defaultDatabase.
+        try await fixture.database.write { db in
+            try CommsPost.find(postID).update {
+                $0.title = "Gates are open"
+                $0.contents = "**Welcome** to Wicked Woods."
+            }
+            .execute(db)
+        }
+
+        // The existing workspace proposal generator turns that database diff into Markdown.
+        let patch = try await fixture.patch(for: workspace)
+        expectNoDifference(
+            patch.fileChanges.map(\.path),
+            ["events/woods-2026/communications/general/welcome.md"]
+        )
+        let markdown = String(
+            decoding: try #require(patch.fileChanges.first?.newContents),
+            as: UTF8.self
+        )
+        #expect(markdown.contains("title: Gates are open"))
+        #expect(markdown.contains("**Welcome** to Wicked Woods."))
+    }
+
+    @Test
     func editingAnInferredStageMaterializesThatAuthorChange() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

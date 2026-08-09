@@ -52,6 +52,9 @@ extension OpenMusicEventSourceEventConversion {
                 from: sourceRecords.channels,
                 eventID: eventID
             )
+            sourceEvent.communicationPosts = try sourceEvent.sourceCommunicationPostDirectories(
+                from: sourceRecords.commsPosts
+            )
             let sourceSchedules = try sourceEvent.sourceScheduleRendering(
                 from: sourceRecords.schedules,
                 contributors: sourceRecords.contributors,
@@ -170,6 +173,7 @@ private struct OpenMusicEventSourceRecords {
     var scheduleItems: [OME.ScheduleItem] = []
     var scheduleItemPerformanceDetails: [OME.ScheduleItem.PerformanceDetails] = []
     var channels: [OME.Channel] = []
+    var commsPosts: [CommsPost] = []
     var scheduleItemContributors: [OME.ScheduleItem.Contributor] = []
 
     init() {}
@@ -233,6 +237,12 @@ private struct OpenMusicEventSourceRecords {
 
             case .channel:
                 records.channels = try OME.Channel
+                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                    .where { $0.id.eventID.eq(eventID.eventID) }
+                    .fetchAll(db)
+
+            case .communicationPost:
+                records.commsPosts = try CommsPost
                     .where { $0.id.organizerID.eq(eventID.organizerID) }
                     .where { $0.id.eventID.eq(eventID.eventID) }
                     .fetchAll(db)
@@ -652,6 +662,64 @@ private extension OpenMusicEventSourceEvent {
         }
 
         return files.isEmpty ? nil : files
+    }
+
+    func sourceCommunicationPostDirectories(
+        from posts: [CommsPost]
+    ) throws -> [DirectoryContent<[FileContent<CommunicationPostDTO>]>]? {
+        let sourceDirectoriesByChannelID = Dictionary(
+            uniqueKeysWithValues: (communicationPosts ?? []).map {
+                ($0.directoryName, $0)
+            }
+        )
+        let postsByChannelID = Dictionary(grouping: posts, by: \.id.channelID)
+        let directories = try postsByChannelID
+            .keys
+            .sorted { $0.rawValue.rawValue < $1.rawValue.rawValue }
+            .map { channelID in
+                let directoryName = channelID.rawValue.rawValue
+                let sourceFilesByPostID = Dictionary(
+                    uniqueKeysWithValues: (
+                        sourceDirectoriesByChannelID[directoryName]?.components ?? []
+                    ).map { ($0.fileName, $0) }
+                )
+                let files = try (postsByChannelID[channelID] ?? [])
+                    .sorted { lhs, rhs in
+                        if lhs.sortIndex != rhs.sortIndex {
+                            return lhs.sortIndex < rhs.sortIndex
+                        }
+                        return lhs.id.postID.rawValue < rhs.id.postID.rawValue
+                    }
+                    .map { post in
+                        let fileName = post.id.postID.rawValue
+                        if let sourceFile = sourceFilesByPostID[fileName] {
+                            return try sourceFile.map { _ in CommunicationPostDTO(post) }
+                        }
+                        return try FileContent(
+                            fileName: fileName,
+                            fileType: "md",
+                            data: CommunicationPostDTO(post)
+                        )
+                    }
+                return DirectoryContent(
+                    directoryName: directoryName,
+                    components: files
+                )
+            }
+
+        return directories.isEmpty ? nil : directories
+    }
+}
+
+private extension CommunicationPostDTO {
+    init(_ post: CommsPost) {
+        self.init(
+            title: post.title,
+            contents: post.contents,
+            headerImageURL: post.headerImageURL,
+            timestamp: post.timestamp,
+            isPinned: post.isPinned
+        )
     }
 }
 

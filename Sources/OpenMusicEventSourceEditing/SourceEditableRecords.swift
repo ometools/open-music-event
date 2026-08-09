@@ -64,6 +64,11 @@ public extension OME {
                 fileFamily: .channel
             ),
             OpenMusicEventSourceProjection(
+                tableType: CommsPost.self,
+                recordType: CommsPost.sourceRecordType,
+                fileFamily: .communicationPost
+            ),
+            OpenMusicEventSourceProjection(
                 tableType: Poster.self,
                 recordType: Poster.sourceRecordType,
                 fileFamily: .poster
@@ -113,6 +118,7 @@ public struct OpenMusicEventSourceProjection {
         case contributor
         case schedule
         case channel
+        case communicationPost
         case poster
     }
 
@@ -173,6 +179,14 @@ extension OME.ScheduleItem: SourceEditableTable {}
 extension OME.ScheduleItem.PerformanceDetails: SourceEditableTable {}
 extension OME.ScheduleItem.Contributor: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
+
+extension CommsPost: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.sortIndex: .ignore
+        ]
+    }
+}
 
 extension OME.Poster: SourceEditableTable {
     public static var sourceColumnPolicies: SourceColumnPolicies<Self> {

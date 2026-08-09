@@ -841,10 +841,10 @@ extension OpenMusicEvent {
         public var nsid: ATProto.NSID { ATProto.NSID(rawValue) }
     }
 
-    /// The authoritative PDS record for a channel announcement.
+    /// An AppView-compatible record for externally sourced channel announcements.
     ///
-    /// AppView projects these records into `CommsPost`; the application database never authors
-    /// the projection. `markdown` is the canonical body, including for emergency announcements.
+    /// Source-backed authoring writes `CommsPost` rows and proposes source changes through the
+    /// standard workspace flow. `markdown` is the canonical body for this external record.
     public struct Announcement: Codable, Equatable, Sendable {
         public static let collection = AnnouncementCollection.announcement
         public static let nsid = collection.nsid
