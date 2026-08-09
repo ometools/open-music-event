@@ -107,8 +107,8 @@ public struct CommunicationsViewer {
 
     @Feature
     public enum Destination {
-        case channelForm(Spawn<ChannelForm>)
-        case channelDetail(Spawn<CommunicationChannelDetail>)
+        case channelForm(ChannelForm)
+        case channelDetail(CommunicationChannelDetail)
         case deleteChannelConfirmation(ChannelDeleteConfirmation)
     }
 
@@ -137,20 +137,16 @@ public struct CommunicationsViewer {
             case .addChannelButtonTapped:
                 guard state.canManageChannels else { return }
                 state.destination = .channelForm(
-                    Spawn(ChannelForm.State(eventID: state.eventID))
+                    ChannelForm.State(eventID: state.eventID)
                 )
 
             case let .channelButtonTapped(channelID):
-                store.withDependencies {
-                    state.destination = .channelDetail(
-                        Spawn(
-                            CommunicationChannelDetail.State(
-                                channelID: channelID,
-                                eventID: state.eventID
-                            )
-                        )
+                state.destination = .channelDetail(
+                    CommunicationChannelDetail.State(
+                        channelID: channelID,
+                        eventID: state.eventID
                     )
-                }
+                )
 
             case let .deleteChannelButtonTapped(channelID):
                 state.destination = .deleteChannelConfirmation(
@@ -178,7 +174,7 @@ public struct CommunicationsViewer {
                 }
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
+                state.destination = .channelForm(ChannelForm.State(channel: channel))
 
             case let .notificationStateButtonTapped(channelID, notificationState):
                 guard
@@ -516,10 +512,10 @@ public struct CommunicationChannelDetail {
 
     @Feature
     public enum Destination {
-        case channelForm(Spawn<ChannelForm>)
+        case channelForm(ChannelForm)
         case composer(CommsPostComposer)
         case deleteChannelConfirmation(ChannelDeleteConfirmation)
-        case postDetail(Spawn<CommsPostDetail>)
+        case postDetail(CommsPostDetail)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -564,7 +560,7 @@ public struct CommunicationChannelDetail {
                 )
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(Spawn(ChannelForm.State(channel: channel)))
+                state.destination = .channelForm(ChannelForm.State(channel: channel))
 
             case .newPostButtonTapped:
                 guard state.canEditChannel else { return }
@@ -584,11 +580,7 @@ public struct CommunicationChannelDetail {
             case let .postButtonTapped(postID):
                 guard let post = state.posts.first(where: { $0.id == postID })
                 else { return }
-                store.withDependencies {
-                    state.destination = .postDetail(
-                        Spawn(CommsPostDetail.State(post: post))
-                    )
-                }
+                state.destination = .postDetail(CommsPostDetail.State(post: post))
 
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }

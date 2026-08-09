@@ -250,7 +250,7 @@ public struct EventViewer {
                             ?? Spawn(StagesViewer.State(eventID: eventID))
                     case .communications:
                         self.communicationsViewer = existingCommunicationsViewer
-                            ?? Spawn(CommunicationsViewer.State(eventID: eventID))
+                            ?? CommunicationsViewer.State(eventID: eventID)
                     case .contactInfo:
                         self.contactInfoViewer = existingContactInfoViewer
                             ?? Spawn(ContactInfoViewer.State(eventID: eventID))
@@ -353,7 +353,7 @@ public struct EventViewer {
         public var scheduleViewers: [Spawn<ScheduleViewer>] = []
         public var contributorsViewer: Spawn<ContributorsViewer>?
         public var stagesViewer: Spawn<StagesViewer>?
-        public var communicationsViewer: Spawn<CommunicationsViewer>?
+        public var communicationsViewer: CommunicationsViewer.State?
         public var contactInfoViewer: Spawn<ContactInfoViewer>?
         public var locationViewer: Spawn<LocationViewer>?
         public var siteMapViewer: Spawn<SiteMapViewer>?
@@ -776,6 +776,7 @@ public struct EventViewer {
 
     public enum Action {
         case closeButtonTapped
+        case communicationsViewer(CommunicationsViewer.Action)
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
         case eventWorkspace(EventWorkspace.Action)
@@ -891,6 +892,9 @@ public struct EventViewer {
                             await dismissal?.value
                             try store.dismiss()
                         }
+
+                    case .communicationsViewer:
+                        break
 
                     case .destination:
                         break
@@ -1042,7 +1046,10 @@ public struct EventViewer {
                     EmptyFeature<State, Action>().spawn(\.eventSearch) {
                         EventSearch()
                     }
-                    EmptyFeature<State, Action>().ifLet(\.communicationsViewer) {
+                    EmptyFeature<State, Action>().ifLet(
+                        \.communicationsViewer,
+                        action: \.communicationsViewer
+                    ) {
                         CommunicationsViewer()
                     }
                     EmptyFeature<State, Action>().ifLet(\.contactInfoViewer) {
@@ -1293,7 +1300,10 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.communicationsViewer) {
+                if let featureStore = store.scope(
+                    \.communicationsViewer,
+                    action: \.communicationsViewer
+                ) {
                     TabFeature(
                         .communications,
                         title: EventViewer.EventFeature.communications.title,
@@ -1507,7 +1517,10 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.stages)
             }
 
-            if let featureStore = store.spawn(\.communicationsViewer) {
+            if let featureStore = store.scope(
+                \.communicationsViewer,
+                action: \.communicationsViewer
+            ) {
                 viewerTab(.communications) {
                     CommunicationsViewerView(store: featureStore)
                 }
@@ -1628,7 +1641,10 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.stages)
             }
 
-            if let featureStore = store.spawn(\.communicationsViewer) {
+            if let featureStore = store.scope(
+                \.communicationsViewer,
+                action: \.communicationsViewer
+            ) {
                 viewerTab(.communications) {
                     CommunicationsViewerView(store: featureStore)
                 }

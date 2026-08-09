@@ -124,5 +124,6 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     await admission?.value
                 }
             }
+            .dependency(\.defaultEventID, store.id)
     }
 }

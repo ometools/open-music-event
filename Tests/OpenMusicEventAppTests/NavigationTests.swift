@@ -5799,7 +5799,7 @@ struct NavigationTests {
 
         store.send(.editChannelButtonTapped(channel))
 
-        #expect(store.state.destination?.channelForm?.state.channelID == channelID)
+        #expect(store.state.destination?.channelForm?.channelID == channelID)
 
         store.send(.deleteChannelButtonTapped(channelID))
 
@@ -5875,7 +5875,7 @@ struct NavigationTests {
 
         store.send(.editChannelButtonTapped(channel))
 
-        #expect(store.state.destination?.channelForm?.state.channelID == channelID)
+        #expect(store.state.destination?.channelForm?.channelID == channelID)
 
         store.send(.deleteChannelButtonTapped)
 
@@ -6008,6 +6008,7 @@ struct NavigationTests {
     @Test
     func communicationsViewerAuthoringGrantReachesChannelDetail() async throws {
         let database = try makePreparedDatabase()
+        let unrelatedEventID = eventID("unrelated-event")
         let eventID = eventID("event-1")
         let channelID = channelLocalID("general")
         let workspace = SourceWorkspace(
@@ -6022,27 +6023,63 @@ struct NavigationTests {
             role: .owner,
             workspaceID: workspace.id
         )
-        let store = withDependencies {
+        let authoringGrant = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+        }
+        let initialState = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = eventID
+            $0.defaultDatabase = database
+        } operation: {
             authoringGrant.withLock { $0 = grant }
-            return TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            return OpenMusicEventAuthoringWorkspace<EventViewer>.state(
+                workspace: workspace,
+                grant: authoringGrant
+            ) {
+                EventViewer.State(eventID: eventID)
             }
         }
 
+        let workspaceStore = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = unrelatedEventID
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: initialState) {
+                OpenMusicEventWorkspace()
+            }
+        }
+        await waitUntil {
+            workspaceStore.authoring.phase == .inactive(.unavailable)
+        }
+        await Task.yield()
+        authoringGrant.withLock { $0 = grant }
+        let authoringStore = workspaceStore
+            .scope(\.authoring, action: \.authoring)
+        let workspaceContentStore = authoringStore
+            .scope(\.content, action: \.content)
+        let eventViewerStore = workspaceContentStore
+            .scope(\.content, action: \.content)
+        let store = try #require(
+            eventViewerStore.scope(
+                \.communicationsViewer,
+                action: \.communicationsViewer
+            )
+        )
+
         // The organizer can manage channels from the Comms list.
-        #expect(store.state.canManageChannels)
+        #expect(store.canManageChannels)
 
         // They open a channel through the same action sent by the channel row.
         store.send(.channelButtonTapped(channelID))
 
-        #expect(store.state.destination?.channelDetail?.state.channelID == channelID)
-        #expect(store.state.destination?.channelDetail?.state.eventID == eventID)
-        #expect(store.state.destination?.channelDetail?.state.canEditChannel == true)
+        #expect(store.destination?.channelDetail?.channelID == channelID)
+        #expect(store.destination?.channelDetail?.eventID == eventID)
+        #expect(store.destination?.channelDetail?.canEditChannel == true)
     }
 
     @Test
@@ -6307,8 +6344,8 @@ struct NavigationTests {
 
         store.send(.postButtonTapped(postID))
 
-        #expect(store.state.destination?.postDetail?.state.post.id == postID)
-        #expect(store.state.destination?.postDetail?.state.post.title == "Welcome")
+        #expect(store.state.destination?.postDetail?.post.id == postID)
+        #expect(store.state.destination?.postDetail?.post.title == "Welcome")
     }
 
     @Test
