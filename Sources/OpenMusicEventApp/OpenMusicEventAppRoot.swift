@@ -10,6 +10,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
+import Sharing
 import SourceEditing
 import SQLiteData
 #if os(Android)
@@ -403,14 +404,20 @@ private extension OpenMusicEventAppRoot {
         target: EventTarget?,
         pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
     ) -> OpenMusicEventWorkspace.State {
-        OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-            workspace: workspace
-        ) {
-            EventViewer.State.route(
-                eventID: eventID,
-                target: target,
-                pendingScheduleLaunchAction: pendingScheduleLaunchAction
-            )
+        withDependencies {
+            $0.defaultEventID = eventID
+        } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            return OpenMusicEventAuthoringWorkspace<EventViewer>.state(
+                workspace: workspace,
+                grant: authoringGrant
+            ) {
+                EventViewer.State.route(
+                    eventID: eventID,
+                    target: target,
+                    pendingScheduleLaunchAction: pendingScheduleLaunchAction
+                )
+            }
         }
     }
 

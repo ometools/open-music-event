@@ -2,7 +2,6 @@ import BlueskyActorCache
 import ATProto
 import Clocks
 import ComposableArchitecture2
-import ComposableAuthoring
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -640,6 +639,7 @@ struct NavigationTests {
         }
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: MyEventsEventHarness.State()) {
@@ -1207,6 +1207,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: ContributorsViewer.State(eventID: eventID)) {
@@ -1743,7 +1744,6 @@ struct NavigationTests {
             let store = Store(
                 initialState: EventViewer.State(
                     eventID: selectedEventID,
-                    authoringGrant: SharedReader(value: nil),
                     features: [.schedule(.schedule), .contributors]
                 )
             ) {
@@ -1821,7 +1821,6 @@ struct NavigationTests {
             let store = Store(
                 initialState: EventViewer.State(
                     eventID: selectedEventID,
-                    authoringGrant: SharedReader(value: nil),
                     features: [.schedule(.schedule), .contributors, .stages]
                 )
             ) {
@@ -3180,7 +3179,7 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(
+            return TestStore(
                 initialState: ScheduleViewer.State(
                     eventID: eventID,
                     scheduleDivision: workshopDivision
@@ -3603,7 +3602,6 @@ struct NavigationTests {
             TestStore(
                 initialState: EventViewer.State(
                     eventID: eventID,
-                    authoringGrant: SharedReader(value: nil),
                     features: [
                         .schedule(.schedule),
                         .schedule(workshopDivision),
@@ -3631,7 +3629,6 @@ struct NavigationTests {
             Store(
                 initialState: EventViewer.State(
                     eventID: eventID,
-                    authoringGrant: SharedReader(value: nil),
                     features: [
                         .schedule(.schedule),
                         .schedule(workshopDivision),
@@ -5792,11 +5789,10 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
-            var state = CommunicationsViewer.State(eventID: eventID)
-            state.canManageChannels = true
-            return TestStore(initialState: state) {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
                 CommunicationsViewer()
             }
         }
@@ -5856,20 +5852,18 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
-            TestStore(
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock { $0 = grant }
+            return TestStore(
                 initialState: CommunicationChannelDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
                 CommunicationChannelDetail()
-                    .environment(
-                        ComposableAuthoring.AuthoringContext(
-                            grant: SharedReader(value: grant)
-                        )
-                    )
             }
         }
 
@@ -5909,6 +5903,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
@@ -5943,6 +5938,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
@@ -5986,6 +5982,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
@@ -6011,6 +6008,7 @@ struct NavigationTests {
         let channelID = channelLocalID("general")
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
@@ -6043,6 +6041,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(
@@ -6086,6 +6085,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(
@@ -6130,6 +6130,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(
@@ -6195,6 +6196,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             Store(
@@ -6225,6 +6227,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             Store(
@@ -6266,6 +6269,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             TestStore(

@@ -8,6 +8,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 #if os(Android)
 import SkipSwiftUI
@@ -20,9 +21,8 @@ public struct WorkspaceCollaborators {
     public init() {}
 
     public struct State {
-        public init(workspace: SourceWorkspace, role: OME.WorkspaceRole) {
+        public init(workspace: SourceWorkspace) {
             self.workspace = workspace
-            self.role = role
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
@@ -34,7 +34,14 @@ public struct WorkspaceCollaborators {
 
         public let workspace: SourceWorkspace
         public var workspaceID: SourceWorkspace.ID { workspace.id }
-        public let role: OME.WorkspaceRole
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
+        public var role: OME.WorkspaceRole {
+            guard authoringGrant?.workspaceID == workspaceID else {
+                return .collaborator([])
+            }
+            return authoringGrant?.role ?? .collaborator([])
+        }
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @FetchAll public var relationships: [WorkspaceRelationshipRecord]

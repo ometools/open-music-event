@@ -1,7 +1,6 @@
 import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
-import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
 import ErrorHandling
@@ -11,6 +10,7 @@ import GRDB
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
+import Sharing
 import SourceEditing
 import SQLiteData
 #if os(Android)
@@ -240,17 +240,22 @@ public struct WorkspaceReviewDetail {
 
         public let workspace: SourceWorkspace
         public let review: TangledPullReview
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @Trigger public var loadRawDiff
         @Trigger public var loadSemanticDiff
-        public var canMerge = false
         public var operation: Operation = .idle
         public var rawDiffStatus: RawDiffStatus = .notLoaded
         public var semanticDiffStatus: SemanticDiffStatus = .notLoaded
 
         public var authorIdentity: ActorIdentity? {
             cachedActorIdentities[review.author]
+        }
+
+        public var canMerge: Bool {
+            authoringGrant?.role.canMerge == true
         }
     }
 
@@ -267,8 +272,6 @@ public struct WorkspaceReviewDetail {
     @Dependency(\.tangledPullReviewClient) var reviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var sourceSnapshot
     @Dependency(\.uuid) var uuid
-    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-    var authoring
 
     public var body: some Feature {
         Update { state, action in
@@ -423,9 +426,6 @@ public struct WorkspaceReviewDetail {
                     return
                 }
             }
-        }
-        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
-            state.canMerge = grant?.role.canMerge == true
         }
     }
 }

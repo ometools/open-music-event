@@ -67,9 +67,6 @@ public struct WorkspaceProposalDraft {
     public var body: some Feature {
         Scope(\.form, action: \.form) {
             FormFeature()
-                .onSubmit { value in
-                    try store.send(.formSubmitted(value))
-                }
         }
         Update { state, action in
             switch action {
@@ -103,7 +100,13 @@ public struct WorkspaceProposalDraft {
 
             case .proposeButtonTapped:
                 store.addTask {
-                    try store.send(.form(.submittedForm))
+                    let validation = try store.send(.form(.submittedForm))
+                    await validation?.value
+                    guard store.state.form.canSubmit else { return }
+                    let submission = try store.send(
+                        .formSubmitted(store.state.form.value)
+                    )
+                    await submission?.value
                 }
             }
         }

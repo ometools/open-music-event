@@ -302,7 +302,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = workspaceStoryNetwork(
-                organizerID: repositoryOwnerID,
+                repositoryOwnerID: repositoryOwnerID,
+                eventID: selectedEventID,
                 archive: git.archive
             )
             if scenario.signsIn {
@@ -655,6 +656,25 @@ struct WorkspaceAuthoringStoryTests {
                     .changes.summary.totalCount ?? 0) > 0
             }
 
+            let activeGrant = try #require(
+                opened.state.content.destination?.eventViewer?.authoring.grant
+            )
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?
+                    .authoring.content.content.authoringGrant,
+                activeGrant
+            )
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?
+                    .authoring.content.content.eventWorkspace?.authoringGrant,
+                activeGrant
+            )
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?
+                    .authoring.content.content.eventWorkspace?.changes.authoringGrant,
+                activeGrant
+            )
+
             // Proposal creation is driven only through the mounted WorkspaceChanges surface.
             opened.send(workspaceStoryProposalAction(.proposalActionButtonTapped))
             await opened.send(
@@ -682,6 +702,13 @@ struct WorkspaceAuthoringStoryTests {
                     .changes.proposalDraft = draft
                 $0.content.destination = .eventViewer(eventViewer)
             }
+            await opened.send(
+                workspaceStoryProposalAction(
+                    .proposalDraft(
+                        .form(.fieldSubmitted(WorkspaceProposalFormFieldID.title))
+                    )
+                )
+            )?.value
             if scenario.failsPush {
                 try await expectReportedIssue(containing: "WorkspaceStoryPushFailure") {
                     await opened.send(
@@ -1019,7 +1046,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = workspaceStoryNetwork(
-                organizerID: organizerID,
+                repositoryOwnerID: organizerID,
+                eventID: selectedEventID,
                 archive: git.archive
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -1142,7 +1170,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = workspaceStoryNetwork(
-                organizerID: organizerID,
+                repositoryOwnerID: organizerID,
+                eventID: selectedEventID,
                 archive: git.archive
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -1343,7 +1372,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = workspaceStoryNetwork(
-                organizerID: organizerID,
+                repositoryOwnerID: organizerID,
+                eventID: selectedEventID,
                 archive: git.archive
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -1434,6 +1464,16 @@ struct WorkspaceAuthoringStoryTests {
                 $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
                     _, _ in nil
                 }
+                $0[XRPC.Client.self] = .liveValue
+                $0.httpClient = .liveValue
+                $0.requestInterceptors = []
+                $0.responseInterceptors = []
+                $0.errorInterceptors = []
+                $0.dataForURL = workspaceStoryNetwork(
+                    repositoryOwnerID: organizerID,
+                    eventID: selectedEventID,
+                    archive: Data()
+                )
                 $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                     try FileManager.default.createDirectory(
                         at: request.outputURL,
@@ -1678,7 +1718,8 @@ private func workspaceStoryPendingOAuthSession(
 }
 
 private func workspaceStoryNetwork(
-    organizerID: DID,
+    repositoryOwnerID: DID,
+    eventID: OME.Event.ID,
     archive: Data
 ) -> RunHTTPRequest {
     { request, _ in
@@ -1690,13 +1731,44 @@ private func workspaceStoryNetwork(
         if path.hasSuffix("/archive/main.tar.gz") {
             return ok(archive)
         }
+        if path.hasSuffix("/app.openmusicevent.calendar.getEvent") {
+            return ok(Data(
+                """
+                {
+                  "uri": "\(OME.Event.reference(id: eventID).uri)",
+                  "name": "Wicked Woods 2026",
+                  "locations": [],
+                  "links": [],
+                  "media": [],
+                  "organizer": {
+                    "id": "\(eventID.organizerID)"
+                  },
+                  "attendance": {
+                    "going": 0,
+                    "interested": 0,
+                    "notGoing": 0
+                  },
+                  "source": {
+                    "collection": "app.openmusicevent.event",
+                    "appViewHost": "openmusicevent.app",
+                    "sourceRecord": {
+                      "$type": "app.openmusicevent.source",
+                      "kind": "tangled",
+                      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+                      "ref": "main"
+                    }
+                  }
+                }
+                """.utf8
+            ))
+        }
         if path.hasSuffix("/com.atproto.repo.listRecords") {
             return ok(Data(
                 """
                 {
                   "records": [
                     {
-                      "uri": "at://\(organizerID)/sh.tangled.repo/ome-workspace",
+                      "uri": "at://\(repositoryOwnerID)/sh.tangled.repo/ome-workspace",
                       "cid": "bafyreifakerepo",
                       "value": {
                         "$type": "sh.tangled.repo",
@@ -1729,7 +1801,7 @@ private func workspaceStoryNetwork(
             return ok(Data(
                 """
                 {
-                  "uri": "at://\(organizerID)/sh.tangled.repo.pull/workspace-story",
+                  "uri": "at://\(repositoryOwnerID)/sh.tangled.repo.pull/workspace-story",
                   "cid": "bafyreipull"
                 }
                 """.utf8

@@ -1,7 +1,6 @@
 import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
-import ComposableAuthoring
 import CustomDump
 import Dependencies
 import Foundation
@@ -133,8 +132,13 @@ struct WorkspaceReviewsTests {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
         let review = review()
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
+        )
         withDependencies {
             $0.defaultDatabase = database
+            $0.defaultEventID = eventID
         } operation: {
             var state = WorkspaceReviews.State(workspace: workspace)
             state.pendingCreatedReviewID = review.id
@@ -201,8 +205,13 @@ struct WorkspaceReviewsTests {
         close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
         sourceSnapshotRequests: LockIsolated<[TangledPullReviewSourceSnapshotRequest]>? = nil
     ) -> StoreOf<WorkspaceReviews> {
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
+        )
         return withDependencies {
             $0.defaultDatabase = database
+            $0.defaultEventID = eventID
             $0.uuid = .incrementing
             $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
                 cachedProfile: { _ in nil },
@@ -223,15 +232,12 @@ struct WorkspaceReviewsTests {
                 }
             )
         } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock { $0 = grant }
             var state = WorkspaceReviews.State(workspace: workspace)
             state.status = .loaded([review])
             return Store(initialState: state) {
                 WorkspaceReviews()
-                    .environment(
-                        ComposableAuthoring.AuthoringContext(
-                            grant: SharedReader(value: grant)
-                        )
-                    )
             }
         }
     }

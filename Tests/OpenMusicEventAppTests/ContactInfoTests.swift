@@ -49,6 +49,7 @@ struct ContactInfoTests {
         }
         let communicationsStore = withDependencies {
             $0.context = .test
+            $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: CommunicationsViewer.State(eventID: eventID)) {

@@ -1,5 +1,4 @@
 import ComposableArchitecture2
-import ComposableAuthoring
 import ComposableWorkspace
 import Foundation
 import GRDB
@@ -55,6 +54,8 @@ public struct EventWorkspace {
 
         public let workspace: SourceWorkspace
         public let eventID: OME.Event.ID
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         @SharedReader public var workspacePhase: WorkspacePhase<SourcePatch>
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
@@ -71,7 +72,11 @@ public struct EventWorkspace {
             return true
         }
 
-        public func availablePages(authoringAccess: AuthoringAccess) -> [Page] {
+        public var authoringAccess: AuthoringAccess {
+            authoringGrant?.access ?? .attendee
+        }
+
+        public var availablePages: [Page] {
             EventWorkspace.availablePages(
                 hasCollaborators: collaborators != nil,
                 authoringAccess: authoringAccess
@@ -86,12 +91,9 @@ public struct EventWorkspace {
                 if selectedPage == .collaborators { selectedPage = .changes }
                 return
             }
-            if collaborators?.workspaceID != workspace.id
-                || collaborators?.role != grant.role
-            {
+            if collaborators?.workspaceID != workspace.id {
                 collaborators = WorkspaceCollaborators.State(
-                    workspace: workspace,
-                    role: grant.role
+                    workspace: workspace
                 )
             }
         }
@@ -116,9 +118,6 @@ public struct EventWorkspace {
         case sourcePreparationRetryButtonTapped
         case viewProposalButtonTapped
     }
-
-    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-    var authoring
 
     public var body: some Feature {
         Features {
@@ -154,10 +153,9 @@ public struct EventWorkspace {
         .ifLet(\.collaborators, action: \.collaborators) {
             WorkspaceCollaborators()
         }
-        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
+        .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
             state.updateAuthoringGrant(grant)
-            let access = grant?.access ?? .attendee
-            if !state.availablePages(authoringAccess: access).contains(state.selectedPage) {
+            if !state.availablePages.contains(state.selectedPage) {
                 state.selectedPage = .changes
             }
         }
@@ -166,22 +164,17 @@ public struct EventWorkspace {
 
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
-    let authoringAccess: AuthoringAccess
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    public init(
-        store: StoreOf<EventWorkspace>,
-        authoringAccess: AuthoringAccess = .attendee
-    ) {
+    public init(store: StoreOf<EventWorkspace>) {
         self.store = store
-        self.authoringAccess = authoringAccess
     }
 
     public var body: some View {
         let changesStore = store.scope(\.changes, action: \.changes)
         let pages = EventWorkspace.availablePages(
             hasCollaborators: store.collaborators != nil,
-            authoringAccess: authoringAccess
+            authoringAccess: store.authoringAccess
         )
 
         List {
@@ -191,7 +184,7 @@ public struct EventWorkspaceView: View {
                 phase: store.workspacePhase,
                 summary: changesStore.summary,
                 openProposal: changesStore.openProposal,
-                canPropose: authoringAccess.canPropose,
+                canPropose: store.authoringAccess.canPropose,
                 propose: { changesStore.send(.proposalActionButtonTapped) },
                 viewProposal: { store.send(.viewProposalButtonTapped) }
             )

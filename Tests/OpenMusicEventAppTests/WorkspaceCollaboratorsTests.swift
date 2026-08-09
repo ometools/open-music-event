@@ -1,7 +1,6 @@
 import ATProto
 import Clocks
 import ComposableArchitecture2
-import ComposableAuthoring
 import ComposableWorkspace
 import CustomDump
 import Dependencies
@@ -17,6 +16,54 @@ import Testing
 @MainActor
 @Suite("Workspace collaborators", .serialized, .tcaExhaustivity(.off))
 struct WorkspaceCollaboratorsTests {
+    struct DefaultAuthoringGrantConsumer {
+        @SharedReader(.defaultAuthoringGrant)
+        var grant: AuthoringGrant?
+    }
+
+    @Test
+    func `default authoring grant resolves the scoped shared reader`() throws {
+        let ownerID = try #require(DID("did:plc:owner"))
+        let workspace = workspace(ownerID: ownerID)
+        let firstEventID = OME.Event.ID(
+            organizerID: ownerID,
+            eventID: OME.ID<OME.Event>(rawValue: "first")
+        )
+        let secondEventID = OME.Event.ID(
+            organizerID: ownerID,
+            eventID: OME.ID<OME.Event>(rawValue: "second")
+        )
+        let ownerGrant = AuthoringGrant(
+            principal: AuthoringPrincipal(actorID: ownerID),
+            role: .owner,
+            workspaceID: workspace.id
+        )
+        let storage = InMemoryStorage()
+
+        let (firstGrant, firstConsumer) = withDependencies {
+            $0.defaultEventID = firstEventID
+            $0.defaultInMemoryStorage = storage
+        } operation: {
+            let grant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            return (grant, DefaultAuthoringGrantConsumer())
+        }
+        let (_, secondConsumer) = withDependencies {
+            $0.defaultEventID = secondEventID
+            $0.defaultInMemoryStorage = storage
+        } operation: {
+            let grant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            return (grant, DefaultAuthoringGrantConsumer())
+        }
+
+        expectNoDifference(firstConsumer.grant, nil)
+        expectNoDifference(secondConsumer.grant, nil)
+
+        firstGrant.withLock { $0 = ownerGrant }
+
+        expectNoDifference(firstConsumer.grant, ownerGrant)
+        expectNoDifference(secondConsumer.grant, nil)
+    }
+
     @Test
     func `a proposer sees proposals and the read-only collaborator roster`() throws {
         try withDependencies {
@@ -31,22 +78,33 @@ struct WorkspaceCollaboratorsTests {
                 role: .collaborator([.propose]),
                 workspaceID: workspace.id
             )
-            var state = EventWorkspace.State(
-                workspace: workspace,
-                eventID: OME.Event.ID(
-                    organizerID: ownerID,
-                    eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
-                ),
-                workspacePhase: SharedReader(value: .inactive)
+            let eventID = OME.Event.ID(
+                organizerID: ownerID,
+                eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
             )
+            var state = withDependencies {
+                $0.defaultEventID = eventID
+            } operation: {
+                let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+                authoringGrant.withLock { $0 = grant }
+                return EventWorkspace.State(
+                    workspace: workspace,
+                    eventID: eventID,
+                    workspacePhase: SharedReader(value: .inactive)
+                )
+            }
 
-            state.updateAuthoringGrant(grant)
+            withDependencies {
+                $0.defaultEventID = eventID
+            } operation: {
+                state.updateAuthoringGrant(grant)
+            }
 
             let collaborators = try #require(state.collaborators)
             expectNoDifference(collaborators.role, grant.role)
             #expect(collaborators.relationships.isEmpty)
             expectNoDifference(
-                state.availablePages(authoringAccess: grant.access),
+                state.availablePages,
                 EventWorkspace.Page.allCases
             )
             expectNoDifference(
@@ -91,13 +149,13 @@ struct WorkspaceCollaboratorsTests {
                 return [identity]
             }
         } operation: {
-            TestStore(
-                initialState: WorkspaceCollaborators.State(
-                    workspace: workspace(ownerID: ownerID),
-                    role: .owner
-                )
-            ) {
-                WorkspaceCollaborators()
+            let workspace = workspace(ownerID: ownerID)
+            return withAuthoringGrant(workspace: workspace, role: .owner) {
+                TestStore(
+                    initialState: WorkspaceCollaborators.State(workspace: workspace)
+                ) {
+                    WorkspaceCollaborators()
+                }
             }
         }
 
@@ -140,13 +198,12 @@ struct WorkspaceCollaboratorsTests {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 1_785_283_200)
         } operation: {
-            TestStore(
-                initialState: WorkspaceCollaborators.State(
-                    workspace: workspace,
-                    role: .owner
-                )
-            ) {
-                WorkspaceCollaborators()
+            return withAuthoringGrant(workspace: workspace, role: .owner) {
+                TestStore(
+                    initialState: WorkspaceCollaborators.State(workspace: workspace)
+                ) {
+                    WorkspaceCollaborators()
+                }
             }
         }
 
@@ -231,17 +288,20 @@ struct WorkspaceCollaboratorsTests {
     func collaboratorRoleCannotMountMutationFormsOrWrite() async throws {
         let database = try makePreparedDatabase()
         let ownerID = try #require(DID("did:plc:owner"))
+        let workspace = workspace(ownerID: ownerID)
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(
-                initialState: WorkspaceCollaborators.State(
-                    workspace: workspace(ownerID: ownerID),
-                    role: .collaborator([.merge])
-                )
+            return withAuthoringGrant(
+                workspace: workspace,
+                role: .collaborator([.merge])
             ) {
-                WorkspaceCollaborators()
+                TestStore(
+                    initialState: WorkspaceCollaborators.State(workspace: workspace)
+                ) {
+                    WorkspaceCollaborators()
+                }
             }
         }
 
@@ -268,6 +328,32 @@ struct WorkspaceCollaboratorsTests {
         } operation: {
             @Dependency(\.defaultDatabase) var database
             return database
+        }
+    }
+
+    func withAuthoringGrant<Value>(
+        workspace: SourceWorkspace,
+        role: OME.WorkspaceRole,
+        operation: () -> Value
+    ) -> Value {
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-collaborators")
+        )
+        return withDependencies {
+            $0.defaultEventID = eventID
+        } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock {
+                $0 = AuthoringGrant(
+                    principal: AuthoringPrincipal(
+                        actorID: DID(workspace.organizerID.description)!
+                    ),
+                    role: role,
+                    workspaceID: workspace.id
+                )
+            }
+            return operation()
         }
     }
 

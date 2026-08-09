@@ -1,10 +1,10 @@
 import ComposableArchitecture2
-import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 import SourceEditing
 #if os(Android)
@@ -46,6 +46,8 @@ public struct WorkspaceChanges {
         }
 
         public let workspace: SourceWorkspace
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var summary: SourceWorkspaceEditSummary
         @DebugSnapshotIgnored
@@ -65,6 +67,10 @@ public struct WorkspaceChanges {
             return true
         }
 
+        public var canPropose: Bool {
+            authoringGrant?.access.canPropose == true
+        }
+
         public var canResetChanges: Bool {
             canInspectChanges && changeCount > 0 && resetStatus != .resetting
         }
@@ -78,8 +84,8 @@ public struct WorkspaceChanges {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
-    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-    var authoring
+    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
+    var patchGenerator
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
     var workspace
 
@@ -87,7 +93,7 @@ public struct WorkspaceChanges {
         Update { state, action in
             switch action {
             case .proposalActionButtonTapped:
-                guard authoring.grant.wrappedValue?.access.canPropose == true,
+                guard state.canPropose,
                       state.changeCount > 0
                 else { return }
                 if state.openProposal == nil {

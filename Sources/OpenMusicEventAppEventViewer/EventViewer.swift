@@ -69,7 +69,7 @@ private enum DefaultEventTimeZoneKey: DependencyKey {
 }
 
 extension DependencyValues {
-    var defaultEventID: OMERecord.Event.ID {
+    public var defaultEventID: OMERecord.Event.ID {
         get { self[EventViewerContext.self].eventID }
         set { self[EventViewerContext.self] = EventViewerContext(eventID: newValue) }
     }
@@ -77,6 +77,22 @@ extension DependencyValues {
     var defaultEventTimeZone: SharedReader<TimeZone> {
         get { self[DefaultEventTimeZoneKey.self] }
         set { self[DefaultEventTimeZoneKey.self] = newValue }
+    }
+}
+
+public extension SharedReaderKey
+where Self == InMemoryKey<AuthoringGrant?>.Default {
+    static var defaultAuthoringGrant: Self {
+        @Dependency(\.defaultEventID) var eventID
+        return Self[
+            .inMemory(
+                "open-music-event.authoring-grant."
+                    + eventID.organizerID.description
+                    + "."
+                    + eventID.eventID.rawValue
+            ),
+            default: nil
+        ]
     }
 }
 
@@ -140,10 +156,9 @@ public struct EventViewer {
 
     public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
         public init(eventID: OMERecord.Event.ID) {
-            let authoringGrant = Self.authoringGrant()
+            let authoringGrant = SharedReader<AuthoringGrant?>(.defaultAuthoringGrant)
             self.init(
                 eventID: eventID,
-                authoringGrant: authoringGrant,
                 features: EventFeature.features(
                     eventID: eventID,
                     authoringAccess: authoringGrant.wrappedValue?.access ?? .attendee
@@ -153,12 +168,10 @@ public struct EventViewer {
 
         public init(
             eventID: OMERecord.Event.ID,
-            authoringGrant: SharedReader<AuthoringGrant?>,
             features: [EventFeature],
             pendingAuthoringEntry: EditorEntry? = nil,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
-            self._authoringGrant = authoringGrant
             self.eventID = eventID
             self._event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(eventID) }
@@ -291,11 +304,10 @@ public struct EventViewer {
             target: EventTarget?,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) -> Self {
-            let authoringGrant = Self.authoringGrant()
+            let authoringGrant = SharedReader<AuthoringGrant?>(.defaultAuthoringGrant)
             let access = authoringGrant.wrappedValue?.access ?? .attendee
             var state = Self(
                 eventID: eventID,
-                authoringGrant: authoringGrant,
                 features: EventFeature.features(
                     eventID: eventID,
                     authoringAccess: access
@@ -310,7 +322,8 @@ public struct EventViewer {
             return state
         }
 
-        @SharedReader public var authoringGrant: AuthoringGrant?
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
         @Trigger public var workspaceSourcePrepared
@@ -736,7 +749,7 @@ public struct EventViewer {
             )
         }
 
-        private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
+        fileprivate func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
             let eventID = self.eventID
             let eventTimeZone = self.eventTimeZoneReader
             return withDependencies {
@@ -745,12 +758,6 @@ public struct EventViewer {
             } operation: {
                 operation()
             }
-        }
-
-        private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-            @Dependency(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-            var authoring
-            return authoring.grant
         }
     }
 
@@ -803,11 +810,13 @@ public struct EventViewer {
         if state.eventWorkspace?.workspace.id != grant.workspaceID {
             do {
                 let sourceWorkspace = try SourceWorkspace(id: grant.workspaceID)
-                state.eventWorkspace = EventWorkspace.State(
-                    workspace: sourceWorkspace,
-                    eventID: state.eventID,
-                    workspacePhase: workspace.phase
-                )
+                state.withEventDependencies {
+                    state.eventWorkspace = EventWorkspace.State(
+                        workspace: sourceWorkspace,
+                        eventID: state.eventID,
+                        workspacePhase: workspace.phase
+                    )
+                }
             } catch {
                 reportIssue(error)
                 return
@@ -829,12 +838,16 @@ public struct EventViewer {
             "A prepared source must use EventViewer's application database."
         )
         let selectedPage = state.eventWorkspace?.selectedPage ?? .changes
-        var eventWorkspace = EventWorkspace.State(
-            workspace: source.workspace,
-            eventID: state.eventID,
-            workspacePhase: workspace.phase,
-            referenceDatabase: source.referenceDatabase
-        )
+        var preparedEventWorkspace: EventWorkspace.State?
+        state.withEventDependencies {
+            preparedEventWorkspace = EventWorkspace.State(
+                workspace: source.workspace,
+                eventID: state.eventID,
+                workspacePhase: workspace.phase,
+                referenceDatabase: source.referenceDatabase
+            )
+        }
+        guard var eventWorkspace = preparedEventWorkspace else { return }
         eventWorkspace.selectedPage = selectedPage
         state.eventWorkspace = eventWorkspace
         let sourceWorkspaceFetch = sourceWorkspaceFetch
@@ -1367,10 +1380,7 @@ public struct EventViewerView: View {
                         badgeValue: featureStore.changeCount,
                         navigation: .stack
                     ) {
-                        EventWorkspaceView(
-                            store: featureStore,
-                            authoringAccess: store.authoringAccess
-                        )
+                        EventWorkspaceView(store: featureStore)
                     }
                 }
 
@@ -1547,10 +1557,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
-                    EventWorkspaceView(
-                        store: featureStore,
-                        authoringAccess: store.authoringAccess
-                    )
+                    EventWorkspaceView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.workspace)
             }
@@ -1664,10 +1671,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
-                    EventWorkspaceView(
-                        store: featureStore,
-                        authoringAccess: store.authoringAccess
-                    )
+                    EventWorkspaceView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.workspace)
             }

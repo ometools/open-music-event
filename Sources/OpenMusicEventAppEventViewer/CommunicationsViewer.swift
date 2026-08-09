@@ -1,10 +1,10 @@
 import ComposableArchitecture2
-import ComposableAuthoring
 import Dependencies
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -51,7 +51,8 @@ public struct CommunicationsViewer {
 
     public struct State {
         public let eventID: OMERecord.Event.ID
-        public var canManageChannels = false
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         public var destination: Destination.State?
         public var errorMessage: String?
 
@@ -85,6 +86,10 @@ public struct CommunicationsViewer {
         var hasContent: Bool {
             event != nil && (!(event?.reportingLinks ?? []).isEmpty || !channels.isEmpty)
         }
+
+        public var canManageChannels: Bool {
+            authoringGrant?.access.canEditContent == true
+        }
     }
 
     public enum Action {
@@ -107,8 +112,6 @@ public struct CommunicationsViewer {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-    var authoring
 
     static func channelsQuery(
         eventID: OMERecord.Event.ID
@@ -207,9 +210,6 @@ public struct CommunicationsViewer {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
-        }
-        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
-            state.canManageChannels = grant?.access.canEditContent == true
         }
     }
 }
@@ -457,9 +457,10 @@ public struct CommunicationChannelDetail {
 
         public let channelID: OMERecord.ID<OMERecord.Channel>
         public let eventID: OMERecord.Event.ID
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         public var destination: Destination.State?
         public var errorMessage: String?
-        public var canEditChannel = false
 
         @FetchOne public var channel: OMERecord.Channel?
         @FetchOne public var preference: ChannelPreferences?
@@ -477,6 +478,10 @@ public struct CommunicationChannelDetail {
 
         var canChangeNotificationState: Bool {
             channel?.notificationsRequired == false
+        }
+
+        public var canEditChannel: Bool {
+            authoringGrant?.access.canEditContent == true
         }
 
         var effectiveNotificationState: OMERecord.Channel.NotificationState? {
@@ -517,8 +522,6 @@ public struct CommunicationChannelDetail {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
-    var authoring
 
     static func channelQuery(
         channelID: OMERecord.ID<OMERecord.Channel>,
@@ -609,9 +612,6 @@ public struct CommunicationChannelDetail {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
-        }
-        .onChange(of: authoring.grant.wrappedValue, initial: true) { _, grant, state in
-            state.canEditChannel = grant?.access.canEditContent == true
         }
     }
 
