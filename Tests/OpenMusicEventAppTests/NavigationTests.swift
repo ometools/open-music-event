@@ -5820,7 +5820,7 @@ struct NavigationTests {
     }
 
     @Test
-    func communicationChannelDetailChannelActionsOpenTheEditorAndDeleteTheChannel() async throws {
+    func communicationChannelDetailAuthoringActionsOpenTheComposerEditorAndDeleteTheChannel() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let channelID = channelLocalID("general")
@@ -5868,6 +5868,10 @@ struct NavigationTests {
         }
 
         #expect(store.state.canEditChannel)
+
+        store.send(.newPostButtonTapped)
+
+        #expect(store.state.destination?.composer?.channelID == channel.id)
 
         store.send(.editChannelButtonTapped(channel))
 
@@ -6002,24 +6006,43 @@ struct NavigationTests {
     }
 
     @Test
-    func communicationsViewerChannelTapPresentsChannelDetail() async throws {
+    func communicationsViewerAuthoringGrantReachesChannelDetail() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let channelID = channelLocalID("general")
+        let workspace = SourceWorkspace(
+            organizerID: eventID.organizerID,
+            repository: "tangled.org/example/events",
+            branch: "main"
+        )
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(
+                actorID: try #require(DID(eventID.organizerID.description))
+            ),
+            role: .owner,
+            workspaceID: workspace.id
+        )
         let store = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock { $0 = grant }
+            return TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
                 CommunicationsViewer()
             }
         }
 
+        // The organizer can manage channels from the Comms list.
+        #expect(store.state.canManageChannels)
+
+        // They open a channel through the same action sent by the channel row.
         store.send(.channelButtonTapped(channelID))
 
         #expect(store.state.destination?.channelDetail?.state.channelID == channelID)
         #expect(store.state.destination?.channelDetail?.state.eventID == eventID)
+        #expect(store.state.destination?.channelDetail?.state.canEditChannel == true)
     }
 
     @Test

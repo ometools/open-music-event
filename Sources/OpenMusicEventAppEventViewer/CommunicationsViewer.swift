@@ -723,16 +723,6 @@ public struct CommunicationChannelDetailView: View {
                     }
                 }
                 .toolbar {
-                    if store.canEditChannel {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                store.send(.newPostButtonTapped)
-                            } label: {
-                                Label("New Post", mappedSystemImage: "square.and.pencil")
-                            }
-                        }
-                    }
-
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
                             Button {
@@ -776,6 +766,12 @@ public struct CommunicationChannelDetailView: View {
                     if store.canEditChannel {
                         ToolbarItem(placement: .primaryAction) {
                             Menu {
+                                Button {
+                                    store.send(.newPostButtonTapped)
+                                } label: {
+                                    Label("New Post", mappedSystemImage: "square.and.pencil")
+                                }
+
                                 Button {
                                     store.send(.editChannelButtonTapped(channel))
                                 } label: {
