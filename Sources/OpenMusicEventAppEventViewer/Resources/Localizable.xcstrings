@@ -219,7 +219,7 @@
     "Channel" : {
 
     },
-    "Channel actions" : {
+    "Channel Settings" : {
 
     },
     "Channels" : {
@@ -312,9 +312,6 @@
     "Created at" : {
 
     },
-    "Current" : {
-
-    },
     "Current DID" : {
 
     },
@@ -331,9 +328,6 @@
 
     },
     "Dates" : {
-
-    },
-    "Default" : {
 
     },
     "Default notifications" : {
@@ -711,6 +705,12 @@
     "Notifications required" : {
 
     },
+    "Notifications Required" : {
+
+    },
+    "Notifications: %@" : {
+
+    },
     "Notify Me For New Posts" : {
 
     },
@@ -745,9 +745,6 @@
 
     },
     "Opens %@ in a browser." : {
-
-    },
-    "Options" : {
 
     },
     "Organization" : {
