@@ -72,9 +72,7 @@ public struct ContactInfoViewerView: View {
                     if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
                         Section("Reporting") {
                             ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
-                                Link(destination: reportingLink.url) {
-                                    ReportingLinkRow(reportingLink: reportingLink)
-                                }
+                                IncidentReportingLinkRow(reportingLink: reportingLink)
                                 .buttonStyle(.plain)
                                 .portableAccessibilityHint(
                                     Text("Opens \(reportingLink.name) in a browser.")

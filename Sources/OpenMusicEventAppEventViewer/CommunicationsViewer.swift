@@ -124,14 +124,6 @@ public struct CommunicationsViewerView: View {
         Group {
             if store.hasContent {
                 List {
-                    if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
-                        Section("Incident Reporting") {
-                            ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
-                                IncidentReportingLinkRow(reportingLink: reportingLink)
-                            }
-                        }
-                    }
-
                     if store.channelRows.isEmpty {
                         Section {
                             Text("No communication channels have been added to this event yet.")
