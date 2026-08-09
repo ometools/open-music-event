@@ -72,14 +72,10 @@ public struct EventWorkspace {
         }
 
         public func availablePages(authoringAccess: AuthoringAccess) -> [Page] {
-            var pages: [Page] = [.changes]
-            if collaborators != nil {
-                pages.append(.collaborators)
-            }
-            if reviews.canReview(authoringAccess: authoringAccess) {
-                pages.append(.proposals)
-            }
-            return pages
+            EventWorkspace.availablePages(
+                hasCollaborators: collaborators != nil,
+                authoringAccess: authoringAccess
+            )
         }
 
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
@@ -101,11 +97,24 @@ public struct EventWorkspace {
         }
     }
 
+    public static func availablePages(
+        hasCollaborators: Bool,
+        authoringAccess: AuthoringAccess
+    ) -> [Page] {
+        var pages: [Page] = [.changes]
+        if hasCollaborators { pages.append(.collaborators) }
+        if authoringAccess.canPropose || authoringAccess.canMerge {
+            pages.append(.proposals)
+        }
+        return pages
+    }
+
     public enum Action {
         case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
         case reviews(WorkspaceReviews.Action)
         case sourcePreparationRetryButtonTapped
+        case viewProposalButtonTapped
     }
 
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
@@ -113,7 +122,7 @@ public struct EventWorkspace {
 
     public var body: some Feature {
         Features {
-            Update { _, action in
+            Update { state, action in
                 switch action {
                 case .sourcePreparationRetryButtonTapped:
                     store.addTask {
@@ -122,6 +131,17 @@ public struct EventWorkspace {
                             value: ()
                         )
                         await retry?.value
+                    }
+
+                case .viewProposalButtonTapped:
+                    guard let proposalID = state.workspacePhase.proposal?.id.rawValue else {
+                        return
+                    }
+                    state.selectedPage = .proposals
+                    state.reviews.pendingCreatedReviewID = proposalID
+                    state.reviews.openPendingReviewIfAvailable()
+                    store.addTask {
+                        try store.send(.reviews(.refreshButtonTapped))
                     }
 
                 case .changes, .collaborators, .reviews:
@@ -157,33 +177,42 @@ public struct EventWorkspaceView: View {
         self.authoringAccess = authoringAccess
     }
 
-    var availablePages: [EventWorkspace.Page] {
-        var pages: [EventWorkspace.Page] = [.changes]
-        if store.collaborators != nil {
-            pages.append(.collaborators)
-        }
-        if authoringAccess.canMerge {
-            pages.append(.proposals)
-        }
-        return pages
-    }
-
     public var body: some View {
         let changesStore = store.scope(\.changes, action: \.changes)
+        let pages = EventWorkspace.availablePages(
+            hasCollaborators: store.collaborators != nil,
+            authoringAccess: authoringAccess
+        )
 
-        VStack(spacing: 0) {
-            WorkspaceStatusView(
-                status: store.workspaceStatus,
-                retrySourcePreparation: {
-                    store.send(.sourcePreparationRetryButtonTapped)
-                }
+        List {
+            WorkspaceOverviewSection(
+                workspace: store.workspace,
+                eventID: store.eventID,
+                phase: store.workspacePhase,
+                summary: changesStore.summary,
+                openProposal: changesStore.openProposal,
+                canPropose: authoringAccess.canPropose,
+                propose: { changesStore.send(.proposalActionButtonTapped) },
+                viewProposal: { store.send(.viewProposalButtonTapped) }
             )
+
+            if pages.count > 1 {
+                Section {
+                    Picker("Workspace section", selection: $store.selectedPage) {
+                        ForEach(pages) { page in
+                            Text(page.title).tag(page)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("workspace.page-selection")
+                }
+            }
 
             switch store.selectedPage {
             case .changes:
                 WorkspaceChangesView(
                     store: changesStore,
-                    workspaceStatus: store.workspaceStatus
+                    workspacePhase: store.workspacePhase
                 )
 
             case .collaborators:
@@ -195,305 +224,229 @@ public struct EventWorkspaceView: View {
                 WorkspaceReviewsView(store: store.scope(\.reviews, action: \.reviews))
             }
         }
-        .navigationTitle("Shared Workspace")
+        .navigationTitle("Workspace")
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .portableSafeAreaTopInset(spacing: 0) {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Your changes")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            switch changesStore.summary.availability {
-                            case .available:
-                                Text(changesStore.changeCount, format: .number)
-                                    .font(.title3)
-                                    .portableMonospacedDigit()
-                            case .workspaceNeedsPreparation, .unavailable:
-                                Text("—")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("Workspace")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("Organization workspace")
-                                .font(.subheadline)
-                        }
-                    }
-
-                    if showsTechnicalDetails {
-                        PortableDisclosureGroup("Technical details") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                WorkspaceTechnicalValueView(
-                                    label: "Repository",
-                                    value: store.workspace.repository
-                                )
-                                WorkspaceTechnicalValueView(
-                                    label: "Branch",
-                                    value: store.workspace.branch
-                                )
-                                WorkspaceTechnicalValueView(
-                                    label: "Organization",
-                                    value: store.workspace.organizerID.description
-                                )
-                                WorkspaceTechnicalValueView(
-                                    label: "Event",
-                                    value: store.eventID.eventID.rawValue.rawValue
-                                )
-                                if let proposal = changesStore.openProposal {
-                                    WorkspaceTechnicalValueView(
-                                        label: "Open proposal",
-                                        value: proposal.id.rawValue
-                                    )
-                                }
-                            }
-                            .padding(.top, 8)
-                        }
-                        .font(.caption)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-
-                let pages = availablePages
-                if pages.count > 1 {
-                    Picker("Workspace section", selection: $store.selectedPage) {
-                        ForEach(pages) { page in
-                            Text(page.title).tag(page)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .padding(.bottom, 6)
-                }
-
-                if case .available = changesStore.summary.availability,
-                   store.selectedPage == .changes,
-                   changesStore.changeCount > 0,
-                   authoringAccess.canPropose,
-                   store.workspaceIsReady
-                {
-                    Button {
-                        changesStore.send(.proposalActionButtonTapped)
-                    } label: {
-                        Label(
-                            changesStore.openProposal == nil
-                                ? "Create proposal"
-                                : "Update proposal",
-                            systemImage: "paperplane"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-            }
-            .background(.background)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
-        }
     }
 }
 
-struct WorkspaceStatusView: View {
-    let status: WorkspaceStatus
-    let retrySourcePreparation: () -> Void
+struct WorkspaceOverviewSection: View {
+    let workspace: SourceWorkspace
+    let eventID: OME.Event.ID
+    let phase: WorkspacePhase<SourcePatch>
+    let summary: SourceWorkspaceEditSummary
+    let openProposal: WorkspaceProposal?
+    let canPropose: Bool
+    let propose: () -> Void
+    let viewProposal: () -> Void
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
-    var failure: WorkspaceFailure? {
-        guard case let .failed(_, failure) = status else { return nil }
-        return failure
+    var changeCount: Int {
+        summary.groups.reduce(0) { $0 + $1.totalCount }
     }
 
-    var isPreparingSourceFailure: Bool {
-        guard case .failed(operation: .sourcePreparation, failure: _) = status else {
-            return false
+    var publicationIsActive: Bool {
+        switch phase {
+        case .capturingSubmission, .publishing:
+            true
+        case .inactive, .preparingSource, .publicationFailed,
+             .publicationInterrupted, .ready, .reconciling,
+             .reconciliationFailed, .sourcePreparationFailed, .stale,
+             .submissionCaptureFailed:
+            false
         }
-        return true
     }
 
-    var message: String {
-        switch status {
-        case .activity(.capturingChanges):
-            return "Collecting the current workspace changes."
-        case .activity(.preparingSource):
-            return "Opening the organization source."
-        case .activity(.publishing(.pushCommit)):
-            return "Saving the captured changes to the proposal branch."
-        case .activity(.publishing(.recordProposal)):
-            return "Recording the proposal for the saved branch revision."
-        case .activity(.publishing(.updateReference)):
-            return "Updating the settled workspace after recording the proposal."
-        case .activity(.reconciling):
-            return "Reconciling the organization source."
-        case .failed(operation: .publication, failure: _),
-             .failed(operation: .submissionCapture, failure: _):
-            return "Your changes are still available. Further proposal publishing is unavailable until this failure is resolved."
-        case .failed(operation: .reconciliation, failure: _):
-            return "Your changes remain in the working database. The workspace is using its last settled source."
-        case .failed(operation: .sourcePreparation, failure: _):
-            return "Authoring remains active, but source-backed changes are unavailable until preparation succeeds."
-        case .inactive:
-            return "Enter authoring to prepare this organization source."
-        case .interrupted(.publication):
-            return "Your changes and the unfinished publication are preserved."
-        case .interrupted(.reconciliation):
-            return "Your changes remain available while the interrupted refresh is unresolved."
-        case .interrupted(.sourcePreparation):
-            return "Authoring remains active while source preparation is unresolved."
-        case .interrupted(.submissionCapture):
-            return "Your changes remain available while proposal preparation is unresolved."
-        case .ready(.canonical):
-            return "Source-backed editing and proposal creation are available."
-        case .ready(.proposal):
-            return "Source-backed editing is ready to update the open proposal."
+    var progressTitle: String? {
+        switch phase {
+        case .capturingSubmission:
+            "Preparing proposal"
+        case let .publishing(submission):
+            switch submission.step {
+            case .pushCommit: "Saving changes to the proposal branch"
+            case .recordProposal: "Recording the proposal"
+            case .updateReference: "Finalizing the local reference"
+            }
+        case .reconciling:
+            "Refreshing workspace"
+        case .preparingSource:
+            "Preparing workspace"
+        case .inactive, .publicationFailed, .publicationInterrupted, .ready,
+             .reconciliationFailed, .sourcePreparationFailed, .stale,
+             .submissionCaptureFailed:
+            nil
+        }
+    }
+
+    var stoppedMessage: String? {
+        switch phase {
+        case .publicationFailed, .submissionCaptureFailed:
+            "Proposal publication is unavailable. Your local changes are preserved."
+        case .publicationInterrupted:
+            "Proposal publication stopped. Your local changes are preserved."
+        case .reconciliationFailed:
+            "Workspace refresh stopped. The last known editing line and your local changes are preserved."
+        case .sourcePreparationFailed:
+            "Workspace preparation stopped, so changes cannot currently be compared."
         case .stale:
-            return "The source changed while you were editing. Publishing is unavailable until reconciliation succeeds."
-        }
-    }
-
-    var title: String {
-        switch status {
-        case .activity(.capturingChanges):
-            return "Preparing proposal"
-        case .activity(.preparingSource):
-            return "Preparing workspace"
-        case .activity(.publishing(.pushCommit)):
-            return "Pushing proposal changes"
-        case .activity(.publishing(.recordProposal)):
-            return "Recording proposal"
-        case .activity(.publishing(.updateReference)):
-            return "Finalizing proposal"
-        case .activity(.reconciling):
-            return "Refreshing workspace"
-        case .failed(operation: .publication, failure: _),
-             .failed(operation: .submissionCapture, failure: _):
-            return "Proposal failed"
-        case .failed(operation: .reconciliation, failure: _):
-            return "Workspace refresh failed"
-        case .failed(operation: .sourcePreparation, failure: _):
-            return "Workspace preparation failed"
+            "The workspace changed while you were editing. Publication is unavailable until it is refreshed."
         case .inactive:
-            return "Workspace inactive"
-        case .interrupted(.publication):
-            return "Proposal interrupted"
-        case .interrupted(.reconciliation):
-            return "Workspace refresh interrupted"
-        case .interrupted(.sourcePreparation):
-            return "Workspace preparation interrupted"
-        case .interrupted(.submissionCapture):
-            return "Proposal preparation interrupted"
-        case .ready(.canonical):
-            return "Workspace ready"
-        case .ready(.proposal):
-            return "Proposal workspace ready"
-        case .stale:
-            return "Workspace source changed"
+            "Enter authoring to prepare this workspace."
+        case .capturingSubmission, .preparingSource, .publishing, .ready, .reconciling:
+            nil
         }
-    }
-
-    var showsProgress: Bool {
-        guard case .activity = status else { return false }
-        return true
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                if showsProgress {
-                    ProgressView()
-                }
+        Section("Workspace overview") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Editing line")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-                Text(title)
-                    .font(.headline)
+                if let line = phase.editingLine {
+                    switch line {
+                    case let .canonical(reference):
+                        Text("You are building on the organizer’s canonical line.")
+                        WorkspaceBranchNameView(branch: reference.branch.rawValue)
+                    case let .proposal(proposal):
+                        Text("You are building on an open proposal.")
+                        WorkspaceBranchRelationshipView(
+                            source: proposal.source.branch.rawValue,
+                            target: proposal.target.branch.rawValue
+                        )
+                    }
+                } else {
+                    Text("This workspace is configured for the following branch, but it is not currently prepared.")
+                    WorkspaceBranchNameView(branch: workspace.branch)
+                }
             }
 
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Where are my changes?")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-            if showsTechnicalDetails, let failure {
-                PortableDisclosureGroup("Technical details") {
-                    WorkspaceTechnicalValueView(
-                        label: "Error",
-                        value: failure.message
-                    )
+                switch summary.availability {
+                case .available:
+                    if phase.proposal != nil || openProposal != nil {
+                        Text("Previously submitted changes are in the open proposal.")
+                        Text(changeCount == 1
+                            ? "1 newer local change is waiting to be added."
+                            : "\(changeCount) newer local changes are waiting to be added.")
+                    } else {
+                        Text(changeCount == 1
+                            ? "1 local change has not been proposed."
+                            : "\(changeCount) local changes have not been proposed.")
+                    }
+                case .workspaceNeedsPreparation:
+                    Text("Change location will be available after the workspace is prepared.")
+                case .unavailable:
+                    Text("Change location cannot currently be calculated.")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("What should I do next?")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                if let progressTitle {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(progressTitle)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("workspace.publication.progress")
+                } else if let stoppedMessage {
+                    Text(stoppedMessage)
+                } else if case .available = summary.availability,
+                          let line = phase.editingLine
+                {
+                    switch line {
+                    case .canonical:
+                        if changeCount > 0 {
+                            if canPropose {
+                                Button("Create Proposal", action: propose)
+                                    .buttonStyle(.borderedProminent)
+                                    .accessibilityIdentifier("workspace.proposal.create")
+                            } else {
+                                Text("Your local changes are waiting, but you do not have permission to create a proposal.")
+                            }
+                        } else {
+                            Text("Continue editing. There are no local changes waiting to be proposed.")
+                        }
+                    case .proposal:
+                        if changeCount > 0 {
+                            if canPropose {
+                                Button("Update Proposal", action: propose)
+                                    .buttonStyle(.borderedProminent)
+                                    .accessibilityIdentifier("workspace.proposal.update")
+                            } else {
+                                Text("Newer local changes are waiting, but you do not have permission to update this proposal.")
+                            }
+                            Button("View Proposal", action: viewProposal)
+                                .accessibilityIdentifier("workspace.proposal.view")
+                        } else {
+                            Button("View Proposal", action: viewProposal)
+                                .accessibilityIdentifier("workspace.proposal.view")
+                        }
+                    }
+                }
+            }
+
+            if showsTechnicalDetails {
+                PortableDisclosureGroup("Technical Details") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
+                        WorkspaceTechnicalValueView(label: "Configured branch", value: workspace.branch)
+                        WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
+                        WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
+                        if let proposal = phase.proposal ?? openProposal {
+                            WorkspaceTechnicalValueView(label: "Open proposal", value: proposal.id.rawValue)
+                        }
+                        if let failure = phase.failure {
+                            WorkspaceTechnicalValueView(label: "Diagnostic", value: failure.message)
+                        }
+                    }
                     .padding(.top, 8)
                 }
                 .font(.caption)
             }
-
-            if isPreparingSourceFailure {
-                Button("Retry preparation", action: retrySourcePreparation)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.background)
-        .overlay(alignment: .bottom) {
-            Divider()
         }
     }
 }
 
-public struct WorkspaceProposalDraftView: View {
-    @Bindable var store: StoreOf<WorkspaceProposalDraft>
+struct WorkspaceBranchNameView: View {
+    let branch: String
 
-    public init(store: StoreOf<WorkspaceProposalDraft>) {
-        self.store = store
+    var body: some View {
+        Text(branch)
+            .font(.body.monospaced())
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
     }
+}
 
-    public var body: some View {
-        NavigationStack {
-            List {
-                Section("Proposal") {
-                    TextField(
-                        "Title",
-                        text: Binding(
-                            get: { store.title },
-                            set: { store.send(.titleChanged($0)) }
-                        )
-                    )
-                    PortableTextField(
-                        "Description",
-                        text: Binding(
-                            get: { store.description },
-                            set: { store.send(.descriptionChanged($0)) }
-                        ),
-                        axis: .vertical
-                    )
-                }
-                SourceChangeSummarySection(
-                    groups: store.groups,
-                    fieldComparisons: store.fieldComparisons,
-                    recordComparisons: store.recordComparisons
-                )
+struct WorkspaceBranchRelationshipView: View {
+    let source: String
+    let target: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("Proposal branch") {
+                Text(source)
+                    .font(.body.monospaced())
+                    .multilineTextAlignment(.trailing)
             }
-            .navigationTitle("Create proposal")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { store.send(.cancelButtonTapped) }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { store.send(.createProposalButtonTapped) }
-                        .disabled(store.proposalTitle == nil)
-                }
+            LabeledContent("Targets") {
+                Text(target)
+                    .font(.body.monospaced())
+                    .multilineTextAlignment(.trailing)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -501,11 +454,24 @@ struct SourceChangeSummarySection: View {
     let groups: [SourceChangeGroup]
     let fieldComparisons: SourceFieldComparisons
     let recordComparisons: SourceRecordComparisons
+    let emptyMessage: String
+
+    init(
+        groups: [SourceChangeGroup],
+        fieldComparisons: SourceFieldComparisons,
+        recordComparisons: SourceRecordComparisons,
+        emptyMessage: String = "No changes"
+    ) {
+        self.groups = groups
+        self.fieldComparisons = fieldComparisons
+        self.recordComparisons = recordComparisons
+        self.emptyMessage = emptyMessage
+    }
 
     var body: some View {
         Section("What changed") {
             if groups.allSatisfy({ $0.totalCount == 0 }) {
-                Text("No changes")
+                Text(emptyMessage)
                     .foregroundStyle(.secondary)
             }
             ForEach(groups.filter { $0.totalCount > 0 }) { group in

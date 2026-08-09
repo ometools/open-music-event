@@ -42,7 +42,7 @@ public struct SubmitButton: View {
     }
 }
 
-private extension SubmitButton.Kind {
+extension SubmitButton.Kind {
     var title: LocalizedStringKey {
         switch self {
         case .save:
@@ -57,7 +57,7 @@ private extension SubmitButton.Kind {
         case .save:
             "checkmark"
         case .propose:
-            "paperplane"
+            "paper-plane"
         }
     }
 }

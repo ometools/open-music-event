@@ -657,25 +657,36 @@ struct WorkspaceAuthoringStoryTests {
 
             // Proposal creation is driven only through the mounted WorkspaceChanges surface.
             opened.send(workspaceStoryProposalAction(.proposalActionButtonTapped))
-            opened.send(
-                workspaceStoryProposalAction(
-                    .proposalDraft(.titleChanged("Expand the 2026 event experience"))
-                )
+            await opened.send(
+                workspaceStoryProposalAction(.proposalDraft(.proposeButtonTapped))
+            )?.value
+            guard case .ready(.canonical) = opened.state.content.destination?.eventViewer?
+                .authoring.content.phase
+            else {
+                Issue.record("An invalid title must not start proposal publication.")
+                return
+            }
+            #expect(
+                opened.state.content.destination?.eventViewer?.authoring.content.content
+                    .eventWorkspace?.changes.proposalDraft != nil
             )
-            opened.send(
-                workspaceStoryProposalAction(
-                    .proposalDraft(
-                        .descriptionChanged(
-                            "Update event details, contact information, location, and stages."
-                        )
-                    )
-                )
-            )
+            opened.modify {
+                guard var eventViewer = $0.content.destination?.eventViewer,
+                      var draft = eventViewer.authoring.content.content.eventWorkspace?
+                        .changes.proposalDraft
+                else { return }
+                draft.form.value.title = "Expand the 2026 event experience"
+                draft.form.value.description =
+                    "Update event details, contact information, location, and stages."
+                eventViewer.authoring.content.content.eventWorkspace?
+                    .changes.proposalDraft = draft
+                $0.content.destination = .eventViewer(eventViewer)
+            }
             if scenario.failsPush {
                 try await expectReportedIssue(containing: "WorkspaceStoryPushFailure") {
                     await opened.send(
                         workspaceStoryProposalAction(
-                            .proposalDraft(.createProposalButtonTapped)
+                            .proposalDraft(.proposeButtonTapped)
                         )
                     )?.value
                 }
@@ -795,7 +806,7 @@ struct WorkspaceAuthoringStoryTests {
 
             await opened.send(
                 workspaceStoryProposalAction(
-                    .proposalDraft(.createProposalButtonTapped)
+                    .proposalDraft(.proposeButtonTapped)
                 )
             )?.value
 

@@ -4,6 +4,7 @@ import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
+import ErrorHandling
 import Foundation
 import IssueReporting
 import GRDB
@@ -56,7 +57,17 @@ public struct WorkspaceReviews {
         }
 
         public func canReview(authoringAccess: AuthoringAccess) -> Bool {
-            authoringAccess.canMerge
+            authoringAccess.canPropose || authoringAccess.canMerge
+        }
+
+        public mutating func openPendingReviewIfAvailable() {
+            guard let pendingCreatedReviewID,
+                  let review = reviews.first(where: { $0.id == pendingCreatedReviewID })
+            else { return }
+            destination = .reviewDetail(
+                WorkspaceReviewDetail.State(workspace: workspace, review: review)
+            )
+            self.pendingCreatedReviewID = nil
         }
 
         mutating func remove(_ review: TangledPullReview) {
@@ -148,11 +159,7 @@ public struct WorkspaceReviews {
                             .filter { !removed.contains($0.id) }
                             .sorted { $0.createdAt > $1.createdAt }
                     )
-                    if let pending = $0.pendingCreatedReviewID,
-                       reviews.contains(where: { $0.id == pending })
-                    {
-                        $0.pendingCreatedReviewID = nil
-                    }
+                    $0.openPendingReviewIfAvailable()
                 }
             } catch {
                 try store.modify { $0.status = .failed(String(describing: error)) }
@@ -187,14 +194,13 @@ public struct WorkspaceReviewDetail {
     public enum Operation: Equatable, Sendable {
         case closing
         case deleting
-        case failed(String)
         case idle
         case merging
 
         public var isRunning: Bool {
             switch self {
             case .closing, .deleting, .merging: true
-            case .failed, .idle: false
+            case .idle: false
             }
         }
     }
@@ -268,33 +274,39 @@ public struct WorkspaceReviewDetail {
         Update { state, action in
             switch action {
             case .closeButtonTapped:
-                guard !state.operation.isRunning else { return }
+                guard state.canMerge, !state.operation.isRunning else { return }
                 let review = state.review
                 let reviewClient = reviewClient
                 state.operation = .closing
                 store.addTask {
-                    do {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: .workspaceReviewCloseFailed,
+                        operation: .workspaceReviewClose
+                    ) {
                         try await reviewClient.close(review)
-                        try store.post(key: WorkspaceReviewRemoved.self, value: review)
-                    } catch {
-                        try store.modify { $0.operation = .failed(String(describing: error)) }
-                        reportIssue(error)
+                    } cleanup: {
+                        $0.operation = .idle
                     }
+                    guard result != nil else { return }
+                    try store.post(key: WorkspaceReviewRemoved.self, value: review)
                 }
 
             case .deleteButtonTapped:
-                guard !state.operation.isRunning else { return }
+                guard state.canMerge, !state.operation.isRunning else { return }
                 let review = state.review
                 let reviewClient = reviewClient
                 state.operation = .deleting
                 store.addTask {
-                    do {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: .workspaceReviewDeleteFailed,
+                        operation: .workspaceReviewDelete
+                    ) {
                         try await reviewClient.delete(review)
-                        try store.post(key: WorkspaceReviewRemoved.self, value: review)
-                    } catch {
-                        try store.modify { $0.operation = .failed(String(describing: error)) }
-                        reportIssue(error)
+                    } cleanup: {
+                        $0.operation = .idle
                     }
+                    guard result != nil else { return }
+                    try store.post(key: WorkspaceReviewRemoved.self, value: review)
                 }
 
             case .mergeButtonTapped:
@@ -307,8 +319,16 @@ public struct WorkspaceReviewDetail {
                 let reviewClient = reviewClient
                 state.operation = .merging
                 store.addTask {
-                    do {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: .workspaceReviewMergeFailed,
+                        operation: .workspaceReviewMerge
+                    ) {
                         try await reviewClient.merge(request)
+                    } cleanup: {
+                        $0.operation = .idle
+                    }
+                    guard result != nil else { return }
+                    do {
                         let reconciliation = try store.post(
                             key: WorkspaceProposalMerged.self,
                             value: WorkspaceProposalID(rawValue: review.id)
@@ -316,7 +336,6 @@ public struct WorkspaceReviewDetail {
                         await reconciliation?.value
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
                     } catch {
-                        try store.modify { $0.operation = .failed(String(describing: error)) }
                         reportIssue(error)
                     }
                 }
@@ -420,7 +439,7 @@ public struct WorkspaceReviewsView: View {
     }
 
     public var body: some View {
-        List {
+        Group {
             if showsTechnicalDetails {
                 Section("Source details") {
                     WorkspaceTechnicalValueView(
@@ -439,6 +458,20 @@ public struct WorkspaceReviewsView: View {
             }
 
             Section("Open proposals") {
+                if store.pendingCreatedReviewID != nil {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Opening your new proposal")
+                            Text("Waiting for it to appear in the proposal list.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("workspace.proposals.pending")
+                }
+
                 switch store.status {
                 case .loading:
                     ProgressView("Loading proposals")
@@ -462,6 +495,7 @@ public struct WorkspaceReviewsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("workspace.proposal.row.\(review.id)")
                     }
 
                 case .notLoaded:
@@ -469,10 +503,13 @@ public struct WorkspaceReviewsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Refresh proposals") {
+                Button {
                     store.send(.refreshButtonTapped)
+                } label: {
+                    Label("Refresh proposals", systemImage: "refresh")
                 }
                 .disabled(store.status == .loading)
+                .accessibilityIdentifier("workspace.proposals.refresh")
             }
         }
         .navigationDestination(
@@ -506,7 +543,9 @@ struct WorkspaceReviewRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(review.createdAt.workspaceReviewDateTitle)
                 Spacer()
-                Text("Open review")
+                Text(review.commentCount == 1 ? "1 comment" : "\(review.commentCount) comments")
+                Image(systemName: "chevron-forward")
+                    .accessibilityHidden(true)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -534,6 +573,8 @@ public struct WorkspaceReviewDetailView: View {
     public var body: some View {
         List {
             Section("Proposal") {
+                Text(store.review.title)
+                    .font(.title3.weight(.semibold))
                 if let authorIdentity = store.authorIdentity {
                     ContributorActorIdentityRow(
                         identity: authorIdentity,
@@ -561,7 +602,14 @@ public struct WorkspaceReviewDetailView: View {
                 )
             }
 
-            operationSection
+            Section("Branches") {
+                WorkspaceBranchRelationshipView(
+                    source: store.review.sourceBranch ?? "Unavailable",
+                    target: store.review.targetBranch
+                )
+            }
+
+            actionsSection
 
             if let body = store.review.body, !body.isEmpty {
                 Section("Description") {
@@ -572,26 +620,6 @@ public struct WorkspaceReviewDetailView: View {
 
             semanticDiffSections
 
-            if case let .loaded(diff) = store.semanticDiffStatus,
-               !diff.sourceFileAttributions.isEmpty
-            {
-                Section("Source files") {
-                    ForEach(diff.sourceFileAttributions) { attribution in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(attribution.filePath)
-                                .monospaced()
-                            Text(
-                                attribution.recordChangeIDs.count == 1
-                                    ? "1 rendered change"
-                                    : "\(attribution.recordChangeIDs.count) rendered changes"
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
             if showsTechnicalDetails {
                 technicalSections
             }
@@ -600,39 +628,6 @@ public struct WorkspaceReviewDetailView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .portableSafeAreaTopInset(spacing: 0) {
-            VStack(spacing: 0) {
-                Button(store.operation == .merging ? "Merging changes" : "Merge changes") {
-                    store.send(.mergeButtonTapped)
-                }
-                .disabled(!store.canMerge || store.operation.isRunning)
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-
-                Divider()
-            }
-            .background(.background)
-        }
-        .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button("Close proposal", role: .destructive) {
-                        store.send(.closeButtonTapped)
-                    }
-                    .disabled(store.operation.isRunning)
-
-                    Button("Delete proposal permanently", role: .destructive) {
-                        isDeleteConfirmationPresented = true
-                    }
-                    .disabled(store.operation.isRunning)
-                } label: {
-                    Label("Proposal actions", systemImage: "ellipsis-horizontal")
-                }
-            }
-        }
         .confirmationDialog(
             "Delete this proposal permanently?",
             isPresented: $isDeleteConfirmationPresented,
@@ -648,27 +643,46 @@ public struct WorkspaceReviewDetailView: View {
     }
 
     @ViewBuilder
-    var operationSection: some View {
+    var actionsSection: some View {
         switch store.operation {
         case .closing:
-            Section { ProgressView("Closing proposal") }
+            Section("Actions") {
+                ProgressView("Closing proposal")
+                    .accessibilityIdentifier("workspace.proposal.close.progress")
+            }
         case .deleting:
-            Section { ProgressView("Deleting proposal") }
+            Section("Actions") {
+                ProgressView("Deleting proposal")
+                    .accessibilityIdentifier("workspace.proposal.delete.progress")
+            }
         case .merging:
-            Section { ProgressView("Applying changes") }
-        case let .failed(message):
-            Section {
-                Text("The proposal could not be updated")
-                    .foregroundStyle(.orange)
-                if showsTechnicalDetails {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .selectableText()
-                }
+            Section("Actions") {
+                ProgressView("Applying changes")
+                    .accessibilityIdentifier("workspace.proposal.merge.progress")
             }
         case .idle:
-            EmptyView()
+            Section("Actions") {
+                if store.canMerge {
+                    Button("Merge Changes") {
+                        store.send(.mergeButtonTapped)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("workspace.proposal.merge")
+
+                    Button("Close Proposal") {
+                        store.send(.closeButtonTapped)
+                    }
+                    .accessibilityIdentifier("workspace.proposal.close")
+
+                    Button("Delete Proposal Permanently", role: .destructive) {
+                        isDeleteConfirmationPresented = true
+                    }
+                    .accessibilityIdentifier("workspace.proposal.delete")
+                } else {
+                    Text("You can review this proposal, but only a workspace manager can change its state.")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -767,6 +781,29 @@ public struct WorkspaceReviewDetailView: View {
                     .monospaced()
                     .selectableText()
             }
+
+            if case let .loaded(diff) = store.semanticDiffStatus,
+               !diff.sourceFileAttributions.isEmpty
+            {
+                PortableDisclosureGroup("Source files") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(diff.sourceFileAttributions) { attribution in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(attribution.filePath)
+                                    .monospaced()
+                                Text(
+                                    attribution.recordChangeIDs.count == 1
+                                        ? "1 rendered change"
+                                        : "\(attribution.recordChangeIDs.count) rendered changes"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+            }
         }
 
         Section("Raw source diff") {
@@ -802,6 +839,27 @@ public struct WorkspaceReviewDetailView: View {
             }
         }
     }
+}
+
+extension UserFacingText {
+    static let workspaceReviewCloseFailed = Self(
+        "The proposal could not be closed.",
+        fallback: "The proposal could not be closed."
+    )
+    static let workspaceReviewDeleteFailed = Self(
+        "The proposal could not be deleted.",
+        fallback: "The proposal could not be deleted."
+    )
+    static let workspaceReviewMergeFailed = Self(
+        "The proposal could not be merged.",
+        fallback: "The proposal could not be merged."
+    )
+}
+
+extension ErrorOperation {
+    static let workspaceReviewClose = Self("workspace.review.close")
+    static let workspaceReviewDelete = Self("workspace.review.delete")
+    static let workspaceReviewMerge = Self("workspace.review.merge")
 }
 
 private extension WorkspaceReviewDetail.SemanticDiff {

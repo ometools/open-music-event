@@ -1,26 +1,26 @@
 import ATProto
 import BlueskyActorCache
 import ComposableArchitecture2
+import ComposableForms
 import Dependencies
+import ErrorHandling
 import Foundation
-import IssueReporting
 import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct WorkspaceCollaborators {
     public init() {}
 
-    @StoreTaskID var actorSearchTask
-
     public struct State {
-        public init(
-            workspace: SourceWorkspace,
-            role: OME.WorkspaceRole
-        ) {
+        public init(workspace: SourceWorkspace, role: OME.WorkspaceRole) {
             self.workspace = workspace
             self.role = role
             self._cachedActorIdentities = Fetch(
@@ -28,8 +28,7 @@ public struct WorkspaceCollaborators {
                 CachedActorIdentitiesRequest()
             )
             self._relationships = FetchAll(
-                WorkspaceRelationshipRecord
-                    .where { $0.id.workspaceID.eq(workspace.id) }
+                WorkspaceRelationshipRecord.where { $0.id.workspaceID.eq(workspace.id) }
             )
         }
 
@@ -39,311 +38,379 @@ public struct WorkspaceCollaborators {
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @FetchAll public var relationships: [WorkspaceRelationshipRecord]
-        public var actorQuery = ""
+        public var destination: Destination.State?
+
+        public var collaboratorActorReferences: [String] {
+            relationships.map { $0.id.actorID.description }.sorted()
+        }
+    }
+
+    public enum Action {
+        case addCollaboratorButtonTapped
+        case collaboratorButtonTapped(WorkspaceRelationshipRecord.ID)
+        case destination(Destination.Action)
+    }
+
+    @Feature
+    public enum Destination {
+        case collaboratorForm(WorkspaceCollaboratorForm)
+    }
+
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .addCollaboratorButtonTapped:
+                guard state.role.canManageCollaborators else { return }
+                state.destination = .collaboratorForm(
+                    WorkspaceCollaboratorForm.State(
+                        workspace: state.workspace,
+                        role: state.role
+                    )
+                )
+
+            case let .collaboratorButtonTapped(id):
+                guard state.role.canManageCollaborators,
+                      let relationship = state.relationships.first(where: { $0.id == id })
+                else { return }
+                state.destination = .collaboratorForm(
+                    WorkspaceCollaboratorForm.State(
+                        workspace: state.workspace,
+                        role: state.role,
+                        relationship: relationship
+                    )
+                )
+
+            case .destination:
+                break
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
+        .onMount { state in
+            refreshProfiles(state.collaboratorActorReferences)
+        }
+        .onChange(of: store.collaboratorActorReferences) { _, actors, _ in
+            refreshProfiles(actors)
+        }
+    }
+
+    func refreshProfiles(_ actors: [String]) {
+        guard !actors.isEmpty else { return }
+        let blueskyActorProfileCache = blueskyActorProfileCache
+        store.addTask {
+            for actor in actors {
+                do {
+                    _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                        actor,
+                        24 * 60 * 60,
+                        15 * 60
+                    )
+                } catch is CancellationError {
+                    return
+                } catch {
+                    continue
+                }
+            }
+        }
+    }
+}
+
+@Feature
+public struct WorkspaceCollaboratorForm {
+    public init() {}
+
+    @StoreTaskID var actorSearchTask
+
+    public struct FormValue: Equatable, Sendable {
+        public init(
+            actorQuery: String = "",
+            selectedActorIdentity: ActorIdentity? = nil,
+            canPropose: Bool = true,
+            canMerge: Bool = false
+        ) {
+            self.actorQuery = actorQuery
+            self.selectedActorIdentity = selectedActorIdentity
+            self.canPropose = canPropose
+            self.canMerge = canMerge
+        }
+
+        public var actorQuery: String
+        public var canMerge: Bool
+        public var canPropose: Bool
+        public var selectedActorIdentity: ActorIdentity?
+
+        public var trimmedActorQuery: String {
+            actorQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    public typealias FormFeature = ComposableForms.Form<FormValue>
+
+    public struct State {
+        public init(
+            workspace: SourceWorkspace,
+            role: OME.WorkspaceRole,
+            relationship: WorkspaceRelationshipRecord? = nil
+        ) {
+            self.workspace = workspace
+            self.role = role
+            self.relationship = relationship
+            let capabilities: Set<OME.WorkspaceRole.Capability>
+            if let relationship,
+               case let .collaborator(storedCapabilities) = relationship.relationship.workspaceRole
+            {
+                capabilities = storedCapabilities
+            } else {
+                capabilities = [.propose]
+            }
+            let identityQuery = relationship?.id.actorID.description ?? ""
+            self.form = FormFeature.State(
+                value: FormValue(
+                    actorQuery: identityQuery,
+                    canPropose: capabilities.contains(.propose),
+                    canMerge: capabilities.contains(.merge)
+                )
+            )
+        }
+
+        public let workspace: SourceWorkspace
+        public let role: OME.WorkspaceRole
+        public let relationship: WorkspaceRelationshipRecord?
+        public var form: FormFeature.State
         public var actorSearchFailures: [PredictiveSearchFailure] = []
         public var actorSearchIsLoading = false
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
-        public var draftCanPropose = true
-        public var draftCanMerge = false
-        public var errorMessage: String?
         public var isSaving = false
-        public var selectedActorIdentity: ActorIdentity?
+
+        public var isEditing: Bool { relationship != nil }
+        public var canSubmit: Bool { role.canManageCollaborators && !isSaving && form.canSubmit }
 
         mutating func resetActorSearch() {
             actorSearchFailures = []
             actorSearchIsLoading = false
             actorSearchSections = []
         }
-
-        public var collaboratorActorReferences: [String] {
-            relationships
-                .map { $0.id.actorID.description }
-                .sorted()
-        }
     }
 
     public enum Action {
-        case addButtonTapped
         case actorIdentityTapped(ActorIdentity)
         case actorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
+        case cancelButtonTapped
         case clearSelectedActorButtonTapped
-        case removeButtonTapped(WorkspaceRelationshipRecord.ID)
-        case toggleCapability(
-            WorkspaceRelationshipRecord.ID,
-            OME.WorkspaceRole.Capability
-        )
+        case form(FormFeature.Action)
+        case formSubmitted(FormValue)
+        case removeButtonTapped
+        case saveButtonTapped
     }
 
-    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
+        Scope(\.form, action: \.form) {
+            FormFeature()
+                .onSubmit { value in
+                    try store.send(.formSubmitted(value))
+                }
+        }
         Update { state, action in
             switch action {
-            case .addButtonTapped:
-                guard state.role.canManageCollaborators,
-                      !state.isSaving
-                else { return }
-                let query = state.actorQuery
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let selectedActorIdentity = state.selectedActorIdentity
-                guard selectedActorIdentity != nil || !query.isEmpty else {
-                    state.errorMessage = "Enter a collaborator handle or DID."
-                    return
-                }
-                let workspaceID = state.workspaceID
-                let workspaceOwnerID = state.workspace.organizerID
-                var capabilities: Set<OME.WorkspaceRole.Capability> = []
-                if state.draftCanPropose { capabilities.insert(.propose) }
-                if state.draftCanMerge { capabilities.insert(.merge) }
-                let database = database
-                let now = now
-                state.errorMessage = nil
-                state.isSaving = true
-                store.addTask {
-                    do {
-                        let identity: ActorIdentity
-                        if let selectedActorIdentity {
-                            identity = selectedActorIdentity
-                        } else {
-                            let response = await Self.exactActorSearch.search(query)
-                            guard let resolvedIdentity = response.results.first else {
-                                throw WorkspaceCollaboratorError.identityNotFound
-                            }
-                            identity = resolvedIdentity
-                        }
-                        guard identity.did != workspaceOwnerID else {
-                            throw WorkspaceCollaboratorError.ownerCannotBeCollaborator
-                        }
-                        let sourceRecord = OME.Relationship.RecordReference(
-                            author: workspaceOwnerID,
-                            collection: OME.SourceRecord.nsid,
-                            rkey: ATProto.Record.Key(
-                                rawValue: OME.SourceRecord.canonicalRecordKey
-                            )
-                        )
-                        let relationship = OME.Relationship(
-                            subject: .identity(
-                                did: identity.did,
-                                handle: identity.handle?.rawValue,
-                                displayName: identity.displayName
-                            ),
-                            role: .collaborator(capabilities),
-                            object: .record(sourceRecord),
-                            createdAt: ISO8601DateFormatter().string(from: now)
-                        )
-                        let record = WorkspaceRelationshipRecord(
-                            id: .init(
-                                workspaceID: workspaceID,
-                                actorID: identity.did
-                            ),
-                            recordKey: WorkspaceRelationshipRecord.recordKey(
-                                for: identity.did
-                            ),
-                            relationship: relationship
-                        )
-                        try await database.write { db in
-                            try WorkspaceRelationshipRecord.insert { record }.execute(db)
-                        }
-                        try store.modify {
-                            $0.actorQuery = ""
-                            $0.resetActorSearch()
-                            $0.draftCanPropose = true
-                            $0.draftCanMerge = false
-                            $0.errorMessage = nil
-                            $0.isSaving = false
-                            $0.selectedActorIdentity = nil
-                        }
-                    } catch {
-                        try store.modify {
-                            $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
-                            $0.isSaving = false
-                        }
-                        reportIssue(error)
-                    }
-                }
-
             case let .actorIdentityTapped(identity):
-                guard state.role.canManageCollaborators,
-                      !state.isSaving
-                else { return }
-                state.actorQuery = ""
+                guard !state.isEditing, !state.isSaving else { return }
+                state.form.value.selectedActorIdentity = identity
+                state.form.value.actorQuery = identity.handle?.rawValue ?? identity.did.description
                 state.resetActorSearch()
-                state.selectedActorIdentity = identity
 
             case let .actorSearchResponse(response):
-                guard response.query == state.actorQuery.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ) else { return }
+                guard response.query == state.form.value.trimmedActorQuery else { return }
                 state.actorSearchFailures = response.failures
                 state.actorSearchIsLoading = false
                 state.actorSearchSections = response.sections
 
-            case .clearSelectedActorButtonTapped:
+            case .cancelButtonTapped:
                 guard !state.isSaving else { return }
-                state.errorMessage = nil
-                state.selectedActorIdentity = nil
+                store.addTask { try store.dismiss() }
 
-            case let .removeButtonTapped(id):
-                guard state.role.canManageCollaborators,
-                      !state.isSaving
-                else { return }
+            case .clearSelectedActorButtonTapped:
+                guard !state.isEditing, !state.isSaving else { return }
+                state.form.value.actorQuery = ""
+                state.form.value.selectedActorIdentity = nil
+                state.resetActorSearch()
+
+            case .form:
+                break
+
+            case let .formSubmitted(value):
+                guard state.canSubmit else { return }
+                let workspace = state.workspace
+                let relationship = state.relationship
                 let database = database
-                state.errorMessage = nil
+                let now = now
                 state.isSaving = true
                 store.addTask {
-                    do {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: relationship == nil
+                            ? .workspaceCollaboratorAddFailed
+                            : .workspaceCollaboratorEditFailed,
+                        operation: relationship == nil
+                            ? .workspaceCollaboratorAdd
+                            : .workspaceCollaboratorEdit
+                    ) {
+                        let identity: ActorIdentity
+                        if let existing = relationship {
+                            identity = ActorIdentity(
+                                did: existing.id.actorID,
+                                source: .canonicalResolution
+                            )
+                        } else if let selected = value.selectedActorIdentity {
+                            identity = selected
+                        } else {
+                            let response = await Self.exactActorSearch.search(value.trimmedActorQuery)
+                            guard let resolved = response.results.first else {
+                                throw WorkspaceCollaboratorError.identityNotFound
+                            }
+                            identity = resolved
+                        }
+                        guard identity.did != workspace.organizerID else {
+                            throw WorkspaceCollaboratorError.ownerCannotBeCollaborator
+                        }
+
+                        var capabilities: Set<OME.WorkspaceRole.Capability> = []
+                        if value.canPropose { capabilities.insert(.propose) }
+                        if value.canMerge { capabilities.insert(.merge) }
+
+                        let record: WorkspaceRelationshipRecord
+                        if let existing = relationship {
+                            var updatedRelationship = existing.relationship
+                            updatedRelationship.role = .collaborator
+                            updatedRelationship.capabilities = capabilities.sorted {
+                                $0.rawValue < $1.rawValue
+                            }
+                            record = WorkspaceRelationshipRecord(
+                                id: existing.id,
+                                recordKey: existing.recordKey,
+                                relationship: updatedRelationship
+                            )
+                        } else {
+                            let sourceRecord = OME.Relationship.RecordReference(
+                                author: workspace.organizerID,
+                                collection: OME.SourceRecord.nsid,
+                                rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+                            )
+                            let newRelationship = OME.Relationship(
+                                subject: .identity(
+                                    did: identity.did,
+                                    handle: identity.handle?.rawValue,
+                                    displayName: identity.displayName
+                                ),
+                                role: .collaborator(capabilities),
+                                object: .record(sourceRecord),
+                                createdAt: ISO8601DateFormatter().string(from: now)
+                            )
+                            record = WorkspaceRelationshipRecord(
+                                id: .init(workspaceID: workspace.id, actorID: identity.did),
+                                recordKey: WorkspaceRelationshipRecord.recordKey(for: identity.did),
+                                relationship: newRelationship
+                            )
+                        }
+                        try await database.write { db in
+                            try WorkspaceRelationshipRecord.insert { record }.execute(db)
+                        }
+                    } cleanup: {
+                        $0.isSaving = false
+                    }
+                    guard result != nil else { return }
+                    try store.modify { $0.isSaving = false }
+                    try store.dismiss()
+                }
+
+            case .removeButtonTapped:
+                guard state.role.canManageCollaborators,
+                      !state.isSaving,
+                      let relationship = state.relationship
+                else { return }
+                let database = database
+                state.isSaving = true
+                store.addTask {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: .workspaceCollaboratorRemoveFailed,
+                        operation: .workspaceCollaboratorRemove
+                    ) {
                         try await database.write { db in
                             try WorkspaceRelationshipRecord
-                                .where { $0.id.workspaceID.eq(id.workspaceID) }
-                                .where { $0.id.actorID.eq(id.actorID) }
+                                .where { $0.id.workspaceID.eq(relationship.id.workspaceID) }
+                                .where { $0.id.actorID.eq(relationship.id.actorID) }
                                 .delete()
                                 .execute(db)
                         }
-                        try store.modify {
-                            $0.errorMessage = nil
-                            $0.isSaving = false
-                        }
-                    } catch {
-                        try store.modify {
-                            $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
-                            $0.isSaving = false
-                        }
-                        reportIssue(error)
+                    } cleanup: {
+                        $0.isSaving = false
                     }
+                    guard result != nil else { return }
+                    try store.modify { $0.isSaving = false }
+                    try store.dismiss()
                 }
 
-            case let .toggleCapability(id, capability):
-                guard state.role.canManageCollaborators,
-                      !state.isSaving,
-                      let stored = state.relationships.first(where: { $0.id == id }),
-                      case var .collaborator(capabilities) = stored.relationship.workspaceRole
-                else { return }
-                if capabilities.contains(capability) {
-                    capabilities.remove(capability)
-                } else {
-                    capabilities.insert(capability)
-                }
-                var relationship = stored.relationship
-                relationship.role = .collaborator
-                relationship.capabilities = capabilities.sorted { $0.rawValue < $1.rawValue }
-                let updated = WorkspaceRelationshipRecord(
-                    id: stored.id,
-                    recordKey: stored.recordKey,
-                    relationship: relationship
-                )
-                let database = database
-                state.errorMessage = nil
-                state.isSaving = true
-                store.addTask {
-                    do {
-                        try await database.write { db in
-                            try WorkspaceRelationshipRecord.insert { updated }.execute(db)
-                        }
-                        try store.modify {
-                            $0.errorMessage = nil
-                            $0.isSaving = false
-                        }
-                    } catch {
-                        try store.modify {
-                            $0.errorMessage = WorkspaceCollaboratorError.message(for: error)
-                            $0.isSaving = false
-                        }
-                        reportIssue(error)
-                    }
-                }
+            case .saveButtonTapped:
+                guard !state.isSaving else { return }
+                store.addTask { try store.send(.form(.submittedForm)) }
             }
         }
-        .onChange(of: store.actorQuery) { _, rawQuery, state in
+        .onChange(of: store.form.value.actorQuery) { _, rawQuery, state in
+            guard !state.isEditing else { return }
             let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            state.errorMessage = nil
-
             guard state.role.canManageCollaborators,
+                  state.form.value.selectedActorIdentity == nil,
                   query.count >= 2
             else {
                 state.resetActorSearch()
                 return
             }
-
             state.resetActorSearch()
             state.actorSearchIsLoading = true
-            state.selectedActorIdentity = nil
             store.addTask(id: actorSearchTask) {
                 let response = await Self.actorLookaheadSearch.search(query)
                 try Task.checkCancellation()
                 try store.send(.actorSearchResponse(response))
             }
         }
-        .onMount { state in
-            let actors = state.collaboratorActorReferences
-            guard !actors.isEmpty else { return }
-            let blueskyActorProfileCache = blueskyActorProfileCache
-            store.addTask {
-                for actor in actors {
-                    do {
-                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                            actor,
-                            24 * 60 * 60,
-                            15 * 60
-                        )
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                    }
-                }
-            }
-        }
-        .onChange(of: store.collaboratorActorReferences) { _, actors, _ in
-            guard !actors.isEmpty else { return }
-            let blueskyActorProfileCache = blueskyActorProfileCache
-            store.addTask {
-                for actor in actors {
-                    do {
-                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                            actor,
-                            24 * 60 * 60,
-                            15 * 60
-                        )
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                    }
-                }
-            }
-        }
     }
 
     static let actorLookaheadSearch = PredictiveSearch(
-        actorIdentitySources: [
-            .appBskyActorTypeahead(title: "Profiles", limit: 10),
-        ],
+        actorIdentitySources: [.appBskyActorTypeahead(title: "Profiles", limit: 10)],
         minimumQueryLength: 2
     )
 
     static let exactActorSearch = PredictiveSearch(
-        actorIdentitySources: [
-            .exactActorIdentityLookup(title: "Exact match"),
-        ],
+        actorIdentitySources: [.exactActorIdentityLookup(title: "Exact match")],
         minimumQueryLength: 2
     )
 }
 
-private enum WorkspaceCollaboratorError: Error {
-    case identityNotFound
-    case ownerCannotBeCollaborator
+enum WorkspaceCollaboratorFormFieldID {
+    static var actorQuery: AnyHashable {
+        AnyHashable(\WorkspaceCollaboratorForm.FormValue.actorQuery)
+    }
+}
 
-    static func message(for error: any Error) -> String {
-        if let error = error as? Self {
-            switch error {
-            case .identityNotFound:
-                return "No matching account was found."
-            case .ownerCannotBeCollaborator:
-                return "The workspace owner already has full access."
+extension WorkspaceCollaboratorForm.FormFeature {
+    init() {
+        self.init {
+            Self.Field(\.actorQuery) {
+                Validation(error: "Select or enter a collaborator.") { value in
+                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
             }
         }
-        return "Unable to update workspace collaborators."
     }
+}
+
+enum WorkspaceCollaboratorError: Error {
+    case identityNotFound
+    case ownerCannotBeCollaborator
 }
 
 public struct WorkspaceCollaboratorsView: View {
@@ -354,187 +421,67 @@ public struct WorkspaceCollaboratorsView: View {
     }
 
     public var body: some View {
-        List {
-            Section("Add collaborator") {
-                if let selectedActorIdentity = store.selectedActorIdentity {
-                    ContributorActorIdentityRow(
-                        identity: selectedActorIdentity,
-                        isSelected: true
-                    )
-
-                    Button("Clear selection") {
-                        store.send(.clearSelectedActorButtonTapped)
+        Group {
+            if store.role.canManageCollaborators {
+                Section {
+                    Button {
+                        store.send(.addCollaboratorButtonTapped)
+                    } label: {
+                        Label("Add Collaborator", systemImage: "people")
                     }
-                    .disabled(store.isSaving)
-                } else {
-                    TextField("Search profiles", text: $store.actorQuery)
-                        .autocorrectionDisabled()
-                        #if !os(macOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .onSubmit {
-                            store.send(.addButtonTapped)
-                        }
-
-                    if store.actorSearchIsLoading {
-                        ProgressView()
-                    }
-
-                    ForEach(store.actorSearchSections) { section in
-                        Text(section.title)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        ForEach(section.results) { identity in
-                            Button {
-                                store.send(.actorIdentityTapped(identity))
-                            } label: {
-                                ContributorActorIdentityRow(
-                                    identity: identity,
-                                    isSelected: false
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(store.isSaving)
-                        }
-                    }
-
-                    ForEach(store.actorSearchFailures, id: \.sourceID) { failure in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(failure.title)
-                            Text(failure.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Toggle("Can propose changes", isOn: $store.draftCanPropose)
-                Toggle("Can merge changes", isOn: $store.draftCanMerge)
-
-                Button {
-                    store.send(.addButtonTapped)
-                } label: {
-                    if store.isSaving {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Saving")
-                        }
-                    } else {
-                        Text("Add Collaborator")
-                    }
-                }
-                .disabled(store.isSaving)
-                if let errorMessage = store.errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    .accessibilityIdentifier("workspace.collaborator.add")
                 }
             }
 
             Section("Collaborators") {
                 if store.relationships.isEmpty {
-                    Text("No collaborators")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(store.relationships) { stored in
-                    WorkspaceCollaboratorRow(
-                        stored: stored,
-                        cachedIdentity: store.cachedActorIdentities[
-                            stored.id.actorID.description
-                        ],
-                        isDisabled: store.isSaving,
-                        toggleCapability: { capability in
-                            store.send(.toggleCapability(stored.id, capability))
-                        },
-                        remove: {
-                            store.send(.removeButtonTapped(stored.id))
-                        }
+                    ContentUnavailableView(
+                        "No Collaborators",
+                        systemImage: "people",
+                        description: Text("No one else has access to propose or merge workspace changes.")
                     )
+                }
+
+                ForEach(store.relationships) { stored in
+                    if store.role.canManageCollaborators {
+                        Button {
+                            store.send(.collaboratorButtonTapped(stored.id))
+                        } label: {
+                            WorkspaceCollaboratorRow(
+                                stored: stored,
+                                cachedIdentity: store.cachedActorIdentities[stored.id.actorID.description]
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(
+                            "workspace.collaborator.row.\(stored.id.actorID.description)"
+                        )
+                    } else {
+                        WorkspaceCollaboratorRow(
+                            stored: stored,
+                            cachedIdentity: store.cachedActorIdentities[stored.id.actorID.description]
+                        )
+                    }
                 }
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).collaboratorForm) {
+            formStore in
+            NavigationStack {
+                WorkspaceCollaboratorFormView(store: formStore)
+            }
+        }
     }
-
 }
 
 struct WorkspaceCollaboratorRow: View {
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    @State var isRemoveConfirmationPresented = false
-
     let stored: WorkspaceRelationshipRecord
     let cachedIdentity: ActorIdentity?
-    let isDisabled: Bool
-    let toggleCapability: (OME.WorkspaceRole.Capability) -> Void
-    let remove: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(identityTitle)
-                .font(.headline)
-            if let subtitle = identitySubtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            capabilityButton("Can propose changes", capability: .propose)
-            capabilityButton("Can merge changes", capability: .merge)
-
-            Button("Remove Collaborator", role: .destructive) {
-                isRemoveConfirmationPresented = true
-            }
-        }
-        .disabled(isDisabled)
-        .confirmationDialog(
-            "Remove this collaborator?",
-            isPresented: $isRemoveConfirmationPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Remove Collaborator", role: .destructive, action: remove)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "They will no longer be able to propose or merge changes in this workspace."
-            )
-        }
-    }
 
     var storedIdentity: OME.Relationship.IdentityReference? {
         guard case let .known(subject) = stored.relationship.subject else { return nil }
         return subject.identity
-    }
-
-    var identityTitle: String {
-        TechnicalDetails.identityTitle(
-            displayName: identityDisplayName,
-            handle: identityHandle,
-            technicalID: stored.id.actorID.description,
-            isVisible: showsTechnicalDetails
-        )
-    }
-
-    var identitySubtitle: String? {
-        TechnicalDetails.identitySubtitle(
-            displayName: identityDisplayName,
-            handle: identityHandle,
-            technicalID: stored.id.actorID.description,
-            isVisible: showsTechnicalDetails
-        )
-    }
-
-    var identityDisplayName: String? {
-        if let displayName = cachedIdentity?.displayName, !displayName.isEmpty {
-            return displayName
-        }
-        return storedIdentity?.displayName
-    }
-
-    var identityHandle: String? {
-        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty {
-            return handle
-        }
-        return storedIdentity?.handle
     }
 
     var capabilities: Set<OME.WorkspaceRole.Capability> {
@@ -544,20 +491,179 @@ struct WorkspaceCollaboratorRow: View {
         return capabilities
     }
 
-    func capabilityButton(
-        _ title: String,
-        capability: OME.WorkspaceRole.Capability
-    ) -> some View {
-        Button {
-            toggleCapability(capability)
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(capabilities.contains(capability) ? "Allowed" : "Not allowed")
+    var identityDisplayName: String? {
+        cachedIdentity?.displayName ?? storedIdentity?.displayName
+    }
+
+    var identityHandle: String? {
+        cachedIdentity?.handle?.rawValue ?? storedIdentity?.handle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(TechnicalDetails.identityTitle(
+                displayName: identityDisplayName,
+                handle: identityHandle,
+                technicalID: stored.id.actorID.description,
+                isVisible: showsTechnicalDetails
+            ))
+            .font(.headline)
+
+            if let subtitle = TechnicalDetails.identitySubtitle(
+                displayName: identityDisplayName,
+                handle: identityHandle,
+                technicalID: stored.id.actorID.description,
+                isVisible: showsTechnicalDetails
+            ) {
+                Text(subtitle)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Text(permissionSummary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 3)
     }
+
+    var permissionSummary: String {
+        switch (capabilities.contains(.propose), capabilities.contains(.merge)) {
+        case (true, true): "Can propose and merge changes"
+        case (true, false): "Can propose changes"
+        case (false, true): "Can merge changes"
+        case (false, false): "Read-only access"
+        }
+    }
+}
+
+public struct WorkspaceCollaboratorFormView: View {
+    @Bindable var store: StoreOf<WorkspaceCollaboratorForm>
+    @State var isRemoveConfirmationPresented = false
+
+    public init(store: StoreOf<WorkspaceCollaboratorForm>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Form {
+            Section("Collaborator") {
+                if store.isEditing, let relationship = store.relationship {
+                    Text(relationship.id.actorID.description)
+                        .textSelection(.enabled)
+                } else if let selected = store.form.value.selectedActorIdentity {
+                    ContributorActorIdentityRow(identity: selected, isSelected: true)
+                    Button("Choose a different profile") {
+                        store.send(.clearSelectedActorButtonTapped)
+                    }
+                    .disabled(store.isSaving)
+                } else {
+                    TextField("Search profiles", text: $store.form.value.actorQuery)
+                        .autocorrectionDisabled()
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .accessibilityIdentifier("workspace.collaborator.search")
+
+                    FormFieldValidationStatus(
+                        validation: store.form.validation[WorkspaceCollaboratorFormFieldID.actorQuery]
+                    )
+
+                    if store.actorSearchIsLoading {
+                        ProgressView("Searching")
+                    }
+                    ForEach(store.actorSearchSections) { section in
+                        Text(section.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(section.results) { identity in
+                            Button {
+                                store.send(.actorIdentityTapped(identity))
+                            } label: {
+                                ContributorActorIdentityRow(identity: identity, isSelected: false)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("workspace.collaborator.result.\(identity.did.description)")
+                        }
+                    }
+                    ForEach(store.actorSearchFailures, id: \.sourceID) { failure in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(failure.title)
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Permissions") {
+                Toggle("Can propose changes", isOn: $store.form.value.canPropose)
+                    .accessibilityIdentifier("workspace.collaborator.can-propose")
+                Toggle("Can merge changes", isOn: $store.form.value.canMerge)
+                    .accessibilityIdentifier("workspace.collaborator.can-merge")
+            }
+
+            if store.isEditing {
+                Section {
+                    Button("Remove Collaborator", role: .destructive) {
+                        isRemoveConfirmationPresented = true
+                    }
+                    .disabled(store.isSaving)
+                    .accessibilityIdentifier("workspace.collaborator.remove")
+                }
+            }
+        }
+        .disabled(store.isSaving)
+        .navigationTitle(store.isEditing ? "Edit Collaborator" : "Add Collaborator")
+        .interactiveDismissDisabled(store.isSaving)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { store.send(.cancelButtonTapped) }
+                    .disabled(store.isSaving)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
+                }
+                .accessibilityIdentifier("workspace.collaborator.save")
+            }
+        }
+        .confirmationDialog(
+            "Remove this collaborator?",
+            isPresented: $isRemoveConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Collaborator", role: .destructive) {
+                store.send(.removeButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("They will no longer be able to propose or merge changes in this workspace.")
+        }
+    }
+}
+
+extension UserFacingText {
+    static let workspaceCollaboratorAddFailed = Self(
+        "The collaborator could not be added.",
+        fallback: "The collaborator could not be added."
+    )
+    static let workspaceCollaboratorEditFailed = Self(
+        "The collaborator could not be updated.",
+        fallback: "The collaborator could not be updated."
+    )
+    static let workspaceCollaboratorRemoveFailed = Self(
+        "The collaborator could not be removed.",
+        fallback: "The collaborator could not be removed."
+    )
+}
+
+extension ErrorOperation {
+    static let workspaceCollaboratorAdd = Self("workspace.collaborator.add")
+    static let workspaceCollaboratorEdit = Self("workspace.collaborator.edit")
+    static let workspaceCollaboratorRemove = Self("workspace.collaborator.remove")
 }

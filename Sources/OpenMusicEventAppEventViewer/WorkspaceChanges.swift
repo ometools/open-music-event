@@ -2,8 +2,8 @@ import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
 import Dependencies
+import ErrorHandling
 import Foundation
-import IssueReporting
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
@@ -17,16 +17,7 @@ import SwiftUI
 public struct WorkspaceChanges {
     public init() {}
 
-    public enum PatchStatus: Equatable, Sendable {
-        case failed(String)
-        case generated(SourcePatch)
-        case generating
-        case needsGeneration
-        case notGenerated
-    }
-
     public enum ResetStatus: Equatable, Sendable {
-        case failed(String)
         case idle
         case resetting
     }
@@ -59,7 +50,6 @@ public struct WorkspaceChanges {
         @Fetch public var summary: SourceWorkspaceEditSummary
         @DebugSnapshotIgnored
         @Fetch public var openProposal: WorkspaceProposal?
-        public var patchStatus: PatchStatus = .notGenerated
         public var proposalDraft: WorkspaceProposalDraft.State?
         public var resetStatus: ResetStatus = .idle
 
@@ -71,9 +61,7 @@ public struct WorkspaceChanges {
         public var badgeCount: Int? { changeCount == 0 ? nil : changeCount }
 
         public var canInspectChanges: Bool {
-            guard case .available = summary.availability,
-                  patchStatus != .generating
-            else { return false }
+            guard case .available = summary.availability else { return false }
             return true
         }
 
@@ -83,7 +71,6 @@ public struct WorkspaceChanges {
     }
 
     public enum Action {
-        case checkChangesButtonTapped
         case proposalActionButtonTapped
         case proposalDraft(WorkspaceProposalDraft.Action)
         case resetChangesButtonTapped
@@ -91,8 +78,6 @@ public struct WorkspaceChanges {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
-    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
-    var patchGenerator
     @FeatureEnvironment(ComposableAuthoring.AuthoringContext<AuthoringGrant>.self)
     var authoring
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
@@ -101,27 +86,13 @@ public struct WorkspaceChanges {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .checkChangesButtonTapped:
-                guard state.canInspectChanges else { return }
-                let request = SourceWorkspacePatchRequest(workspace: state.workspace)
-                let patchGenerator = patchGenerator
-                state.patchStatus = .generating
-                store.addTask {
-                    do {
-                        let patch = try await patchGenerator.generate(request)
-                        try store.modify { $0.patchStatus = .generated(patch) }
-                    } catch {
-                        try store.modify { $0.patchStatus = .failed(String(describing: error)) }
-                        reportIssue(error)
-                    }
-                }
-
             case .proposalActionButtonTapped:
                 guard authoring.grant.wrappedValue?.access.canPropose == true,
                       state.changeCount > 0
                 else { return }
                 if state.openProposal == nil {
                     state.proposalDraft = WorkspaceProposalDraft.State(
+                        targetBranch: state.workspace.branch,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
@@ -143,19 +114,21 @@ public struct WorkspaceChanges {
                 let workspaceResetter = workspaceResetter
                 state.resetStatus = .resetting
                 store.addTask {
-                    do {
+                    let result: Void? = await store.withErrorHandling(
+                        fallbackMessage: .workspaceResetFailed,
+                        operation: .workspaceReset
+                    ) {
                         guard let referenceDatabase else {
                             throw EventWorkspaceResetError.workspaceNeedsPreparation(workspace.id)
                         }
                         try workspaceResetter.resetWorkspace(workspace, referenceDatabase)
-                        try store.modify {
-                            $0.resetStatus = .idle
-                            $0.patchStatus = .needsGeneration
-                            $0.proposalDraft = nil
-                        }
-                    } catch {
-                        try store.modify { $0.resetStatus = .failed(String(describing: error)) }
-                        reportIssue(error)
+                    } cleanup: {
+                        $0.resetStatus = .idle
+                    }
+                    guard result != nil else { return }
+                    try store.modify {
+                        $0.resetStatus = .idle
+                        $0.proposalDraft = nil
                     }
                 }
 
@@ -176,12 +149,6 @@ public struct WorkspaceChanges {
         }
         .onChange(of: store.summary) { oldSummary, summary, state in
             guard oldSummary != summary else { return }
-            switch state.patchStatus {
-            case .generated, .generating:
-                state.patchStatus = .needsGeneration
-            case .failed, .needsGeneration, .notGenerated:
-                break
-            }
             state.proposalDraft = nil
         }
     }
@@ -202,31 +169,34 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
-    let workspaceStatus: WorkspaceStatus?
+    let workspacePhase: WorkspacePhase<SourcePatch>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
     public init(
         store: StoreOf<WorkspaceChanges>,
-        workspaceStatus: WorkspaceStatus? = nil
+        workspacePhase: WorkspacePhase<SourcePatch>
     ) {
         self.store = store
-        self.workspaceStatus = workspaceStatus
+        self.workspacePhase = workspacePhase
     }
 
     public var body: some View {
-        List {
+        Group {
             switch store.summary.availability {
             case .available:
                 SourceChangeSummarySection(
                     groups: store.summary.groups,
                     fieldComparisons: store.summary.fieldComparisons,
-                    recordComparisons: store.summary.recordComparisons
+                    recordComparisons: store.summary.recordComparisons,
+                    emptyMessage: workspacePhase.proposal == nil
+                        ? "No local changes."
+                        : "No newer changes are waiting to be added to this proposal."
                 )
 
             case .workspaceNeedsPreparation:
                 Section("What changed") {
-                    if case .activity(.preparingSource)? = workspaceStatus {
+                    if case .preparingSource = workspacePhase {
                         HStack(spacing: 10) {
                             ProgressView()
                             VStack(alignment: .leading, spacing: 2) {
@@ -265,13 +235,11 @@ public struct WorkspaceChangesView: View {
                         isResetConfirmationPresented = true
                     }
                     .disabled(!store.canResetChanges)
+                    .accessibilityIdentifier("workspace.changes.reset")
 
                     switch store.resetStatus {
                     case .resetting:
                         ProgressView("Resetting changes")
-                    case let .failed(message):
-                        Text(showsTechnicalDetails ? message : "Changes could not be reset")
-                            .foregroundStyle(.secondary)
                     case .idle:
                         EmptyView()
                     }
@@ -279,7 +247,10 @@ public struct WorkspaceChangesView: View {
             }
         }
         .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
-            WorkspaceProposalDraftView(store: draftStore)
+            WorkspaceProposalDraftView(
+                store: draftStore,
+                workspacePhase: workspacePhase
+            )
         }
         .alert("Reset all source changes?", isPresented: $isResetConfirmationPresented) {
             Button("Reset", role: .destructive) {
@@ -290,4 +261,15 @@ public struct WorkspaceChangesView: View {
             Text("This restores every record owned by this organization source to its reference copy.")
         }
     }
+}
+
+extension UserFacingText {
+    static let workspaceResetFailed = Self(
+        "Changes could not be reset.",
+        fallback: "Changes could not be reset."
+    )
+}
+
+extension ErrorOperation {
+    static let workspaceReset = Self("workspace.reset")
 }

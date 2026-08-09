@@ -780,6 +780,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
+        resources: [.process("Resources")],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
     .target(

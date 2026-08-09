@@ -978,6 +978,8 @@ public struct EventViewer {
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
+                    state.eventWorkspace?.changes.proposalDraft = nil
+                    state.eventWorkspace?.selectedPage = .proposals
                     state.eventWorkspace?.reviews.pendingCreatedReviewID = proposal.id.rawValue
                     store.addTask {
                         try store.send(

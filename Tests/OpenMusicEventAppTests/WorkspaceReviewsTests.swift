@@ -93,10 +93,18 @@ struct WorkspaceReviewsTests {
         let workspace = try workspace()
         let review = review()
         let deletedReviewIDs = LockIsolated<[String]>([])
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(
+                actorID: try #require(DID(workspace.organizerID.description))
+            ),
+            role: .owner,
+            workspaceID: workspace.id
+        )
         let store = makeStore(
             database: database,
             workspace: workspace,
             review: review,
+            grant: grant,
             delete: { review in
                 deletedReviewIDs.withValue { $0.append(review.id) }
             }
@@ -120,6 +128,67 @@ struct WorkspaceReviewsTests {
         #expect(store.reviews.isEmpty)
     }
 
+    @Test
+    func pendingCreatedProposalNavigatesWhenTheReviewAppears() throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let review = review()
+        withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            var state = WorkspaceReviews.State(workspace: workspace)
+            state.pendingCreatedReviewID = review.id
+            state.status = .loaded([review])
+
+            state.openPendingReviewIfAvailable()
+
+            expectNoDifference(state.pendingCreatedReviewID, nil)
+            guard case let .reviewDetail(detail)? = state.destination else {
+                Issue.record("The hydrated pending proposal must open its detail.")
+                return
+            }
+            expectNoDifference(detail.review, review)
+            expectNoDifference(detail.workspace, workspace)
+        }
+    }
+
+    @Test
+    func proposerCannotMutateAReviewThroughDirectReducerActions() async throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let review = review()
+        let mutations = LockIsolated<[String]>([])
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(actorID: try #require(DID("did:plc:proposer"))),
+            role: .collaborator([.propose]),
+            workspaceID: workspace.id
+        )
+        let store = makeStore(
+            database: database,
+            workspace: workspace,
+            review: review,
+            grant: grant,
+            merge: { _ in mutations.withValue { $0.append("merge") } },
+            delete: { _ in mutations.withValue { $0.append("delete") } },
+            close: { _ in mutations.withValue { $0.append("close") } }
+        )
+
+        try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
+            await store.send(.reviewButtonTapped(review))?.value
+            await waitUntil {
+                guard case let .reviewDetail(detail)? = store.destination else { return false }
+                guard case .failed = detail.semanticDiffStatus else { return false }
+                return detail.canMerge == false
+            }
+        }
+
+        await store.send(.destination(.reviewDetail(.mergeButtonTapped)))?.value
+        await store.send(.destination(.reviewDetail(.closeButtonTapped)))?.value
+        await store.send(.destination(.reviewDetail(.deleteButtonTapped)))?.value
+        #expect(mutations.value.isEmpty)
+        #expect(store.destination != nil)
+    }
+
     func makeStore(
         database: any DatabaseWriter,
         workspace: SourceWorkspace,
@@ -129,6 +198,7 @@ struct WorkspaceReviewsTests {
             OpenMusicEventTangledPullReviewMergeRequest
         ) async throws -> Void = { _ in },
         delete: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
+        close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
         sourceSnapshotRequests: LockIsolated<[TangledPullReviewSourceSnapshotRequest]>? = nil
     ) -> StoreOf<WorkspaceReviews> {
         return withDependencies {
@@ -141,6 +211,7 @@ struct WorkspaceReviewsTests {
             )
             $0.tangledPullReviewClient = TangledPullReviewClient(
                 list: { _ in [review] },
+                close: close,
                 merge: merge,
                 delete: delete,
                 rawDiff: { _ in "Rendered remote patch" }
