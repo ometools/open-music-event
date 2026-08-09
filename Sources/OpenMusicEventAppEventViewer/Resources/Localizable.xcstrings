@@ -1,181 +1,1343 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Actions" : {},
-    "Add Collaborator" : {},
-    "Added records" : {},
-    "Added" : {},
-    "After" : {},
-    "Applying changes" : {},
-    "Author ID" : {},
-    "Before" : {},
-    "Biography" : {},
-    "Blob ID" : {},
-    "Branch" : {},
-    "Branches" : {},
-    "Can merge changes" : {},
-    "Can propose and merge changes" : {},
-    "Can propose changes" : {},
-    "Cancel" : {},
-    "Change location cannot currently be calculated." : {},
-    "Change location will be available after the workspace is prepared." : {},
-    "Changes could not be reset." : {},
-    "Changes couldn’t be compared" : {},
-    "Changes" : {},
-    "Choose a different profile" : {},
-    "Close Proposal" : {},
-    "Closing proposal" : {},
-    "Collaborator" : {},
-    "Collaborators" : {},
-    "Configured branch" : {},
-    "Contact numbers" : {},
-    "Continue editing. There are no local changes waiting to be proposed." : {},
-    "Contributor" : {},
-    "Create Proposal" : {},
-    "Created at" : {},
-    "Default notifications" : {},
-    "Delete Proposal Permanently" : {},
-    "Delete Proposal" : {},
-    "Delete this proposal permanently?" : {},
-    "Deleted records" : {},
-    "Deleted" : {},
-    "Deleting proposal" : {},
-    "Description (optional)" : {},
-    "Description" : {},
-    "Diagnostic" : {},
-    "Discussion" : {},
-    "Edit Collaborator" : {},
-    "Editing line" : {},
-    "Empty" : {},
-    "End date" : {},
-    "End time" : {},
-    "Enter a proposal title." : {},
-    "Enter authoring to prepare this workspace." : {},
-    "Event" : {},
-    "Exact match" : {},
-    "Finalizing the local reference" : {},
-    "Header image" : {},
-    "Icon image" : {},
-    "Icon shortcode" : {},
-    "Links" : {},
-    "Load raw source changes" : {},
-    "Loading proposals" : {},
-    "Loading raw source changes" : {},
-    "Media type" : {},
-    "Merge Changes" : {},
-    "Modified records" : {},
-    "Modified" : {},
-    "Newer local changes are waiting, but you do not have permission to update this proposal." : {},
-    "No Collaborators" : {},
-    "No changes are waiting to be proposed." : {},
-    "No changes" : {},
-    "No local changes." : {},
-    "No newer changes are waiting to be added to this proposal." : {},
-    "No one else has access to propose or merge workspace changes." : {},
-    "No open proposals" : {},
-    "No patch metadata" : {},
-    "No raw source changes" : {},
-    "Not set" : {},
-    "Notifications required" : {},
-    "Open proposal" : {},
-    "Open proposals" : {},
-    "Opening your new proposal" : {},
-    "Organization" : {},
-    "Patch metadata" : {},
-    "Permissions" : {},
-    "Preparing proposal" : {},
-    "Preparing workspace" : {},
-    "Previously submitted changes are in the open proposal." : {},
-    "Profile unavailable" : {},
-    "Profiles" : {},
-    "Proposal branch" : {},
-    "Proposal changes could not be rendered" : {},
-    "Proposal publication is unavailable. Your local changes are preserved." : {},
-    "Proposal publication stopped. Your local changes are preserved." : {},
-    "Proposal" : {},
-    "Proposals could not be loaded" : {},
-    "Proposals have not been loaded" : {},
-    "Proposals" : {},
-    "Proposes changes to" : {},
-    "Publication" : {},
-    "Raw record diff" : {},
-    "Raw review" : {},
-    "Raw source changes could not be loaded" : {},
-    "Raw source diff" : {},
-    "Read-only access" : {},
-    "Recording the proposal" : {},
-    "Refresh proposals" : {},
-    "Refreshing workspace" : {},
-    "Remove Collaborator" : {},
-    "Remove this collaborator?" : {},
-    "Removed" : {},
-    "Render proposal changes" : {},
-    "Rendering proposal changes" : {},
-    "Reporting links" : {},
-    "Repository" : {},
-    "Reset all source changes?" : {},
-    "Reset changes" : {},
-    "Reset" : {},
-    "Resetting changes" : {},
-    "Review URI" : {},
-    "Saving changes to the proposal branch" : {},
-    "Search profiles" : {},
-    "Searching" : {},
-    "Select or enter a collaborator." : {},
-    "Size" : {},
-    "Source branch" : {},
-    "Source details" : {},
-    "Source files" : {},
-    "Source record" : {},
-    "Source repository ID" : {},
-    "Stage categories" : {},
-    "Start date" : {},
-    "Start time" : {},
-    "State" : {},
-    "Submitted by" : {},
-    "Submitted" : {},
-    "System icon" : {},
-    "Target branch" : {},
-    "Target repository ID" : {},
-    "Targets" : {},
-    "Technical Details" : {},
-    "Technical details changed" : {},
-    "Technical details" : {},
-    "The collaborator could not be added." : {},
-    "The collaborator could not be removed." : {},
-    "The collaborator could not be updated." : {},
-    "The proposal could not be closed." : {},
-    "The proposal could not be deleted." : {},
-    "The proposal could not be merged." : {},
-    "The proposal does not identify a source branch." : {},
-    "The workspace changed while you were editing. Publication is unavailable until it is refreshed." : {},
-    "The workspace source does not match the app’s data model." : {},
-    "They will no longer be able to propose or merge changes in this workspace." : {},
-    "This cannot be undone." : {},
-    "This restores every record owned by this organization source to its reference copy." : {},
-    "This workspace is configured for the following branch, but it is not currently prepared." : {},
-    "Time zone" : {},
-    "Title" : {},
-    "Try Again" : {},
-    "Unavailable" : {},
-    "Unknown" : {},
-    "Update Proposal" : {},
-    "View Proposal" : {},
-    "Waiting for it to appear in the proposal list." : {},
-    "What changed" : {},
-    "What should I do next?" : {},
-    "Where are my changes?" : {},
-    "Workspace overview" : {},
-    "Workspace preparation stopped, so changes cannot currently be compared." : {},
-    "Workspace refresh stopped. The last known editing line and your local changes are preserved." : {},
-    "Workspace section" : {},
-    "Workspace source unavailable" : {},
-    "Workspace" : {},
-    "You are building on an open proposal." : {},
-    "You are building on the organizer’s canonical line." : {},
-    "You can review this proposal, but only a workspace manager can change its state." : {},
-    "Your changes will appear here when the source is ready." : {},
-    "Your local changes are waiting, but you do not have permission to create a proposal." : {}
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
+          }
+        }
+      }
+    },
+    "%lld changes" : {
+
+    },
+    "%lld comments" : {
+
+    },
+    "%lld local changes have not been proposed." : {
+
+    },
+    "%lld newer local changes are waiting to be added." : {
+
+    },
+    "%lld rendered changes" : {
+
+    },
+    "1 change" : {
+
+    },
+    "1 comment" : {
+
+    },
+    "1 local change has not been proposed." : {
+
+    },
+    "1 newer local change is waiting to be added." : {
+
+    },
+    "1 rendered change" : {
+
+    },
+    "About" : {
+
+    },
+    "About OpenMusicEvent" : {
+
+    },
+    "Account" : {
+
+    },
+    "Actions" : {
+
+    },
+    "Add" : {
+
+    },
+    "Add %@ reaction" : {
+
+    },
+    "Add Channel" : {
+
+    },
+    "Add Collaborator" : {
+
+    },
+    "Add Contact Number" : {
+
+    },
+    "Add Contributor" : {
+
+    },
+    "Add Event Stage" : {
+
+    },
+    "Add Link" : {
+
+    },
+    "Add Location" : {
+
+    },
+    "Add Performance" : {
+
+    },
+    "Add Posters" : {
+
+    },
+    "Add Reporting Link" : {
+
+    },
+    "Add Schedule" : {
+
+    },
+    "Add Stage" : {
+
+    },
+    "Add to a new schedule" : {
+
+    },
+    "Added" : {
+
+    },
+    "Added records" : {
+
+    },
+    "After" : {
+
+    },
+    "An open-source app for discovering, following, and contributing to music events." : {
+
+    },
+    "Any" : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Apple Maps" : {
+
+    },
+    "Apple Maps Link" : {
+
+    },
+    "Applying changes" : {
+
+    },
+    "Artist Set" : {
+
+    },
+    "AT Protocol records, public feedback, and source proposals become public only when you explicitly submit them. Local drafts and saved schedules are not published automatically." : {
+
+    },
+    "At the stages" : {
+
+    },
+    "ATProto Identity" : {
+
+    },
+    "Attributed by openmusicevent.app" : {
+
+    },
+    "Author ID" : {
+
+    },
+    "Authoring" : {
+
+    },
+    "Authorizing source access" : {
+
+    },
+    "Auto" : {
+
+    },
+    "Before" : {
+
+    },
+    "Bio" : {
+
+    },
+    "Biography" : {
+
+    },
+    "Blob ID" : {
+
+    },
+    "Bluesky Actor Profile" : {
+
+    },
+    "Branch" : {
+
+    },
+    "Branches" : {
+
+    },
+    "Calendar" : {
+
+    },
+    "Can merge changes" : {
+
+    },
+    "Can propose and merge changes" : {
+
+    },
+    "Can propose changes" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Category" : {
+
+    },
+    "Change location cannot currently be calculated." : {
+
+    },
+    "Change location will be available after the workspace is prepared." : {
+
+    },
+    "Changes" : {
+
+    },
+    "Changes could not be reset." : {
+
+    },
+    "Changes couldn’t be compared" : {
+
+    },
+    "Channel" : {
+
+    },
+    "Channel actions" : {
+
+    },
+    "Channels" : {
+
+    },
+    "Check back for times and stages." : {
+
+    },
+    "Choose a different profile" : {
+
+    },
+    "Choose another emoji reaction" : {
+
+    },
+    "Choose Files" : {
+
+    },
+    "Choose Photos" : {
+
+    },
+    "Clear" : {
+
+    },
+    "Clear Dates" : {
+
+    },
+    "Clear Focus" : {
+
+    },
+    "Close" : {
+
+    },
+    "Close Proposal" : {
+
+    },
+    "Closing proposal" : {
+
+    },
+    "Collaborator" : {
+
+    },
+    "Collaborators" : {
+
+    },
+    "Comms" : {
+
+    },
+    "Configured branch" : {
+
+    },
+    "Contact Info" : {
+
+    },
+    "Contact numbers" : {
+
+    },
+    "Contact Numbers" : {
+
+    },
+    "Continue editing. There are no local changes waiting to be proposed." : {
+
+    },
+    "Contributor" : {
+
+    },
+    "Contributor Listing" : {
+
+    },
+    "Contributor Profiles" : {
+
+    },
+    "Contributor unavailable" : {
+
+    },
+    "Contributors" : {
+
+    },
+    "Coordinates" : {
+
+    },
+    "Create a schedule for the performances you do not want to miss." : {
+
+    },
+    "Create Proposal" : {
+
+    },
+    "Create/reuse contributor" : {
+
+    },
+    "Created at" : {
+
+    },
+    "Current" : {
+
+    },
+    "Current DID" : {
+
+    },
+    "Custom Mode" : {
+
+    },
+    "Custom Role" : {
+
+    },
+    "Custom Status" : {
+
+    },
+    "Date" : {
+
+    },
+    "Dates" : {
+
+    },
+    "Default" : {
+
+    },
+    "Default notifications" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete Channel" : {
+
+    },
+    "Delete Channel?" : {
+
+    },
+    "Delete Performance" : {
+
+    },
+    "Delete Performance?" : {
+
+    },
+    "Delete Poster" : {
+
+    },
+    "Delete Poster?" : {
+
+    },
+    "Delete Proposal" : {
+
+    },
+    "Delete Proposal Permanently" : {
+
+    },
+    "Delete Schedule" : {
+
+    },
+    "Delete Schedule?" : {
+
+    },
+    "Delete this proposal permanently?" : {
+
+    },
+    "Deleted" : {
+
+    },
+    "Deleted records" : {
+
+    },
+    "Deleting proposal" : {
+
+    },
+    "Description" : {
+
+    },
+    "Description (optional)" : {
+
+    },
+    "Details" : {
+
+    },
+    "Developer profile unavailable" : {
+
+    },
+    "Diagnostic" : {
+
+    },
+    "Directions" : {
+
+    },
+    "Discussion" : {
+
+    },
+    "Display" : {
+
+    },
+    "Don't Notify Me For New Posts" : {
+
+    },
+    "Edit" : {
+
+    },
+    "Edit Channel" : {
+
+    },
+    "Edit Collaborator" : {
+
+    },
+    "Edit Contact Info" : {
+
+    },
+    "Edit Event Info" : {
+
+    },
+    "Edit Location" : {
+
+    },
+    "Edit Performance" : {
+
+    },
+    "Editing line" : {
+
+    },
+    "Editor" : {
+
+    },
+    "Emoji" : {
+
+    },
+    "Emoji reaction" : {
+
+    },
+    "Empty" : {
+
+    },
+    "End date" : {
+
+    },
+    "End time" : {
+
+    },
+    "Enter a proposal title." : {
+
+    },
+    "Enter Authoring" : {
+
+    },
+    "Enter authoring to prepare this workspace." : {
+
+    },
+    "Enter one emoji." : {
+
+    },
+    "Error Handling" : {
+
+    },
+    "Event" : {
+
+    },
+    "Event Name" : {
+
+    },
+    "Event Policies" : {
+
+    },
+    "Event Settings" : {
+
+    },
+    "Event Stage" : {
+
+    },
+    "Exact match" : {
+
+    },
+    "Exit" : {
+
+    },
+    "Exit Authoring" : {
+
+    },
+    "Exiting authoring" : {
+
+    },
+    "Explore" : {
+
+    },
+    "Finalizing the local reference" : {
+
+    },
+    "Focus" : {
+
+    },
+    "From Other Event" : {
+
+    },
+    "Google Maps" : {
+
+    },
+    "Google Maps Link" : {
+
+    },
+    "Has recordings" : {
+
+    },
+    "Header image" : {
+
+    },
+    "Icon" : {
+
+    },
+    "Icon image" : {
+
+    },
+    "Icon shortcode" : {
+
+    },
+    "Image" : {
+
+    },
+    "Image Info" : {
+
+    },
+    "Images" : {
+
+    },
+    "Import" : {
+
+    },
+    "Latitude" : {
+
+    },
+    "Lineup" : {
+
+    },
+    "Link" : {
+
+    },
+    "Link identity only" : {
+
+    },
+    "Links" : {
+
+    },
+    "Listing" : {
+
+    },
+    "Load raw source changes" : {
+
+    },
+    "Loading contributors…" : {
+
+    },
+    "Loading proposals" : {
+
+    },
+    "Loading raw source changes" : {
+
+    },
+    "Local events, saved attendee state, preferences, caches, and unpublished workspaces stay on this device. Account credentials use platform-protected storage." : {
+
+    },
+    "Location" : {
+
+    },
+    "Location %lld" : {
+
+    },
+    "Longitude" : {
+
+    },
+    "Look up exact account" : {
+
+    },
+    "Look up exact handle or DID" : {
+
+    },
+    "Markdown is saved as entered. Use Preview to see the published post." : {
+
+    },
+    "Media type" : {
+
+    },
+    "Merge Changes" : {
+
+    },
+    "Mode" : {
+
+    },
+    "Modified" : {
+
+    },
+    "Modified records" : {
+
+    },
+    "Name" : {
+
+    },
+    "New Channel" : {
+
+    },
+    "New Post" : {
+
+    },
+    "New Schedule" : {
+
+    },
+    "Newer local changes are waiting, but you do not have permission to update this proposal." : {
+
+    },
+    "No changes" : {
+
+    },
+    "No changes are waiting to be proposed." : {
+
+    },
+    "No Collaborators" : {
+
+    },
+    "No communication channels have been added to this event yet." : {
+
+    },
+    "No contact information has been added to this event yet." : {
+
+    },
+    "No contributors have been added to this event yet." : {
+
+    },
+    "No contributors match your search." : {
+
+    },
+    "No developer profile is currently published." : {
+
+    },
+    "No Events" : {
+
+    },
+    "No local changes." : {
+
+    },
+    "No locations have been added to this event yet." : {
+
+    },
+    "No newer changes are waiting to be added to this proposal." : {
+
+    },
+    "No notification settings are available for this event yet." : {
+
+    },
+    "No one else has access to propose or merge workspace changes." : {
+
+    },
+    "No open proposals" : {
+
+    },
+    "No patch metadata" : {
+
+    },
+    "No Personal Schedules" : {
+
+    },
+    "No posters have been added to this event yet." : {
+
+    },
+    "No raw source changes" : {
+
+    },
+    "No Results" : {
+
+    },
+    "No role" : {
+
+    },
+    "No site map has been added to this event yet." : {
+
+    },
+    "No stages have been added to this event yet." : {
+
+    },
+    "No stages match your search." : {
+
+    },
+    "Not set" : {
+
+    },
+    "Notifications" : {
+
+    },
+    "Notifications are required" : {
+
+    },
+    "Notifications are required for this channel." : {
+
+    },
+    "Notifications enabled" : {
+
+    },
+    "Notifications required" : {
+
+    },
+    "Notify Me For New Posts" : {
+
+    },
+    "Notify people by default" : {
+
+    },
+    "Now" : {
+
+    },
+    "Open proposal" : {
+
+    },
+    "Open proposals" : {
+
+    },
+    "Opening your new proposal" : {
+
+    },
+    "OpenMusicEvent" : {
+
+    },
+    "OpenMusicEvent and the Atmosphere" : {
+
+    },
+    "OpenMusicEvent asks for an account only when an action needs your identity, such as publishing, collaborating, or participating in public feedback." : {
+
+    },
+    "OpenMusicEvent is open source. You can inspect the app's source code from the link below." : {
+
+    },
+    "OpenMusicEvent uses the open AT Protocol. Your account is a portable identity that can work across compatible apps, while public event information remains available without signing in." : {
+
+    },
+    "Opens %@ in a browser." : {
+
+    },
+    "Options" : {
+
+    },
+    "Organization" : {
+
+    },
+    "Other reaction" : {
+
+    },
+    "Other Reaction" : {
+
+    },
+    "Patch metadata" : {
+
+    },
+    "People can choose whether to receive notifications from this channel." : {
+
+    },
+    "People cannot turn off notifications for this channel." : {
+
+    },
+    "Performance" : {
+
+    },
+    "Performance unavailable" : {
+
+    },
+    "performer" : {
+
+    },
+    "Permissions" : {
+
+    },
+    "Personal schedules" : {
+
+    },
+    "Personal Schedules" : {
+
+    },
+    "Phone Number" : {
+
+    },
+    "Pinned Posts" : {
+
+    },
+    "Platform" : {
+
+    },
+    "Point" : {
+
+    },
+    "Policies" : {
+
+    },
+    "Post" : {
+
+    },
+    "Poster" : {
+
+    },
+    "Posters" : {
+
+    },
+    "Preparing proposal" : {
+
+    },
+    "Preparing workspace" : {
+
+    },
+    "Preview" : {
+
+    },
+    "Previously submitted changes are in the open proposal." : {
+
+    },
+    "Primary" : {
+
+    },
+    "Primary contributor" : {
+
+    },
+    "Profile" : {
+
+    },
+    "Profile unavailable" : {
+
+    },
+    "Profiles" : {
+
+    },
+    "Project" : {
+
+    },
+    "Proposal" : {
+
+    },
+    "Proposal branch" : {
+
+    },
+    "Proposal changes could not be rendered" : {
+
+    },
+    "Proposal publication is unavailable. Your local changes are preserved." : {
+
+    },
+    "Proposal publication stopped. Your local changes are preserved." : {
+
+    },
+    "Proposals" : {
+
+    },
+    "Proposals could not be loaded" : {
+
+    },
+    "Proposals have not been loaded" : {
+
+    },
+    "Proposes changes to" : {
+
+    },
+    "Publication" : {
+
+    },
+    "Raw record diff" : {
+
+    },
+    "Raw review" : {
+
+    },
+    "Raw source changes could not be loaded" : {
+
+    },
+    "Raw source diff" : {
+
+    },
+    "Reactions" : {
+
+    },
+    "Read-only access" : {
+
+    },
+    "Recent Posts" : {
+
+    },
+    "Recording" : {
+
+    },
+    "Recording the proposal" : {
+
+    },
+    "Recordings" : {
+
+    },
+    "Refresh proposals" : {
+
+    },
+    "Refreshing workspace" : {
+
+    },
+    "Remove %@ reaction" : {
+
+    },
+    "Remove as primary" : {
+
+    },
+    "Remove Collaborator" : {
+
+    },
+    "Remove Contact Number" : {
+
+    },
+    "Remove Image" : {
+
+    },
+    "Remove Link" : {
+
+    },
+    "Remove Location" : {
+
+    },
+    "Remove Reporting Link" : {
+
+    },
+    "Remove this collaborator?" : {
+
+    },
+    "Remove Unavailable Performances" : {
+
+    },
+    "Remove Unavailable Performances?" : {
+
+    },
+    "Removed" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Render" : {
+
+    },
+    "Render proposal changes" : {
+
+    },
+    "Rendering proposal changes" : {
+
+    },
+    "Reporting" : {
+
+    },
+    "Reporting Link" : {
+
+    },
+    "Reporting links" : {
+
+    },
+    "Repository" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Reset all source changes?" : {
+
+    },
+    "Reset changes" : {
+
+    },
+    "Resetting changes" : {
+
+    },
+    "Restoring source access" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Review URI" : {
+
+    },
+    "Role" : {
+
+    },
+    "Round %lld" : {
+
+    },
+    "Save" : {
+
+    },
+    "Saving changes to the proposal branch" : {
+
+    },
+    "Scan to join the TestFlight" : {
+
+    },
+    "Schedule" : {
+
+    },
+    "Schedule actions" : {
+
+    },
+    "Schedule filter, %@" : {
+
+    },
+    "Schedule Name" : {
+
+    },
+    "Schedules" : {
+
+    },
+    "Schedules…" : {
+
+    },
+    "Search" : {
+
+    },
+    "Search Contributors" : {
+
+    },
+    "Search or add contributor" : {
+
+    },
+    "Search profiles" : {
+
+    },
+    "Search Stages" : {
+
+    },
+    "Search this event" : {
+
+    },
+    "Searching" : {
+
+    },
+    "Select or enter a collaborator." : {
+
+    },
+    "Selected" : {
+
+    },
+    "Selected schedule" : {
+
+    },
+    "Send Test Error" : {
+
+    },
+    "Set as primary" : {
+
+    },
+    "SF Symbol" : {
+
+    },
+    "Share" : {
+
+    },
+    "Short Code" : {
+
+    },
+    "Show Stage Labels" : {
+
+    },
+    "Site Map" : {
+
+    },
+    "Size" : {
+
+    },
+    "Sort Index" : {
+
+    },
+    "Source" : {
+
+    },
+    "Source branch" : {
+
+    },
+    "Source details" : {
+
+    },
+    "Source File" : {
+
+    },
+    "Source files" : {
+
+    },
+    "Source record" : {
+
+    },
+    "Source repository ID" : {
+
+    },
+    "Stage" : {
+
+    },
+    "Stage categories" : {
+
+    },
+    "Stage Color" : {
+
+    },
+    "Stage Lineups" : {
+
+    },
+    "Stage unavailable" : {
+
+    },
+    "Stages" : {
+
+    },
+    "Start date" : {
+
+    },
+    "Start time" : {
+
+    },
+    "Starts %@" : {
+
+    },
+    "Starts in" : {
+
+    },
+    "State" : {
+
+    },
+    "Status" : {
+
+    },
+    "Submitted" : {
+
+    },
+    "Submitted by" : {
+
+    },
+    "System icon" : {
+
+    },
+    "Target branch" : {
+
+    },
+    "Target repository ID" : {
+
+    },
+    "Targets" : {
+
+    },
+    "TBA" : {
+
+    },
+    "Technical details" : {
+
+    },
+    "Technical Details" : {
+
+    },
+    "Technical details changed" : {
+
+    },
+    "Test error." : {
+
+    },
+    "The collaborator could not be added." : {
+
+    },
+    "The collaborator could not be removed." : {
+
+    },
+    "The collaborator could not be updated." : {
+
+    },
+    "The proposal could not be closed." : {
+
+    },
+    "The proposal could not be deleted." : {
+
+    },
+    "The proposal could not be merged." : {
+
+    },
+    "The proposal does not identify a source branch." : {
+
+    },
+    "The workspace changed while you were editing. Publication is unavailable until it is refreshed." : {
+
+    },
+    "The workspace source does not match the app’s data model." : {
+
+    },
+    "There are no posts in this channel yet." : {
+
+    },
+    "They will no longer be able to propose or merge changes in this workspace." : {
+
+    },
+    "This calendar could not be loaded." : {
+
+    },
+    "This cannot be undone." : {
+
+    },
+    "This communication channel could not be loaded." : {
+
+    },
+    "This contributor could not be loaded." : {
+
+    },
+    "This event could not be loaded." : {
+
+    },
+    "This event stage could not be loaded." : {
+
+    },
+    "This poster could not be loaded." : {
+
+    },
+    "This removes saved performances that are no longer in the published event." : {
+
+    },
+    "This removes the channel. Posts already published in it are not changed." : {
+
+    },
+    "This removes the performance from this schedule." : {
+
+    },
+    "This removes the poster from this event." : {
+
+    },
+    "This removes the schedule and its saved performances." : {
+
+    },
+    "This restores every record owned by this organization source to its reference copy." : {
+
+    },
+    "This site map could not be loaded." : {
+
+    },
+    "This workspace is configured for the following branch, but it is not currently prepared." : {
+
+    },
+    "Time" : {
+
+    },
+    "Time zone" : {
+
+    },
+    "Time Zone" : {
+
+    },
+    "Times" : {
+
+    },
+    "Title" : {
+
+    },
+    "Try Again" : {
+
+    },
+    "Type" : {
+
+    },
+    "Unable to load contributor profile." : {
+
+    },
+    "Unavailable" : {
+
+    },
+    "Unknown" : {
+
+    },
+    "Update Proposal" : {
+
+    },
+    "URL" : {
+
+    },
+    "View Proposal" : {
+
+    },
+    "Waiting for it to appear in the proposal list." : {
+
+    },
+    "What changed" : {
+
+    },
+    "What is this channel for?" : {
+
+    },
+    "What should I do next?" : {
+
+    },
+    "Where are my changes?" : {
+
+    },
+    "Workspace" : {
+
+    },
+    "Workspace overview" : {
+
+    },
+    "Workspace preparation stopped, so changes cannot currently be compared." : {
+
+    },
+    "Workspace refresh stopped. The last known editing line and your local changes are preserved." : {
+
+    },
+    "Workspace section" : {
+
+    },
+    "Workspace source unavailable" : {
+
+    },
+    "Write" : {
+
+    },
+    "You are building on an open proposal." : {
+
+    },
+    "You are building on the organizer’s canonical line." : {
+
+    },
+    "You can review this proposal, but only a workspace manager can change its state." : {
+
+    },
+    "Your changes will appear here when the source is ready." : {
+
+    },
+    "Your local changes are waiting, but you do not have permission to create a proposal." : {
+
+    },
+    "Your Reactions" : {
+
+    }
   },
   "version" : "1.0"
 }
