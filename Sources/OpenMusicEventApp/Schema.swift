@@ -6,10 +6,13 @@ import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
+import OSLog
 
 public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 extension ExternalPlatform: SQLiteType {}
+let dbLogger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "database")
+
 
 extension DependencyValues {
     mutating func bootstrapDatabase() throws {
@@ -21,11 +24,11 @@ extension DependencyValues {
 
         #if DEBUG
         configuration.prepareDatabase { db in
-            db.trace(options: .profile) {
+            db.trace(options: .statement) {
                 if context == .preview {
                     print($0.expandedDescription)
                 } else {
-                    logger.debug("\($0.expandedDescription)")
+                    dbLogger.debug("\($0.expandedDescription)")
                 }
             }
         }

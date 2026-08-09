@@ -33,7 +33,7 @@
 /* Begin PBXFileReference section */
 		4900101C2BACEA710000DE33 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		493609562A6B7EAE00C401E2 /* OpenMusicEvent */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = OpenMusicEvent; path = ..; sourceTree = "<group>"; };
-		496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMusicEvent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		496BDBEB2B89A47800C09264 /* OpenMusicEventApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMusicEventApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = ../Sources/OpenMusicEventApp/Resources/Localizable.xcstrings; sourceTree = "<group>"; };
 		496EB72F2A6AE4DE00C1253A /* Skip.env */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Skip.env; path = ../Skip.env; sourceTree = "<group>"; };
 		496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = OpenMusicEvent.xcconfig; sourceTree = "<group>"; };
@@ -43,6 +43,7 @@
 		49F90C2F2A52156300F06D93 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		49F90C312A52156300F06D93 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.plist; sourceTree = "<group>"; };
 		EF5805383005FB1F00B50389 /* OMECagePortal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OMECagePortal.icon; sourceTree = "<group>"; };
+		EF64246130293FB000EA9399 /* OpenMusicEvent AppDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "OpenMusicEvent AppDebug.entitlements"; sourceTree = "<group>"; };
 		EFA7149E2FFDF20200983E7E /* OME.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OME.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -61,7 +62,7 @@
 		496BDBEC2B89A47800C09264 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */,
+				496BDBEB2B89A47800C09264 /* OpenMusicEventApp.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -77,6 +78,7 @@
 		49F90C1F2A52156200F06D93 = {
 			isa = PBXGroup;
 			children = (
+				EF64246130293FB000EA9399 /* OpenMusicEvent AppDebug.entitlements */,
 				496EB72F2A6AE4DE00C1253C /* README.md */,
 				496EB72F2A6AE4DE00C1253A /* Skip.env */,
 				496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */,
@@ -131,7 +133,7 @@
 				491F27812DA55B72004926EE /* OpenMusicEventApp */,
 			);
 			productName = App;
-			productReference = 496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */;
+			productReference = 496BDBEB2B89A47800C09264 /* OpenMusicEventApp.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -221,6 +223,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = OMECagePortal;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "OpenMusicEvent AppDebug.entitlements";
 				DEVELOPMENT_TEAM = YJRWV8Z7KT;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Open Music Event";
