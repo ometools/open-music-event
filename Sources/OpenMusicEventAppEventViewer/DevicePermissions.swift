@@ -62,7 +62,11 @@ extension DevicePermissionsClient: DependencyKey {
             guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
                 return false
             }
-            return await UIApplication.shared.open(url)
+            return await withCheckedContinuation { continuation in
+                UIApplication.shared.open(url, options: [:]) { success in
+                    continuation.resume(returning: success)
+                }
+            }
             #else
             return false
             #endif
