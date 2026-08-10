@@ -396,16 +396,80 @@ struct NavigationTests {
         }
         """#
 
-        await store.send(
-            .root(
-                .notificationEvent(
-                    NotificationEvent(
-                        json: json,
-                        delivery: .userInteraction(actionIdentifier: "open")
-                    )
+        let notificationTask = try store.state.root.notificationEvent(
+            NotificationEvent(
+                json: json,
+                delivery: .userInteraction(actionIdentifier: "open")
+            )
+        )
+        await notificationTask?.value
+
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .communications
+        )
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.eventID == eventID
+        )
+    }
+
+    @Test
+    func contentNotificationSelectsCommunicationsFromAnOpenSchedule() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = OMERecord.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        )!
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: eventLocalID("ome-workspace-2026")
+        )
+        try await database.write { db in
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+            // This story starts after the already-open event has completed its one-time setup.
+            try EventViewerState.insert {
+                EventViewerState(
+                    id: eventID,
+                    didInitializeUserSchedules: true
+                )
+            }
+            .execute(db)
+        }
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            selectedEventIDAtLaunch: eventID
+        )
+        let json = #"""
+        {
+          "aps": {
+            "alert": {
+              "title": "Wicked Woods 2026",
+              "body": "A new announcement is available"
+            },
+            "sound": "default"
+          },
+          "kind": "content",
+          "source": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
+          "version": "manual-content-1",
+          "route": "/organizers/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/events/ome-workspace-2026/communications"
+        }
+        """#
+
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .schedule(.schedule)
+        )
+
+        let notificationTask = try store.state.root.notificationEvent(
+            NotificationEvent(
+                json: json,
+                delivery: .userInteraction(
+                    actionIdentifier: "com.apple.UNNotificationDefaultActionIdentifier"
                 )
             )
-        )?.value
+        )
+        await notificationTask?.value
 
         #expect(
             store.state.root.destination?.eventViewer?

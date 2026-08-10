@@ -672,21 +672,30 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         let moreFeatureContent = features.moreContent(
             for: Set(resolved.overflowFeatures.map(\.id))
         )
+        let selectionContext = TabFeatureSelectionContext(
+            selection: selection,
+            moreValues: Set(moreFeatureContent.flatMap(\.featureMetadata).map(\.value))
+        )
         let showsMore = !moreFeatureContent.isEmpty || moreContent != nil
 
-        switch effectivePresentationStyle {
-        case .sidebar:
-            sidebarView(
-                for: resolved,
-                showsMore: showsMore,
-                moreFeatureContent: moreFeatureContent
-            )
-        case .automatic, .tabs:
-            tabView(
-                for: resolved,
-                showsMore: showsMore,
-                moreFeatureContent: moreFeatureContent
-            )
+        Group {
+            switch effectivePresentationStyle {
+            case .sidebar:
+                sidebarView(
+                    for: resolved,
+                    showsMore: showsMore,
+                    moreFeatureContent: moreFeatureContent
+                )
+            case .automatic, .tabs:
+                tabView(
+                    for: resolved,
+                    showsMore: showsMore,
+                    moreFeatureContent: moreFeatureContent
+                )
+            }
+        }
+        .onChange(of: selectionContext, initial: true) { _, context in
+            synchronizeSelection(with: context)
         }
     }
 
@@ -893,6 +902,20 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         }
     }
 
+    func synchronizeSelection(with context: TabFeatureSelectionContext<Value>) {
+        var state = TabFeatureSelectionState(
+            selection: context.selection,
+            overflowSelection: resolvedOverflowSelection.wrappedValue,
+            isMoreSelected: isMoreSelected
+        )
+        state.synchronizeSelection(moreValues: context.moreValues)
+
+        isMoreSelected = state.isMoreSelected
+        if resolvedOverflowSelection.wrappedValue != state.overflowSelection {
+            resolvedOverflowSelection.wrappedValue = state.overflowSelection
+        }
+    }
+
     @ViewBuilder
     private func primaryFeatureDestination(for feature: TabFeatureMetadata<Value>) -> some View {
         if let body = features.featureBody(for: feature.id) {
@@ -1032,6 +1055,11 @@ enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
     case more
 }
 
+struct TabFeatureSelectionContext<Value: TabFeatureValue>: Equatable {
+    var selection: Value
+    var moreValues: Set<Value>
+}
+
 struct TabFeatureSelectionState<Value: TabFeatureValue>: Equatable {
     var selection: Value
     var overflowSelection: Value?
@@ -1052,6 +1080,18 @@ struct TabFeatureSelectionState<Value: TabFeatureValue>: Equatable {
             self.selection = value
         case .more:
             isMoreSelected = true
+        }
+    }
+
+    mutating func synchronizeSelection(moreValues: Set<Value>) {
+        if moreValues.contains(selection) {
+            isMoreSelected = true
+            overflowSelection = selection
+        } else {
+            isMoreSelected = false
+            if let overflowSelection, !moreValues.contains(overflowSelection) {
+                self.overflowSelection = nil
+            }
         }
     }
 }
@@ -1177,7 +1217,9 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
 
     private func onChangeOfOverflowSelection(_ value: Value?) {
         if let value, featureContent.flatMap(\.featureMetadata).contains(where: { $0.value == value }) {
-
+            if path != [value] {
+                path = [value]
+            }
         } else {
             if !path.isEmpty {
                 path = []

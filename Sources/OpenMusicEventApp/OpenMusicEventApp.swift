@@ -368,6 +368,28 @@ struct SelectedEventRestoration {
         )
     }
 
+#if canImport(UIKit)
+    @MainActor
+    public func onRemoteNotificationAndWait(json: String) async -> Bool {
+        await handleNotification(
+            NotificationEvent(json: json, delivery: .contentAvailable)
+        )
+    }
+
+    @MainActor
+    public func onNotificationInteractionAndWait(
+        json: String,
+        actionIdentifier: String?
+    ) async {
+        await handleNotification(
+            NotificationEvent(
+                json: json,
+                delivery: .userInteraction(actionIdentifier: actionIdentifier)
+            )
+        )
+    }
+#endif
+
     /* SKIP @bridge */public func onResume() {
         send(.resumed)
         logger.debug("onResume")
@@ -402,7 +424,26 @@ struct SelectedEventRestoration {
 
     private func sendNotification(_ event: NotificationEvent) {
         Task { @MainActor in
-            Self.store.send(.content(.notificationEvent(event)))
+            await handleNotification(event)
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func handleNotification(_ event: NotificationEvent) async -> Bool {
+        do {
+            let reaction = try Self.store.state.content.notificationEvent(event)
+            await reaction?.value
+            return true
+        } catch {
+#if SKIP
+            logger.error("Could not deliver notification to the application feature tree: \(error)")
+#else
+            logger.error(
+                "Could not deliver notification to the application feature tree: \(String(describing: error), privacy: .public)"
+            )
+#endif
+            return false
         }
     }
 

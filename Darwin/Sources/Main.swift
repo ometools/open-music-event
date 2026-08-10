@@ -96,10 +96,11 @@ typealias AppType = NSApplication
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         do {
-            AppDelegate.shared.onRemoteNotification(
-                json: try notificationJSON(userInfo)
-            )
-            completionHandler(.newData)
+            let json = try notificationJSON(userInfo)
+            Task { @MainActor in
+                let handled = await AppDelegate.shared.onRemoteNotificationAndWait(json: json)
+                completionHandler(handled ? .newData : .failed)
+            }
         } catch {
             notificationLogger.error(
                 "Could not preserve delivered notification JSON: \(String(describing: error), privacy: .public)"
@@ -150,16 +151,20 @@ extension AppMainDelegate: @MainActor UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         do {
-            AppDelegate.shared.onNotificationInteraction(
-                json: try notificationJSON(response.notification.request.content.userInfo),
-                actionIdentifier: response.actionIdentifier
-            )
+            let json = try notificationJSON(response.notification.request.content.userInfo)
+            Task { @MainActor in
+                await AppDelegate.shared.onNotificationInteractionAndWait(
+                    json: json,
+                    actionIdentifier: response.actionIdentifier
+                )
+                completionHandler()
+            }
         } catch {
             notificationLogger.error(
                 "Could not preserve notification interaction JSON: \(String(describing: error), privacy: .public)"
             )
+            completionHandler()
         }
-        completionHandler()
     }
 }
 

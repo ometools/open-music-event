@@ -110,6 +110,48 @@ struct SwiftUITabFeaturesTests {
         #expect(state.tabSelection(showsMore: true) == .more)
     }
 
+    @Test func `programmatic selection follows a feature into and out of More`() {
+        var state = TabFeatureSelectionState(
+            selection: DemoTab.settings,
+            overflowSelection: nil,
+            isMoreSelected: false
+        )
+
+        // A deep link selects Settings while the current layout renders it under More.
+        state.synchronizeSelection(moreValues: [.settings])
+
+        #expect(state.selection == .settings)
+        #expect(state.overflowSelection == .settings)
+        #expect(state.isMoreSelected)
+        #expect(state.tabSelection(showsMore: true) == .more)
+
+        // A later deep link selects a primary tab without forgetting the More destination.
+        state.selection = .schedule
+        state.synchronizeSelection(moreValues: [.settings])
+
+        #expect(state.selection == .schedule)
+        #expect(state.overflowSelection == .settings)
+        #expect(!state.isMoreSelected)
+        #expect(state.tabSelection(showsMore: true) == .feature(.schedule))
+    }
+
+    @Test func `selection follows a feature when the rendered hierarchy moves it out of More`() {
+        var state = TabFeatureSelectionState(
+            selection: DemoTab.settings,
+            overflowSelection: nil,
+            isMoreSelected: false
+        )
+        state.synchronizeSelection(moreValues: [.settings])
+
+        // A wider layout now renders Settings as a primary tab.
+        state.synchronizeSelection(moreValues: [])
+
+        #expect(state.selection == .settings)
+        #expect(state.overflowSelection == nil)
+        #expect(!state.isMoreSelected)
+        #expect(state.tabSelection(showsMore: false) == .feature(.settings))
+    }
+
     @Test func `builder preserves declaration order`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(
