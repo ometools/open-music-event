@@ -1,8 +1,19 @@
+import ComposableNotifications
 import Foundation
 import OpenMusicEventAppEventViewer
 
-public enum AppRoute: Equatable, Sendable {
+public enum AppRoute: Equatable, NotificationRoute, Sendable {
     case event(OMERecord.Event.ID, EventTarget?)
+
+    public init?(notificationRoute: String) {
+        guard
+            notificationRoute.hasPrefix("/"),
+            let url = URL(string: notificationRoute),
+            url.host == nil,
+            url.scheme == nil
+        else { return nil }
+        self.init(url: url)
+    }
 
     public init?(url: URL) {
         let segments = url.path.split(separator: "/").map(String.init)
@@ -116,6 +127,10 @@ public enum AppRoute: Equatable, Sendable {
         case let .event(eventID, target):
             .event(eventID, target)
         }
+    }
+
+    public var notificationRoute: String {
+        path
     }
 }
 

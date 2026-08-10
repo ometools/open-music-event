@@ -64,6 +64,7 @@ public struct OpenMusicEventAppRoot {
         public var destination: Destination.State?
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
+        @Trigger<NotificationContent<AppRoute>> public var notificationContent
         @Trigger<NotificationSignal> public var notificationSignal
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
         var inAppBrowserPresentation: InAppBrowserPresentation?
@@ -299,6 +300,12 @@ public struct OpenMusicEventAppRoot {
             persistSelectedEvent(nil, state)
         }
         .presentReportedErrors()
+        .onTrigger(store.notificationContent) { content, _ in
+            store.addTask {
+                let routeTask = try store.send(.openRoute(content.route))
+                await routeTask?.value
+            }
+        }
         .onTrigger(store.notificationSignal) {
             (signal: NotificationSignal, state: inout State) in
             guard state.variant == .generic else { return }
@@ -328,6 +335,7 @@ public struct OpenMusicEventAppRoot {
         }
         .notifications(
             appDelegateEventTrigger: \.appDelegateEvent,
+            contentTrigger: \.notificationContent,
             signalTrigger: \.notificationSignal
         )
     }

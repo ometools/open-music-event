@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ATProto
 import Clocks
 import ComposableArchitecture2
+import ComposableNotifications
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -246,6 +247,19 @@ struct NavigationTests {
 
         #expect(route == expected)
         #expect(route.path == url.path(percentEncoded: true))
+        #expect(route.notificationRoute == url.path(percentEncoded: true))
+        #expect(AppRoute(notificationRoute: route.notificationRoute) == expected)
+    }
+
+    @Test(
+        arguments: [
+            "https://example.com/organizers/did%3Aweb%3Aexample.com/events/event-1",
+            "organizers/did%3Aweb%3Aexample.com/events/event-1",
+            "//example.com/organizers/did%3Aweb%3Aexample.com/events/event-1",
+        ]
+    )
+    func appRouteRejectsNotificationValuesThatAreNotAppPaths(value: String) {
+        #expect(AppRoute(notificationRoute: value) == nil)
     }
 
     @Test
@@ -361,6 +375,50 @@ struct NavigationTests {
     }
 
     #if !os(Android)
+    @Test
+    func contentNotificationOpensItsTypedApplicationRoute() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let json = #"""
+        {
+          "aps": {
+            "alert": {
+              "title": "Event One",
+              "body": "A new announcement is available"
+            },
+            "sound": "default"
+          },
+          "kind": "content",
+          "source": "at://did:web:example.com/app.openmusicevent.event/event-1",
+          "version": "a1b2c3d4",
+          "route": "/organizers/did%3Aweb%3Aexample.com/events/event-1/communications"
+        }
+        """#
+
+        await store.send(
+            .root(
+                .appDelegateEvent(
+                    .notification(
+                        NotificationEvent(
+                            json: json,
+                            delivery: .userInteraction(actionIdentifier: "open")
+                        )
+                    )
+                )
+            )
+        )?.value
+
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .communications
+        )
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.eventID == eventID
+        )
+    }
+
     @Test
     func secondDeepLinkReplacesMountedEventViewer() async throws {
         let database = try makePreparedDatabase()

@@ -105,9 +105,9 @@ struct EventBrowseStoryTests {
                   "aps": {
                     "content-available": 1
                   },
-                  "composable_notifications_kind": "source_available",
-                  "composable_notifications_source_id": "openmusicevent.app",
-                  "composable_notifications_source_version": "1"
+                  "kind": "source_available",
+                  "source": "openmusicevent.app",
+                  "version": "1"
                 }
                 """#
                 let refreshTask = await MainActor.run {
