@@ -65,6 +65,7 @@ public struct OpenMusicEventAppRoot {
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
         @Trigger<NotificationContent<AppRoute>> public var notificationContent
+        @Trigger<NotificationEvent> public var notificationEvent
         @Trigger<NotificationSignal> public var notificationSignal
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
         var inAppBrowserPresentation: InAppBrowserPresentation?
@@ -85,6 +86,7 @@ public struct OpenMusicEventAppRoot {
         case browser(OpenMusicEventBrowser.Action)
         case destination(Destination.Action)
         case handleNavigationRequest(NavigationRequest)
+        case notificationEvent(NotificationEvent)
         case openRoute(AppRoute)
         case openURL(URL)
         case task
@@ -182,6 +184,11 @@ public struct OpenMusicEventAppRoot {
 
                     case let .externalURL(url):
                         state.openExternalURL(url)
+                    }
+
+                case .notificationEvent(let event):
+                    store.addTask {
+                        try await store.notificationEvent(event)?.value
                     }
 
                 case .openRoute(let route):
@@ -336,6 +343,7 @@ public struct OpenMusicEventAppRoot {
         .notifications(
             appDelegateEventTrigger: \.appDelegateEvent,
             contentTrigger: \.notificationContent,
+            notificationEventTrigger: \.notificationEvent,
             signalTrigger: \.notificationSignal
         )
     }

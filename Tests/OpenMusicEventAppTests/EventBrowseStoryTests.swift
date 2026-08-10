@@ -112,12 +112,10 @@ struct EventBrowseStoryTests {
                 """#
                 let refreshTask = await MainActor.run {
                     store.send(
-                        .appDelegateEvent(
-                            .notification(
-                                NotificationEvent(
-                                    json: notificationJSON,
-                                    delivery: .contentAvailable
-                                )
+                        .notificationEvent(
+                            NotificationEvent(
+                                json: notificationJSON,
+                                delivery: .contentAvailable
                             )
                         )
                     )

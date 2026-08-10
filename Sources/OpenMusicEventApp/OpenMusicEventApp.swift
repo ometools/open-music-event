@@ -343,9 +343,27 @@ struct SelectedEventRestoration {
 
     /// Preserves provider JSON until the notifications feature transforms it into an app signal.
     /* SKIP @bridge */public func onRemoteNotification(json: String) {
-        send(
-            .notification(
-                NotificationEvent(json: json, delivery: .contentAvailable)
+        sendNotification(
+            NotificationEvent(json: json, delivery: .contentAvailable)
+        )
+    }
+
+    /// Preserves a notification delivered while the application is in the foreground.
+    /* SKIP @bridge */public func onForegroundNotification(json: String) {
+        sendNotification(
+            NotificationEvent(json: json, delivery: .foreground)
+        )
+    }
+
+    /// Preserves the notification and action that brought the user into the application.
+    /* SKIP @bridge */public func onNotificationInteraction(
+        json: String,
+        actionIdentifier: String?
+    ) {
+        sendNotification(
+            NotificationEvent(
+                json: json,
+                delivery: .userInteraction(actionIdentifier: actionIdentifier)
             )
         )
     }
@@ -379,6 +397,12 @@ struct SelectedEventRestoration {
     private func send(_ event: AppDelegateEvent) {
         Task { @MainActor in
             Self.store.send(.content(.appDelegateEvent(event)))
+        }
+    }
+
+    private func sendNotification(_ event: NotificationEvent) {
+        Task { @MainActor in
+            Self.store.send(.content(.notificationEvent(event)))
         }
     }
 

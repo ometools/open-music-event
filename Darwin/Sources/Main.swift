@@ -6,6 +6,7 @@ import Dependencies
 #if canImport(UIKit)
 import OSLog
 import UIKit
+import UserNotifications
 
 private let notificationLogger = Logger(
     subsystem: "app.openmusicevent",
@@ -61,6 +62,7 @@ typealias AppType = NSApplication
 
     #if canImport(UIKit)
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
         AppDelegate.shared.onInit()
         return true
     }
@@ -94,9 +96,8 @@ typealias AppType = NSApplication
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         do {
-            let data = try JSONSerialization.data(withJSONObject: userInfo)
             AppDelegate.shared.onRemoteNotification(
-                json: String(decoding: data, as: UTF8.self)
+                json: try notificationJSON(userInfo)
             )
             completionHandler(.newData)
         } catch {
@@ -121,3 +122,49 @@ typealias AppType = NSApplication
     #endif
 
 }
+
+#if canImport(UIKit)
+extension AppMainDelegate: @MainActor UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (
+            UNNotificationPresentationOptions
+        ) -> Void
+    ) {
+        do {
+            AppDelegate.shared.onForegroundNotification(
+                json: try notificationJSON(notification.request.content.userInfo)
+            )
+        } catch {
+            notificationLogger.error(
+                "Could not preserve foreground notification JSON: \(String(describing: error), privacy: .public)"
+            )
+        }
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        do {
+            AppDelegate.shared.onNotificationInteraction(
+                json: try notificationJSON(response.notification.request.content.userInfo),
+                actionIdentifier: response.actionIdentifier
+            )
+        } catch {
+            notificationLogger.error(
+                "Could not preserve notification interaction JSON: \(String(describing: error), privacy: .public)"
+            )
+        }
+        completionHandler()
+    }
+}
+
+private func notificationJSON(_ userInfo: [AnyHashable: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: userInfo)
+    return String(decoding: data, as: UTF8.self)
+}
+#endif

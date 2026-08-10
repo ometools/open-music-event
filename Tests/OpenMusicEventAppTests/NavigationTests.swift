@@ -398,12 +398,10 @@ struct NavigationTests {
 
         await store.send(
             .root(
-                .appDelegateEvent(
-                    .notification(
-                        NotificationEvent(
-                            json: json,
-                            delivery: .userInteraction(actionIdentifier: "open")
-                        )
+                .notificationEvent(
+                    NotificationEvent(
+                        json: json,
+                        delivery: .userInteraction(actionIdentifier: "open")
                     )
                 )
             )
