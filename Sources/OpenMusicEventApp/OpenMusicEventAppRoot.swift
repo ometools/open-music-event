@@ -65,6 +65,7 @@ public struct OpenMusicEventAppRoot {
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
         @Trigger<NotificationSignal> public var notificationSignal
+        @SharedReader(.devicePermissions) public var permissions: DevicePermissions
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
@@ -304,6 +305,16 @@ public struct OpenMusicEventAppRoot {
             guard case .sourceAvailable = signal else { return }
             store.addTask {
                 try await store.browser.browse.refresh()?.value
+            }
+        }
+        .onTrigger(store.appDelegateEvent) { event, _ in
+            switch event {
+            case .launched, .resumed:
+                store.addTask {
+                    try await store.state.$permissions.load()
+                }
+            default:
+                break
             }
         }
         .spawn(\.errorNotifications) {

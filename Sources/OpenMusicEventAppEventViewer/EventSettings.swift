@@ -7,6 +7,7 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 #if os(Android)
 import SkipSwiftUI
@@ -28,14 +29,19 @@ public struct EventSettings {
 
         @FetchOne public var event: OMERecord.Event?
         public var eventID: OMERecord.Event.ID
+        @SharedReader(.devicePermissions) public var permissions: DevicePermissions
     }
 
     public enum Action {
         case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
         case exitAuthoringButtonTapped
+        case notificationPermissionButtonTapped
+        case openNotificationSettingsButtonTapped
         case testErrorButtonTapped
     }
+
+    @Dependency(\.devicePermissions) var devicePermissions
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -62,6 +68,25 @@ public struct EventSettings {
                 store.addTask {
                     let task = try store.post(key: AuthoringExitRequested.self, value: ())
                     await task?.value
+                }
+
+            case .notificationPermissionButtonTapped:
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestNotifications()
+                        try await store.state.$permissions.load()
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .notificationPermissionRequestFailed,
+                            operation: .notificationPermissionRequest
+                        )
+                    }
+                }
+
+            case .openNotificationSettingsButtonTapped:
+                store.addTask {
+                    _ = await devicePermissions.openNotificationSettings()
                 }
 
             case .testErrorButtonTapped:
@@ -122,6 +147,43 @@ public struct EventSettingsView: View {
                 EmptyView()
             }
 
+            #if os(iOS) || os(Android)
+            Section("Permissions") {
+                Text(
+                    "Allow device notifications so this event can alert you when organizers publish important schedule or venue updates. You will still choose which updates you receive for each event."
+                )
+
+                switch store.permissions.notifications {
+                case .authorized:
+                    Label("Notifications allowed", systemImage: "bell.fill")
+
+                case .limited:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Notifications allowed quietly", systemImage: "bell.fill")
+                        Text("Your device may deliver these without a sound or visible alert.")
+                            .foregroundStyle(.secondary)
+                    }
+
+                case .denied, .restricted:
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Notifications not allowed", systemImage: "bell.slash")
+                        Text("Open system settings to allow notifications for Open Music Event.")
+                            .foregroundStyle(.secondary)
+                        Button("Open Notification Settings") {
+                            store.send(.openNotificationSettingsButtonTapped)
+                        }
+                    }
+
+                case .unknown:
+                    Button {
+                        store.send(.notificationPermissionButtonTapped)
+                    } label: {
+                        Label("Allow Notifications", systemImage: "bell")
+                    }
+                }
+            }
+            #endif
+
             if case let .some(.active(grant)) = authoringPhase,
                grant.access.canEditContent
             {
@@ -165,10 +227,16 @@ private extension UserFacingText {
         "Test error.",
         fallback: "Test error."
     )
+
+    static let notificationPermissionRequestFailed = Self(
+        "Open Music Event could not request notification permission.",
+        fallback: "Open Music Event could not request notification permission."
+    )
 }
 
 private extension ErrorOperation {
     static let eventSettingsTestError = Self("event.settings.test-error")
+    static let notificationPermissionRequest = Self("event.settings.notification-permission")
 }
 
 private extension ErrorKind {

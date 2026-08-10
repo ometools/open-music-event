@@ -121,15 +121,21 @@ let skipRootPath = environment["SKIPLOCAL"].map {
 }
 let skipDependency: Package.Dependency
 let skipFuseUIDependency: Package.Dependency
+let skipKitDependency: Package.Dependency
 if let skipRootPath {
     skipDependency = .package(name: "skip", path: skipRootPath.appendingPathComponent("skip").path)
     skipFuseUIDependency = .package(
         name: "skip-fuse-ui",
         path: skipRootPath.appendingPathComponent("skip-fuse-ui").path
     )
+    let skipKitPath = skipRootPath.appendingPathComponent("skip-kit").path
+    skipKitDependency = FileManager.default.fileExists(atPath: skipKitPath)
+        ? .package(name: "skip-kit", path: skipKitPath)
+        : .package(url: "https://source.skip.tools/skip-kit.git", from: "1.0.0")
 } else {
     skipDependency = .package(url: "https://source.skip.tools/skip.git", from: "1.8.6")
     skipFuseUIDependency = .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0")
+    skipKitDependency = .package(url: "https://source.skip.tools/skip-kit.git", from: "1.0.0")
 }
 let skipSharingDependency: Package.Dependency
 let skipAndroidBridgeDependency: Package.Dependency
@@ -289,6 +295,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/tuist/Noora", from: "0.15.0"),
     skipDependency,
     skipFuseUIDependency,
+    skipKitDependency,
     skipAndroidBridgeDependency,
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
@@ -789,6 +796,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Sharing", package: "swift-sharing"),
+            .product(name: "SkipKit", package: "skip-kit"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
@@ -907,6 +915,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+            .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             .product(name: "SnapshotTestingCustomDump", package: "swift-snapshot-testing"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),

@@ -349,6 +349,27 @@ struct SwiftUITabFeaturesTests {
         #expect(resolved.overflowBadgeValue == 5)
     }
 
+    @Test func `Settings setup indicator raises the More badge when Settings overflows`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+
+            TabFeature(.settings, title: "Settings", systemImage: "gear", badgeValue: 1) {
+                EmptyView()
+            }
+        }
+        let resolved = features.resolve(
+            layout: .init(preferredIDs: [id("schedule")]),
+            policy: .init(maxVisibleTabs: 1)
+        )
+
+        #expect(resolved.visibleFeatures.map(\.id) == [id("schedule")])
+        #expect(resolved.overflowFeatures.map(\.id) == [id("settings")])
+        #expect(resolved.overflowFeatures.first?.badgeValue == 1)
+        #expect(resolved.overflowBadgeValue == 1)
+    }
+
     @Test func `default policy infers search as fixed`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {

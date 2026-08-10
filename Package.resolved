@@ -1,5 +1,5 @@
 {
-  "originHash" : "c20a30bcc2728751053565661477bbbe33655d696852d53e3f5ec5d4d6df8f92",
+  "originHash" : "db0f961355d3783c99d6a0f252b3df3b8751cfef6a0437d96ba1a19de12addf1",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -188,6 +188,15 @@
       "state" : {
         "revision" : "d27fc109268b21feb98a48bc1a3f4558e162d9ca",
         "version" : "1.18.1"
+      }
+    },
+    {
+      "identity" : "skip-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-kit.git",
+      "state" : {
+        "revision" : "e9b75cf768ab90fe5814b99c615673f5bcd85e1e",
+        "version" : "1.1.1"
       }
     },
     {

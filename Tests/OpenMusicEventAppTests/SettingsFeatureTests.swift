@@ -4,6 +4,7 @@ import Clocks
 import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import ComposableArchitecture2
+import ComposableNotifications
 import CustomDump
 import Dependencies
 import ErrorHandling
@@ -14,6 +15,7 @@ import IssueReporting
 import Lexicon
 import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 import Synchronization
 #if os(Android)
@@ -260,6 +262,147 @@ struct SettingsFeatureTests {
             timeout: .seconds(1)
         )
         await editTask?.value
+    }
+
+    @Test
+    func eventSettingsRequestsNotificationPermissionAndReloadsTheSharedStatus() async throws {
+        let database = try makePreparedDatabase()
+        let permissionWasRequested = Mutex(false)
+        let loadCount = Mutex(0)
+        let client = DevicePermissionsClient(
+            load: {
+                loadCount.withLock { $0 += 1 }
+                return DevicePermissions(
+                    notifications: permissionWasRequested.withLock {
+                        $0 ? .authorized : .unknown
+                    }
+                )
+            },
+            openNotificationSettings: { false },
+            requestNotifications: {
+                permissionWasRequested.withLock { $0 = true }
+                return .authorized
+            }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+                EventSettings()
+            }
+        }
+
+        try await store.state.$permissions.load()
+        expectNoDifference(store.state.permissions.notifications, .unknown)
+        let loadsBeforeRequest = loadCount.withLock { $0 }
+
+        await store.send(.notificationPermissionButtonTapped)?.value
+
+        expectNoDifference(permissionWasRequested.withLock { $0 }, true)
+        expectNoDifference(store.state.permissions.notifications, .authorized)
+        expectNoDifference(loadCount.withLock { $0 }, loadsBeforeRequest + 1)
+    }
+
+    @Test
+    func notificationSetupOnlyRaisesAnIndicatorBeforeThePersonMakesAChoice() {
+        expectNoDifference(
+            DevicePermissions(notifications: .unknown).notificationSetupBadgeValue,
+            1
+        )
+        expectNoDifference(
+            DevicePermissions(notifications: .authorized).notificationSetupBadgeValue,
+            nil
+        )
+        expectNoDifference(
+            DevicePermissions(notifications: .denied).notificationSetupBadgeValue,
+            nil
+        )
+        expectNoDifference(
+            DevicePermissions(notifications: .limited).notificationSetupBadgeValue,
+            nil
+        )
+        expectNoDifference(
+            DevicePermissions(notifications: .restricted).notificationSetupBadgeValue,
+            nil
+        )
+    }
+
+    @Test
+    func eventSettingsOpensSystemSettingsAfterNotificationPermissionIsDenied() async throws {
+        let database = try makePreparedDatabase()
+        let settingsOpenCount = Mutex(0)
+        let requestCount = Mutex(0)
+        let client = DevicePermissionsClient(
+            load: { DevicePermissions(notifications: .denied) },
+            openNotificationSettings: {
+                settingsOpenCount.withLock { $0 += 1 }
+                return true
+            },
+            requestNotifications: {
+                requestCount.withLock { $0 += 1 }
+                return .denied
+            }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+                EventSettings()
+            }
+        }
+
+        try await store.state.$permissions.load()
+        expectNoDifference(store.state.permissions.notifications, .denied)
+
+        await store.send(.openNotificationSettingsButtonTapped)?.value
+
+        expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
+        expectNoDifference(requestCount.withLock { $0 }, 0)
+    }
+
+    @Test
+    func appDelegateResumeReloadsSharedDevicePermissions() async throws {
+        let database = try makePreparedDatabase()
+        let loadCount = Mutex(0)
+        let client = DevicePermissionsClient(
+            load: {
+                loadCount.withLock { $0 += 1 }
+                return DevicePermissions(notifications: .authorized)
+            },
+            openNotificationSettings: { false },
+            requestNotifications: { .authorized }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+            $0.notificationTokenClient = NotificationTokenClient(
+                tokens: { AsyncStream { $0.finish() } }
+            )
+            $0.notificationsClient = NotificationsClient(
+                registerDestination: { _ in },
+                replaceSubscriptions: { _ in },
+                synchronize: {},
+                signals: { AsyncStream { $0.finish() } }
+            )
+        } operation: {
+            TestStore(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        try await store.state.$permissions.load()
+        let loadsBeforeResume = loadCount.withLock { $0 }
+
+        let resumeTask = try store.state.appDelegateEvent(.resumed)
+        await resumeTask?.value
+
+        expectNoDifference(loadCount.withLock { $0 }, loadsBeforeResume + 1)
+        expectNoDifference(store.state.permissions.notifications, .authorized)
     }
 
     private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {
