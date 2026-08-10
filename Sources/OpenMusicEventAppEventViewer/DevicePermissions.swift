@@ -30,12 +30,12 @@ public struct DevicePermissions: Equatable, Sendable {
 
 public struct DevicePermissionsClient: Sendable {
     public var load: @Sendable () async -> DevicePermissions
-    public var openNotificationSettings: @Sendable () async -> Bool
+    public var openNotificationSettings: @MainActor @Sendable () async -> Bool
     public var requestNotifications: @Sendable () async throws -> DevicePermissions.NotificationAuthorization
 
     public init(
         load: @escaping @Sendable () async -> DevicePermissions,
-        openNotificationSettings: @escaping @Sendable () async -> Bool,
+        openNotificationSettings: @escaping @MainActor @Sendable () async -> Bool,
         requestNotifications: @escaping @Sendable () async throws -> DevicePermissions.NotificationAuthorization
     ) {
         self.load = load
