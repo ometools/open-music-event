@@ -141,6 +141,10 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.NotificationsOff
         case "checkmark":
             imageVector = Icons.Outlined.Check
+        case "chevron.down":
+            imageVector = Icons.Outlined.ExpandMore
+        case "chevron.up":
+            imageVector = Icons.Outlined.ExpandLess
         case "gearshape":
             imageVector = Icons.Outlined.Settings
         case "square.and.pencil":

@@ -106,9 +106,37 @@ public struct EventSettings {
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
     @Environment(\.openMusicEventAuthoringPhase) var authoringPhase
+    @State var isNotificationPermissionExpanded: Bool
 
     public init(store: StoreOf<EventSettings>) {
         self.store = store
+        _isNotificationPermissionExpanded = State(
+            initialValue: store.permissions.notifications == .unknown
+        )
+    }
+
+    var notificationStatusTitle: String {
+        switch store.permissions.notifications {
+        case .authorized:
+            "On"
+        case .limited:
+            "Quiet"
+        case .denied, .restricted:
+            "Off"
+        case .unknown:
+            "Set Up"
+        }
+    }
+
+    var notificationSystemImage: String {
+        switch store.permissions.notifications {
+        case .authorized, .limited:
+            "bell.fill"
+        case .denied, .restricted:
+            "bell.slash"
+        case .unknown:
+            "bell"
+        }
     }
 
     public var body: some View {
@@ -149,36 +177,63 @@ public struct EventSettingsView: View {
 
             #if os(iOS) || os(Android)
             Section("Permissions") {
-                Text(
-                    "Allow device notifications so this event can alert you when organizers publish important schedule or venue updates. You will still choose which updates you receive for each event."
-                )
+                VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        isNotificationPermissionExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 10) {
+                            MappedSystemImage(systemName: notificationSystemImage)
+                                .frame(width: 22, height: 22)
 
-                switch store.permissions.notifications {
-                case .authorized:
-                    Label("Notifications allowed", systemImage: "bell.fill")
+                            Text("Notifications")
 
-                case .limited:
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Notifications allowed quietly", systemImage: "bell.fill")
-                        Text("Your device may deliver these without a sound or visible alert.")
-                            .foregroundStyle(.secondary)
-                    }
+                            Spacer()
 
-                case .denied, .restricted:
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Notifications not allowed", systemImage: "bell.slash")
-                        Text("Open system settings to allow notifications for Open Music Event.")
-                            .foregroundStyle(.secondary)
-                        Button("Open Notification Settings") {
-                            store.send(.openNotificationSettingsButtonTapped)
+                            Text(notificationStatusTitle)
+                                .foregroundStyle(.secondary)
+
+                            MappedSystemImage(
+                                systemName: isNotificationPermissionExpanded
+                                    ? "chevron.up"
+                                    : "chevron.down"
+                            )
+                            .frame(width: 12, height: 12)
                         }
                     }
+                    .buttonStyle(.plain)
 
-                case .unknown:
-                    Button {
-                        store.send(.notificationPermissionButtonTapped)
-                    } label: {
-                        Label("Allow Notifications", systemImage: "bell")
+                    if isNotificationPermissionExpanded {
+                        Divider()
+
+                        switch store.permissions.notifications {
+                        case .authorized:
+                            Text("Get schedule changes and important updates from this event.")
+                                .foregroundStyle(.secondary)
+                            Button("Manage Notifications") {
+                                store.send(.openNotificationSettingsButtonTapped)
+                            }
+
+                        case .limited:
+                            Text("Notifications are being delivered quietly.")
+                                .foregroundStyle(.secondary)
+                            Button("Manage Notifications") {
+                                store.send(.openNotificationSettingsButtonTapped)
+                            }
+
+                        case .denied, .restricted:
+                            Text("Turn notifications on in system settings to get event updates.")
+                                .foregroundStyle(.secondary)
+                            Button("Open Notification Settings") {
+                                store.send(.openNotificationSettingsButtonTapped)
+                            }
+
+                        case .unknown:
+                            Text("Get schedule changes and important updates from this event.")
+                                .foregroundStyle(.secondary)
+                            Button("Allow Notifications") {
+                                store.send(.notificationPermissionButtonTapped)
+                            }
+                        }
                     }
                 }
             }
@@ -205,6 +260,11 @@ public struct EventSettingsView: View {
             }
         }
         .navigationTitle("Event Settings")
+        .onChange(of: store.permissions.notifications) { _, authorization in
+            if authorization != .unknown {
+                isNotificationPermissionExpanded = false
+            }
+        }
     }
 }
 

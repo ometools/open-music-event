@@ -327,6 +327,12 @@ struct SettingsFeatureTests {
             DevicePermissions(notifications: .restricted).notificationSetupBadgeValue,
             nil
         )
+
+        #expect(DevicePermissions(notifications: .authorized).notificationsAreAllowed)
+        #expect(DevicePermissions(notifications: .limited).notificationsAreAllowed)
+        #expect(!DevicePermissions(notifications: .unknown).notificationsAreAllowed)
+        #expect(!DevicePermissions(notifications: .denied).notificationsAreAllowed)
+        #expect(!DevicePermissions(notifications: .restricted).notificationsAreAllowed)
     }
 
     @Test

@@ -54,6 +54,8 @@ public struct CommunicationsViewer {
         public let eventID: OMERecord.Event.ID
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
+        @SharedReader(.devicePermissions)
+        public var permissions: DevicePermissions
         public var destination: Destination.State?
         public var errorMessage: String?
 
@@ -85,7 +87,15 @@ public struct CommunicationsViewer {
         }
 
         var hasContent: Bool {
-            event != nil && (!(event?.reportingLinks ?? []).isEmpty || !channels.isEmpty)
+            event != nil && (
+                shouldShowNotificationPrompt
+                    || !(event?.reportingLinks ?? []).isEmpty
+                    || !channels.isEmpty
+            )
+        }
+
+        var shouldShowNotificationPrompt: Bool {
+            !permissions.notificationsAreAllowed
         }
 
         public var canManageChannels: Bool {
@@ -99,10 +109,12 @@ public struct CommunicationsViewer {
         case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
         case destination(Destination.Action)
         case editChannelButtonTapped(OMERecord.Channel)
+        case notificationPermissionButtonTapped
         case notificationStateButtonTapped(
             OMERecord.Channel.ID,
             OMERecord.Channel.NotificationState
         )
+        case openNotificationSettingsButtonTapped
     }
 
     @Feature
@@ -113,6 +125,7 @@ public struct CommunicationsViewer {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.devicePermissions) var devicePermissions
 
     static func channelsQuery(
         eventID: OMERecord.Event.ID
@@ -176,6 +189,19 @@ public struct CommunicationsViewer {
             case let .editChannelButtonTapped(channel):
                 state.destination = .channelForm(ChannelForm.State(channel: channel))
 
+            case .notificationPermissionButtonTapped:
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestNotifications()
+                        try await store.state.$permissions.load()
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to request notification permission."
+                        }
+                    }
+                }
+
             case let .notificationStateButtonTapped(channelID, notificationState):
                 guard
                     let channel = state.channels.first(where: { $0.id == channelID }),
@@ -201,6 +227,11 @@ public struct CommunicationsViewer {
                     }
                 }
 
+            case .openNotificationSettingsButtonTapped:
+                store.addTask {
+                    _ = await devicePermissions.openNotificationSettings()
+                }
+
             case .destination:
                 break
             }
@@ -222,6 +253,41 @@ public struct CommunicationsViewerView: View {
         Group {
             if store.hasContent {
                 List {
+                    if store.shouldShowNotificationPrompt {
+                        Section {
+                            Button {
+                                if store.permissions.notifications == .unknown {
+                                    store.send(.notificationPermissionButtonTapped)
+                                } else {
+                                    store.send(.openNotificationSettingsButtonTapped)
+                                }
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    MappedSystemImage(systemName: "bell.badge")
+                                        .frame(width: 24, height: 24)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Turn On Notifications")
+                                            .foregroundStyle(.primary)
+                                        Text("This event wants to send you important updates.")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Text(
+                                        store.permissions.notifications == .unknown
+                                            ? "Allow"
+                                            : "Settings"
+                                    )
+                                    .font(.subheadline.weight(.semibold))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
                     if store.channelRows.isEmpty {
                         Section {
                             Text("No communication channels have been added to this event yet.")

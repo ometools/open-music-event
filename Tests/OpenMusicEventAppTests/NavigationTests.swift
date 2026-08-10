@@ -5978,6 +5978,88 @@ struct NavigationTests {
     }
 
     @Test
+    func communicationsViewerNotificationPromptRequestsPermissionAndThenDisappears() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let permissionWasRequested = Mutex(false)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+        let client = DevicePermissionsClient(
+            load: {
+                DevicePermissions(
+                    notifications: permissionWasRequested.withLock {
+                        $0 ? .authorized : .unknown
+                    }
+                )
+            },
+            openNotificationSettings: { false },
+            requestNotifications: {
+                permissionWasRequested.withLock { $0 = true }
+                return .authorized
+            }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = eventID
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        // Comms starts with the notification prompt while device permission is undecided.
+        try await store.state.$permissions.load()
+        #expect(store.state.shouldShowNotificationPrompt)
+
+        // Allowing notifications reloads the shared device state and removes the prompt.
+        await store.send(.notificationPermissionButtonTapped)?.value
+        #expect(permissionWasRequested.withLock { $0 })
+        #expect(!store.state.shouldShowNotificationPrompt)
+    }
+
+    @Test
+    func communicationsViewerNotificationPromptOpensSettingsWhenPermissionIsOff() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let settingsOpenCount = Mutex(0)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+        let client = DevicePermissionsClient(
+            load: { DevicePermissions(notifications: .denied) },
+            openNotificationSettings: {
+                settingsOpenCount.withLock { $0 += 1 }
+                return true
+            },
+            requestNotifications: { .denied }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = eventID
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        try await store.state.$permissions.load()
+        #expect(store.state.shouldShowNotificationPrompt)
+
+        await store.send(.openNotificationSettingsButtonTapped)?.value
+
+        expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
+    }
+
+    @Test
     func communicationsViewerNotificationActionWritesPreference() async throws {
         // An attendee changes a channel preference from either the row's long-press
         // menu or its swipe action. Both UI surfaces send this same feature action.

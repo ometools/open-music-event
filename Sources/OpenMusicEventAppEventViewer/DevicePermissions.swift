@@ -26,6 +26,10 @@ public struct DevicePermissions: Equatable, Sendable {
     public var notificationSetupBadgeValue: Int? {
         notifications == .unknown ? 1 : nil
     }
+
+    public var notificationsAreAllowed: Bool {
+        notifications == .authorized || notifications == .limited
+    }
 }
 
 public struct DevicePermissionsClient: Sendable {
