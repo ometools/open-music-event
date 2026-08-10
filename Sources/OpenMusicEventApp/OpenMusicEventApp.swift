@@ -80,9 +80,6 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
-        dependencies.appDelegateClient = AppDelegateClient(
-            events: { OpenMusicEventAppDelegate.shared.appDelegateEvents() }
-        )
         dependencies.notificationTokenClient = NotificationTokenClient(
             tokens: { OpenMusicEventAppDelegate.shared.notificationTokens() }
         )
@@ -119,28 +116,11 @@ extension OME {
 
 }
 
-/// The application's authenticated content is wrapped by the platform-neutral delegate bridge
-/// before it reaches the OAuth boundary. This keeps lifecycle and delivered-notification routing
-/// outside the authentication feature while still giving OME one explicit app-owned handler.
-public typealias OpenMusicEventApplicationContent = AppDelegateFeature<OpenMusicEventAppRoot>
+public typealias OpenMusicEventApplicationContent = OpenMusicEventAppRoot
 
 /// The application's single authentication boundary. Its entire root receives the authenticated
 /// OAuth session, authorization requests, and authorization broker from `OAuthAuthorization`.
 public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventApplicationContent>
-
-extension OAuthAuthorization where Content == OpenMusicEventApplicationContent {
-    init(
-        storage: OAuthSessionStorage,
-        requestCenter: AuthorizationRequestCenter = AuthorizationRequestCenter(),
-        makeContent: @escaping @Sendable () -> OpenMusicEventAppRoot
-    ) {
-        self.init(storage: storage, requestCenter: requestCenter) {
-            AppDelegateFeature(eventTrigger: \.appDelegateEvent) {
-                makeContent()
-            }
-        }
-    }
-}
 
 struct SelectedEventRestoration {
     var eventID: OMERecord.Event.ID?
@@ -156,15 +136,12 @@ struct SelectedEventRestoration {
 }
 
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
-    @MainActor
-    private static let genericStore = makeStore(variant: .generic)
-
     let store: StoreOf<OpenMusicEventApplication>
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
     @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
 
     /* SKIP @bridge */public init() {
-        self.store = Self.genericStore
+        self.store = OpenMusicEventAppDelegate.store
     }
 
     @MainActor
@@ -286,26 +263,18 @@ struct SelectedEventRestoration {
 /* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
     /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate()
 
-    private let appDelegateEventContinuation: AsyncStream<AppDelegateEvent>.Continuation
-    private let appDelegateEventStream: AsyncStream<AppDelegateEvent>
+    @MainActor
+    static let store = OpenMusicEventApplicationRootView.makeStore(variant: .generic)
+
     private let notificationTokenContinuation: AsyncStream<Push.Destination>.Continuation
     private let notificationTokenStream: AsyncStream<Push.Destination>
 
     private init() {
-        let (stream, continuation) = AsyncStream<AppDelegateEvent>.makeStream(
-            bufferingPolicy: .bufferingNewest(64)
-        )
-        self.appDelegateEventContinuation = continuation
-        self.appDelegateEventStream = stream
         let (tokenStream, tokenContinuation) = AsyncStream<Push.Destination>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
         self.notificationTokenContinuation = tokenContinuation
         self.notificationTokenStream = tokenStream
-    }
-
-    /* SKIP @bridge */public func appDelegateEvents() -> AsyncStream<AppDelegateEvent> {
-        appDelegateEventStream
     }
 
     public func notificationTokens() -> AsyncStream<Push.Destination> {
@@ -314,12 +283,12 @@ struct SelectedEventRestoration {
 
     /* SKIP @bridge */public func onInit() {
 //        OME.bootstrapIfNeeded()
-        appDelegateEventContinuation.yield(.initialized)
+        send(.initialized)
         logger.debug("onInit")
     }
 
     /* SKIP @bridge */public func onLaunch() {
-        appDelegateEventContinuation.yield(.launched)
+        send(.launched)
         logger.debug("onLaunch")
 #if canImport(UIKit)
         Task { @MainActor in
@@ -376,7 +345,7 @@ struct SelectedEventRestoration {
     /// FCM's `RemoteMessage.data` can be forwarded here without exposing FCM types to OME.
     /* SKIP @bridge */public func onRemoteNotification(data: [String: String]) {
         do {
-            appDelegateEventContinuation.yield(
+            send(
                 .notification(
                     try NotificationProviderMessage(data: data).event(delivery: .silent)
                 )
@@ -387,29 +356,35 @@ struct SelectedEventRestoration {
     }
 
     /* SKIP @bridge */public func onResume() {
-        appDelegateEventContinuation.yield(.resumed)
+        send(.resumed)
         logger.debug("onResume")
         enforceStoredAuthenticationFreshness()
     }
 
     /* SKIP @bridge */public func onPause() {
-        appDelegateEventContinuation.yield(.paused)
+        send(.paused)
         logger.debug("onPause")
     }
 
     /* SKIP @bridge */public func onStop() {
-        appDelegateEventContinuation.yield(.stopped)
+        send(.stopped)
         logger.debug("onStop")
     }
 
     /* SKIP @bridge */public func onDestroy() {
-        appDelegateEventContinuation.yield(.destroyed)
+        send(.destroyed)
         logger.debug("onDestroy")
     }
 
     /* SKIP @bridge */public func onLowMemory() {
-        appDelegateEventContinuation.yield(.lowMemory)
+        send(.lowMemory)
         logger.debug("onLowMemory")
+    }
+
+    private func send(_ event: AppDelegateEvent) {
+        Task { @MainActor in
+            Self.store.send(.content(.appDelegateEvent(event)))
+        }
     }
 
     private func enforceStoredAuthenticationFreshness() {

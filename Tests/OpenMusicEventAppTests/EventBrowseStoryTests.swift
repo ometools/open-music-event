@@ -41,8 +41,6 @@ struct EventBrowseStoryTests {
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0)
         )
-        let (events, eventContinuation) = AsyncStream<AppDelegateEvent>.makeStream()
-        defer { eventContinuation.finish() }
         let getEventsRequestCount: @Sendable () -> Int = {
             appViewRequests.withLock {
                 $0.filter {
@@ -55,7 +53,6 @@ struct EventBrowseStoryTests {
                 $0.context = .test
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
                 OME.prepareDependencies(&$0, database: database)
-                $0.appDelegateClient = AppDelegateClient(events: { events })
                 $0.notificationTokenClient = NotificationTokenClient(
                     tokens: { AsyncStream { $0.finish() } }
                 )
@@ -88,9 +85,7 @@ struct EventBrowseStoryTests {
             } operation: {
                 let store = await MainActor.run {
                     Store(initialState: OpenMusicEventAppRoot.State()) {
-                        OpenMusicEventApplicationContent(eventTrigger: \.appDelegateEvent) {
-                            OpenMusicEventAppRoot()
-                        }
+                        OpenMusicEventAppRoot()
                     }
                 }
                 let browse = await MainActor.run {
@@ -103,28 +98,24 @@ struct EventBrowseStoryTests {
                 await browseTask?.value
                 expectNoDifference(getEventsRequestCount(), 1)
 
-                eventContinuation.yield(
-                    .notification(
-                        NotificationEvent(
-                            signal: .sourceAvailable(
-                                NotificationSource(
-                                    id: .init(rawValue: "openmusicevent.app"),
-                                    version: .init(rawValue: "1")
+                let refreshTask = await MainActor.run {
+                    store.send(
+                        .appDelegateEvent(
+                            .notification(
+                                NotificationEvent(
+                                    signal: .sourceAvailable(
+                                        NotificationSource(
+                                            id: .init(rawValue: "openmusicevent.app"),
+                                            version: .init(rawValue: "1")
+                                        )
+                                    ),
+                                    delivery: .silent
                                 )
-                            ),
-                            delivery: .silent
+                            )
                         )
                     )
-                )
-
-                let refreshDeadline = ContinuousClock.now.advanced(by: .seconds(1))
-                while ContinuousClock.now < refreshDeadline {
-                    let didFinishRefresh = await MainActor.run {
-                        getEventsRequestCount() >= 2 && !browse.isLoading
-                    }
-                    guard !didFinishRefresh else { break }
-                    await Task.yield()
                 }
+                await refreshTask?.value
 
                 await MainActor.run {
                     expectNoDifference(browse.catalog, .openMusicEvent)

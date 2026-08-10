@@ -79,6 +79,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
+        case appDelegateEvent(AppDelegateEvent)
         case browser(OpenMusicEventBrowser.Action)
         case destination(Destination.Action)
         case handleNavigationRequest(NavigationRequest)
@@ -133,6 +134,11 @@ public struct OpenMusicEventAppRoot {
         Features {
             Update { state, action in
                 switch action {
+                case let .appDelegateEvent(event):
+                    store.addTask {
+                        try await store.appDelegateEvent(event)?.value
+                    }
+
                 case .browser:
                     break
 
