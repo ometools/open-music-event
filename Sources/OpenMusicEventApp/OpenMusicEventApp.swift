@@ -323,7 +323,15 @@ struct SelectedEventRestoration {
         logger.debug("onLaunch")
 #if canImport(UIKit)
         Task { @MainActor in
+            let wasRegistered = UIApplication.shared.isRegisteredForRemoteNotifications
+            logger.info(
+                "Requesting remote notification registration; already registered: \(wasRegistered, privacy: .public)"
+            )
             UIApplication.shared.registerForRemoteNotifications()
+            let isRegisteredAfterRequest = UIApplication.shared.isRegisteredForRemoteNotifications
+            logger.info(
+                "Submitted remote notification registration request; registered after submission: \(isRegisteredAfterRequest, privacy: .public)"
+            )
         }
 #endif
         enforceStoredAuthenticationFreshness()
@@ -352,8 +360,16 @@ struct SelectedEventRestoration {
         )
     }
 
-    /* SKIP @bridge */public func onRemoteNotificationRegistrationFailed() {
-        logger.error("Remote notification registration failed")
+    /* SKIP @bridge */public func onRemoteNotificationRegistrationFailed(
+        errorDescription: String
+    ) {
+#if SKIP
+        logger.error("Remote notification registration failed: \(errorDescription)")
+#else
+        logger.error(
+            "Remote notification registration failed: \(errorDescription, privacy: .public)"
+        )
+#endif
     }
 
     /// Normalizes provider data at the platform boundary before it enters the feature tree.

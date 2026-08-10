@@ -76,7 +76,9 @@ typealias AppType = NSApplication
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
-        AppDelegate.shared.onRemoteNotificationRegistrationFailed()
+        AppDelegate.shared.onRemoteNotificationRegistrationFailed(
+            errorDescription: String(describing: error)
+        )
     }
 
     func application(
