@@ -117,6 +117,12 @@
     "After" : {
 
     },
+    "Allow device notifications so this event can alert you when organizers publish important schedule or venue updates. You will still choose which updates you receive for each event." : {
+
+    },
+    "Allow Notifications" : {
+
+    },
     "An open-source app for discovering, following, and contributing to music events." : {
 
     },
@@ -693,6 +699,12 @@
     "Notifications" : {
 
     },
+    "Notifications allowed" : {
+
+    },
+    "Notifications allowed quietly" : {
+
+    },
     "Notifications are required" : {
 
     },
@@ -700,6 +712,9 @@
 
     },
     "Notifications enabled" : {
+
+    },
+    "Notifications not allowed" : {
 
     },
     "Notifications required" : {
@@ -720,10 +735,19 @@
     "Now" : {
 
     },
+    "Open Music Event could not request notification permission." : {
+
+    },
+    "Open Notification Settings" : {
+
+    },
     "Open proposal" : {
 
     },
     "Open proposals" : {
+
+    },
+    "Open system settings to allow notifications for Open Music Event." : {
 
     },
     "Opening your new proposal" : {
@@ -1327,6 +1351,9 @@
 
     },
     "Your changes will appear here when the source is ready." : {
+
+    },
+    "Your device may deliver these without a sound or visible alert." : {
 
     },
     "Your local changes are waiting, but you do not have permission to create a proposal." : {
