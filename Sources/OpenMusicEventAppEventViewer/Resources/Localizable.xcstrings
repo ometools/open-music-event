@@ -117,7 +117,7 @@
     "After" : {
 
     },
-    "Allow device notifications so this event can alert you when organizers publish important schedule or venue updates. You will still choose which updates you receive for each event." : {
+    "Allow" : {
 
     },
     "Allow Notifications" : {
@@ -507,6 +507,9 @@
     "From Other Event" : {
 
     },
+    "Get schedule changes and important updates from this event." : {
+
+    },
     "Google Maps" : {
 
     },
@@ -586,6 +589,9 @@
 
     },
     "Look up exact handle or DID" : {
+
+    },
+    "Manage Notifications" : {
 
     },
     "Markdown is saved as entered. Use Preview to see the published post." : {
@@ -699,10 +705,7 @@
     "Notifications" : {
 
     },
-    "Notifications allowed" : {
-
-    },
-    "Notifications allowed quietly" : {
+    "Notifications are being delivered quietly." : {
 
     },
     "Notifications are required" : {
@@ -712,9 +715,6 @@
 
     },
     "Notifications enabled" : {
-
-    },
-    "Notifications not allowed" : {
 
     },
     "Notifications required" : {
@@ -745,9 +745,6 @@
 
     },
     "Open proposals" : {
-
-    },
-    "Open system settings to allow notifications for Open Music Event." : {
 
     },
     "Opening your new proposal" : {
@@ -1077,6 +1074,9 @@
     "Set as primary" : {
 
     },
+    "Settings" : {
+
+    },
     "SF Symbol" : {
 
     },
@@ -1239,6 +1239,9 @@
     "This event stage could not be loaded." : {
 
     },
+    "This event wants to send you important updates." : {
+
+    },
     "This poster could not be loaded." : {
 
     },
@@ -1282,6 +1285,12 @@
 
     },
     "Try Again" : {
+
+    },
+    "Turn notifications on in system settings to get event updates." : {
+
+    },
+    "Turn On Notifications" : {
 
     },
     "Type" : {
@@ -1351,9 +1360,6 @@
 
     },
     "Your changes will appear here when the source is ready." : {
-
-    },
-    "Your device may deliver these without a sound or visible alert." : {
 
     },
     "Your local changes are waiting, but you do not have permission to create a proposal." : {
