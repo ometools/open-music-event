@@ -22,6 +22,7 @@ import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
+import OpenMusicEventWhiteLabel
 import SourceControlClient
 import SQLiteData
 import Synchronization
@@ -214,6 +215,7 @@ struct EventBrowseStoryTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.uuid = .incrementing
             OME.prepareDependencies(&$0, database: database)
+            $0.defaultEventID = eventID
             $0.notificationTokenClient = NotificationTokenClient(
                 tokens: { AsyncStream { $0.finish() } }
             )
@@ -236,6 +238,187 @@ struct EventBrowseStoryTests {
             let subscriptions = await replacementIterator.next()
             expectNoDifference(subscriptions, Optional(Set([expectedSubscription])))
             await store.dismount(timeout: .seconds(1))
+        }
+    }
+
+    @Test @MainActor
+    func `a silent source update refreshes the entered event without remounting it`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
+        )
+        try await database.write { database in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(database)
+            try OME.Event.insert {
+                testEventDraft(id: eventID, name: "Wicked Woods 2026")
+            }
+            .execute(database)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/wickedwoods.ca/ome-workspace",
+                    ref: "main",
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "2026"
+                )
+            }
+            .execute(database)
+        }
+
+        let revision = "2222222222222222222222222222222222222222"
+        let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+
+        try await withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.uuid = .incrementing
+            OME.prepareDependencies(&$0, database: database)
+            $0.defaultEventID = eventID
+            $0.calendarEvents = CalendarEventsClient(
+                browse: { _ in CalendarEvent.Page(events: []) },
+                event: { _ in throw CalendarEventsClientError.unimplemented },
+                organizer: { _ in throw CalendarEventsClientError.unimplemented }
+            )
+            $0.notificationTokenClient = NotificationTokenClient(
+                tokens: { AsyncStream { $0.finish() } }
+            )
+            $0.notificationsClient = NotificationsClient(
+                registerDestination: { _ in },
+                replaceSubscriptions: { _ in },
+                synchronize: {},
+                signals: { AsyncStream { $0.finish() } }
+            )
+            $0.omeEventSourceRefresh = .liveValue
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                checkoutRequests.withLock { $0.append(request) }
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                try writeWickedWoodsSourceWithTwoEvents(
+                    to: request.outputURL,
+                    event2026Name: "Wicked Woods 2026 — Updated"
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            var initialState = OpenMusicEventAppRoot.State(
+                variant: .whiteLabel(
+                    WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
+                ),
+                selectedEventIDAtLaunch: eventID
+            )
+            if case var .eventViewer(eventViewer) = initialState.destination {
+                eventViewer.authoring.content.content.selectedFeature = .communications
+                initialState.destination = .eventViewer(eventViewer)
+            }
+            let mountedWorkspaceID = initialState.destination?.eventViewer?.authoring.context.id
+            let store = Store(initialState: initialState) {
+                OpenMusicEventAppRoot()
+            }
+
+            // A source update for some other subscription must not touch the mounted event.
+            // Keeping this as provider JSON proves that filtering happens after the same
+            // notification decoding boundary used by the app delegate.
+            let unrelatedNotificationJSON = """
+            {
+              "aps": {
+                "content-available": 1
+              },
+              "kind": "source_available",
+              "source": "at://did:plc:somebody-else/app.openmusicevent.event/other-event",
+              "version": "1111111111111111111111111111111111111111"
+            }
+            """
+            let unrelatedNotificationTask = try store.state.notificationEvent(
+                NotificationEvent(
+                    json: unrelatedNotificationJSON,
+                    delivery: .contentAvailable
+                )
+            )
+            await unrelatedNotificationTask?.value
+
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.context.id,
+                mountedWorkspaceID
+            )
+            expectNoDifference(checkoutRequests.withLock { $0 }, [])
+
+            // This is the exact provider JSON delivered through the app delegate. The source ID
+            // matches the subscription published by the already-mounted event viewer.
+            let notificationJSON = """
+            {
+              "aps": {
+                "content-available": 1
+              },
+              "kind": "source_available",
+              "source": "\(OME.Event.reference(id: eventID).uri.description)",
+              "version": "\(revision)"
+            }
+            """
+            let notificationTask = try store.state.notificationEvent(
+                NotificationEvent(
+                    json: notificationJSON,
+                    delivery: .contentAvailable
+                )
+            )
+            await notificationTask?.value
+
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while store.destination?.eventViewer?
+                .authoring.content.content.event?.name != "Wicked Woods 2026 — Updated",
+                  clock.now < deadline
+            {
+                try await clock.sleep(for: .milliseconds(1))
+            }
+
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 — Updated"
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.selectedFeature,
+                .communications
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.context.id,
+                mountedWorkspaceID
+            )
+            expectNoDifference(
+                checkoutRequests.withLock { $0.map(\.ref) },
+                [revision]
+            )
+            expectNoDifference(
+                checkoutRequests.withLock {
+                    $0.map(\.repository.normalizedReference)
+                },
+                ["tangled.org/wickedwoods.ca/ome-workspace"]
+            )
+
+            // Refresh remains event-scoped even though the canonical repository also contains
+            // Wicked Woods 2025.
+            let installedEventIDs = try await database.read { database in
+                try OME.Event.fetchAll(database).map(\.id)
+            }
+            expectNoDifference(installedEventIDs, [eventID])
+            withExtendedLifetime(store) {}
         }
     }
 
@@ -1091,7 +1274,10 @@ struct OrganizationDetailStory {
     }
 }
 
-private func writeWickedWoodsSourceWithTwoEvents(to repositoryURL: URL) throws {
+private func writeWickedWoodsSourceWithTwoEvents(
+    to repositoryURL: URL,
+    event2026Name: String = "Wicked Woods 2026"
+) throws {
     let timeZone = try #require(TimeZone(identifier: "America/Denver"))
     let source = OpenMusicEventSourceRepository(
         events: [
@@ -1102,7 +1288,7 @@ private func writeWickedWoodsSourceWithTwoEvents(to repositoryURL: URL) throws {
             ),
             wickedWoodsSourceEvent(
                 directoryName: "2026",
-                name: "Wicked Woods 2026",
+                name: event2026Name,
                 timeZone: timeZone
             ),
         ]

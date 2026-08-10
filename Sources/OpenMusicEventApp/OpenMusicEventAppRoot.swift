@@ -99,6 +99,7 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.omeEventInstallation) var eventInstallation
+    @Dependency(\.omeEventSourceRefresh) var eventSourceRefresh
     public var body: some Feature {
 //        let _ = Self._logChanges()
 
@@ -309,10 +310,41 @@ public struct OpenMusicEventAppRoot {
         }
         .onTrigger(store.notificationSignal) {
             (signal: NotificationSignal, state: inout State) in
-            guard state.variant == .generic else { return }
-            guard case .sourceAvailable = signal else { return }
+            guard case let .sourceAvailable(source) = signal else { return }
+            let mountedEventID = state.destination?.eventViewer?
+                .authoring
+                .content
+                .content
+                .id
+            let refreshesMountedEvent = mountedEventID.flatMap { eventID in
+                source.id.rawValue == OMERecord.Event.reference(id: eventID)
+                    .uri
+                    .description
+                    ? eventID
+                    : nil
+            }
+            let refreshesBrowse = state.variant == .generic
+            guard refreshesBrowse || refreshesMountedEvent != nil else { return }
             store.addTask {
-                try await store.browser.browse.refresh()?.value
+                if let eventID = refreshesMountedEvent {
+                    do {
+                        _ = try await eventSourceRefresh.refresh(
+                            OMEEventSourceRefreshRequest(
+                                eventID: eventID,
+                                version: source.version
+                            )
+                        )
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
+                if refreshesBrowse {
+                    do {
+                        try await store.browser.browse.refresh()?.value
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
             }
         }
         .onTrigger(store.appDelegateEvent) { event, _ in

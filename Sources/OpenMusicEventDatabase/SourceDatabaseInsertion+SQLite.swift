@@ -110,6 +110,58 @@ public extension OME.SourceDatabaseInsertion {
         }
     }
 
+    /// Replaces one event installed as read-only canonical content without creating or advancing
+    /// authoring-workspace revision state.
+    ///
+    /// Event-scoped installs deliberately do not prepare a source workspace. If that workspace has
+    /// since been prepared for authoring, its reconciliation machinery owns source updates and this
+    /// operation refuses to overwrite the writable editing database.
+    func replaceCanonicalEvent(
+        _ eventID: OME.Event.ID,
+        from workspace: SourceWorkspace,
+        in database: any DatabaseWriter
+    ) async throws {
+        let incomingProvenances = eventSourceProvenances.map(EventSourceProvenanceRecord.init)
+        guard !incomingProvenances.isEmpty,
+              incomingProvenances.allSatisfy({
+                  $0.id == eventID && $0.workspace?.id == workspace.id
+              }),
+              events.count == 1,
+              events.first?.id == eventID
+        else {
+            throw SourceWorkspaceInstallationError.mismatchedEvent(
+                eventID,
+                workspace.id
+            )
+        }
+
+        let prepared = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: self,
+            importedAt: Date()
+        )
+        try await database.write { db in
+            guard try SourceWorkspaceInstallationRecord
+                .find(workspace.id)
+                .fetchOne(db) == nil
+            else {
+                throw SourceWorkspaceInstallationError.preparedWorkspace(workspace.id)
+            }
+            guard let installedProvenance = try EventSourceProvenanceRecord
+                .find(eventID)
+                .fetchOne(db),
+                  installedProvenance.workspace?.id == workspace.id
+            else {
+                throw SourceWorkspaceInstallationError.mismatchedEvent(
+                    eventID,
+                    workspace.id
+                )
+            }
+
+            try OME.Event.find(eventID).delete().execute(db)
+            try prepared.insert(into: db)
+        }
+    }
+
     private func validateEventSourceProvenanceConflicts(in db: Database) throws {
         for provenance in eventSourceProvenances
         where provenance.eventIDOrigin == .inferred {
@@ -155,7 +207,9 @@ private enum SourceWorkspaceInstallationError: Error, Equatable {
         existingWorkspaceIDs: [SourceWorkspace.ID],
         incomingWorkspaceID: SourceWorkspace.ID
     )
+    case mismatchedEvent(OME.Event.ID, SourceWorkspace.ID)
     case mismatchedSource(SourceWorkspace.ID)
+    case preparedWorkspace(SourceWorkspace.ID)
     case unscopedOrganizerSource(OME.Organizer.ID)
 }
 
