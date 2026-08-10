@@ -98,18 +98,25 @@ struct EventBrowseStoryTests {
                 await browseTask?.value
                 expectNoDifference(getEventsRequestCount(), 1)
 
+                // APNs delivers the background update as JSON. The app root lets the
+                // notifications feature decode it before deciding that Browse should refresh.
+                let notificationJSON = #"""
+                {
+                  "aps": {
+                    "content-available": 1
+                  },
+                  "composable_notifications_kind": "source_available",
+                  "composable_notifications_source_id": "openmusicevent.app",
+                  "composable_notifications_source_version": "1"
+                }
+                """#
                 let refreshTask = await MainActor.run {
                     store.send(
                         .appDelegateEvent(
                             .notification(
                                 NotificationEvent(
-                                    signal: .sourceAvailable(
-                                        NotificationSource(
-                                            id: .init(rawValue: "openmusicevent.app"),
-                                            version: .init(rawValue: "1")
-                                        )
-                                    ),
-                                    delivery: .silent
+                                    json: notificationJSON,
+                                    delivery: .contentAvailable
                                 )
                             )
                         )

@@ -341,18 +341,13 @@ struct SelectedEventRestoration {
 #endif
     }
 
-    /// Normalizes provider data at the platform boundary before it enters the feature tree.
-    /// FCM's `RemoteMessage.data` can be forwarded here without exposing FCM types to OME.
-    /* SKIP @bridge */public func onRemoteNotification(data: [String: String]) {
-        do {
-            send(
-                .notification(
-                    try NotificationProviderMessage(data: data).event(delivery: .silent)
-                )
+    /// Preserves provider JSON until the notifications feature transforms it into an app signal.
+    /* SKIP @bridge */public func onRemoteNotification(json: String) {
+        send(
+            .notification(
+                NotificationEvent(json: json, delivery: .contentAvailable)
             )
-        } catch {
-            logger.error("Ignoring an invalid remote notification payload")
-        }
+        )
     }
 
     /* SKIP @bridge */public func onResume() {

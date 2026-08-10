@@ -1,9 +1,16 @@
+import Foundation
 import SwiftUI
 import OpenMusicEventApp
 import Dependencies
 
 #if canImport(UIKit)
+import OSLog
 import UIKit
+
+private let notificationLogger = Logger(
+    subsystem: "app.openmusicevent",
+    category: "notifications"
+)
 #endif
 
 private typealias AppRootView = OpenMusicEventApplicationRootView
@@ -86,14 +93,18 @@ typealias AppType = NSApplication
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        let data = userInfo.reduce(into: [String: String]()) { result, element in
-            guard let key = element.key as? String,
-                  let value = element.value as? String
-            else { return }
-            result[key] = value
+        do {
+            let data = try JSONSerialization.data(withJSONObject: userInfo)
+            AppDelegate.shared.onRemoteNotification(
+                json: String(decoding: data, as: UTF8.self)
+            )
+            completionHandler(.newData)
+        } catch {
+            notificationLogger.error(
+                "Could not preserve delivered notification JSON: \(String(describing: error), privacy: .public)"
+            )
+            completionHandler(.failed)
         }
-        AppDelegate.shared.onRemoteNotification(data: data)
-        completionHandler(.newData)
     }
     #elseif canImport(AppKit)
     func applicationWillFinishLaunching(_ notification: Notification) {
