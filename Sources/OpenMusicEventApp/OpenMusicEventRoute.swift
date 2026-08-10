@@ -20,7 +20,7 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
         guard !segments.isEmpty else { return nil }
 
         if segments.count >= 4,
-           segments[0] == "organizers",
+           segments[0] == "orgs",
            segments[2] == "events" {
             guard
                   let organizerID = OMERecord.Organizer.ID(segments[1].removingPercentEncoding ?? segments[1])
@@ -82,7 +82,7 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
         case let .event(eventID, target):
             let organizerID = eventID.organizerID.description.urlPathSegmentEncoded
             let localEventID = eventID.eventID.rawValue.rawValue
-            let base = "/organizers/\(organizerID)/events/\(localEventID)"
+            let base = "/orgs/\(organizerID)/events/\(localEventID)"
             guard let target else { return base }
 
             switch target {

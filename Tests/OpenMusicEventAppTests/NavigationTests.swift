@@ -204,39 +204,39 @@ struct NavigationTests {
     @Test(
         arguments: [
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1",
                 AppRoute.event(eventID("event-1"), nil)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/schedule",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/schedule",
                 AppRoute.event(eventID("event-1"), .schedule)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/contributors",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors",
                 AppRoute.event(eventID("event-1"), .contributors)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/contributors/artist-1",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors/artist-1",
                 AppRoute.event(eventID("event-1"), .contributor(contributorLocalID("artist-1")))
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages",
                 AppRoute.event(eventID("event-1"), .stages)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
                 AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/performance-1",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/performance-1",
                 AppRoute.event(eventID("event-1"), .performance(performanceLocalID("performance-1")))
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/workspace",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/workspace",
                 AppRoute.event(eventID("event-1"), .workspace)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/settings",
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/settings",
                 AppRoute.event(eventID("event-1"), .settings)
             ),
         ]
@@ -253,9 +253,9 @@ struct NavigationTests {
 
     @Test(
         arguments: [
-            "https://example.com/organizers/did%3Aweb%3Aexample.com/events/event-1",
-            "organizers/did%3Aweb%3Aexample.com/events/event-1",
-            "//example.com/organizers/did%3Aweb%3Aexample.com/events/event-1",
+            "https://example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
+            "orgs/did%3Aweb%3Aexample.com/events/event-1",
+            "//example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
         ]
     )
     func appRouteRejectsNotificationValuesThatAreNotAppPaths(value: String) {
@@ -265,15 +265,15 @@ struct NavigationTests {
     @Test
     func appRouteAcceptsLegacyEditEventPathAsWorkspace() throws {
         let url = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/edit"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/edit"
         ))
         #expect(AppRoute(url: url) == AppRoute.event(eventID("event-1"), .workspace))
     }
 
     @Test(
         arguments: [
-            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/people",
-            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/people",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
         ]
     )
     func appRouteRejectsOldContributorURLs(urlString: String) throws {
@@ -283,9 +283,9 @@ struct NavigationTests {
 
     @Test(
         arguments: [
-            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances",
-            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/opening/extra",
-            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performance/opening",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/opening/extra",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performance/opening",
         ]
     )
     func appRouteRejectsIncompleteOrUnsupportedPerformanceURLs(urlString: String) throws {
@@ -392,7 +392,7 @@ struct NavigationTests {
           "kind": "content",
           "source": "at://did:web:example.com/app.openmusicevent.event/event-1",
           "version": "a1b2c3d4",
-          "route": "/organizers/did%3Aweb%3Aexample.com/events/event-1/communications"
+          "route": "/orgs/did%3Aweb%3Aexample.com/events/event-1/communications"
         }
         """#
 
@@ -452,7 +452,7 @@ struct NavigationTests {
           "kind": "content",
           "source": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
           "version": "manual-content-1",
-          "route": "/organizers/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/events/ome-workspace-2026/communications"
+          "route": "/orgs/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/events/ome-workspace-2026/communications"
         }
         """#
 
@@ -506,10 +506,10 @@ struct NavigationTests {
             }
         }
         let firstURL = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1"
         ))
         let secondURL = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-2"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-2"
         ))
 
         await store.send(.openURL(firstURL))?.value
@@ -534,7 +534,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         let url = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/contributors/contributor-1"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors/contributor-1"
         ))
 
         await store.send(.root(.openURL(url)))?.value
@@ -561,7 +561,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         let url = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1"
         ))
 
         await store.send(.root(.openURL(url)))?.value
@@ -605,7 +605,7 @@ struct NavigationTests {
 
         let store = makeRootHarnessStore(database: database, eventID: eventID)
         let url = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/opening"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/opening"
         ))
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
@@ -635,7 +635,7 @@ struct NavigationTests {
         let performanceID = performanceLocalID("missing")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
         let url = try #require(URL(
-            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/missing"
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/missing"
         ))
 
         await store.send(.root(.openURL(url)))?.value
