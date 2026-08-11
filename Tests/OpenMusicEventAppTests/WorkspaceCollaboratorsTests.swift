@@ -90,7 +90,8 @@ struct WorkspaceCollaboratorsTests {
                 return EventWorkspace.State(
                     workspace: workspace,
                     eventID: eventID,
-                    workspacePhase: SharedReader(value: .inactive)
+                    workspacePhase: SharedReader(value: .inactive),
+                    openProposal: SharedReader(value: nil)
                 )
             }
 
@@ -128,6 +129,48 @@ struct WorkspaceCollaboratorsTests {
                 ),
                 [.changes, .proposals]
             )
+        }
+    }
+
+    @Test
+    func `a grant for another workspace does not expose authoring pages`() throws {
+        try withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+        } operation: {
+            let ownerID = try #require(DID("did:plc:owner"))
+            let workspace = workspace(ownerID: ownerID)
+            let otherWorkspace = SourceWorkspace(
+                organizerID: workspace.organizerID,
+                repository: "tangled.org/owner/other-events",
+                branch: "main"
+            )
+            let eventID = OME.Event.ID(
+                organizerID: ownerID,
+                eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
+            )
+            let state = withDependencies {
+                $0.defaultEventID = eventID
+            } operation: {
+                let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+                authoringGrant.withLock {
+                    $0 = AuthoringGrant(
+                        principal: AuthoringPrincipal(actorID: ownerID),
+                        role: .owner,
+                        workspaceID: otherWorkspace.id
+                    )
+                }
+                return EventWorkspace.State(
+                    workspace: workspace,
+                    eventID: eventID,
+                    workspacePhase: SharedReader(value: .inactive),
+                    openProposal: SharedReader(value: nil)
+                )
+            }
+
+            expectNoDifference(state.authoringAccess, .attendee)
+            expectNoDifference(state.availablePages, [.changes])
+            #expect(!state.changes.canPropose)
         }
     }
 

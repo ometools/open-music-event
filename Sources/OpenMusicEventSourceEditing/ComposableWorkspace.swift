@@ -89,7 +89,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     submission,
                     proposal
                 )
-                return .proposal(proposal)
+                return proposal.source
             },
             captureChanges: { source, workspaceID, request in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
@@ -121,13 +121,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                 let prepared = try await preparation.prepare(
                     SourceWorkspace(id: sourceWorkspaceID)
                 )
-                guard let proposal = try persistence.openProposal(sourceWorkspaceID) else {
-                    return prepared
-                }
-                guard prepared.line.editingReference.revision == proposal.source.revision else {
-                    throw OpenMusicEventAuthoringIntegrationError.openProposalRevisionMismatch
-                }
-                return WorkspacePreparation(line: .proposal(proposal), source: prepared.source)
+                return prepared
             },
             pushCommit: { source, workspaceID, submission in
                 try await publisher.pushCommit(
@@ -169,5 +163,4 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
 
 private enum OpenMusicEventAuthoringIntegrationError: Error {
     case grantWorkspaceMismatch
-    case openProposalRevisionMismatch
 }

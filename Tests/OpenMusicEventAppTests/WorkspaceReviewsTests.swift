@@ -3,11 +3,12 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
+import FileTree
 import Foundation
 import IssueReporting
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import OpenMusicEventSourceEditing
-import Sharing
 import SQLiteData
 import Testing
 
@@ -41,10 +42,14 @@ struct WorkspaceReviewsTests {
             sourceSnapshotRequests: sourceSnapshotRequests
         )
 
+        await waitUntil { store.reviews.contains(where: { $0.id == review.id }) }
         try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
+            #expect(store.canReview)
             await store.send(.reviewButtonTapped(review))?.value
+            #expect(store.destination != nil)
             await waitUntil {
                 guard case let .reviewDetail(detail)? = store.destination else { return false }
+                guard case .failed = detail.semanticDiffStatus else { return false }
                 return detail.canMerge
                     && detail.rawDiffStatus == .loaded("Rendered remote patch")
                     && !sourceSnapshotRequests.value.isEmpty
@@ -62,7 +67,8 @@ struct WorkspaceReviewsTests {
             [
                 TangledPullReviewSourceSnapshotRequest(
                     organizerID: workspace.organizerID,
-                    ref: try #require(review.sourceBranch),
+                    repository: .target(review.targetRepositoryDID),
+                    ref: review.targetBranch,
                     sourceProvenance: workspace.sourceProvenance
                 )
             ]
@@ -87,11 +93,10 @@ struct WorkspaceReviewsTests {
     }
 
     @Test
-    func deletingReviewRemovesItOnlyAfterRemoteDeletionSucceeds() async throws {
+    func semanticChangesCompareTheReviewSourceRepositoryToItsTargetRepository() async throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
         let review = review()
-        let deletedReviewIDs = LockIsolated<[String]>([])
         let grant = AuthoringGrant(
             principal: AuthoringPrincipal(
                 actorID: try #require(DID(workspace.organizerID.description))
@@ -99,31 +104,110 @@ struct WorkspaceReviewsTests {
             role: .owner,
             workspaceID: workspace.id
         )
+        let requests = LockIsolated<[TangledPullReviewSourceSnapshotRequest]>([])
+        let targetInsertion = try reviewInsertion(
+            workspace: workspace,
+            eventName: "Published event"
+        )
+        let sourceInsertion = try reviewInsertion(
+            workspace: workspace,
+            eventName: "Proposed event"
+        )
         let store = makeStore(
             database: database,
             workspace: workspace,
             review: review,
             grant: grant,
-            delete: { review in
-                deletedReviewIDs.withValue { $0.append(review.id) }
+            sourceSnapshotRequests: requests,
+            sourceSnapshot: { request in
+                switch request.repository {
+                case .target:
+                    targetInsertion
+                case .source:
+                    sourceInsertion
+                }
             }
         )
 
+        await waitUntil { store.reviews.contains(where: { $0.id == review.id }) }
+        #expect(store.canReview)
+        await store.send(.reviewButtonTapped(review))?.value
+        #expect(store.destination != nil)
+        await waitUntil {
+            guard case let .reviewDetail(detail)? = store.destination,
+                  case .loaded = detail.semanticDiffStatus
+            else { return false }
+            return true
+        }
+
+        expectNoDifference(
+            requests.value,
+            [
+                TangledPullReviewSourceSnapshotRequest(
+                    organizerID: workspace.organizerID,
+                    repository: .target(review.targetRepositoryDID),
+                    ref: review.targetBranch,
+                    sourceProvenance: workspace.sourceProvenance
+                ),
+                TangledPullReviewSourceSnapshotRequest(
+                    organizerID: workspace.organizerID,
+                    repository: .source(try #require(review.sourceRepositoryDID)),
+                    ref: try #require(review.sourceBranch),
+                    sourceProvenance: workspace.sourceProvenance
+                ),
+            ]
+        )
+        guard case let .reviewDetail(detail)? = store.destination,
+              case let .loaded(diff) = detail.semanticDiffStatus
+        else {
+            Issue.record("The proposal must render its source-to-target semantic changes.")
+            return
+        }
+        expectNoDifference(diff.totalCount, 1)
+        #expect(diff.groups.contains { $0.modified == 1 })
+    }
+
+    @Test
+    func collaboratorCanCloseButCannotMergeAProposal() async throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let review = review()
+        let mutations = LockIsolated<[String]>([])
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(
+                actorID: try #require(DID("did:plc:proposer"))
+            ),
+            role: .collaborator([.propose]),
+            workspaceID: workspace.id
+        )
+        let store = makeStore(
+            database: database,
+            workspace: workspace,
+            review: review,
+            grant: grant,
+            merge: { _ in mutations.withValue { $0.append("merge") } },
+            close: { _ in mutations.withValue { $0.append("close") } }
+        )
+
+        await waitUntil { store.reviews.contains(where: { $0.id == review.id }) }
         try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
+            #expect(store.canReview)
             await store.send(.reviewButtonTapped(review))?.value
+            #expect(store.destination != nil)
             await waitUntil {
                 guard case let .reviewDetail(detail)? = store.destination else { return false }
                 guard case .failed = detail.semanticDiffStatus else { return false }
-                return true
+                return detail.canClose && !detail.canMergeProposals && !detail.canMerge
             }
         }
 
-        await store.send(
-            .destination(.reviewDetail(.deleteButtonTapped))
-        )?.value
+        await store.send(.destination(.reviewDetail(.mergeButtonTapped)))?.value
+        #expect(mutations.value.isEmpty)
+
+        await store.send(.destination(.reviewDetail(.closeButtonTapped)))?.value
         await waitUntil { store.destination == nil }
 
-        expectNoDifference(deletedReviewIDs.value, [review.id])
+        expectNoDifference(mutations.value, ["close"])
         #expect(store.reviews.isEmpty)
     }
 
@@ -157,15 +241,20 @@ struct WorkspaceReviewsTests {
     }
 
     @Test
-    func proposerCannotMutateAReviewThroughDirectReducerActions() async throws {
+    func grantForAnotherWorkspaceCannotChangeAProposal() async throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
         let review = review()
         let mutations = LockIsolated<[String]>([])
+        let otherWorkspace = SourceWorkspace(
+            organizerID: workspace.organizerID,
+            repository: "tangled.org/owner/other-events",
+            branch: "main"
+        )
         let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(actorID: try #require(DID("did:plc:proposer"))),
-            role: .collaborator([.propose]),
-            workspaceID: workspace.id
+            principal: AuthoringPrincipal(actorID: try #require(DID("did:plc:owner"))),
+            role: .owner,
+            workspaceID: otherWorkspace.id
         )
         let store = makeStore(
             database: database,
@@ -173,24 +262,13 @@ struct WorkspaceReviewsTests {
             review: review,
             grant: grant,
             merge: { _ in mutations.withValue { $0.append("merge") } },
-            delete: { _ in mutations.withValue { $0.append("delete") } },
-            close: { _ in mutations.withValue { $0.append("close") } }
+            close: { _ in mutations.withValue { $0.append("close") } },
+            preloadedReviews: true
         )
 
-        try await expectReportedIssue(containing: "ReviewSourceSnapshotUnavailable") {
-            await store.send(.reviewButtonTapped(review))?.value
-            await waitUntil {
-                guard case let .reviewDetail(detail)? = store.destination else { return false }
-                guard case .failed = detail.semanticDiffStatus else { return false }
-                return detail.canMerge == false
-            }
-        }
-
-        await store.send(.destination(.reviewDetail(.mergeButtonTapped)))?.value
-        await store.send(.destination(.reviewDetail(.closeButtonTapped)))?.value
-        await store.send(.destination(.reviewDetail(.deleteButtonTapped)))?.value
+        await store.send(.reviewButtonTapped(review))?.value
+        #expect(store.destination == nil)
         #expect(mutations.value.isEmpty)
-        #expect(store.destination != nil)
     }
 
     func makeStore(
@@ -201,9 +279,14 @@ struct WorkspaceReviewsTests {
         merge: @escaping @Sendable (
             OpenMusicEventTangledPullReviewMergeRequest
         ) async throws -> Void = { _ in },
-        delete: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
         close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
-        sourceSnapshotRequests: LockIsolated<[TangledPullReviewSourceSnapshotRequest]>? = nil
+        sourceSnapshotRequests: LockIsolated<[TangledPullReviewSourceSnapshotRequest]>? = nil,
+        sourceSnapshot: @escaping @Sendable (
+            TangledPullReviewSourceSnapshotRequest
+        ) async throws -> OME.SourceDatabaseInsertion = { _ in
+            throw ReviewSourceSnapshotUnavailable()
+        },
+        preloadedReviews: Bool = false
     ) -> StoreOf<WorkspaceReviews> {
         let eventID = OME.Event.ID(
             organizerID: workspace.organizerID,
@@ -222,20 +305,22 @@ struct WorkspaceReviewsTests {
                 list: { _ in [review] },
                 close: close,
                 merge: merge,
-                delete: delete,
                 rawDiff: { _ in "Rendered remote patch" }
             )
             $0.tangledPullReviewSourceSnapshot = TangledPullReviewSourceSnapshotClient(
                 insertion: { request in
                     sourceSnapshotRequests?.withValue { $0.append(request) }
-                    throw ReviewSourceSnapshotUnavailable()
+                    return try await sourceSnapshot(request)
                 }
             )
         } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            authoringGrant.withLock { $0 = grant }
-            var state = WorkspaceReviews.State(workspace: workspace)
-            state.status = .loaded([review])
+            var state = WorkspaceReviews.State(
+                workspace: workspace,
+                authoringGrant: grant
+            )
+            if preloadedReviews {
+                state.status = .loaded([review])
+            }
             return Store(initialState: state) {
                 WorkspaceReviews()
             }
@@ -266,6 +351,47 @@ struct WorkspaceReviewsTests {
             targetRepositoryDID: "did:plc:owner-repository",
             title: "Update event details",
             uri: "at://did:plc:author/sh.tangled.repo.pull/review-1"
+        )
+    }
+
+    func reviewInsertion(
+        workspace: SourceWorkspace,
+        eventName: String
+    ) throws -> OME.SourceDatabaseInsertion {
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
+        )
+        let event = OpenMusicEventSourceEvent(
+            event: EventDTO(
+                id: eventID,
+                name: eventName,
+                description: nil,
+                startDate: nil,
+                endDate: nil,
+                status: nil,
+                mode: nil,
+                locations: nil,
+                uris: nil,
+                timeZone: try #require(TimeZone(identifier: "America/Denver")),
+                images: nil,
+                contactNumbers: nil,
+                categoryConfigs: nil
+            )
+        )
+        return try OME.SourceDatabaseInsertion(
+            .init(
+                source: OpenMusicEventSourceRepository(
+                    events: [
+                        DirectoryContent(
+                            directoryName: "workspace-reviews",
+                            components: event
+                        )
+                    ]
+                ),
+                organizerID: workspace.organizerID,
+                sourceProvenance: workspace.sourceProvenance
+            )
         )
     }
 

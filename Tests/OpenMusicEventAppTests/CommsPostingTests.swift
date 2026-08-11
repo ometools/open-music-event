@@ -15,7 +15,7 @@ struct CommsPostingTests {
 
     @available(iOS 26.0, macOS 26.0, *)
     @Test
-    func `rich text editor preserves canonical inline Markdown`() {
+    func `rich text editor preserves normalized inline Markdown`() {
         let richText = CommsMarkdown.richEditorText("**Bold** and *italic*.")
 
         #expect(

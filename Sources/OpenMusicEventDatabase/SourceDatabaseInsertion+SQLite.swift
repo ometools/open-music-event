@@ -40,14 +40,14 @@ public extension OME.SourceDatabaseInsertion {
         }
     }
 
-    /// Installs one canonical event and records the attendee's installation intent in the same
+    /// Installs one published event and records the attendee's installation intent in the same
     /// transaction.
-    func installCanonicalEvent(
+    func installPublishedEvent(
         _ eventID: OME.Event.ID,
         from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        try validateCanonicalEvent(eventID, from: workspace)
+        try validatePublishedEvent(eventID, from: workspace)
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
             importedAt: Date()
@@ -70,6 +70,7 @@ public extension OME.SourceDatabaseInsertion {
     /// installed in the writable application database.
     func replaceSourceWorkspace(
         _ workspace: SourceWorkspace,
+        branch: String,
         revision: String,
         in database: any DatabaseWriter
     ) async throws {
@@ -133,21 +134,29 @@ public extension OME.SourceDatabaseInsertion {
                 )
             }
             .execute(db)
+            try SourceWorkspaceSelectionRecord.upsert {
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: branch,
+                    revision: revision
+                )
+            }
+            .execute(db)
         }
     }
 
-    /// Replaces one event installed as read-only canonical content without creating or advancing
+    /// Replaces one event installed as read-only published content without creating or advancing
     /// authoring-workspace revision state.
     ///
     /// Event-scoped installs deliberately do not prepare a source workspace. If that workspace has
     /// since been prepared for authoring, its reconciliation machinery owns source updates and this
     /// operation refuses to overwrite the writable editing database.
-    func replaceCanonicalEvent(
+    func replacePublishedEvent(
         _ eventID: OME.Event.ID,
         from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        try validateCanonicalEvent(eventID, from: workspace)
+        try validatePublishedEvent(eventID, from: workspace)
 
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
@@ -176,23 +185,23 @@ public extension OME.SourceDatabaseInsertion {
         }
     }
 
-    /// Restores the attendee view of a prepared workspace from canonical event-scoped source.
+    /// Restores the attendee view of a prepared workspace from published event-scoped source.
     ///
     /// Every event currently owned by the workspace is removed, but only events represented by an
-    /// explicit `InstalledEventRecord` are reinserted. Baseline and publication rows are discarded
+    /// explicit `InstalledEventRecord` are reinserted. Active authoring rows are discarded
     /// in the same transaction, so the database is never half attendee and half authoring state.
-    static func restoreCanonicalEvents(
-        _ canonicalEvents: [OME.SourceDatabaseInsertion],
+    static func restorePublishedEvents(
+        _ publishedEvents: [OME.SourceDatabaseInsertion],
         from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
         var preparedEvents: [(OME.Event.ID, PreparedSourceDatabaseInsertion)] = []
-        preparedEvents.reserveCapacity(canonicalEvents.count)
-        for insertion in canonicalEvents {
+        preparedEvents.reserveCapacity(publishedEvents.count)
+        for insertion in publishedEvents {
             guard let eventID = insertion.events.only?.id else {
                 throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
             }
-            try insertion.validateCanonicalEvent(eventID, from: workspace)
+            try insertion.validatePublishedEvent(eventID, from: workspace)
             preparedEvents.append(
                 (
                     eventID,
@@ -203,8 +212,8 @@ public extension OME.SourceDatabaseInsertion {
                 )
             )
         }
-        let canonicalEventIDs = Set(preparedEvents.map(\.0))
-        let canonicalPreparedEvents = preparedEvents
+        let publishedEventIDs = Set(preparedEvents.map(\.0))
+        let publishedPreparedEvents = preparedEvents
 
         try await database.write { db in
             let installedEventIDs = Set(
@@ -213,7 +222,7 @@ public extension OME.SourceDatabaseInsertion {
                     .filter { $0.workspace?.id == workspace.id }
                     .map(\.id)
             )
-            guard installedEventIDs == canonicalEventIDs else {
+            guard installedEventIDs == publishedEventIDs else {
                 throw SourceWorkspaceInstallationError.installedEventSetChanged(workspace.id)
             }
 
@@ -225,18 +234,14 @@ public extension OME.SourceDatabaseInsertion {
             for eventID in workspaceEventIDs {
                 try OME.Event.find(eventID).delete().execute(db)
             }
-            for (_, prepared) in canonicalPreparedEvents {
+            for (_, prepared) in publishedPreparedEvents {
                 try prepared.insert(into: db)
             }
             try SourceWorkspaceEditingState.discard(workspace.id, in: db)
-            try SourceWorkspaceCanonicalResetRecord.upsert {
-                SourceWorkspaceCanonicalResetRecord(id: workspace.id)
-            }
-            .execute(db)
         }
     }
 
-    private func validateCanonicalEvent(
+    private func validatePublishedEvent(
         _ eventID: OME.Event.ID,
         from workspace: SourceWorkspace
     ) throws {

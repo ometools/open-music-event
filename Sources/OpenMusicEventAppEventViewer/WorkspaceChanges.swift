@@ -39,10 +39,6 @@ public struct WorkspaceChanges {
                     referenceDatabase: referenceDatabase
                 )
             )
-            self._openProposal = Fetch(
-                wrappedValue: nil,
-                SourceWorkspaceOpenProposalRequest(workspaceID: workspace.id)
-            )
         }
 
         public let workspace: SourceWorkspace
@@ -50,8 +46,6 @@ public struct WorkspaceChanges {
         public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var summary: SourceWorkspaceEditSummary
-        @DebugSnapshotIgnored
-        @Fetch public var openProposal: WorkspaceProposal?
         public var proposalDraft: WorkspaceProposalDraft.State?
         public var resetStatus: ResetStatus = .idle
 
@@ -62,17 +56,25 @@ public struct WorkspaceChanges {
 
         public var badgeCount: Int? { changeCount == 0 ? nil : changeCount }
 
+        public var authoringAccess: AuthoringAccess {
+            guard authoringGrant?.workspaceID == workspace.id else { return .attendee }
+            return authoringGrant?.access ?? .attendee
+        }
+
         public var canInspectChanges: Bool {
             guard case .available = summary.availability else { return false }
             return true
         }
 
         public var canPropose: Bool {
-            authoringGrant?.access.canPropose == true
+            authoringAccess.canPropose
         }
 
         public var canResetChanges: Bool {
-            canInspectChanges && changeCount > 0 && resetStatus != .resetting
+            authoringAccess.canEditContent
+                && canInspectChanges
+                && changeCount > 0
+                && resetStatus != .resetting
         }
     }
 
@@ -82,10 +84,7 @@ public struct WorkspaceChanges {
         case resetChangesButtonTapped
     }
 
-    @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
-    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
-    var patchGenerator
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
     var workspace
 
@@ -94,16 +93,17 @@ public struct WorkspaceChanges {
             switch action {
             case .proposalActionButtonTapped:
                 guard state.canPropose,
-                      state.changeCount > 0
+                      state.changeCount > 0,
+                      case let .ready(branch) = workspace.phase.wrappedValue
                 else { return }
-                if state.openProposal == nil {
+                if workspace.openProposal.wrappedValue == nil {
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        targetBranch: state.workspace.branch,
+                        targetBranch: branch.branch.rawValue,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
                     )
-                } else {
+                } else if workspace.openProposal.wrappedValue?.source == branch {
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceProposalUpdateRequested.self,
@@ -149,10 +149,6 @@ public struct WorkspaceChanges {
             state.proposalDraft = nil
             return .continue
         }
-        .onEvent(AuthoringAccessRevoked.self) { _, state in
-            state.proposalDraft = nil
-            return .continue
-        }
         .onChange(of: store.summary) { oldSummary, summary, state in
             guard oldSummary != summary else { return }
             state.proposalDraft = nil
@@ -176,15 +172,18 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
     let workspacePhase: WorkspacePhase<SourcePatch>
+    let openProposal: WorkspaceProposal?
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
     public init(
         store: StoreOf<WorkspaceChanges>,
-        workspacePhase: WorkspacePhase<SourcePatch>
+        workspacePhase: WorkspacePhase<SourcePatch>,
+        openProposal: WorkspaceProposal?
     ) {
         self.store = store
         self.workspacePhase = workspacePhase
+        self.openProposal = openProposal
     }
 
     public var body: some View {
@@ -195,7 +194,7 @@ public struct WorkspaceChangesView: View {
                     groups: store.summary.groups,
                     fieldComparisons: store.summary.fieldComparisons,
                     recordComparisons: store.summary.recordComparisons,
-                    emptyMessage: workspacePhase.proposal == nil
+                    emptyMessage: openProposal == nil
                         ? "No local changes."
                         : "No newer changes are waiting to be added to this proposal."
                 )

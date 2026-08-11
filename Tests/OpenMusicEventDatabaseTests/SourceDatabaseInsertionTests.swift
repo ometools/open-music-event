@@ -1259,7 +1259,7 @@ struct SourceDatabaseInsertionTests {
                 .fetchOne(db)
         }
         #expect(sourceProvenanceRecord?.workspace?.repository == sourceProvenance.reference)
-        #expect(sourceProvenanceRecord?.workspace?.branch == sourceProvenance.ref)
+        #expect(sourceProvenanceRecord?.ref == sourceProvenance.ref)
 
         let baselineStage = try baselineDatabase.read { db in
             try OME.Stage
@@ -2997,7 +2997,7 @@ struct SourceDatabaseInsertionTests {
                 sourceProvenance: sourceProvenance
             )
         )
-        let canonicalInsertion = try OME.SourceDatabaseInsertion(
+        let publishedInsertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: try makeSourceRepository(
                     eventDirectoryName: "attendee-event",
@@ -3024,6 +3024,7 @@ struct SourceDatabaseInsertionTests {
 
         try await preparedWorkspaceInsertion.replaceSourceWorkspace(
             workspace,
+            branch: workspace.defaultBranch,
             revision: "prepared-revision",
             in: database
         )
@@ -3053,8 +3054,8 @@ struct SourceDatabaseInsertionTests {
             )
         }
 
-        try await OME.SourceDatabaseInsertion.restoreCanonicalEvents(
-            [canonicalInsertion],
+        try await OME.SourceDatabaseInsertion.restorePublishedEvents(
+            [publishedInsertion],
             from: workspace,
             in: database
         )
@@ -3092,8 +3093,13 @@ struct SourceDatabaseInsertionTests {
                     arguments: [workspace.id.rawValue]
                 ) == 0
             )
-            #expect(
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) != nil
+            expectNoDifference(
+                try SourceWorkspaceSelectionRecord.find(workspace.id).fetchOne(db),
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: workspace.defaultBranch,
+                    revision: "prepared-revision"
+                )
             )
         }
     }
@@ -3122,6 +3128,7 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
         try await preparedWorkspaceInsertion.replaceSourceWorkspace(
             workspace,
+            branch: workspace.defaultBranch,
             revision: "prepared-revision",
             in: database
         )
@@ -3143,10 +3150,10 @@ struct SourceDatabaseInsertionTests {
             )
         }
 
-        // The confirmed exit prepared no canonical replacement for an explicitly installed event.
+        // The confirmed exit prepared no published replacement for an explicitly installed event.
         // The guard runs inside the same transaction as deletion and must roll back everything.
         await #expect(throws: (any Error).self) {
-            try await OME.SourceDatabaseInsertion.restoreCanonicalEvents(
+            try await OME.SourceDatabaseInsertion.restorePublishedEvents(
                 [],
                 from: workspace,
                 in: database
@@ -3173,14 +3180,19 @@ struct SourceDatabaseInsertionTests {
                     arguments: [workspace.id.rawValue]
                 ) == 1
             )
-            #expect(
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) == nil
+            expectNoDifference(
+                try SourceWorkspaceSelectionRecord.find(workspace.id).fetchOne(db),
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: workspace.defaultBranch,
+                    revision: "prepared-revision"
+                )
             )
         }
     }
 
     @Test
-    func publishedWorkspaceRevisionReopensAfterExistingRevisionsAdvance() async throws {
+    func proposalBranchReopensAfterItsRevisionAdvances() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -3264,252 +3276,38 @@ struct SourceDatabaseInsertionTests {
 
             let reopened = try await preparation.prepare(workspace)
             expectNoDifference(
-                reopened.line,
-                .canonical(
-                    WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: "main"),
-                        revision: WorkspaceRevision(rawValue: "new-revision")
-                    )
+                reopened.branch,
+                WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "proposal/testival"),
+                    revision: WorkspaceRevision(rawValue: "new-revision")
                 )
             )
+            expectNoDifference(reopened.openProposal, proposal)
             #expect(reopened.source.workspace == workspace)
-        }
-    }
 
-    @Test
-    func `confirmed exit authorizes one canonical checkout rebuild on authoring reentry`() async throws {
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let database = try makeCoreDatabase(
-            path: directoryURL.appending(path: "application.sqlite").path
-        )
-        let storage = SourceWorkspaceStorage.fileBacked(
-            rootURL: directoryURL.appending(path: "workspaces")
-        )
-        let organizerID = try #require(OME.Organizer.ID("did:plc:canonical-reset"))
-        let eventID = eventID("attendee-event", organizerID: organizerID)
-        let workspace = SourceWorkspace(
-            organizerID: organizerID,
-            repository: "tangled.org/example/canonical-reset",
-            branch: "main"
-        )
-        let canonicalSource = try makeSourceRepository(
-            eventDirectoryName: "attendee-event",
-            eventName: "Published attendee content",
-            explicitLocalEventID: id("attendee-event")
-        )
-        let canonicalInsertion = try OME.SourceDatabaseInsertion(
-            .init(
-                source: canonicalSource,
-                organizerID: organizerID,
-                sourceProvenance: workspace.sourceProvenance
-            )
-        )
-        let revision = Mutex("main-1")
-        let checkoutCount = Mutex(0)
-        let canonicalCheckout = SourceWorkspaceCanonicalCheckoutClient { request in
-            checkoutCount.withLock { $0 += 1 }
-            #expect(request.ref == "main")
-            #expect(!FileManager.default.fileExists(atPath: request.outputURL.path))
-            try FileManager.default.createDirectory(
-                at: request.outputURL,
-                withIntermediateDirectories: true
-            )
-            _ = try OpenMusicEventSourceRepositoryFileTree().write(
-                canonicalSource,
-                to: request.outputURL
-            )
-            try FileManager.default.createDirectory(
-                at: request.outputURL.appending(path: ".git"),
-                withIntermediateDirectories: true
-            )
-            return .init(repositoryURL: request.outputURL)
-        }
-        var sourceControl = SourceControlClient.unimplemented
-        sourceControl.open = { Repository(url: $0) }
-
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceControl = sourceControl
-            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
-            $0.sourceWorkspaceStorage = storage
-            $0[SourceWorkspaceCanonicalCheckoutClient.self] = canonicalCheckout
-        } operation: {
-            let preparation = SourceWorkspacePreparationClient.openMusicEvent { _, _ in
-                CommitID(rawValue: revision.withLock { $0 })
-            }
-            _ = try await preparation.prepare(workspace)
-            let location = try storage.location(workspace.id)
-            let staleCheckoutSentinel = location.repositoryURL.appending(path: "local-edit")
-            try Data("unpublished".utf8).write(to: staleCheckoutSentinel)
             try await database.write { db in
-                try InstalledEventRecord.insert {
-                    InstalledEventRecord(
-                        id: eventID,
-                        sourceProvenance: workspace.sourceProvenance
+                try SourceWorkspaceSelectionRecord.upsert {
+                    SourceWorkspaceSelectionRecord(
+                        id: workspace.id,
+                        branch: "proposal/testival",
+                        revision: "unrelated-revision"
                     )
                 }
                 .execute(db)
-                try OME.Event.find(eventID).update {
-                    $0.name = "Unpublished local edit"
-                }
-                .execute(db)
             }
-
-            try await OME.SourceDatabaseInsertion.restoreCanonicalEvents(
-                [canonicalInsertion],
-                from: workspace,
-                in: database
-            )
-            #expect(FileManager.default.fileExists(atPath: staleCheckoutSentinel.path))
-            let pendingReset = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db)
-            }
-            let discardedInstallation = try await database.read { db in
-                try SourceWorkspaceInstallationRecord.find(workspace.id).fetchOne(db)
-            }
-            #expect(pendingReset != nil)
-            #expect(discardedInstallation == nil)
-
-            revision.withLock { $0 = "main-2" }
-            let rebuilt = try await preparation.prepare(workspace)
-
-            expectNoDifference(
-                rebuilt.line,
-                .canonical(
-                    WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: "main"),
-                        revision: WorkspaceRevision(rawValue: "main-2")
-                    )
+            await #expect(
+                throws: SourceWorkspaceDatabaseError.selectionRevisionMismatch(
+                    workspaceID: workspace.id,
+                    branch: "proposal/testival",
+                    expectedRevision: "new-revision",
+                    persistedRevision: "unrelated-revision"
                 )
-            )
-            expectNoDifference(checkoutCount.withLock { $0 }, 2)
-            #expect(!FileManager.default.fileExists(atPath: staleCheckoutSentinel.path))
-            let rebuiltState = try await database.read { db in
-                (
-                    reset: try SourceWorkspaceCanonicalResetRecord
-                        .find(workspace.id)
-                        .fetchOne(db),
-                    installation: try SourceWorkspaceInstallationRecord
-                        .find(workspace.id)
-                        .fetchOne(db),
-                    event: try OME.Event.find(eventID).fetchOne(db)
-                )
-            }
-            #expect(rebuiltState.reset == nil)
-            expectNoDifference(rebuiltState.installation?.revision, "main-2")
-            expectNoDifference(rebuiltState.event?.name, "Published attendee content")
-        }
-    }
-
-    @Test
-    func `failed canonical checkout rebuild keeps confirmed exit authorization for retry`() async throws {
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let database = try makeCoreDatabase(
-            path: directoryURL.appending(path: "application.sqlite").path
-        )
-        let storage = SourceWorkspaceStorage.fileBacked(
-            rootURL: directoryURL.appending(path: "workspaces")
-        )
-        let organizerID = try #require(OME.Organizer.ID("did:plc:canonical-reset-retry"))
-        let eventID = eventID("attendee-event", organizerID: organizerID)
-        let workspace = SourceWorkspace(
-            organizerID: organizerID,
-            repository: "tangled.org/example/canonical-reset-retry",
-            branch: "main"
-        )
-        let canonicalSource = try makeSourceRepository(
-            eventDirectoryName: "attendee-event",
-            eventName: "Published attendee content",
-            explicitLocalEventID: id("attendee-event")
-        )
-        let canonicalInsertion = try OME.SourceDatabaseInsertion(
-            .init(
-                source: canonicalSource,
-                organizerID: organizerID,
-                sourceProvenance: workspace.sourceProvenance
-            )
-        )
-        let checkoutAttempt = Mutex(0)
-        let allowsRetry = Mutex(false)
-        let canonicalCheckout = SourceWorkspaceCanonicalCheckoutClient { request in
-            let attempt = checkoutAttempt.withLock {
-                $0 += 1
-                return $0
-            }
-            if attempt > 1 && !allowsRetry.withLock({ $0 }) {
-                throw TestCanonicalCheckoutError.failed
-            }
-            try FileManager.default.createDirectory(
-                at: request.outputURL,
-                withIntermediateDirectories: true
-            )
-            _ = try OpenMusicEventSourceRepositoryFileTree().write(
-                canonicalSource,
-                to: request.outputURL
-            )
-            try FileManager.default.createDirectory(
-                at: request.outputURL.appending(path: ".git"),
-                withIntermediateDirectories: true
-            )
-            return .init(repositoryURL: request.outputURL)
-        }
-        var sourceControl = SourceControlClient.unimplemented
-        sourceControl.open = { Repository(url: $0) }
-
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceControl = sourceControl
-            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
-            $0.sourceWorkspaceStorage = storage
-            $0[SourceWorkspaceCanonicalCheckoutClient.self] = canonicalCheckout
-        } operation: {
-            let preparation = SourceWorkspacePreparationClient.openMusicEvent { _, _ in
-                CommitID(rawValue: "main")
-            }
-            _ = try await preparation.prepare(workspace)
-            try await database.write { db in
-                try InstalledEventRecord.insert {
-                    InstalledEventRecord(
-                        id: eventID,
-                        sourceProvenance: workspace.sourceProvenance
-                    )
-                }
-                .execute(db)
-            }
-            try await OME.SourceDatabaseInsertion.restoreCanonicalEvents(
-                [canonicalInsertion],
-                from: workspace,
-                in: database
-            )
-
-            do {
+            ) {
                 _ = try await preparation.prepare(workspace)
-                Issue.record("The controlled canonical checkout rebuild should fail.")
-            } catch TestCanonicalCheckoutError.failed {
             }
-            let resetAfterFailure = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db)
-            }
-            #expect(resetAfterFailure != nil)
-            #expect(checkoutAttempt.withLock { $0 } == 2)
-
-            allowsRetry.withLock { $0 = true }
-            let retried = try await preparation.prepare(workspace)
-            guard case .canonical = retried.line else {
-                Issue.record("Retry must rebuild the canonical editing line.")
-                return
-            }
-            let resetAfterRetry = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db)
-            }
-            #expect(resetAfterRetry == nil)
-            #expect(checkoutAttempt.withLock { $0 } == 3)
         }
     }
+
 
     @Test
     func materializesFileBackedRequiredStageLogosOnInsert() async throws {
@@ -4780,10 +4578,6 @@ private extension SourceRecordChange {
 }
 
 private enum TestImageCacheError: Error {
-    case failed
-}
-
-private enum TestCanonicalCheckoutError: Error {
     case failed
 }
 

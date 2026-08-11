@@ -166,7 +166,7 @@ struct EventBrowseStoryTests {
 
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     @Test(.tcaExhaustivity(.off)) @MainActor
-    func `entering an event publishes its canonical notification subscription`() async throws {
+    func `entering an event publishes its notification subscription`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -286,6 +286,10 @@ struct EventBrowseStoryTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.uuid = .incrementing
             OME.prepareDependencies(&$0, database: database)
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.dataForURL = eventBrowsePublishedEventNetwork(eventID: eventID)
             $0.defaultEventID = eventID
             $0.calendarEvents = CalendarEventsClient(
                 browse: { _ in CalendarEvent.Page(events: []) },
@@ -397,7 +401,7 @@ struct EventBrowseStoryTests {
             }
             await checkoutPause.waitUntilStarted()
 
-            // The provider callback cannot observe new content before the canonical checkout has
+            // The provider callback cannot observe new content before the published checkout has
             // produced a validated insertion.
             expectNoDifference(notificationDidReturn.withLock { $0 }, false)
             let eventNameBeforeCheckoutCompletes = try await database.read { database in
@@ -450,7 +454,7 @@ struct EventBrowseStoryTests {
                 ["tangled.org/wickedwoods.ca/ome-workspace"]
             )
 
-            // Refresh remains event-scoped even though the canonical repository also contains
+            // Refresh remains event-scoped even though the published repository also contains
             // Wicked Woods 2025.
             let installedEventIDs = try await database.read { database in
                 try OME.Event.fetchAll(database).map(\.id)
@@ -458,7 +462,7 @@ struct EventBrowseStoryTests {
             expectNoDifference(installedEventIDs, [eventID])
 
             // APNs may redeliver the same opaque notification version. Repeating the provider
-            // message revalidates canonical source but converges on the same mounted read model.
+            // message revalidates published source but converges on the same mounted read model.
             let repeatedNotificationTask = try store.state.notificationEvent(
                 NotificationEvent(
                     json: notificationJSON,
@@ -476,7 +480,7 @@ struct EventBrowseStoryTests {
                 mountedWorkspaceID
             )
 
-            // A later canonical checkout that no longer contains this installed event is a
+            // A later published checkout that no longer contains this installed event is a
             // failed refresh, not permission to delete or remount the attendee's live content.
             let invalidNotificationJSON = """
             {
@@ -516,7 +520,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `a non-authoring viewer downloads canonical content before workspace reconciliation`() async throws {
+    func `a non-authoring viewer downloads published content before workspace reconciliation`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -570,6 +574,10 @@ struct EventBrowseStoryTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.uuid = .incrementing
             OME.prepareDependencies(&$0, database: database)
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.dataForURL = eventBrowsePublishedEventNetwork(eventID: eventID)
             $0.defaultEventID = eventID
             $0.calendarEvents = CalendarEventsClient(
                 browse: { _ in CalendarEvent.Page(events: []) },
@@ -613,7 +621,7 @@ struct EventBrowseStoryTests {
             #expect(store.destination?.eventViewer?.authoring.grant == nil)
 
             // A previous authoring session may leave workspace metadata behind. That row is not
-            // active authoring state and must not prevent acquisition of current canonical source.
+            // active authoring state and must not prevent acquisition of current published source.
             let notificationJSON = """
             {
               "aps": {
@@ -1320,7 +1328,7 @@ struct EventBrowseStoryTests {
         let workspace = try #require(browseState.provenance?.workspace)
         expectNoDifference(workspace.organizerID, organizerID)
         expectNoDifference(workspace.repository, "tangled.org/wickedwoods.ca/ome-workspace")
-        expectNoDifference(workspace.branch, "main")
+        expectNoDifference(workspace.defaultBranch, "main")
         expectNoDifference(browseState.installations, 0)
         #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)
     }
@@ -1574,6 +1582,55 @@ func waitForEventBrowseObservation(
                 continuation.resume()
             }
         }
+    }
+}
+
+private func eventBrowsePublishedEventNetwork(
+    eventID: OME.Event.ID
+) -> RunHTTPRequest {
+    { request, body in
+        #expect(body == nil)
+        let url = try #require(request.url)
+        #expect(url.path.hasSuffix("/app.openmusicevent.calendar.getEvent"))
+        let components = try #require(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)
+        )
+        #expect(
+            components.queryItems?.first(where: { $0.name == "uri" })?.value
+                == OME.Event.reference(id: eventID).uri.description
+        )
+        return (
+            Data(
+                """
+                {
+                  "uri": "\(OME.Event.reference(id: eventID).uri)",
+                  "name": "Wicked Woods 2026",
+                  "locations": [],
+                  "links": [],
+                  "media": [],
+                  "organizer": {
+                    "id": "\(eventID.organizerID)"
+                  },
+                  "attendance": {
+                    "going": 0,
+                    "interested": 0,
+                    "notGoing": 0
+                  },
+                  "source": {
+                    "collection": "app.openmusicevent.event",
+                    "appViewHost": "openmusicevent.app",
+                    "sourceRecord": {
+                      "$type": "app.openmusicevent.source",
+                      "kind": "tangled",
+                      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+                      "ref": "main"
+                    }
+                  }
+                }
+                """.utf8
+            ),
+            HTTPResponse(status: .ok)
+        )
     }
 }
 

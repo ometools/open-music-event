@@ -17,7 +17,7 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         SourceWorkspaceResource,
         SourceWorkspace.ID,
         WorkspaceReconciliation
-    ) async throws -> WorkspaceEditingLine
+    ) async throws -> WorkspaceBranchReference
 
     public init(
         advance: @escaping @Sendable (
@@ -30,7 +30,7 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
             SourceWorkspaceResource,
             SourceWorkspace.ID,
             WorkspaceReconciliation
-        ) async throws -> WorkspaceEditingLine
+        ) async throws -> WorkspaceBranchReference
     ) {
         self.advance = advance
         self.reconcile = reconcile

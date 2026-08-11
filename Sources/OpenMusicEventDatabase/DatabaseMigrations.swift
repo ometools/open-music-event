@@ -975,7 +975,7 @@ public extension OME {
             }
 
             migrator.registerMigration("Track explicitly installed OpenMusicEvent events") { db in
-                // There is deliberately no event foreign key. Canonical refresh replaces event
+                // There is deliberately no event foreign key. Published refresh replaces event
                 // records transactionally and must not erase the attendee's installation intent.
                 try #sql("""
                     CREATE TABLE "installedEvents" (

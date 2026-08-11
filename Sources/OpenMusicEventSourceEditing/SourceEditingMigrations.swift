@@ -61,7 +61,7 @@ public extension OME {
                     .execute(db)
 
                 // Forward-only cleanup for databases that ran the unshipped parallel workspace
-                // experiment. These tables are not part of the canonical runtime model.
+                // experiment. These tables are not part of the current runtime model.
                 for tableName in [
                     "workspacePublications",
                     "workspaceAuthoringActivations",
@@ -80,6 +80,29 @@ public extension OME {
                     .execute(db)
                 }
                 try #sql("DROP TABLE IF EXISTS \"sourceBaselines\"").execute(db)
+            }
+
+            migrator.registerMigration("Persist selected source workspace branches") { db in
+                try #sql("""
+                    CREATE TABLE "sourceWorkspaceSelections" (
+                      "id" TEXT PRIMARY KEY NOT NULL,
+                      "branch" TEXT NOT NULL,
+                      "revision" TEXT NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                for installation in try SourceWorkspaceInstallationRecord.all.fetchAll(db) {
+                    let workspace = try SourceWorkspace(id: installation.id)
+                    try SourceWorkspaceSelectionRecord.insert {
+                        SourceWorkspaceSelectionRecord(
+                            id: installation.id,
+                            branch: workspace.defaultBranch,
+                            revision: installation.revision
+                        )
+                    }
+                    .execute(db)
+                }
             }
         }
     }

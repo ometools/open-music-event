@@ -121,12 +121,6 @@ public struct AuthoringRequested: FeatureEventKey {
     public init() {}
 }
 
-public struct AuthoringAccessRevoked: FeatureEventKey {
-    public typealias Value = Void
-
-    public init() {}
-}
-
 public struct AuthoringExitRequested: FeatureEventKey {
     public typealias Value = Void
 

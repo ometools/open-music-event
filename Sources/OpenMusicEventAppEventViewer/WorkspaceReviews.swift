@@ -31,8 +31,12 @@ public struct WorkspaceReviews {
     }
 
     public struct State {
-        public init(workspace: SourceWorkspace) {
+        public init(
+            workspace: SourceWorkspace,
+            authoringGrant: AuthoringGrant? = nil
+        ) {
             self.workspace = workspace
+            self.authoringGrant = authoringGrant
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
@@ -40,6 +44,7 @@ public struct WorkspaceReviews {
         }
 
         public let workspace: SourceWorkspace
+        public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         public var destination: Destination.State?
@@ -56,8 +61,10 @@ public struct WorkspaceReviews {
             return reviews
         }
 
-        public func canReview(authoringAccess: AuthoringAccess) -> Bool {
-            authoringAccess.canPropose || authoringAccess.canMerge
+        public var canReview: Bool {
+            guard authoringGrant?.workspaceID == workspace.id else { return false }
+            let access = authoringGrant?.access ?? .attendee
+            return access.canPropose || access.canMerge
         }
 
         public mutating func openPendingReviewIfAvailable() {
@@ -65,7 +72,11 @@ public struct WorkspaceReviews {
                   let review = reviews.first(where: { $0.id == pendingCreatedReviewID })
             else { return }
             destination = .reviewDetail(
-                WorkspaceReviewDetail.State(workspace: workspace, review: review)
+                WorkspaceReviewDetail.State(
+                    workspace: workspace,
+                    review: review,
+                    authoringGrant: authoringGrant
+                )
             )
             self.pendingCreatedReviewID = nil
         }
@@ -100,13 +111,18 @@ public struct WorkspaceReviews {
                 break
 
             case .refreshButtonTapped:
+                guard state.canReview else { return }
                 loadReviews(state: &state)
 
             case let .reviewButtonTapped(review):
+                guard state.canReview,
+                      state.reviews.contains(where: { $0.id == review.id })
+                else { return }
                 state.destination = .reviewDetail(
                     WorkspaceReviewDetail.State(
                         workspace: state.workspace,
-                        review: review
+                        review: review,
+                        authoringGrant: state.authoringGrant
                     )
                 )
             }
@@ -143,7 +159,7 @@ public struct WorkspaceReviews {
     }
 
     func loadReviews(state: inout State) {
-        guard state.status != .loading else { return }
+        guard state.canReview, state.status != .loading else { return }
         let target = OpenMusicEventSourceTarget(workspace: state.workspace)
         let reviewClient = reviewClient
         state.status = .loading
@@ -193,13 +209,12 @@ public struct WorkspaceReviewDetail {
 
     public enum Operation: Equatable, Sendable {
         case closing
-        case deleting
         case idle
         case merging
 
         public var isRunning: Bool {
             switch self {
-            case .closing, .deleting, .merging: true
+            case .closing, .merging: true
             case .idle: false
             }
         }
@@ -228,10 +243,12 @@ public struct WorkspaceReviewDetail {
     public struct State {
         public init(
             workspace: SourceWorkspace,
-            review: TangledPullReview
+            review: TangledPullReview,
+            authoringGrant: AuthoringGrant? = nil
         ) {
             self.workspace = workspace
             self.review = review
+            self.authoringGrant = authoringGrant
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
@@ -240,7 +257,6 @@ public struct WorkspaceReviewDetail {
 
         public let workspace: SourceWorkspace
         public let review: TangledPullReview
-        @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
@@ -254,21 +270,39 @@ public struct WorkspaceReviewDetail {
             cachedActorIdentities[review.author]
         }
 
+        public var canClose: Bool {
+            authoringGrantForWorkspace != nil
+        }
+
+        public var canMergeProposals: Bool {
+            authoringGrantForWorkspace?.role.canMerge == true
+        }
+
         public var canMerge: Bool {
-            authoringGrant?.role.canMerge == true
+            canMergeProposals && targetBranch != nil
+        }
+
+        public var targetBranch: WorkspaceBranch? {
+            let value = SourceWorkspace.normalizedBranch(review.targetBranch)
+            return value.isEmpty ? nil : WorkspaceBranch(rawValue: value)
+        }
+
+        private var authoringGrantForWorkspace: AuthoringGrant? {
+            guard let authoringGrant,
+                  authoringGrant.workspaceID == workspace.id
+            else { return nil }
+            return authoringGrant
         }
     }
 
     public enum Action {
         case closeButtonTapped
-        case deleteButtonTapped
         case mergeButtonTapped
         case retryRawDiffButtonTapped
         case retrySemanticDiffButtonTapped
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-    @Dependency(\.sourceWorkspaceStorage) var sourceWorkspaceStorage
     @Dependency(\.tangledPullReviewClient) var reviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var sourceSnapshot
     @Dependency(\.uuid) var uuid
@@ -277,7 +311,7 @@ public struct WorkspaceReviewDetail {
         Update { state, action in
             switch action {
             case .closeButtonTapped:
-                guard state.canMerge, !state.operation.isRunning else { return }
+                guard state.canClose, !state.operation.isRunning else { return }
                 let review = state.review
                 let reviewClient = reviewClient
                 state.operation = .closing
@@ -294,26 +328,11 @@ public struct WorkspaceReviewDetail {
                     try store.post(key: WorkspaceReviewRemoved.self, value: review)
                 }
 
-            case .deleteButtonTapped:
-                guard state.canMerge, !state.operation.isRunning else { return }
-                let review = state.review
-                let reviewClient = reviewClient
-                state.operation = .deleting
-                store.addTask {
-                    let result: Void? = await store.withErrorHandling(
-                        fallbackMessage: .workspaceReviewDeleteFailed,
-                        operation: .workspaceReviewDelete
-                    ) {
-                        try await reviewClient.delete(review)
-                    } cleanup: {
-                        $0.operation = .idle
-                    }
-                    guard result != nil else { return }
-                    try store.post(key: WorkspaceReviewRemoved.self, value: review)
-                }
-
             case .mergeButtonTapped:
-                guard state.canMerge, !state.operation.isRunning else { return }
+                guard state.canMerge,
+                      let targetBranch = state.targetBranch,
+                      !state.operation.isRunning
+                else { return }
                 let request = OpenMusicEventTangledPullReviewMergeRequest(
                     target: OpenMusicEventSourceTarget(workspace: state.workspace),
                     review: state.review
@@ -334,7 +353,10 @@ public struct WorkspaceReviewDetail {
                     do {
                         let reconciliation = try store.post(
                             key: WorkspaceProposalMerged.self,
-                            value: WorkspaceProposalID(rawValue: review.id)
+                            value: WorkspaceMergedProposal(
+                                proposalID: WorkspaceProposalID(rawValue: review.id),
+                                targetBranch: targetBranch
+                            )
                         )
                         await reconciliation?.value
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
@@ -385,7 +407,6 @@ public struct WorkspaceReviewDetail {
             let review = state.review
             let scratchID = uuid()
             let sourceSnapshot = sourceSnapshot
-            let sourceWorkspaceStorage = sourceWorkspaceStorage
             state.semanticDiffStatus = .loading
             store.addTask {
                 do {
@@ -393,8 +414,7 @@ public struct WorkspaceReviewDetail {
                         workspace: workspace,
                         review: review,
                         scratchID: scratchID,
-                        sourceSnapshot: sourceSnapshot,
-                        sourceWorkspaceStorage: sourceWorkspaceStorage
+                        sourceSnapshot: sourceSnapshot
                     )
                     try store.modify { $0.semanticDiffStatus = .loaded(diff) }
                 } catch {
@@ -447,8 +467,8 @@ public struct WorkspaceReviewsView: View {
                         value: store.workspace.repository
                     )
                     WorkspaceTechnicalValueView(
-                        label: "Branch",
-                        value: store.workspace.branch
+                        label: "Default branch",
+                        value: store.workspace.defaultBranch
                     )
                     WorkspaceTechnicalValueView(
                         label: "Organization",
@@ -564,7 +584,6 @@ struct WorkspaceReviewRow: View {
 public struct WorkspaceReviewDetailView: View {
     let store: StoreOf<WorkspaceReviewDetail>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    @State var isDeleteConfirmationPresented = false
 
     public init(store: StoreOf<WorkspaceReviewDetail>) {
         self.store = store
@@ -607,6 +626,11 @@ public struct WorkspaceReviewDetailView: View {
                     source: store.review.sourceBranch ?? "Unavailable",
                     target: store.review.targetBranch
                 )
+                if let sourceRepositoryDID = store.review.sourceRepositoryDID,
+                   sourceRepositoryDID != store.review.targetRepositoryDID {
+                    Text("The source branch is in another repository.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             actionsSection
@@ -628,18 +652,6 @@ public struct WorkspaceReviewDetailView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .confirmationDialog(
-            "Delete this proposal permanently?",
-            isPresented: $isDeleteConfirmationPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Proposal", role: .destructive) {
-                store.send(.deleteButtonTapped)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This cannot be undone.")
-        }
     }
 
     @ViewBuilder
@@ -650,36 +662,36 @@ public struct WorkspaceReviewDetailView: View {
                 ProgressView("Closing proposal")
                     .accessibilityIdentifier("workspace.proposal.close.progress")
             }
-        case .deleting:
-            Section("Actions") {
-                ProgressView("Deleting proposal")
-                    .accessibilityIdentifier("workspace.proposal.delete.progress")
-            }
         case .merging:
             Section("Actions") {
-                ProgressView("Applying changes")
+                ProgressView("Merging proposal")
                     .accessibilityIdentifier("workspace.proposal.merge.progress")
             }
         case .idle:
             Section("Actions") {
-                if store.canMerge {
-                    Button("Merge Changes") {
+                if store.canMergeProposals {
+                    Button("Merge into \(store.review.targetBranch)") {
                         store.send(.mergeButtonTapped)
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!store.canMerge)
                     .accessibilityIdentifier("workspace.proposal.merge")
 
+                    if !store.canMerge {
+                        Text("This proposal does not identify a target branch, so it cannot be merged.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if store.canClose {
                     Button("Close Proposal") {
                         store.send(.closeButtonTapped)
                     }
                     .accessibilityIdentifier("workspace.proposal.close")
+                }
 
-                    Button("Delete Proposal Permanently", role: .destructive) {
-                        isDeleteConfirmationPresented = true
-                    }
-                    .accessibilityIdentifier("workspace.proposal.delete")
-                } else {
-                    Text("You can review this proposal, but only a workspace manager can change its state.")
+                if !store.canClose && !store.canMergeProposals {
+                    Text("You can review this proposal, but you do not have permission to change its state.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -846,10 +858,6 @@ extension UserFacingText {
         "The proposal could not be closed.",
         fallback: "The proposal could not be closed."
     )
-    static let workspaceReviewDeleteFailed = Self(
-        "The proposal could not be deleted.",
-        fallback: "The proposal could not be deleted."
-    )
     static let workspaceReviewMergeFailed = Self(
         "The proposal could not be merged.",
         fallback: "The proposal could not be merged."
@@ -858,7 +866,6 @@ extension UserFacingText {
 
 extension ErrorOperation {
     static let workspaceReviewClose = Self("workspace.review.close")
-    static let workspaceReviewDelete = Self("workspace.review.delete")
     static let workspaceReviewMerge = Self("workspace.review.merge")
 }
 
@@ -867,13 +874,28 @@ private extension WorkspaceReviewDetail.SemanticDiff {
         workspace: SourceWorkspace,
         review: TangledPullReview,
         scratchID: UUID,
-        sourceSnapshot: TangledPullReviewSourceSnapshotClient,
-        sourceWorkspaceStorage: SourceWorkspaceStorage
+        sourceSnapshot: TangledPullReviewSourceSnapshotClient
     ) async throws -> Self {
         guard let sourceBranch = review.sourceBranch?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ), !sourceBranch.isEmpty else {
             throw WorkspaceReviewSemanticDiffError.missingSourceBranch
+        }
+        let targetBranch = SourceWorkspace.normalizedBranch(review.targetBranch)
+        guard !targetBranch.isEmpty else {
+            throw WorkspaceReviewSemanticDiffError.missingTargetBranch
+        }
+        let sourceRepositoryDID = review.sourceRepositoryDID?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? ""
+        guard !sourceRepositoryDID.isEmpty else {
+            throw WorkspaceReviewSemanticDiffError.missingSourceRepository
+        }
+        let targetRepositoryDID = review.targetRepositoryDID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !targetRepositoryDID.isEmpty else {
+            throw WorkspaceReviewSemanticDiffError.missingTargetRepository
         }
 
         let scratchRootURL = FileManager.default.temporaryDirectory
@@ -888,36 +910,53 @@ private extension WorkspaceReviewDetail.SemanticDiff {
         )
         defer { try? FileManager.default.removeItem(at: scratchRootURL) }
 
-        let insertion = try await sourceSnapshot.insertion(
+        let targetInsertion = try await sourceSnapshot.insertion(
             TangledPullReviewSourceSnapshotRequest(
                 organizerID: workspace.organizerID,
+                repository: .target(targetRepositoryDID),
+                ref: targetBranch,
+                sourceProvenance: workspace.sourceProvenance
+            )
+        )
+        let sourceInsertion = try await sourceSnapshot.insertion(
+            TangledPullReviewSourceSnapshotRequest(
+                organizerID: workspace.organizerID,
+                repository: .source(sourceRepositoryDID),
                 ref: sourceBranch,
                 sourceProvenance: workspace.sourceProvenance
             )
         )
 
-        let reviewDatabase = try DatabasePool(
-            path: scratchRootURL.appending(path: "review.sqlite").path
+        let targetDatabasePath = scratchRootURL.appending(path: "target.sqlite").path
+        let targetDatabase = try DatabasePool(path: targetDatabasePath)
+        let sourceDatabase = try DatabasePool(
+            path: scratchRootURL.appending(path: "source.sqlite").path
         )
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(reviewDatabase)
+        try migrator.migrate(targetDatabase)
+        try migrator.migrate(sourceDatabase)
 
         try await withDependencies {
-            $0.localImageFileStore = .reviewScratch(rootURL: scratchRootURL)
+            $0.localImageFileStore = .reviewScratch(
+                rootURL: scratchRootURL.appending(path: "target-assets")
+            )
         } operation: {
-            try await insertion.insert(into: reviewDatabase)
+            try await targetInsertion.insert(into: targetDatabase)
+        }
+        try await withDependencies {
+            $0.localImageFileStore = .reviewScratch(
+                rootURL: scratchRootURL.appending(path: "source-assets")
+            )
+        } operation: {
+            try await sourceInsertion.insert(into: sourceDatabase)
         }
 
-        let baselineURL = try sourceWorkspaceStorage
-            .location(workspace.id)
-            .referenceDatabaseURL
-        guard FileManager.default.fileExists(atPath: baselineURL.path) else {
-            throw WorkspaceReviewSemanticDiffError.sourceBaselineMissing(baselineURL.path)
-        }
-
-        let referenceDatabase = try defaultBaselineDatabase(path: baselineURL.path)
-        return try await reviewDatabase.read { db in
+        let referenceDatabase = SourceBaselineDatabase(
+            path: targetDatabasePath,
+            database: targetDatabase
+        )
+        return try await sourceDatabase.read { db in
             let summary = try SourceWorkspaceEditSummary.query(
                 workspace: workspace,
                 in: db,
@@ -943,15 +982,21 @@ private extension WorkspaceReviewDetail.SemanticDiff {
 
 private enum WorkspaceReviewSemanticDiffError: Error, CustomStringConvertible {
     case missingSourceBranch
-    case sourceBaselineMissing(String)
+    case missingSourceRepository
+    case missingTargetBranch
+    case missingTargetRepository
     case unavailable(SourceWorkspaceEditSummary.Availability)
 
     var description: String {
         switch self {
         case .missingSourceBranch:
             "The proposal does not identify a source branch."
-        case let .sourceBaselineMissing(path):
-            "The workspace source baseline is missing at \(path)."
+        case .missingSourceRepository:
+            "The proposal does not identify a source repository."
+        case .missingTargetBranch:
+            "The proposal does not identify a target branch."
+        case .missingTargetRepository:
+            "The proposal does not identify a target repository."
         case let .unavailable(availability):
             "Proposal changes are unavailable: \(availability)."
         }

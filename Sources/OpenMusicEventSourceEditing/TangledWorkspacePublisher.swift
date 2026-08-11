@@ -52,7 +52,7 @@ struct TangledWorkspacePublisher: Sendable {
                 CheckoutRequest(
                     repository: repository,
                     ref: RefName(
-                        rawValue: submission.base.editingReference.revision.rawValue
+                        rawValue: submission.base.revision.rawValue
                     )
                 )
             )
@@ -61,7 +61,7 @@ struct TangledWorkspacePublisher: Sendable {
                     repository: repository,
                     name: BranchName(rawValue: branch.rawValue),
                     startPoint: RefName(
-                        rawValue: submission.base.editingReference.revision.rawValue
+                        rawValue: submission.base.revision.rawValue
                     ),
                     checkout: true
                 )
@@ -94,7 +94,7 @@ struct TangledWorkspacePublisher: Sendable {
             )
         )
         let workspaceCommit = WorkspaceCommit(
-            parentRevision: submission.base.editingReference.revision,
+            parentRevision: submission.base.revision,
             source: WorkspaceBranchReference(
                 branch: branch,
                 revision: WorkspaceRevision(rawValue: commit.id.rawValue)

@@ -869,7 +869,8 @@ public struct EventViewer {
                     state.eventWorkspace = EventWorkspace.State(
                         workspace: sourceWorkspace,
                         eventID: state.eventID,
-                        workspacePhase: workspace.phase
+                        workspacePhase: workspace.phase,
+                        openProposal: workspace.openProposal
                     )
                 }
             } catch {
@@ -899,6 +900,7 @@ public struct EventViewer {
                 workspace: source.workspace,
                 eventID: state.eventID,
                 workspacePhase: workspace.phase,
+                openProposal: workspace.openProposal,
                 referenceDatabase: source.referenceDatabase
             )
         }
@@ -1039,14 +1041,14 @@ public struct EventViewer {
                     installPreparedSource(source, state: &state)
                 }
                 .onChange(
-                    of: workspace.phase.wrappedValue.editingLine?.editingReference.revision,
+                    of: workspace.phase.wrappedValue.branch?.revision,
                     initial: true
                 ) { oldRevision, revision, state in
                     guard oldRevision != revision,
                           let summary = state.eventWorkspace?.changes.$summary
                     else { return }
                     // The reference database is deliberately outside defaultDatabase observation.
-                    // A line revision is its explicit invalidation boundary.
+                    // A branch revision is its explicit invalidation boundary.
                     store.addTask {
                         try await summary.load()
                     }

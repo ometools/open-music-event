@@ -40,11 +40,13 @@ public struct EventWorkspace {
             workspace: SourceWorkspace,
             eventID: OME.Event.ID,
             workspacePhase: SharedReader<WorkspacePhase<SourcePatch>>,
+            openProposal: SharedReader<WorkspaceProposal?>,
             referenceDatabase: SourceBaselineDatabase? = nil
         ) {
             self.workspace = workspace
             self.eventID = eventID
             self._workspacePhase = workspacePhase
+            self._openProposal = openProposal
             self.changes = WorkspaceChanges.State(
                 workspace: workspace,
                 referenceDatabase: referenceDatabase
@@ -57,10 +59,12 @@ public struct EventWorkspace {
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @SharedReader public var workspacePhase: WorkspacePhase<SourcePatch>
+        @SharedReader public var openProposal: WorkspaceProposal?
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
         public var reviews: WorkspaceReviews.State
+        public var requestedBranch = ""
         public var selectedPage: Page = .changes
 
         public var changeCount: Int? { changes.badgeCount }
@@ -73,7 +77,8 @@ public struct EventWorkspace {
         }
 
         public var authoringAccess: AuthoringAccess {
-            authoringGrant?.access ?? .attendee
+            guard authoringGrant?.workspaceID == workspace.id else { return .attendee }
+            return authoringGrant?.access ?? .attendee
         }
 
         public var availablePages: [Page] {
@@ -84,10 +89,18 @@ public struct EventWorkspace {
         }
 
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
-            guard let grant,
-                  grant.workspaceID == workspace.id
-            else {
+            let scopedGrant = grant?.workspaceID == workspace.id ? grant : nil
+            reviews.authoringGrant = scopedGrant
+            if case var .reviewDetail(detail)? = reviews.destination {
+                detail.authoringGrant = scopedGrant
+                reviews.destination = scopedGrant.map { _ in .reviewDetail(detail) }
+            }
+
+            guard scopedGrant != nil else {
                 collaborators = nil
+                reviews.pendingCreatedReviewID = nil
+                reviews.status = .notLoaded
+                changes.proposalDraft = nil
                 if selectedPage == .collaborators { selectedPage = .changes }
                 return
             }
@@ -116,6 +129,7 @@ public struct EventWorkspace {
         case collaborators(WorkspaceCollaborators.Action)
         case reviews(WorkspaceReviews.Action)
         case sourcePreparationRetryButtonTapped
+        case switchBranchButtonTapped
         case viewProposalButtonTapped
     }
 
@@ -132,8 +146,30 @@ public struct EventWorkspace {
                         await retry?.value
                     }
 
+                case .switchBranchButtonTapped:
+                    guard state.authoringAccess.canEditContent,
+                          case let .ready(currentBranch) = state.workspacePhase,
+                          state.changeCount == nil,
+                          !state.requestedBranch.trimmingCharacters(
+                              in: .whitespacesAndNewlines
+                          ).isEmpty
+                    else { return }
+                    let requestedBranch = WorkspaceBranch(
+                        rawValue: SourceWorkspace.normalizedBranch(state.requestedBranch)
+                    )
+                    guard requestedBranch != currentBranch.branch else { return }
+                    store.addTask {
+                        let task = try store.post(
+                            key: WorkspaceBranchRequested.self,
+                            value: requestedBranch
+                        )
+                        await task?.value
+                    }
+
                 case .viewProposalButtonTapped:
-                    guard let proposalID = state.workspacePhase.proposal?.id.rawValue else {
+                    guard state.authoringAccess.canPropose || state.authoringAccess.canMerge,
+                          let proposalID = state.openProposal?.id.rawValue
+                    else {
                         return
                     }
                     state.selectedPage = .proposals
@@ -157,6 +193,12 @@ public struct EventWorkspace {
             state.updateAuthoringGrant(grant)
             if !state.availablePages.contains(state.selectedPage) {
                 state.selectedPage = .changes
+            }
+            guard state.reviews.canReview,
+                  state.reviews.status == .notLoaded
+            else { return }
+            store.addTask {
+                try store.send(.reviews(.refreshButtonTapped))
             }
         }
     }
@@ -183,11 +225,36 @@ public struct EventWorkspaceView: View {
                 eventID: store.eventID,
                 phase: store.workspacePhase,
                 summary: changesStore.summary,
-                openProposal: changesStore.openProposal,
+                openProposal: store.openProposal,
                 canPropose: store.authoringAccess.canPropose,
                 propose: { changesStore.send(.proposalActionButtonTapped) },
                 viewProposal: { store.send(.viewProposalButtonTapped) }
             )
+
+            Section("Switch branch") {
+                TextField("Branch name", text: $store.requestedBranch)
+                    .autocorrectionDisabled()
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .accessibilityIdentifier("workspace.branch.name")
+                Button("Switch Branch") {
+                    store.send(.switchBranchButtonTapped)
+                }
+                .disabled(
+                    !store.workspaceIsReady
+                        || store.changeCount != nil
+                        || store.requestedBranch.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                )
+                .accessibilityIdentifier("workspace.branch.switch")
+                if store.changeCount != nil {
+                    Text("Create a proposal or reset your local changes before switching branches.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             if pages.count > 1 {
                 Section {
@@ -205,7 +272,8 @@ public struct EventWorkspaceView: View {
             case .changes:
                 WorkspaceChangesView(
                     store: changesStore,
-                    workspacePhase: store.workspacePhase
+                    workspacePhase: store.workspacePhase,
+                    openProposal: store.openProposal
                 )
 
             case .collaborators:
@@ -257,9 +325,9 @@ struct WorkspaceOverviewSection: View {
             "Preparing proposal"
         case let .publishing(submission):
             switch submission.step {
-            case .pushCommit: "Saving changes to the proposal branch"
-            case .recordProposal: "Recording the proposal"
-            case .updateReference: "Finalizing the local reference"
+            case .pushCommit: "Pushing the source branch"
+            case .recordProposal: "Publishing the proposal"
+            case .updateReference: "Refreshing the source branch"
             }
         case .reconciling:
             "Refreshing workspace"
@@ -279,7 +347,7 @@ struct WorkspaceOverviewSection: View {
         case .publicationInterrupted:
             "Proposal publication stopped. Your local changes are preserved."
         case .reconciliationFailed:
-            "Workspace refresh stopped. The last known editing line and your local changes are preserved."
+            "Workspace refresh stopped. The selected branch and your local changes are preserved."
         case .sourcePreparationFailed:
             "Workspace preparation stopped, so changes cannot currently be compared."
         case .stale:
@@ -294,25 +362,27 @@ struct WorkspaceOverviewSection: View {
     var body: some View {
         Section("Workspace overview") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Editing line")
+                Text("Current branch")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                if let line = phase.editingLine {
-                    switch line {
-                    case let .canonical(reference):
-                        Text("You are building on the organizer’s canonical line.")
-                        WorkspaceBranchNameView(branch: reference.branch.rawValue)
-                    case let .proposal(proposal):
-                        Text("You are building on an open proposal.")
-                        WorkspaceBranchRelationshipView(
-                            source: proposal.source.branch.rawValue,
-                            target: proposal.target.branch.rawValue
-                        )
-                    }
+                if let branch = phase.branch {
+                    WorkspaceBranchNameView(branch: branch.branch.rawValue)
                 } else {
-                    Text("This workspace is configured for the following branch, but it is not currently prepared.")
-                    WorkspaceBranchNameView(branch: workspace.branch)
+                    Text("The workspace is not currently prepared.")
+                    WorkspaceBranchNameView(branch: workspace.defaultBranch)
+                }
+            }
+
+            if let openProposal {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tracked proposal")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    WorkspaceBranchRelationshipView(
+                        source: openProposal.source.branch.rawValue,
+                        target: openProposal.target.branch.rawValue
+                    )
                 }
             }
 
@@ -323,7 +393,7 @@ struct WorkspaceOverviewSection: View {
 
                 switch summary.availability {
                 case .available:
-                    if phase.proposal != nil || openProposal != nil {
+                    if openProposal?.source == phase.branch {
                         Text("Previously submitted changes are in the open proposal.")
                         Text(changeCount == 1
                             ? "1 newer local change is waiting to be added."
@@ -355,11 +425,10 @@ struct WorkspaceOverviewSection: View {
                 } else if let stoppedMessage {
                     Text(stoppedMessage)
                 } else if case .available = summary.availability,
-                          let line = phase.editingLine
+                          let branch = phase.branch
                 {
-                    switch line {
-                    case .canonical:
-                        if changeCount > 0 {
+                    if changeCount > 0 {
+                        if openProposal == nil {
                             if canPropose {
                                 Button("Create Proposal", action: propose)
                                     .buttonStyle(.borderedProminent)
@@ -367,11 +436,7 @@ struct WorkspaceOverviewSection: View {
                             } else {
                                 Text("Your local changes are waiting, but you do not have permission to create a proposal.")
                             }
-                        } else {
-                            Text("Continue editing. There are no local changes waiting to be proposed.")
-                        }
-                    case .proposal:
-                        if changeCount > 0 {
+                        } else if openProposal?.source == branch {
                             if canPropose {
                                 Button("Update Proposal", action: propose)
                                     .buttonStyle(.borderedProminent)
@@ -382,9 +447,15 @@ struct WorkspaceOverviewSection: View {
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
                         } else {
+                            Text("These changes belong to \(branch.branch.rawValue). Switch to \(openProposal?.source.branch.rawValue ?? "the tracked proposal's source branch") to update the tracked proposal.")
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
                         }
+                    } else if openProposal != nil {
+                        Button("View Proposal", action: viewProposal)
+                            .accessibilityIdentifier("workspace.proposal.view")
+                    } else {
+                        Text("Continue editing. There are no local changes waiting to be proposed.")
                     }
                 }
             }
@@ -393,10 +464,10 @@ struct WorkspaceOverviewSection: View {
                 PortableDisclosureGroup("Technical Details") {
                     VStack(alignment: .leading, spacing: 8) {
                         WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
-                        WorkspaceTechnicalValueView(label: "Configured branch", value: workspace.branch)
+                        WorkspaceTechnicalValueView(label: "Default branch", value: workspace.defaultBranch)
                         WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
                         WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
-                        if let proposal = phase.proposal ?? openProposal {
+                        if let proposal = openProposal {
                             WorkspaceTechnicalValueView(label: "Open proposal", value: proposal.id.rawValue)
                         }
                         if let failure = phase.failure {
@@ -428,12 +499,12 @@ struct WorkspaceBranchRelationshipView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledContent("Proposal branch") {
+            LabeledContent("Source branch") {
                 Text(source)
                     .font(.body.monospaced())
                     .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Targets") {
+            LabeledContent("Target branch") {
                 Text(target)
                     .font(.body.monospaced())
                     .multilineTextAlignment(.trailing)

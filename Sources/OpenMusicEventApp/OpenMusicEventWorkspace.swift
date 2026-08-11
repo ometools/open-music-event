@@ -102,9 +102,9 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     await exit?.value
                     guard store.state.authoring.grant == nil else { return }
                     let reset = try store.modify { state in
-                        // Canonical content is already committed to SQLite. Preserve the mounted
+                        // Published content is already committed to SQLite. Preserve the mounted
                         // EventViewer read model, but discard the authorized source/phase so a
-                        // later authoring entry must prepare a fresh canonical workspace.
+                        // later authoring entry must restore the selected branch.
                         let content = state.authoring.content.content
                         state.authoring.content = WorkspaceAuthoring.WorkspaceFeature.State(
                             workspaceID: WorkspaceID(rawValue: workspaceID.rawValue),
@@ -120,21 +120,6 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                         .authoring(.content(.sourcePreparationRetryButtonTapped))
                     )
                     await retry?.value
-                }
-            }
-            .onEvent(AuthoringAccessRevoked.self) { _, state in
-                let workspaceID = state.authoring.context
-                let activations = activations
-                store.addTask {
-                    let invalidation = try store.send(
-                        .authoring(.authorizationInvalidated)
-                    )
-                    await invalidation?.value
-                    try await activations.deactivate(workspaceID.id)
-                    let admission = try store.send(
-                        .authoring(.refreshAdmission)
-                    )
-                    await admission?.value
                 }
             }
             .dependency(\.defaultEventID, store.id)

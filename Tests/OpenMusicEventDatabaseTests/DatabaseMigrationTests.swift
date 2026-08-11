@@ -557,7 +557,7 @@ struct DatabaseMigrationTests {
 
 
     @Test
-    func canonicalSourceWorkspaceMigrationCreatesOnlyCanonicalStorage() async throws {
+    func sourceWorkspaceMigrationCreatesOnlyCurrentStorage() async throws {
         let database = try migratedDatabase()
 
         try await database.read { db in
@@ -1665,13 +1665,13 @@ struct DatabaseMigrationTests {
                 installation.workspace?.repository,
                 "tangled.org/example/summer-workspace"
             )
-            expectNoDifference(installation.workspace?.branch, "main")
+            expectNoDifference(installation.workspace?.defaultBranch, "main")
             #expect(
                 try InstalledEventRecord.find(authoringOnlyEventID).fetchOne(db) == nil
             )
             #expect(try OME.Event.find(authoringOnlyEventID).fetchOne(db) != nil)
 
-            // Canonical refresh deletes and reinserts event content. Installation intent is a
+            // Published-content refresh deletes and reinserts event content. Installation intent is a
             // separate local decision and must survive that replacement boundary.
             try OME.Event.find(eventID).delete().execute(db)
             expectNoDifference(

@@ -344,6 +344,7 @@ struct TangledSourceCloneTests {
                 try await TangledSourceCheckoutClient.git.checkout(
                     TangledSourceCheckoutRequest(
                         repository: repository,
+                        repositoryDID: "did:plc:reviewsource",
                         ref: "refs/heads/main",
                         outputURL: outputURL
                     )
@@ -367,7 +368,7 @@ struct TangledSourceCloneTests {
         #expect(cloneAttempts.withLock { $0 } == expectedCloneAttempts)
         let request = try #require(cloneRequests.withLock { $0.first })
         #expect(cloneRequests.withLock { $0.count } == expectedCloneAttempts)
-        #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(request.remote.url == "git@tangled.org:did:plc:reviewsource")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
         #expect(request.depth == nil)

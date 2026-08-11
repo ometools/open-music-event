@@ -1204,7 +1204,7 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
             return "Workspace source contains more than one collaborator relationship for '\(actorID)'. Keep one active relationship per collaborator."
 
         case let .invalidWorkspaceRelationship(fileName):
-            return "Collaborator file '\(fileName)' must contain a collaborator relationship from an actor DID to this workspace's canonical source record."
+            return "Collaborator file '\(fileName)' must contain a collaborator relationship from an actor DID to this workspace's source record."
 
         case let .invalidLocalTime(value):
             return "Invalid local time: \(value)"

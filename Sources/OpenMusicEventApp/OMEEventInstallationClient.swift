@@ -50,10 +50,12 @@ public struct OMEEventInstallationClient: Sendable {
         ATProto.URI
     ) -> AsyncThrowingStream<OMEEventInstallationProgress, any Error>
     public var ensureInstalled: @Sendable (ATProto.URI) async throws -> OMERecord.Event.ID
+    public var restorePublishedEvents: @Sendable (SourceWorkspace) async throws -> Void
     public var synchronizeInstalledEvent: @Sendable (OMERecord.Event.ID) async throws -> Void
 
     public init(
         ensureInstalled: @escaping @Sendable (ATProto.URI) async throws -> OMERecord.Event.ID,
+        restorePublishedEvents: @escaping @Sendable (SourceWorkspace) async throws -> Void = { _ in },
         synchronizeInstalledEvent: @escaping @Sendable (
             OMERecord.Event.ID
         ) async throws -> Void,
@@ -62,6 +64,7 @@ public struct OMEEventInstallationClient: Sendable {
         ) -> AsyncThrowingStream<OMEEventInstallationProgress, any Error>)? = nil
     ) {
         self.ensureInstalled = ensureInstalled
+        self.restorePublishedEvents = restorePublishedEvents
         self.synchronizeInstalledEvent = synchronizeInstalledEvent
         self.install = install ?? { eventURI in
             AsyncThrowingStream { continuation in
@@ -98,6 +101,7 @@ public enum OMEEventInstallationError: Error, Equatable {
     case invalidEventURI(ATProto.URI)
     case eventIsNotInstalled(ATProto.URI)
     case installationSourceUnavailable(ATProto.URI)
+    case noInstalledEvents(SourceWorkspace.ID)
 }
 
 extension OMEEventInstallationClient: DependencyKey {
@@ -136,23 +140,13 @@ extension OMEEventInstallationClient: DependencyKey {
                     logoURL: catalogEvent.eventEntryLogoURL
                 )
             )
-            guard let installationRequest = catalogEvent.source.installationRequest(
-                organizerID: eventID.organizerID
-            ) else {
-                throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-            }
-
-            let result = try await OpenMusicEventSourceValidator(installationRequest)
-                .validate(eventID: eventID)
-            guard let workspace = result.insertion.eventSourceProvenances
-                .first(where: { $0.eventID == eventID })
-                .flatMap({ EventSourceProvenanceRecord($0).workspace })
-            else {
-                throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-            }
-            try await result.insertion.installCanonicalEvent(
+            let published = try await publishedEventInstallation(
                 eventID,
-                from: workspace,
+                catalogEvent: catalogEvent
+            )
+            try await published.insertion.installPublishedEvent(
+                eventID,
+                from: published.workspace,
                 in: database
             )
             return eventID
@@ -161,6 +155,40 @@ extension OMEEventInstallationClient: DependencyKey {
         return Self(
             ensureInstalled: { eventURI in
                 try await install(eventURI) { _ in }
+            },
+            restorePublishedEvents: { workspace in
+                @Dependency(\.defaultDatabase) var database
+                let installedEventIDs = try await database.read { db in
+                    try InstalledEventRecord.all
+                        .fetchAll(db)
+                        .filter { $0.workspace?.id == workspace.id }
+                        .map(\.id)
+                        .sorted { $0.eventID.rawValue < $1.eventID.rawValue }
+                }
+                guard !installedEventIDs.isEmpty else {
+                    throw OMEEventInstallationError.noInstalledEvents(workspace.id)
+                }
+
+                var publishedEvents: [OME.SourceDatabaseInsertion] = []
+                publishedEvents.reserveCapacity(installedEventIDs.count)
+                for eventID in installedEventIDs {
+                    let published = try await publishedEventInstallation(eventID)
+                    guard published.workspace.id == workspace.id else {
+                        throw OMEEventInstallationError.installationSourceUnavailable(
+                            OME.Event.reference(id: eventID).uri
+                        )
+                    }
+                    var insertion = published.insertion
+                    for index in insertion.eventSourceProvenances.indices {
+                        insertion.eventSourceProvenances[index].source = workspace.sourceProvenance
+                    }
+                    publishedEvents.append(insertion)
+                }
+                try await OME.SourceDatabaseInsertion.restorePublishedEvents(
+                    publishedEvents,
+                    from: workspace,
+                    in: database
+                )
             },
             synchronizeInstalledEvent: { eventID in
                 @Dependency(\.defaultDatabase) var database
@@ -179,32 +207,25 @@ extension OMEEventInstallationClient: DependencyKey {
                 Installed event source resolved
                 event: \(eventURI)
                 repository: \(workspace.repository)
-                ref: \(workspace.branch)
+                ref: \(workspace.defaultBranch)
                 """)
 
-                let validation = try await OpenMusicEventSourceValidator(
-                    OpenMusicEventSourceValidationRequest(
-                        source: workspace.repository,
-                        organizerID: workspace.organizerID,
-                        ref: workspace.branch
-                    )
-                )
-                .validate(eventID: eventID)
-                guard validation.insertedEventIDs == [eventID] else {
+                let published = try await publishedEventInstallation(eventID)
+                guard published.workspace.id == workspace.id else {
                     throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
                 }
                 NotificationRefreshDiagnostics.notice("""
                 Installed event source validated
                 event: \(eventURI)
                 repository: \(workspace.repository)
-                ref: \(workspace.branch)
+                ref: \(workspace.defaultBranch)
                 """)
 
-                var insertion = validation.insertion
+                var insertion = published.insertion
                 for index in insertion.eventSourceProvenances.indices {
                     insertion.eventSourceProvenances[index].source = workspace.sourceProvenance
                 }
-                try await insertion.replaceCanonicalEvent(
+                try await insertion.replacePublishedEvent(
                     eventID,
                     from: workspace,
                     in: database
@@ -213,7 +234,7 @@ extension OMEEventInstallationClient: DependencyKey {
                 Installed event source committed
                 event: \(eventURI)
                 repository: \(workspace.repository)
-                ref: \(workspace.branch)
+                ref: \(workspace.defaultBranch)
                 """)
             },
             install: { eventURI in
@@ -240,6 +261,9 @@ extension OMEEventInstallationClient: DependencyKey {
             ensureInstalled: { eventURI in
                 throw OMEEventInstallationError.eventIsNotInstalled(eventURI)
             },
+            restorePublishedEvents: { workspace in
+                throw OMEEventInstallationError.noInstalledEvents(workspace.id)
+            },
             synchronizeInstalledEvent: { eventID in
                 throw OMEEventInstallationError.eventIsNotInstalled(
                     OME.Event.reference(id: eventID).uri
@@ -264,6 +288,40 @@ private extension OME.CalendarEvent.Media {
             .map(String.init)?
             .lowercased()
     }
+}
+
+private struct PublishedEventInstallation {
+    var insertion: OME.SourceDatabaseInsertion
+    var workspace: SourceWorkspace
+}
+
+private func publishedEventInstallation(
+    _ eventID: OMERecord.Event.ID,
+    catalogEvent providedCatalogEvent: OME.CalendarEvent? = nil
+) async throws -> PublishedEventInstallation {
+    let eventURI = OME.Event.reference(id: eventID).uri
+    let catalogEvent: OME.CalendarEvent
+    if let providedCatalogEvent = providedCatalogEvent {
+        catalogEvent = providedCatalogEvent
+    } else {
+        catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
+    }
+    guard let installationRequest = catalogEvent.source.installationRequest(
+        organizerID: eventID.organizerID
+    ) else {
+        throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+    }
+
+    let result = try await OpenMusicEventSourceValidator(installationRequest)
+        .validate(eventID: eventID)
+    guard result.insertedEventIDs == [eventID],
+          let workspace = result.insertion.eventSourceProvenances
+            .first(where: { $0.eventID == eventID })
+            .flatMap({ EventSourceProvenanceRecord($0).workspace })
+    else {
+        throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+    }
+    return PublishedEventInstallation(insertion: result.insertion, workspace: workspace)
 }
 
 public extension DependencyValues {

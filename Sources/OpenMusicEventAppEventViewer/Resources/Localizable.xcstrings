@@ -306,6 +306,9 @@
     "Coordinates" : {
 
     },
+    "Create a proposal or reset your local changes before switching branches." : {
+
+    },
     "Create a schedule for the performances you do not want to miss." : {
 
     },
@@ -336,6 +339,9 @@
     "Dates" : {
 
     },
+    "Default branch" : {
+
+    },
     "Default notifications" : {
 
     },
@@ -360,19 +366,10 @@
     "Delete Poster?" : {
 
     },
-    "Delete Proposal" : {
-
-    },
-    "Delete Proposal Permanently" : {
-
-    },
     "Delete Schedule" : {
 
     },
     "Delete Schedule?" : {
-
-    },
-    "Delete this proposal permanently?" : {
 
     },
     "Delete unpublished changes?" : {
@@ -382,9 +379,6 @@
 
     },
     "Deleted records" : {
-
-    },
-    "Deleting proposal" : {
 
     },
     "Description" : {
@@ -433,9 +427,6 @@
 
     },
     "Edit Performance" : {
-
-    },
-    "Editing line" : {
 
     },
     "Editor" : {
@@ -873,9 +864,6 @@
     "Proposal" : {
 
     },
-    "Proposal branch" : {
-
-    },
     "Proposal changes could not be rendered" : {
 
     },
@@ -898,6 +886,12 @@
 
     },
     "Publication" : {
+
+    },
+    "Publishing the proposal" : {
+
+    },
+    "Pushing the source branch" : {
 
     },
     "Raw record diff" : {
@@ -924,13 +918,13 @@
     "Recording" : {
 
     },
-    "Recording the proposal" : {
-
-    },
     "Recordings" : {
 
     },
     "Refresh proposals" : {
+
+    },
+    "Refreshing the source branch" : {
 
     },
     "Refreshing workspace" : {
@@ -1024,9 +1018,6 @@
 
     },
     "Save" : {
-
-    },
-    "Saving changes to the proposal branch" : {
 
     },
     "Scan to join the TestFlight" : {
@@ -1236,9 +1227,6 @@
     "This calendar could not be loaded." : {
 
     },
-    "This cannot be undone." : {
-
-    },
     "This communication channel could not be loaded." : {
 
     },
@@ -1353,9 +1341,6 @@
     "Workspace preparation stopped, so changes cannot currently be compared." : {
 
     },
-    "Workspace refresh stopped. The last known editing line and your local changes are preserved." : {
-
-    },
     "Workspace section" : {
 
     },
@@ -1365,13 +1350,7 @@
     "Write" : {
 
     },
-    "You are building on an open proposal." : {
-
-    },
-    "You are building on the organizer’s canonical line." : {
-
-    },
-    "You can review this proposal, but only a workspace manager can change its state." : {
+    "You can review this proposal, but you do not have permission to change its state." : {
 
     },
     "Your changes will appear here when the source is ready." : {

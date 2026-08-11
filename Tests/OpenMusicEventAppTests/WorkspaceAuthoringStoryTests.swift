@@ -217,6 +217,284 @@ struct WorkspaceAuthoringStoryTests {
         expectNoDifference(role, .collaborator([.propose, .merge]))
     }
 
+    @Test(.tcaExhaustivity(.off))
+    func `an organizer switches real Git branches and reentry restores the selected branch`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let repositoryOwnerID = try #require(
+            DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+        )
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let storageRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "OME-WorkspaceBranchStory-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        defer { try? FileManager.default.removeItem(at: storageRoot) }
+        let git = try WorkspaceStoryGitFixture(
+            organizerID: organizerID,
+            rootURL: storageRoot.appending(path: "git", directoryHint: .isDirectory)
+        )
+        let operations = WorkspaceStorySourceControlRecorder()
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: repositoryOwnerID)
+        let route = AppRoute.event(selectedEventID, .settings)
+        let routeURL = try #require(URL(string: "ome://workspace-branch-story\(route.path)"))
+
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            let liveSourceControl = $0.sourceControl
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.defaultEventID = selectedEventID
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            $0.sourceWorkspaceStorage = .fileBacked(
+                rootURL: storageRoot.appending(path: "workspaces")
+            )
+            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
+                actorID: repositoryOwnerID
+            )
+            $0.tangledRepositoryMembership = .liveValue
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.p256Sign = { try $1.signature(for: $0).rawRepresentation }
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                repositoryOwnerID: repositoryOwnerID,
+                eventID: selectedEventID,
+                archive: git.archive
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                .sshAgent(hostKeyPolicy: .acceptForTesting)
+            }
+            $0.sourceControl = workspaceStorySourceControl(
+                live: liveSourceControl,
+                remoteURL: git.bareRepositoryURL,
+                recorder: operations
+            )
+        } operation: {
+            let store = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
+                ) {
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
+            }
+            await workspaceStoryOpenEvent(store, route: route, url: routeURL)
+            await store.send(
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
+                .enterAuthoringButtonTapped
+            )?.value
+
+            let preparedAuthoring = try #require(
+                store.state.content.destination?.eventViewer?.authoring
+            )
+            let workspace = preparedAuthoring.context
+            let resource = try #require(preparedAuthoring.content.source)
+            guard case let .ready(initialBranch) = preparedAuthoring.content.phase else {
+                Issue.record("Authoring must initially select the configured branch.")
+                return
+            }
+            expectNoDifference(initialBranch.branch.rawValue, workspace.defaultBranch)
+            expectNoDifference(initialBranch.revision.rawValue, git.mainRevision)
+            expectNoDifference(
+                try workspaceStoryGitRevision(at: resource.repositoryURL),
+                git.mainRevision
+            )
+
+            store.modify {
+                guard var eventViewer = $0.content.destination?.eventViewer else { return }
+                eventViewer.authoring.content.content.eventWorkspace?.requestedBranch =
+                    WorkspaceStoryGitFixture.alternateBranch
+                $0.content.destination = .eventViewer(eventViewer)
+            }
+            await store.send(
+                workspaceStoryWorkspaceAction(.switchBranchButtonTapped)
+            )?.value
+
+            let selectedAlternate = WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: WorkspaceStoryGitFixture.alternateBranch),
+                revision: WorkspaceRevision(rawValue: git.alternateRevision)
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.phase,
+                .ready(selectedAlternate)
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 - Preview Branch"
+            )
+            expectNoDifference(
+                try workspaceStoryGitRevision(at: resource.repositoryURL),
+                git.alternateRevision
+            )
+            expectNoDifference(
+                String(
+                    decoding: try workspaceStoryRunGit(
+                        ["status", "--porcelain"],
+                        at: resource.repositoryURL
+                    ),
+                    as: UTF8.self
+                ),
+                ""
+            )
+            let selectedState = try await database.read { db in
+                (
+                    installation: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db),
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)
+                )
+            }
+            expectNoDifference(selectedState.installation?.revision, git.alternateRevision)
+            expectNoDifference(
+                selectedState.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: WorkspaceStoryGitFixture.alternateBranch,
+                    revision: git.alternateRevision
+                )
+            )
+            expectNoDifference(
+                try resource.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspace.id).fetchOne(db)?.revision
+                },
+                Optional(git.alternateRevision)
+            )
+
+            await store.send(
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
+                .exitAuthoringButtonTapped
+            )?.value
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+
+            await store.send(
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
+                .enterAuthoringButtonTapped
+            )?.value
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.phase,
+                .ready(selectedAlternate)
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 - Preview Branch"
+            )
+            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(
+                try workspaceStoryGitRevision(at: resource.repositoryURL),
+                git.alternateRevision
+            )
+
+            store.modify {
+                guard var eventViewer = $0.content.destination?.eventViewer else { return }
+                eventViewer.authoring.content.content.eventWorkspace?.requestedBranch =
+                    workspace.defaultBranch
+                $0.content.destination = .eventViewer(eventViewer)
+            }
+            await store.send(
+                workspaceStoryWorkspaceAction(.switchBranchButtonTapped)
+            )?.value
+            let selectedMain = WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+                revision: WorkspaceRevision(rawValue: git.mainRevision)
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.phase,
+                .ready(selectedMain)
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+            expectNoDifference(
+                try workspaceStoryGitRevision(at: resource.repositoryURL),
+                git.mainRevision
+            )
+
+            let checkoutCountBeforeFailure = operations.count(of: "checkout")
+            store.modify {
+                guard var eventViewer = $0.content.destination?.eventViewer else { return }
+                eventViewer.authoring.content.content.eventWorkspace?.requestedBranch =
+                    WorkspaceStoryGitFixture.malformedBranch
+                $0.content.destination = .eventViewer(eventViewer)
+            }
+            await withExpectedIssue {
+                await store.send(
+                    workspaceStoryWorkspaceAction(.switchBranchButtonTapped)
+                )?.value
+            }
+            guard case let .reconciliationFailed(reconciliation, _) =
+                store.state.content.destination?.eventViewer?.authoring.content.phase
+            else {
+                Issue.record("A malformed branch must fail without becoming selected.")
+                return
+            }
+            expectNoDifference(reconciliation.expected, selectedMain)
+            expectNoDifference(
+                reconciliation.branch.rawValue,
+                WorkspaceStoryGitFixture.malformedBranch
+            )
+            expectNoDifference(
+                try workspaceStoryGitRevision(at: resource.repositoryURL),
+                git.mainRevision
+            )
+            expectNoDifference(
+                store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+            expectNoDifference(
+                operations.count(of: "checkout"),
+                checkoutCountBeforeFailure + 2
+            )
+            let stateAfterFailedSwitch = try await database.read { db in
+                (
+                    installation: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db),
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)
+                )
+            }
+            expectNoDifference(stateAfterFailedSwitch.installation?.revision, git.mainRevision)
+            expectNoDifference(
+                stateAfterFailedSwitch.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: workspace.defaultBranch,
+                    revision: git.mainRevision
+                )
+            )
+            expectNoDifference(
+                try resource.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspace.id).fetchOne(db)?.revision
+                },
+                Optional(git.mainRevision)
+            )
+            await store.dismount(timeout: .seconds(1))
+        }
+    }
+
     @Test(
         .tcaExhaustivity(.off),
         arguments: [
@@ -291,8 +569,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.defaultEventID = selectedEventID
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
-            // Reentry uses this durable location, but only a confirmed exit marker may authorize
-            // replacing its authoring checkout with a fresh canonical checkout.
+            // Reentry uses this durable location so the selected branch survives while attendee
+            // presentation is restored from the public event route.
             $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot.appending(path: "workspaces"))
             // The selected OAuth account owns the source repository but is not the event organizer.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
@@ -437,7 +715,7 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = opened.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case .ready(.canonical) = authoring.content.phase
+                          case .ready = authoring.content.phase
                     else { return false }
                     return true
                 }
@@ -470,14 +748,15 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case .ready(.canonical(_)) = authoring.content.phase else {
-                Issue.record("First preparation must establish the canonical editing line.")
+            guard case let .ready(initialBranch) = authoring.content.phase else {
+                Issue.record("First preparation must select the configured branch.")
                 return
             }
+            expectNoDifference(initialBranch.branch.rawValue, workspace.defaultBranch)
             #expect(authoring.content.content.eventWorkspace != nil)
             expectNoDifference(
                 authoring.content.content.eventWorkspace?.workspaceStatus,
-                authoring.content.phase.editingLine.map(WorkspaceStatus.ready)
+                .ready(initialBranch)
             )
             expectNoDifference(operations.count(of: "clone"), 1)
             #expect(operations.count(prefix: "resolve:") > 0)
@@ -685,7 +964,7 @@ struct WorkspaceAuthoringStoryTests {
             await opened.send(
                 workspaceStoryProposalAction(.proposalDraft(.proposeButtonTapped))
             )?.value
-            guard case .ready(.canonical) = opened.state.content.destination?.eventViewer?
+            guard case .ready = opened.state.content.destination?.eventViewer?
                 .authoring.content.phase
             else {
                 Issue.record("An invalid title must not start proposal publication.")
@@ -740,7 +1019,7 @@ struct WorkspaceAuthoringStoryTests {
                     .failed(operation: .publication, failure: failure)
                 )
                 #expect(!failedWorkspace.workspaceIsReady)
-                expectNoDifference(failedWorkspace.changes.openProposal, nil)
+                expectNoDifference(failedWorkspace.openProposal, nil)
 
                 // Publication failure blocks another proposal, not authoring. A subsequent real
                 // editor save must remain available and durable while the failed submission is
@@ -845,19 +1124,19 @@ struct WorkspaceAuthoringStoryTests {
             let proposal = try #require(
                 opened.state.content.destination?.eventViewer?
                     .authoring.content.content.eventWorkspace?
-                    .changes.openProposal
+                    .openProposal
             )
-            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.destination?.eventViewer?
+            guard case let .ready(recordedBranch) = opened.state.content.destination?.eventViewer?
                 .authoring.content.phase,
-                recordedProposal == proposal
+                recordedBranch == proposal.source
             else {
-                Issue.record("Creating the proposal must advance Workspace to its proposal line.")
+                Issue.record("Creating the proposal must select its source branch.")
                 return
             }
             expectNoDifference(
                 opened.state.content.destination?.eventViewer?.authoring.content.content
                     .eventWorkspace?.workspaceStatus,
-                .ready(.proposal(proposal))
+                .ready(proposal.source)
             )
             let settledSummary = try await database.read { db in
                 try SourceWorkspaceEditSummary.query(
@@ -879,9 +1158,9 @@ struct WorkspaceAuthoringStoryTests {
             #expect(operations.count(of: "formatPatch") == 1)
             #expect(operations.count(of: "push") == 1)
 
-            // Publishing leaves no unpublished database edits. Exit therefore needs no prompt,
-            // but it still restores the attendee database from canonical main and records that a
-            // future authoring entry must replace the proposal checkout.
+            // Publishing leaves no unpublished database edits. Exit therefore needs no prompt.
+            // The attendee read model returns to the public route while branch and proposal
+            // selection remain durable authoring preferences.
             await opened.send(
                 to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                 .exitAuthoringButtonTapped
@@ -904,16 +1183,29 @@ struct WorkspaceAuthoringStoryTests {
             )
             let exitedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(exitedEventNames, ["Wicked Woods 2026"])
-            let confirmedResetExists = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) != nil
+            let exitedWorkspaceState = try await database.read { db in
+                (
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db),
+                    proposal: try SourceWorkspaceOpenProposalRequest(workspaceID: workspace.id)
+                        .fetch(db)
+                )
             }
-            #expect(confirmedResetExists)
+            expectNoDifference(
+                exitedWorkspaceState.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: proposal.source.branch.rawValue,
+                    revision: proposal.source.revision.rawValue
+                )
+            )
+            expectNoDifference(exitedWorkspaceState.proposal, proposal)
 
             await opened.dismount(timeout: .seconds(1))
 
-            // A fresh application mount starts in attendee mode. Reentering authoring consumes the
-            // explicit reset marker, replaces the old proposal checkout, and starts from canonical
-            // main without reviving the published proposal as editable local state.
+            // A fresh application mount starts in attendee mode. Reentering authoring reuses the
+            // selected source branch and restores the tracked review relationship.
             let remountedStore = TestStore(
                 initialState: OpenMusicEventApplication.State(
                     storage: authenticationStorage
@@ -940,7 +1232,8 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case .ready(.canonical) = authoring.content.phase
+                          case let .ready(branch) = authoring.content.phase,
+                          branch == proposal.source
                     else { return false }
                     return true
                 }
@@ -960,37 +1253,38 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case .ready(.canonical) = remountedAuthoring.content.phase else {
-                Issue.record("Reentry after confirmed exit must start from canonical main.")
+            guard case let .ready(remountedBranch) = remountedAuthoring.content.phase,
+                  remountedBranch == proposal.source
+            else {
+                Issue.record("Reentry after confirmed exit must restore the selected branch.")
                 return
             }
             expectNoDifference(
-                remountedAuthoring.content.content.eventWorkspace?.changes.openProposal,
-                nil
+                remountedAuthoring.content.content.eventWorkspace?.openProposal,
+                proposal
             )
-            expectNoDifference(operations.count(of: "clone"), 2)
+            expectNoDifference(operations.count(of: "clone"), 1)
             let remountedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
                 remountedEventNames,
-                ["Wicked Woods 2025", "Wicked Woods 2026"]
+                ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
             )
             let remountedEvent = try await database.read { db in
                 try #require(try OMERecord.Event.find(selectedEventID).fetchOne(db))
             }
-            expectNoDifference(remountedEvent.name, "Wicked Woods 2026")
-            expectNoDifference(remountedEvent.contactNumbers, nil)
-            expectNoDifference(remountedEvent.locations, nil)
+            expectNoDifference(remountedEvent.name, "Wicked Woods 2026 - Local Edit")
+            expectNoDifference(remountedEvent.contactNumbers?.first?.title, "Event office")
+            expectNoDifference(
+                remountedEvent.locations?.first?.address,
+                "123 Festival Road, Denver, CO"
+            )
             let remountedStages = try await database.read { db in
                 try OMERecord.Stage
                     .where { $0.id.organizerID.eq(selectedEventID.organizerID) }
                     .where { $0.id.eventID.eq(selectedEventID.eventID) }
                     .fetchAll(db)
             }
-            #expect(!remountedStages.contains { $0.name == "Meadow Stage" })
-            let confirmedResetWasConsumed = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) == nil
-            }
-            #expect(confirmedResetWasConsumed)
+            #expect(remountedStages.contains { $0.name == "Meadow Stage" })
 
             // Revoking the selected account invalidates the one authoring phase. Settings can no
             // longer offer entry, the active grant disappears, and no second workspace path is
@@ -1131,7 +1425,7 @@ struct WorkspaceAuthoringStoryTests {
             await preparation.continuePreparation()
             await opening?.value
             try await workspaceStoryWaitUntil {
-                guard case .ready(.canonical) = store.content.destination?.eventViewer?.authoring.content.phase
+                guard case .ready = store.content.destination?.eventViewer?.authoring.content.phase
                 else { return false }
                 return true
             }
@@ -1309,8 +1603,8 @@ struct WorkspaceAuthoringStoryTests {
                 workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
             )?.value
             let readyAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
-            guard case .ready(.canonical) = readyAuthoring.content.phase else {
-                Issue.record("Workspace retry must establish the canonical editing line.")
+            guard case let .ready(selectedBranch) = readyAuthoring.content.phase else {
+                Issue.record("Workspace retry must establish the selected branch.")
                 return
             }
             #expect(readyAuthoring.content.source != nil)
@@ -1318,11 +1612,11 @@ struct WorkspaceAuthoringStoryTests {
             #expect(readyAuthoring.content.content.installedFeatures.contains(.workspace))
             expectNoDifference(
                 readyAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                readyAuthoring.content.phase.editingLine.map(WorkspaceStatus.ready)
+                .ready(selectedBranch)
             )
             expectNoDifference(operations.count(of: "clone"), 1)
 
-            // A clean exit still restores canonical attendee content and resets only the generic
+            // A clean exit still restores published attendee content and resets only the generic
             // Workspace layer. The mounted EventViewer remains alive in attendee mode.
             await opened.send(
                 to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
@@ -1336,16 +1630,17 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(exited.content.phase, .inactive)
             #expect(exited.content.source == nil)
             let exitedWorkspaceID = exited.context.id
-            let confirmedResetExists = try await database.read { db in
-                try SourceWorkspaceCanonicalResetRecord.find(exitedWorkspaceID).fetchOne(db) != nil
+            let retainedSelection = try await database.read { db in
+                try SourceWorkspaceSelectionRecord.find(exitedWorkspaceID).fetchOne(db)
             }
-            #expect(confirmedResetExists)
+            expectNoDifference(retainedSelection?.branch, selectedBranch.branch.rawValue)
+            expectNoDifference(retainedSelection?.revision, selectedBranch.revision.rawValue)
             await opened.dismount(timeout: .seconds(1))
         }
     }
 
     @Test(.tcaExhaustivity(.off))
-    func `confirmed exit waits for canonical attendee restoration before clearing authoring`() async throws {
+    func `confirmed exit waits for public attendee restoration before clearing authoring`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:authoringexitstory")
@@ -1408,6 +1703,7 @@ struct WorkspaceAuthoringStoryTests {
         )
         try await insertion.replaceSourceWorkspace(
             workspace,
+            branch: workspace.defaultBranch,
             revision: "authoring-revision",
             in: database
         )
@@ -1459,6 +1755,17 @@ struct WorkspaceAuthoringStoryTests {
             $0.defaultEventID = selectedEventID
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
+            // Public restoration resolves the event through the real typed XRPC client before
+            // checking out its published source. Mock only that client's raw transport so this
+            // story still exercises catalog decoding, checkout, and the database transaction.
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.dataForURL = workspaceStoryNetwork(
+                repositoryOwnerID: actorID,
+                eventID: selectedEventID,
+                archive: Data()
+            )
             $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
                 _, requestedActorID in
                 #expect(requestedActorID == actorID)
@@ -1468,11 +1775,9 @@ struct WorkspaceAuthoringStoryTests {
                 requestedWorkspace in
                 #expect(requestedWorkspace == workspace)
                 return WorkspacePreparation(
-                    line: .canonical(
-                        WorkspaceBranchReference(
-                            branch: WorkspaceBranch(rawValue: workspace.branch),
-                            revision: WorkspaceRevision(rawValue: "authoring-revision")
-                        )
+                    branch: WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+                        revision: WorkspaceRevision(rawValue: "authoring-revision")
                     ),
                     source: resource
                 )
@@ -1506,7 +1811,7 @@ struct WorkspaceAuthoringStoryTests {
             await workspaceStoryOpenEvent(store, route: route, url: routeURL)
             try await workspaceStoryWaitUntil {
                 guard case .active = store.content.destination?.eventViewer?.authoring.phase,
-                      case .ready(.canonical) = store.content.destination?.eventViewer?
+                      case .ready = store.content.destination?.eventViewer?
                         .authoring.content.phase
                 else { return false }
                 return true
@@ -1531,7 +1836,7 @@ struct WorkspaceAuthoringStoryTests {
             await checkoutPause.waitUntilStarted()
 
             // The destructive prompt has been accepted, but the download is still paused.
-            // Authoring and the unpublished content remain intact until canonical validation and
+            // Authoring and the unpublished content remain intact until public-route validation and
             // the one database transaction have both succeeded.
             #expect(authoringGrant.wrappedValue != nil)
             let pausedEventName = try await database.read { db in
@@ -1572,12 +1877,12 @@ struct WorkspaceAuthoringStoryTests {
                     try WorkspaceAuthoringActivationRecord.find(workspace.id).fetchOne(db) == nil
                 )
                 expectNoDifference(
-                    try Int.fetchOne(
-                        db,
-                        sql: #"SELECT COUNT(*) FROM "sourceWorkspaceCanonicalResets" WHERE "id" = ?"#,
-                        arguments: [workspace.id.rawValue]
-                    ),
-                    1
+                    try SourceWorkspaceSelectionRecord.find(workspace.id).fetchOne(db),
+                    SourceWorkspaceSelectionRecord(
+                        id: workspace.id,
+                        branch: workspace.defaultBranch,
+                        revision: "authoring-revision"
+                    )
                 )
             }
         }
@@ -1819,8 +2124,13 @@ struct WorkspaceAuthoringStoryTests {
 }
 
 private struct WorkspaceStoryGitFixture {
+    static let alternateBranch = "festival-preview"
+    static let malformedBranch = "malformed-source"
+
     let archive: Data
     let bareRepositoryURL: URL
+    let mainRevision: String
+    let alternateRevision: String
 
     init(organizerID: OMERecord.Organizer.ID, rootURL: URL) throws {
         let sourceURL = rootURL.appending(path: "source", directoryHint: .isDirectory)
@@ -1836,6 +2146,40 @@ private struct WorkspaceStoryGitFixture {
         )
         try workspaceStoryRunGit(["add", "."], at: sourceURL)
         try workspaceStoryRunGit(["commit", "-m", "Initial organization source"], at: sourceURL)
+        mainRevision = try workspaceStoryGitRevision(at: sourceURL)
+
+        try workspaceStoryRunGit(
+            ["checkout", "-b", Self.alternateBranch],
+            at: sourceURL
+        )
+        try writeWorkspaceStorySource(
+            organizerID: organizerID,
+            selectedEventName: "Wicked Woods 2026 - Preview Branch",
+            to: sourceURL
+        )
+        try workspaceStoryRunGit(["add", "."], at: sourceURL)
+        try workspaceStoryRunGit(
+            ["commit", "-m", "Preview the next festival revision"],
+            at: sourceURL
+        )
+        alternateRevision = try workspaceStoryGitRevision(at: sourceURL)
+        try workspaceStoryRunGit(["checkout", "main"], at: sourceURL)
+
+        try workspaceStoryRunGit(
+            ["checkout", "-b", Self.malformedBranch],
+            at: sourceURL
+        )
+        try Data("name: [".utf8).write(
+            to: sourceURL.appending(path: "events/2026/event.yml"),
+            options: .atomic
+        )
+        try workspaceStoryRunGit(["add", "."], at: sourceURL)
+        try workspaceStoryRunGit(
+            ["commit", "-m", "Add a malformed source fixture"],
+            at: sourceURL
+        )
+        try workspaceStoryRunGit(["checkout", "main"], at: sourceURL)
+
         try workspaceStoryRunGit(
             ["clone", "--bare", sourceURL.path, bareRepositoryURL.path],
             at: rootURL
@@ -1845,6 +2189,14 @@ private struct WorkspaceStoryGitFixture {
             at: sourceURL
         )
     }
+}
+
+private func workspaceStoryGitRevision(at repositoryURL: URL) throws -> String {
+    String(
+        decoding: try workspaceStoryRunGit(["rev-parse", "HEAD"], at: repositoryURL),
+        as: UTF8.self
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private struct WorkspaceStoryFixtureCommandFailure: Error, CustomStringConvertible {
@@ -2321,7 +2673,7 @@ private actor WorkspaceStoryCheckoutPause {
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
 
     func pause() async {
-        precondition(!isStarted, "Canonical checkout unexpectedly started more than once.")
+        precondition(!isStarted, "Published-source checkout unexpectedly started more than once.")
         isStarted = true
         for waiter in startWaiters {
             waiter.resume()
@@ -2340,7 +2692,7 @@ private actor WorkspaceStoryCheckoutPause {
     }
 
     func continueCheckout() {
-        precondition(isStarted, "Canonical checkout has not started.")
+        precondition(isStarted, "Published-source checkout has not started.")
         checkoutContinuation?.resume()
         checkoutContinuation = nil
     }
@@ -2437,6 +2789,7 @@ private func workspaceStoryEventNames(
 
 private func writeWorkspaceStorySource(
     organizerID: OMERecord.Organizer.ID,
+    selectedEventName: String = "Wicked Woods 2026",
     to repositoryURL: URL
 ) throws {
     let timeZone = try #require(TimeZone(identifier: "America/Denver"))
@@ -2457,7 +2810,7 @@ private func writeWorkspaceStorySource(
                     localID: "ome-workspace-2026"
                 ),
                 directoryName: "2026",
-                name: "Wicked Woods 2026",
+                name: selectedEventName,
                 timeZone: timeZone
             ),
         ]

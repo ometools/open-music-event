@@ -83,21 +83,26 @@ rows owned by that exact source, builds the reference database from the same
 commit, and attaches it as `source_baseline`. The selected event remains viewer
 focus; it does not narrow or widen Workspace's organization-source ownership.
 
-Durable re-entry is deliberately different from first entry. A new application
-mount opens the existing repository and validates that its checked-out commit,
-installed revision, and reference revision agree. It does not clone, reinstall,
-or implicitly reconcile. After the settled resource is exposed, a background
-fetch may update remote refs, but it cannot change HEAD, the reference database,
-or application rows. Incorporating remote movement is always explicit
-reconciliation.
+Durable re-entry is deliberately different from first entry. While authoring
+state remains installed, a new application mount opens the existing repository
+and validates that its checked-out commit, installed revision, selected branch,
+and reference revision agree. It does not clone, reinstall, or implicitly
+reconcile. Explicit authoring exit removes the writable installation and restores
+attendee content through the public event route, while retaining the checkout,
+selected branch, and tracked proposal. Re-entry after that exit validates the
+retained checkout and reinstalls the selected branch without cloning. After the
+settled resource is exposed, a background fetch may update remote refs, but it
+cannot change HEAD, the reference database, or application rows. Incorporating
+remote movement is always explicit reconciliation.
 
 The first publication freezes the current database difference, creates and
-pushes a proposal branch, records the Tangled proposal, and advances the attached
-workspace baseline to that proposal commit. Edits made after capture remain in
-the writable database and therefore remain visible as unpublished changes. A
-later publication adds another commit to the same open proposal branch. Remote
-target movement enters the explicit reconciliation path; preparation never
-silently fetches or advances an existing baseline.
+pushes a source branch, records the Tangled proposal from that source branch to
+its target branch, and advances the attached workspace baseline to the source
+commit. Edits made after capture remain in the writable database and therefore
+remain visible as unpublished changes. A later publication adds another commit
+to the same source branch and updates the tracked proposal. Remote target
+movement enters the explicit reconciliation path; preparation never silently
+fetches or advances an existing baseline.
 
 Durable publication progress lives in `sourceWorkspacePublications`, keyed by
 the source workspace ID. Clients are stateless database and network adapters.
@@ -105,8 +110,9 @@ Losing an authoring grant interrupts work that is in flight, but settled
 Workspace state, its prepared resource, and its open proposal survive grant loss
 and re-entry while the feature remains mounted. After an application remount,
 Workspace reconstructs the resource through the durable validation path above.
-Proposal review diffs compare the remote target branch with the immutable
-proposal branch rather than the workspace's already-advanced baseline.
+Proposal review diffs independently load the review's target repository and
+branch and its source repository and branch. They never substitute the selected
+workspace branch or its already-advanced reference database for either side.
 
 ## Running
 

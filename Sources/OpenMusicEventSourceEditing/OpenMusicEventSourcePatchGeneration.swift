@@ -48,7 +48,7 @@ public extension SourcePatchGenerator where Request == SourceWorkspacePatchReque
                     remote: SourcePatchLocation.Remote(
                         kind: OME.SourceDatabaseInsertion.SourceKind.tangled.rawValue,
                         reference: request.workspace.repository,
-                        ref: request.workspace.branch
+                        ref: request.workspace.defaultBranch
                     )
                 )
             },

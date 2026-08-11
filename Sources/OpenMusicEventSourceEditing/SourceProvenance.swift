@@ -19,7 +19,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         case invalidID(ID)
     }
 
-    public var branch: String
+    public var defaultBranch: String
     public var organizerID: OME.Organizer.ID
     public var repository: String
 
@@ -30,7 +30,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
     ) {
         self.organizerID = organizerID
         self.repository = repository
-        self.branch = Self.normalizedBranch(branch)
+        self.defaultBranch = Self.normalizedBranch(branch)
     }
 
     public init(
@@ -68,7 +68,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
                 "v1",
                 Self.encode(organizerID.description),
                 Self.encode(repository),
-                Self.encode(branch),
+                Self.encode(defaultBranch),
             ]
             .joined(separator: ".")
         )
@@ -78,7 +78,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         OME.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
             reference: repository,
-            ref: branch
+            ref: defaultBranch
         )
     }
 
@@ -222,6 +222,20 @@ public struct SourceWorkspaceInstallationRecord: Equatable, Sendable, Identifiab
 
     public init(id: SourceWorkspace.ID, revision: String) {
         self.id = id
+        self.revision = revision
+    }
+}
+
+/// The branch and exact Git commit the user last selected for authoring.
+@Table("sourceWorkspaceSelections")
+public struct SourceWorkspaceSelectionRecord: Equatable, Sendable, Identifiable {
+    public var id: SourceWorkspace.ID
+    public var branch: String
+    public var revision: String
+
+    public init(id: SourceWorkspace.ID, branch: String, revision: String) {
+        self.id = id
+        self.branch = SourceWorkspace.normalizedBranch(branch)
         self.revision = revision
     }
 }

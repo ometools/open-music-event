@@ -104,10 +104,10 @@ public extension SourceWorkspacePatchConversion {
             }
 
             var sourceRepository = sourceRepository
-            let sourceCalendar = sourceRepository.calendar ?? .defaultCalendar
-            sourceRepository.calendar = CalendarDTO(calendar)
+            let sourceCalendar = sourceRepository.calendar
+            let updatedCalendar = CalendarDTO(calendar)
                 .preservingSourceImageReferences(
-                    from: sourceCalendar,
+                    from: sourceCalendar ?? .defaultCalendar,
                     context: SourceImageReferenceContext(
                         organizerID: workspace.organizerID,
                         eventID: nil,
@@ -115,6 +115,12 @@ public extension SourceWorkspacePatchConversion {
                         parentLocalID: calendarID.calendarID.rawValue.rawValue
                     )
                 )
+            sourceRepository.calendar = if sourceCalendar == nil,
+                                           updatedCalendar == .defaultCalendar {
+                nil
+            } else {
+                updatedCalendar
+            }
             let existingCollaborators = Dictionary(
                 uniqueKeysWithValues: (sourceRepository.collaborators ?? []).map {
                     ($0.fileName, $0)

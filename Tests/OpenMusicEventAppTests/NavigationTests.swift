@@ -390,6 +390,11 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         }
         await navigationTask?.value
+        try await waitForSelectedEventID(eventID, in: database)
+        await waitUntil {
+            store.state.root.destination?.eventViewer?.authoring.content.content.eventID
+                == eventID
+        }
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
@@ -2234,7 +2239,7 @@ struct NavigationTests {
                 Array(repeating: denver.identifier, count: 3)
             )
 
-            // A source refresh changes the event's canonical time zone while those features remain mounted.
+            // A source refresh changes the event's published time zone while those features remain mounted.
             try await database.write { db in
                 try OMERecord.Event
                     .find(selectedEventID)

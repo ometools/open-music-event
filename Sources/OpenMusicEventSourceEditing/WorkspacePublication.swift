@@ -14,7 +14,6 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
     var recordedSubmissionID: String?
     var mutationData: Data?
     var proposalTimestamp: String?
-    var openProposalData: Data?
 
     init(
         id: SourceWorkspace.ID,
@@ -25,8 +24,7 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
         commitData: Data? = nil,
         recordedSubmissionID: String? = nil,
         mutationData: Data? = nil,
-        proposalTimestamp: String? = nil,
-        openProposalData: Data? = nil
+        proposalTimestamp: String? = nil
     ) {
         self.id = id
         self.captureRequestID = captureRequestID
@@ -37,8 +35,13 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
         self.recordedSubmissionID = recordedSubmissionID
         self.mutationData = mutationData
         self.proposalTimestamp = proposalTimestamp
-        self.openProposalData = openProposalData
     }
+}
+
+@Table("sourceWorkspaceOpenProposals")
+struct WorkspaceOpenProposalRecord: Equatable, Sendable, Identifiable {
+    var id: SourceWorkspace.ID
+    var proposalData: Data
 }
 
 public enum WorkspacePublicationMigrations {
@@ -70,6 +73,24 @@ public enum WorkspacePublicationMigrations {
             )
             .execute(db)
         }
+        migrator.registerMigration("Keep source workspace proposals across authoring sessions") {
+            db in
+            try #sql("""
+                CREATE TABLE "sourceWorkspaceOpenProposals" (
+                  "id" TEXT PRIMARY KEY NOT NULL,
+                  "proposalData" BLOB NOT NULL
+                ) STRICT
+                """)
+                .execute(db)
+            try #sql("""
+                INSERT INTO "sourceWorkspaceOpenProposals" ("id", "proposalData")
+                SELECT "id", "openProposalData"
+                FROM "sourceWorkspacePublications"
+                WHERE "openProposalData" IS NOT NULL
+                ON CONFLICT ("id") DO UPDATE SET "proposalData" = excluded."proposalData"
+                """)
+                .execute(db)
+        }
     }
 }
 
@@ -91,8 +112,8 @@ public enum SourceWorkspaceEditingState {
     }
 }
 
-/// The durable identity of the proposal branch currently owned by a source workspace.
-/// Transient submission retry state remains private to the publication implementation.
+/// The proposal currently tracked by a source workspace.
+/// Transient publication retry state remains private to the publication implementation.
 public struct SourceWorkspaceOpenProposalStore: Sendable {
     public init(database: any DatabaseWriter) {
         self.persistence = WorkspacePublicationPersistence(database: database)
@@ -153,10 +174,7 @@ public struct SourceWorkspacePublicationCheckpointStore: Sendable {
     }
 }
 
-/// The proposal branch currently owned by a source workspace.
-///
-/// This request observes the workspace publication table so database-backed viewers update when
-/// publication creates, advances, merges, or removes the open proposal.
+/// The proposal currently tracked by a source workspace.
 public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
     public init(workspaceID: SourceWorkspace.ID) {
         self.workspaceID = workspaceID
@@ -165,10 +183,9 @@ public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
     public let workspaceID: SourceWorkspace.ID
 
     public func fetch(_ db: Database) throws -> WorkspaceProposal? {
-        try WorkspacePublicationRecord.find(workspaceID)
-            .fetchOne(db)?
-            .openProposalData
-            .map { try decode(WorkspaceProposal.self, from: $0) }
+        try WorkspaceOpenProposalRecord.find(workspaceID)
+            .fetchOne(db)
+            .map { try decode(WorkspaceProposal.self, from: $0.proposalData) }
     }
 }
 
@@ -340,7 +357,7 @@ struct WorkspacePublicationPersistence: Sendable {
 
     func openProposal(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceProposal? {
         try database.read { db in
-            try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)?.openProposalData
+            try WorkspaceOpenProposalRecord.find(workspaceID).fetchOne(db)?.proposalData
         }
         .map { try decode(WorkspaceProposal.self, from: $0) }
     }
@@ -351,11 +368,14 @@ struct WorkspacePublicationPersistence: Sendable {
     ) async throws {
         let data = try proposal.map(encode)
         try await database.write { db in
-            try ensureRecord(workspaceID, in: db)
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.openProposalData = #bind(data as Data?)
+            if let data {
+                try WorkspaceOpenProposalRecord.upsert {
+                    WorkspaceOpenProposalRecord(id: workspaceID, proposalData: data)
+                }
+                .execute(db)
+            } else {
+                try WorkspaceOpenProposalRecord.find(workspaceID).delete().execute(db)
             }
-            .execute(db)
         }
     }
 

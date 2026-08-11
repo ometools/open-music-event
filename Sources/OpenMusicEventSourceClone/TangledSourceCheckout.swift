@@ -10,18 +10,26 @@ import XRPCClient
 
 public struct TangledSourceCheckoutRequest: Equatable, Sendable {
     public var repository: TangledRepositoryReference
+    public var repositoryDID: String?
     public var ref: String
     public var outputURL: URL
 
     public init(
         repository: TangledRepositoryReference,
+        repositoryDID: String? = nil,
         ref: String,
         outputURL: URL
     ) {
         self.repository = repository
+        self.repositoryDID = repositoryDID
         self.ref = ref
         self.outputURL = outputURL.standardizedFileURL
     }
+}
+
+public enum TangledSourceCheckoutError: Equatable, Error, Sendable {
+    case repositoryDIDRequiresGitCheckout(String)
+    case repositoryDIDRequiresNewCheckout(String)
 }
 
 public struct TangledSourceCheckout: Equatable, Sendable {
@@ -45,6 +53,11 @@ public struct TangledSourceCheckoutClient: Sendable {
 public extension TangledSourceCheckoutClient {
     static var archive: Self {
         Self { request in
+            guard request.repositoryDID == nil else {
+                throw TangledSourceCheckoutError.repositoryDIDRequiresGitCheckout(
+                    request.repositoryDID ?? ""
+                )
+            }
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
             var repository = request.repository
             if let ownerDID = DID(repository.owner) {
@@ -104,6 +117,11 @@ public extension TangledSourceCheckoutClient {
             @Dependency(\.sourceControl) var sourceControl
 
             if Self.isGitRepository(request.outputURL) {
+                guard request.repositoryDID == nil else {
+                    throw TangledSourceCheckoutError.repositoryDIDRequiresNewCheckout(
+                        request.repositoryDID ?? ""
+                    )
+                }
                 let repository = try await sourceControl.open(request.outputURL)
                 try await sourceControl.fetch(
                     request.repository.sourceControlFetchRequest(
@@ -128,7 +146,7 @@ public extension TangledSourceCheckoutClient {
                 target = try await request.repository.resolvedTangledRepositoryTarget()
             }
             let cloneRequest = request.repository.sourceControlCloneRequest(
-                repoDID: target.repositoryDID.description,
+                repoDID: request.repositoryDID ?? target.repositoryDID.description,
                 destinationURL: request.outputURL,
                 ref: request.ref,
                 credentials: credentials

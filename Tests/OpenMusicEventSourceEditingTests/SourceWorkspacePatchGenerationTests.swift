@@ -14,6 +14,26 @@ import Testing
 @Suite("Source workspace patch generation", .serialized)
 struct SourceWorkspacePatchGenerationTests {
     @Test
+    func anUnchangedInferredDefaultCalendarDoesNotBecomeAnEdit() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let workspace = try fixture.workspace(
+            organizer: "did:plc:wickedwoods",
+            repository: "tangled.org/wickedwoods/events"
+        )
+        var repository = Self.sourceRepository(
+            eventDirectories: ["wicked-woods-2026"],
+            names: ["Wicked Woods"]
+        )
+        repository.calendar = nil
+        try await fixture.install(workspace, repository: repository)
+
+        let patch = try await fixture.patch(for: workspace)
+
+        expectNoDifference(patch, SourcePatch())
+    }
+
+    @Test
     func attachedPostImageIsCopiedIntoTheEventSource() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -502,6 +522,7 @@ private final class Fixture {
         )
         try await insertion.replaceSourceWorkspace(
             workspace,
+            branch: workspace.defaultBranch,
             revision: "base-revision",
             in: database
         )
@@ -534,6 +555,7 @@ private final class Fixture {
         )
         try await insertion.replaceSourceWorkspace(
             workspace,
+            branch: workspace.defaultBranch,
             revision: "base-revision",
             in: database
         )

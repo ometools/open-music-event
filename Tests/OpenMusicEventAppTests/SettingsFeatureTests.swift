@@ -227,7 +227,7 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func canonicalFeedbackBoardMapsToUserInputConfiguration() throws {
+    func configuredFeedbackBoardMapsToUserInputConfiguration() throws {
         let configuration = try #require(
             OpenMusicEventAppConfiguration.openMusicEvent
                 .productFeedbackBoard?
@@ -728,7 +728,7 @@ private func makeEventSettingsAuthoringExitFixture(
                     id: eventID,
                     sourceKind: .tangled,
                     sourceReference: workspace.repository,
-                    ref: workspace.branch,
+                    ref: workspace.defaultBranch,
                     eventIDOrigin: .explicit,
                     sourceEventDirectory: "event-settings"
                 )
@@ -775,6 +775,7 @@ private func makeEventSettingsAuthoringExitFixture(
                     .environment(
                         WorkspaceContext<SourceWorkspaceResource, SourcePatch>(
                             phase: SharedReader(value: .inactive),
+                            openProposal: SharedReader(value: nil),
                             source: SharedReader(value: resource)
                         )
                     )

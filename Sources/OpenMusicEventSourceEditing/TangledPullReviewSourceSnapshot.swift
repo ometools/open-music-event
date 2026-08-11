@@ -5,17 +5,32 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 
+public enum TangledPullReviewSnapshotRepository: Equatable, Sendable {
+    case source(String)
+    case target(String)
+
+    var repositoryDID: String {
+        switch self {
+        case let .source(repositoryDID), let .target(repositoryDID):
+            repositoryDID
+        }
+    }
+}
+
 public struct TangledPullReviewSourceSnapshotRequest: Equatable, Sendable {
     public var organizerID: OME.Organizer.ID
+    public var repository: TangledPullReviewSnapshotRepository
     public var ref: String
     public var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance
 
     public init(
         organizerID: OME.Organizer.ID,
+        repository: TangledPullReviewSnapshotRepository,
         ref: String,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) {
         self.organizerID = organizerID
+        self.repository = repository
         self.ref = ref
         self.sourceProvenance = sourceProvenance
     }
@@ -23,6 +38,7 @@ public struct TangledPullReviewSourceSnapshotRequest: Equatable, Sendable {
 
 public enum TangledPullReviewSourceSnapshotError: Equatable, Error, Sendable {
     case missingSourceBranch(String)
+    case targetRepositoryMismatch(expected: String, actual: String)
     case unsupportedSourceKind(OME.SourceDatabaseInsertion.SourceKind)
 }
 
@@ -56,16 +72,25 @@ public extension TangledPullReviewSourceSnapshotClient {
             let repository = try TangledRepositoryReference(
                 sourceReference: request.sourceProvenance.reference
             )
-            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+            if case let .target(expectedRepositoryDID) = request.repository {
+                let configuredTarget = try await repository.resolvedTangledRepositoryTarget()
+                guard configuredTarget.repositoryDID.description == expectedRepositoryDID else {
+                    throw TangledPullReviewSourceSnapshotError.targetRepositoryMismatch(
+                        expected: configuredTarget.repositoryDID.description,
+                        actual: expectedRepositoryDID
+                    )
+                }
+            }
             let outputURL = FileManager.default.temporaryDirectory
                 .appending(
                     path: "open-music-event-pull-review-\(UUID().uuidString)",
                     directoryHint: .isDirectory
                 )
             do {
-                _ = try await tangledSourceCheckout.checkout(
+                _ = try await TangledSourceCheckoutClient.git.checkout(
                     TangledSourceCheckoutRequest(
                         repository: repository,
+                        repositoryDID: request.repository.repositoryDID,
                         ref: ref,
                         outputURL: outputURL
                     )
