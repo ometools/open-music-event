@@ -138,9 +138,6 @@
     "Apple Maps Link" : {
 
     },
-    "Applying changes" : {
-
-    },
     "Artist Set" : {
 
     },
@@ -183,7 +180,7 @@
     "Bluesky Actor Profile" : {
 
     },
-    "Branch" : {
+    "Branch name" : {
 
     },
     "Branches" : {
@@ -273,9 +270,6 @@
     "Comms" : {
 
     },
-    "Configured branch" : {
-
-    },
     "Contact Info" : {
 
     },
@@ -319,6 +313,9 @@
 
     },
     "Created at" : {
+
+    },
+    "Current branch" : {
 
     },
     "Current DID" : {
@@ -498,9 +495,6 @@
     "Explore" : {
 
     },
-    "Finalizing the local reference" : {
-
-    },
     "Focus" : {
 
     },
@@ -603,7 +597,10 @@
     "Media type" : {
 
     },
-    "Merge Changes" : {
+    "Merge into %@" : {
+
+    },
+    "Merging proposal" : {
 
     },
     "Mode" : {
@@ -1164,6 +1161,12 @@
     "Submitted by" : {
 
     },
+    "Switch branch" : {
+
+    },
+    "Switch Branch" : {
+
+    },
     "System icon" : {
 
     },
@@ -1171,9 +1174,6 @@
 
     },
     "Target repository ID" : {
-
-    },
-    "Targets" : {
 
     },
     "TBA" : {
@@ -1203,16 +1203,19 @@
     "The proposal could not be closed." : {
 
     },
-    "The proposal could not be deleted." : {
-
-    },
     "The proposal could not be merged." : {
 
     },
     "The proposal does not identify a source branch." : {
 
     },
+    "The source branch is in another repository." : {
+
+    },
     "The workspace changed while you were editing. Publication is unavailable until it is refreshed." : {
+
+    },
+    "The workspace is not currently prepared." : {
 
     },
     "The workspace source does not match the app’s data model." : {
@@ -1220,6 +1223,16 @@
     },
     "There are no posts in this channel yet." : {
 
+    },
+    "These changes belong to %@. Switch to %@ to update the tracked proposal." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "These changes belong to %1$@. Switch to %2$@ to update the tracked proposal."
+          }
+        }
+      }
     },
     "They will no longer be able to propose or merge changes in this workspace." : {
 
@@ -1248,6 +1261,9 @@
     "This poster could not be loaded." : {
 
     },
+    "This proposal does not identify a target branch, so it cannot be merged." : {
+
+    },
     "This removes saved performances that are no longer in the published event." : {
 
     },
@@ -1269,9 +1285,6 @@
     "This site map could not be loaded." : {
 
     },
-    "This workspace is configured for the following branch, but it is not currently prepared." : {
-
-    },
     "Time" : {
 
     },
@@ -1285,6 +1298,9 @@
 
     },
     "Title" : {
+
+    },
+    "Tracked proposal" : {
 
     },
     "Try Again" : {
