@@ -375,6 +375,9 @@
     "Delete this proposal permanently?" : {
 
     },
+    "Delete unpublished changes?" : {
+
+    },
     "Deleted" : {
 
     },
@@ -489,10 +492,16 @@
     "Exit" : {
 
     },
+    "Exit and Delete Changes" : {
+
+    },
     "Exit Authoring" : {
 
     },
     "Exiting authoring" : {
+
+    },
+    "Exiting authoring restores Published content and permanently deletes unpublished changes on this device." : {
 
     },
     "Explore" : {
@@ -541,6 +550,9 @@
 
     },
     "Import" : {
+
+    },
+    "Keep Editing" : {
 
     },
     "Latitude" : {
