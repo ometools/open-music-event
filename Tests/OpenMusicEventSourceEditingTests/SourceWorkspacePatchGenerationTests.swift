@@ -34,6 +34,131 @@ struct SourceWorkspacePatchGenerationTests {
     }
 
     @Test
+    func unchangedLegacyCommunicationsDoNotBecomeLocalEdits() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let workspace = try fixture.workspace(
+            organizer: "did:plc:wickedwoods",
+            repository: "tangled.org/wickedwoods/events"
+        )
+        try await fixture.install(
+            workspace,
+            sourceFiles: [
+                "calendar.yml": """
+                name: Wicked Woods
+                """,
+                "events/woods-2026/event.yml": """
+                name: Wicked Woods 2026
+                timeZone: America/Denver
+                """,
+                "events/woods-2026/channels/general.yml": """
+                name: General
+                description: Official updates.
+                defaultNotificationState: unsubscribed
+                notificationsRequired: false
+                """,
+                "events/woods-2026/communications/general/channel-info.yaml": """
+                name: General
+                description: Official updates.
+                firebaseTopicName: wicked-woods_updates
+                """,
+                "events/woods-2026/communications/general/welcome.md": """
+                ---
+                title: Welcome to Wicked Woods 🌲
+                isPinned: false
+                sendPush: true
+                headerImageURL:
+                ---
+
+                The gates open Friday.
+                """,
+            ]
+        )
+
+        let patch = try await fixture.patch(for: workspace)
+
+        expectNoDifference(patch, SourcePatch())
+
+        let sourceEvent = try #require(
+            try await fixture.installedEvents(for: workspace).first
+        )
+        try await fixture.database.write { db in
+            try OME.Event.find(sourceEvent.id).update {
+                $0.name = "Wicked Woods 2026 Updated"
+            }
+            .execute(db)
+        }
+
+        let eventPatch = try await fixture.patch(for: workspace)
+
+        expectNoDifference(
+            eventPatch.fileChanges.map(\.path),
+            ["events/woods-2026/event.yml"]
+        )
+
+        let channelID = OME.Channel.ID(
+            organizerID: sourceEvent.id.organizerID,
+            eventID: sourceEvent.id.eventID,
+            channelID: OME.ID<OME.Channel>(rawValue: "general")
+        )
+        let postID = CommsPost.ID(
+            organizerID: sourceEvent.id.organizerID,
+            eventID: sourceEvent.id.eventID,
+            channelID: channelID.channelID,
+            postID: CommsPost.PostID("welcome")
+        )
+        try await fixture.database.write { db in
+            try OME.Event.find(sourceEvent.id).update {
+                $0.name = "Wicked Woods 2026"
+            }
+            .execute(db)
+            try OME.Channel.find(channelID).update {
+                $0.description = "Updated official updates."
+            }
+            .execute(db)
+            try CommsPost.find(postID).update {
+                $0.title = "Welcome Home"
+            }
+            .execute(db)
+        }
+
+        let communicationPatch = try await fixture.patch(for: workspace)
+
+        expectNoDifference(
+            communicationPatch.fileChanges.map(\.path),
+            [
+                "events/woods-2026/channels/general.yml",
+                "events/woods-2026/communications/general/channel-info.yaml",
+                "events/woods-2026/communications/general/welcome.md",
+            ]
+        )
+        let changesByPath = Dictionary(
+            uniqueKeysWithValues: communicationPatch.fileChanges.map { ($0.path, $0) }
+        )
+        let channelSource = String(
+            decoding: try #require(
+                changesByPath[
+                    "events/woods-2026/communications/general/channel-info.yaml"
+                ]?.newContents
+            ),
+            as: UTF8.self
+        )
+        #expect(channelSource.contains("firebaseTopicName: wicked-woods_updates"))
+        #expect(!channelSource.contains("defaultNotificationState"))
+        #expect(!channelSource.contains("notificationsRequired"))
+        let postSource = String(
+            decoding: try #require(
+                changesByPath[
+                    "events/woods-2026/communications/general/welcome.md"
+                ]?.newContents
+            ),
+            as: UTF8.self
+        )
+        #expect(postSource.contains("sendPush: true"))
+        #expect(postSource.contains("isPinned: false"))
+    }
+
+    @Test
     func attachedPostImageIsCopiedIntoTheEventSource() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

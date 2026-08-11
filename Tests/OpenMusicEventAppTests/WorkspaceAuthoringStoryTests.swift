@@ -2816,6 +2816,58 @@ private func writeWorkspaceStorySource(
         ]
     )
     _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
+    try writeWorkspaceStoryLegacyCommunications(to: repositoryURL)
+}
+
+private func writeWorkspaceStoryLegacyCommunications(to repositoryURL: URL) throws {
+    let channelURL = repositoryURL
+        .appending(path: "events/2025/channels", directoryHint: .isDirectory)
+    let communicationURL = repositoryURL
+        .appending(path: "events/2025/communications/general", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: channelURL,
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: communicationURL,
+        withIntermediateDirectories: true
+    )
+    try """
+    name: General
+    description: Official updates.
+    defaultNotificationState: unsubscribed
+    notificationsRequired: false
+    """
+    .write(
+        to: channelURL.appending(path: "general.yml"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try """
+    name: General
+    description: Official updates.
+    firebaseTopicName: wicked-woods_updates
+    """
+    .write(
+        to: communicationURL.appending(path: "channel-info.yaml"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try """
+    ---
+    title: Welcome to Wicked Woods 🌲
+    isPinned: false
+    sendPush: true
+    headerImageURL:
+    ---
+
+    The gates open Friday.
+    """
+    .write(
+        to: communicationURL.appending(path: "welcome.md"),
+        atomically: true,
+        encoding: .utf8
+    )
 }
 
 private func workspaceStorySourceEvent(

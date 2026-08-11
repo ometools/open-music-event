@@ -175,15 +175,70 @@ public struct CommunicationPostMarkdownConversion: Conversion {
 
     public func unapply(_ output: FileContent<CommunicationPostDTO>) throws -> FileContent<Data> {
         try output.map { post in
-            let markdown = try MarkdownWithFrontMatterConversion<CommunicationPostFrontMatter>()
-                .unapply(
-                    MarkdownWithFrontMatter(
-                        frontMatter: CommunicationPostFrontMatter(post),
-                        body: post.contents
-                    )
-                )
-            return Data(markdown.utf8)
+            try Self.markdownData(for: post)
         }
+    }
+
+    public func unapply(
+        _ output: FileContent<CommunicationPostDTO>,
+        in context: FileTreeWriteContext
+    ) -> Conversions.Result<FileContent<Data>> {
+        do {
+            let rootedContext = context.rooted(at: output)
+            if let existing = try? rootedContext.rootData() {
+                let existingOutput = try FileContent(
+                    fileName: output.fileName,
+                    fileType: output.fileType,
+                    data: existing
+                )
+                if (try? apply(existingOutput)) == output {
+                    return .value(existingOutput)
+                }
+            }
+            return .value(
+                try output.map { post in
+                    try Self.markdownData(for: post, context: rootedContext)
+                }
+            )
+        } catch {
+            return .invalid(
+                diagnostics: .init(
+                    diagnostics: [
+                        Diagnostic(
+                            severity: .error,
+                            code: "open-music-event.communication-post-markdown.print.failed",
+                            message: String(describing: error),
+                            location: .init(path: output.path.rawValue)
+                        )
+                    ]
+                )
+            )
+        }
+    }
+
+    private static func markdownData(
+        for post: CommunicationPostDTO,
+        context: FileTreeWriteContext? = nil
+    ) throws -> Data {
+        let conversion = MarkdownWithFrontMatterConversion<CommunicationPostFrontMatter>()
+        var frontMatter = CommunicationPostFrontMatter(post)
+        if let existing = try context?.rootText(),
+           let existingFrontMatter = try? conversion.apply(existing).frontMatter {
+            frontMatter.sendPush = existingFrontMatter.sendPush
+            if (existingFrontMatter.isPinned ?? false) == post.isPinned {
+                frontMatter.isPinned = existingFrontMatter.isPinned
+            }
+            if existingFrontMatter.headerImageURLValue == post.headerImageURL {
+                frontMatter.headerImageURL = existingFrontMatter.headerImageURL
+            }
+        }
+        let markdown = try conversion.unapply(
+            MarkdownWithFrontMatter(
+                frontMatter: frontMatter,
+                body: post.contents
+            )
+        )
+        return Data(markdown.utf8)
     }
 }
 
@@ -193,19 +248,22 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
     var images: [SourceImageAsset]?
     var timestamp: Date?
     var isPinned: Bool?
+    var sendPush: Bool?
 
     init(
         title: String,
         headerImageURL: String? = nil,
         images: [SourceImageAsset]? = nil,
         timestamp: Date? = nil,
-        isPinned: Bool? = nil
+        isPinned: Bool? = nil,
+        sendPush: Bool? = nil
     ) {
         self.title = title
         self.headerImageURL = headerImageURL
         self.images = images
         self.timestamp = timestamp
         self.isPinned = isPinned
+        self.sendPush = sendPush
     }
 
     init(_ post: CommunicationPostDTO) {

@@ -87,6 +87,7 @@ struct LegacyCommunicationChannelDTO: Codable, Equatable, Sendable {
     var iconImageURL: URL?
     var headerImageURL: URL?
     var sortIndex: Int?
+    var firebaseTopicName: String?
     var defaultNotificationState: OMERecord.Channel.NotificationState?
     var notificationsRequired: Bool?
 
@@ -97,6 +98,7 @@ struct LegacyCommunicationChannelDTO: Codable, Equatable, Sendable {
         self.iconImageURL = channel.iconImageURL
         self.headerImageURL = channel.headerImageURL
         self.sortIndex = channel.sortIndex
+        self.firebaseTopicName = nil
         self.defaultNotificationState = channel.defaultNotificationState
         self.notificationsRequired = channel.notificationsRequired
     }
@@ -134,6 +136,33 @@ private struct LegacyCommunicationConversion: Conversion {
             output.channel,
             output.posts
         )
+    }
+
+    func unapply(
+        _ output: Output,
+        in context: FileTreeWriteContext
+    ) -> Conversions.Result<Input> {
+        let path = SourceGraph.Path(rawValue: "channel-info.yaml")
+        if let existingData = try? context.data(at: path),
+           let existingChannel = try? YamlConversion<LegacyCommunicationChannelDTO>()
+            .apply(existingData) {
+            if existingChannel.recordDraft == output.channel.recordDraft {
+                return .value((existingChannel, output.posts))
+            }
+            var updatedChannel = output.channel
+            updatedChannel.firebaseTopicName = existingChannel.firebaseTopicName
+            if (existingChannel.defaultNotificationState ?? .unsubscribed)
+                == (output.channel.defaultNotificationState ?? .unsubscribed) {
+                updatedChannel.defaultNotificationState =
+                    existingChannel.defaultNotificationState
+            }
+            if (existingChannel.notificationsRequired ?? false)
+                == (output.channel.notificationsRequired ?? false) {
+                updatedChannel.notificationsRequired = existingChannel.notificationsRequired
+            }
+            return .value((updatedChannel, output.posts))
+        }
+        return .value((output.channel, output.posts))
     }
 }
 

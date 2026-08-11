@@ -50,11 +50,11 @@ public struct CommsPost: Equatable, Sendable, Identifiable {
     public var title: String
     public var contents: String
     public var headerImageURL: URL?
-    @Column(as: [OME.ImageAsset].JSONRepresentation?.self)
-    public var images: [OME.ImageAsset]?
     public var timestamp: Date?
     public var isPinned: Bool
     public var sortIndex: Int
+    @Column(as: [OME.ImageAsset].JSONRepresentation?.self)
+    public var images: [OME.ImageAsset]?
 
     public var channelRecordID: OME.Channel.ID {
         OME.Channel.ID(
