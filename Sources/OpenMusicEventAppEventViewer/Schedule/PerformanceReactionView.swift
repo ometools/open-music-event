@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventViewers
 import SQLiteData
@@ -46,42 +47,57 @@ struct PerformanceReactionMenuContent: View {
 
     var body: some View {
         Section("Reactions") {
-            #if os(Android)
-            let selected = Set(context.selectedEmojis(for: performanceID))
-
-            ForEach(context.menuEmojis(for: performanceID), id: \.self) { emoji in
-                Button {
-                    context.toggle(performanceID, emoji)
-                } label: {
-                    if selected.contains(emoji) {
-                        Label {
-                            Text(verbatim: emoji.rawValue)
-                        } icon: {
-                            Image(systemName: "checkmark")
-                        }
-                    } else {
-                        Text(verbatim: emoji.rawValue)
-                    }
-                }
-                .accessibilityLabel(
-                    selected.contains(emoji)
-                        ? "Remove \(emoji.rawValue) reaction"
-                        : "Add \(emoji.rawValue) reaction"
-                )
-            }
-
-            if let showOther = context.showOther {
-                Button("Other…") {
-                    showOther(performanceID)
-                }
-                .accessibilityLabel("Choose another emoji reaction")
-            }
-            #else
             PerformanceReactionPicker(
                 performanceID: performanceID,
                 context: context
             )
-            #endif
+        }
+    }
+}
+
+struct PerformanceReactionMenu: View {
+    let performanceID: OMERecord.Performance.ID
+    let context: PerformanceReactionMenuContext
+
+    var body: some View {
+        let emojis = context.selectedEmojis(for: performanceID)
+
+        Menu {
+            PerformanceReactionMenuContent(
+                performanceID: performanceID,
+                context: context
+            )
+        } label: {
+            PerformanceReactionMenuLabel(emojis: emojis)
+        }
+        .accessibilityIdentifier("performance-reaction-menu")
+        .accessibilityLabel(
+            Text(
+                verbatim: emojis.isEmpty
+                    ? "Add reaction"
+                    : "Reactions: \(emojis.map(\.rawValue).joined(separator: " ")). Change reactions"
+            )
+        )
+    }
+}
+
+struct PerformanceReactionMenuLabel: View {
+    let emojis: [PerformanceReaction.Emoji]
+
+    var body: some View {
+        if emojis.isEmpty {
+            MappedSystemImage(systemName: "heart.badge.plus")
+                .frame(width: 22, height: 22)
+                .foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: -7) {
+                ForEach(emojis, id: \.self) { emoji in
+                    Text(verbatim: emoji.rawValue)
+                }
+            }
+            .font(.body)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 4)
         }
     }
 }

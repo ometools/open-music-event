@@ -2,6 +2,8 @@ import ATProto
 import Foundation
 import SQLiteData
 
+let userScheduleSystemImage = "calendar.and.person"
+
 @Table("userSchedules")
 public struct UserSchedule: Equatable, Sendable, Identifiable {
     public init(
@@ -112,6 +114,14 @@ public struct UserScheduleOverlay: Equatable, Sendable {
     ) -> Bool {
         guard let selectedScheduleID = selectedSchedule?.id else { return false }
         return contains(performanceID: performanceID, in: selectedScheduleID)
+    }
+
+    public func showsMembershipIndicator(
+        performanceID: OMERecord.ID<OMERecord.Performance>
+    ) -> Bool {
+        selectedSchedule == nil && memberships.contains {
+            $0.id.performanceID == performanceID
+        }
     }
 
     public func isDimmed(

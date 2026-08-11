@@ -141,9 +141,30 @@ struct EventTimePresentation: Equatable, Sendable {
     ) -> String {
         guard case let .whenDeviceClockDiffers(deviceTimeZone) = disclosure,
               timeZone.secondsFromGMT(for: date) != deviceTimeZone.secondsFromGMT(for: date),
-              let abbreviation = timeZone.abbreviation(for: date)
+              let abbreviation = timeZoneAbbreviation(for: date)
         else { return "" }
-        return " (\(abbreviation.uppercased()))"
+        return " (\(abbreviation))"
+    }
+
+    func timeZoneAbbreviation(for date: Date) -> String? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "zzz"
+
+        let shortName = formatter.string(from: date).uppercased()
+        guard shortName.contains(where: { !$0.isLetter }) else {
+            return shortName.isEmpty ? nil : shortName
+        }
+
+        formatter.dateFormat = "zzzz"
+        let initials = formatter.string(from: date)
+            .split(whereSeparator: { !$0.isLetter })
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+            .uppercased()
+        return initials.count > 1 ? initials : nil
     }
 }
 

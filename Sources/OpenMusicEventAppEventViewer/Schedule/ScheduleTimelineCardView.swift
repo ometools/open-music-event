@@ -1,4 +1,5 @@
 import Foundation
+import OpenMusicEventComponents
 import ScheduleComponents
 #if os(Android)
 import SkipSwiftUI
@@ -33,7 +34,6 @@ struct ScheduleTimelineCardView: View {
             cardContent
         }
         .buttonStyle(.plain)
-        .opacity(userScheduleOverlay.isDimmed(performanceID: performance.id.performanceID) ? 0.38 : 1)
         .accessibilityLabel(Text(accessibilityLabel))
         .portableAccessibilityHint(Text(timeRangeText))
         .contextMenu {
@@ -48,9 +48,7 @@ struct ScheduleTimelineCardView: View {
                 } label: {
                     Label(
                         quickActionTitle(selectedSchedule),
-                        systemImage: userScheduleOverlay.isMember(
-                            performanceID: performance.id.performanceID
-                        ) ? "checkmark-circle" : "calendar"
+                        mappedSystemImage: userScheduleSystemImage
                     )
                 }
 
@@ -63,10 +61,7 @@ struct ScheduleTimelineCardView: View {
                 } label: {
                     Label(
                         quickActionTitle(schedule),
-                        systemImage: userScheduleOverlay.contains(
-                            performanceID: performance.id.performanceID,
-                            in: schedule.id
-                        ) ? "checkmark-circle" : "calendar"
+                        mappedSystemImage: userScheduleSystemImage
                     )
                 }
             }
@@ -104,9 +99,11 @@ struct ScheduleTimelineCardView: View {
 
                 Spacer(minLength: 0)
 
-                if userScheduleOverlay.isMember(performanceID: performance.id.performanceID) {
-                    Image(systemName: "checkmark-circle")
-                        .font(.caption)
+                if userScheduleOverlay.showsMembershipIndicator(
+                    performanceID: performance.id.performanceID
+                ) {
+                    MappedSystemImage(systemName: userScheduleSystemImage)
+                        .frame(width: 16, height: 16)
                         .accessibilityHidden(true)
                 }
 
@@ -144,12 +141,24 @@ struct ScheduleTimelineCardView: View {
         .background {
             ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
         }
+        .overlay {
+            if userScheduleOverlay.isDimmed(
+                performanceID: performance.id.performanceID
+            ) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.black.opacity(0.62))
+            }
+        }
         .portableContentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     var accessibilityLabel: String {
         guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
-            return performance.title
+            return userScheduleOverlay.showsMembershipIndicator(
+                performanceID: performance.id.performanceID
+            )
+                ? "\(performance.title), In a personal schedule"
+                : performance.title
         }
         let membership = userScheduleOverlay.isMember(
             performanceID: performance.id.performanceID

@@ -418,7 +418,9 @@ public struct UserSchedulesListView: View {
                                 Spacer()
 
                                 if store.eventViewerState.selectedUserScheduleID == schedule.id {
-                                    Image(systemName: "checkmark-circle")
+                                    MappedSystemImage(systemName: userScheduleSystemImage)
+                                        .frame(width: 20, height: 20)
+                                        .foregroundStyle(.tint)
                                         .accessibilityLabel("Selected schedule")
                                 }
                             }

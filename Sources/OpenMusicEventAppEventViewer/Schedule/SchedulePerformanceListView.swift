@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import ScheduleComponents
 import Sharing
 import SQLiteData
@@ -267,7 +268,7 @@ public struct SchedulePerformanceListView: View {
         } label: {
             Label(
                 "\(isMember ? "Remove from" : "Add to") \(schedule.title)",
-                systemImage: isMember ? "checkmark-circle" : "calendar"
+                mappedSystemImage: userScheduleSystemImage
             )
         }
     }

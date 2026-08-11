@@ -69,8 +69,11 @@ public struct SchedulePerformanceRow: View {
             )
             .portableLayoutPriority(-1)
 
-            if userScheduleOverlay.isMember(performanceID: row.performanceID) {
-                Image(systemName: "checkmark-circle")
+            if userScheduleOverlay.showsMembershipIndicator(
+                performanceID: row.performanceID
+            ) {
+                MappedSystemImage(systemName: userScheduleSystemImage)
+                    .frame(width: 20, height: 20)
                     .accessibilityHidden(true)
             }
         }
@@ -104,7 +107,10 @@ public struct SchedulePerformanceRow: View {
 
     var accessibilityLabel: String {
         guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
-            return "\(row.title), \(timeRangeText), \(daySegmentText)"
+            let membership = userScheduleOverlay.showsMembershipIndicator(
+                performanceID: row.performanceID
+            ) ? ", In a personal schedule" : ""
+            return "\(row.title)\(membership), \(timeRangeText), \(daySegmentText)"
         }
         let membership = userScheduleOverlay.isMember(performanceID: row.performanceID)
             ? "In"

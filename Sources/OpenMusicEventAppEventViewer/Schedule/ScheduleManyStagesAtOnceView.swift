@@ -227,7 +227,11 @@ public struct ScheduleManyStagesAtOnceView: View {
     ) -> some View {
         let stageRailWidth = horizontalStageRailWidth
         let stageLaneHeight = horizontalStageLaneHeight(availableHeight: availableHeight)
+        #if os(Android)
+        let availableTimelineWidth = availableWidth
+        #else
         let availableTimelineWidth = max(availableWidth - stageRailWidth, 0)
+        #endif
         let timelineWidth = timeRange.map {
             horizontalTimelineWidth(for: $0, availableWidth: availableTimelineWidth)
         } ?? availableTimelineWidth
@@ -273,6 +277,15 @@ public struct ScheduleManyStagesAtOnceView: View {
                 laneHeight: stageLaneHeight
             )
         }
+        #elseif os(Android)
+        horizontalOverlayTimelineScroll(
+            stageRailWidth: stageRailWidth,
+            stageLaneHeight: stageLaneHeight,
+            timelineWidth: timelineWidth,
+            timelineHeight: timelineHeight,
+            totalHeight: totalHeight,
+            timeRange: timeRange
+        )
         #else
         horizontalInlineTimelineScroll(
             stageRailWidth: stageRailWidth,
@@ -283,6 +296,29 @@ public struct ScheduleManyStagesAtOnceView: View {
             timeRange: timeRange
         )
         #endif
+    }
+
+    func horizontalOverlayTimelineScroll(
+        stageRailWidth: CGFloat,
+        stageLaneHeight: CGFloat,
+        timelineWidth: CGFloat,
+        timelineHeight: CGFloat,
+        totalHeight: CGFloat,
+        timeRange: DateInterval?
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            horizontalTimelinePageScroll(
+                timelineWidth: timelineWidth,
+                timelineHeight: timelineHeight,
+                totalHeight: totalHeight,
+                timeRange: timeRange
+            )
+
+            horizontalStageRail(
+                width: stageRailWidth,
+                laneHeight: stageLaneHeight
+            )
+        }
     }
 
     func horizontalInlineTimelineScroll(
@@ -369,6 +405,25 @@ public struct ScheduleManyStagesAtOnceView: View {
             )
             .portableSafeAreaTopInset(spacing: 0) {
                 laneHeader(availableWidth: availableWidth)
+            }
+        } else {
+            scheduleScroll(
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                timeRange: timeRange
+            )
+        }
+        #elseif os(Android)
+        if needsStageDisambiguation {
+            let timelineHeight = max(availableHeight - stageLaneHeaderHeight, 0)
+            VStack(spacing: 0) {
+                laneHeader(availableWidth: availableWidth)
+                scheduleScroll(
+                    availableWidth: availableWidth,
+                    availableHeight: timelineHeight,
+                    timeRange: timeRange
+                )
+                .frame(height: timelineHeight)
             }
         } else {
             scheduleScroll(
@@ -813,7 +868,7 @@ struct ScheduleManyStagesLaneHeader: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
             }
         }
     }
@@ -841,7 +896,6 @@ struct ScheduleManyStagesStageRail: View {
     let width: CGFloat
     let laneHeight: CGFloat
 
-    @Environment(\.colorScheme) var colorScheme
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var body: some View {
@@ -856,17 +910,6 @@ struct ScheduleManyStagesStageRail: View {
             }
         }
         .frame(width: width, alignment: .top)
-        .background(alignment: .leading) {
-            LinearGradient(
-                colors: [
-                    railBackgroundColor.opacity(0.08),
-                    railBackgroundColor.opacity(0.03),
-                    .clear,
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
     }
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
@@ -879,7 +922,7 @@ struct ScheduleManyStagesStageRail: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
             }
         }
         .padding(.horizontal, 6)
@@ -889,16 +932,6 @@ struct ScheduleManyStagesStageRail: View {
         HourLabelsHeightPreferenceKey.defaultValue
     }
 
-    var railBackgroundColor: Color {
-        switch colorScheme {
-        case .dark:
-            return .black
-        case .light:
-            return .white
-        @unknown default:
-            return .clear
-        }
-    }
 }
 
 struct ScheduleManyStagesStageBubble: View {
@@ -932,10 +965,10 @@ struct ScheduleManyStagesStageBubble: View {
         ScheduleStageIcon(stage: stage)
             .frame(width: 44, height: 44)
             .padding(12)
-            .foregroundStyle(stage.color.swiftUIColor)
+            .foregroundStyle(.white)
             .background {
                 Circle()
-                    .fill(stage.color.swiftUIColor.opacity(0.12))
+                    .fill(stage.color.swiftUIColor.opacity(0.85))
                     .overlay {
                         Circle()
                             .stroke(

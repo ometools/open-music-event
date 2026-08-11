@@ -320,7 +320,7 @@ struct UserScheduleTests {
         let includedID = performanceLocalID("included")
         let excludedID = performanceLocalID("excluded")
         let scheduleID = UUID(0)
-        let overlay = UserScheduleOverlay(
+        let eventScheduleOverlay = UserScheduleOverlay(
             schedules: [
                 UserSchedule(
                     id: scheduleID,
@@ -334,15 +334,26 @@ struct UserScheduleTests {
                     performanceID: includedID
                 )
             ],
-            selectedScheduleID: scheduleID
+            selectedScheduleID: nil
         )
 
         let performanceIDs = [includedID, excludedID]
         #expect(performanceIDs.count == 2)
-        #expect(overlay.isMember(performanceID: includedID))
-        #expect(!overlay.isDimmed(performanceID: includedID))
-        #expect(overlay.isDimmed(performanceID: excludedID))
-        #expect(overlay.selectedTitle == "Mine")
+        #expect(eventScheduleOverlay.showsMembershipIndicator(performanceID: includedID))
+        #expect(!eventScheduleOverlay.showsMembershipIndicator(performanceID: excludedID))
+        #expect(!eventScheduleOverlay.isDimmed(performanceID: includedID))
+        #expect(!eventScheduleOverlay.isDimmed(performanceID: excludedID))
+
+        let personalScheduleOverlay = UserScheduleOverlay(
+            schedules: eventScheduleOverlay.schedules,
+            memberships: eventScheduleOverlay.memberships,
+            selectedScheduleID: scheduleID
+        )
+        #expect(personalScheduleOverlay.isMember(performanceID: includedID))
+        #expect(!personalScheduleOverlay.showsMembershipIndicator(performanceID: includedID))
+        #expect(!personalScheduleOverlay.isDimmed(performanceID: includedID))
+        #expect(personalScheduleOverlay.isDimmed(performanceID: excludedID))
+        #expect(personalScheduleOverlay.selectedTitle == "Mine")
     }
 
     @MainActor

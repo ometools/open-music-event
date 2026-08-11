@@ -172,19 +172,16 @@ public struct UserScheduleFilterMenu: View {
             Button {
                 store.send(.schedulesButtonTapped)
             } label: {
-                Label("Schedules…", systemImage: "calendar")
+                Label("Schedules…", mappedSystemImage: userScheduleSystemImage)
             }
         } label: {
             if store.state.userScheduleOverlay.selectedSchedule != nil {
-                #if SKIP
-                Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "person")
+                Label(
+                    store.state.userScheduleOverlay.selectedTitle,
+                    mappedSystemImage: userScheduleSystemImage
+                )
                     .labelStyle(.iconOnly)
                     .foregroundStyle(.tint)
-                #else
-                Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar.and.person")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(.tint)
-                #endif
             } else {
                 Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar")
                     .labelStyle(.iconOnly)
@@ -229,14 +226,7 @@ public struct ScheduleViewerView: View {
         content
             .navigationTitle(navigationTitle)
             .toolbar {
-                #if os(Android)
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        UserScheduleFilterMenu(store: store)
-                        androidScheduleTitle
-                    }
-                }
-                #elseif os(macOS) && !SKIP
+                #if os(macOS) && !SKIP
                 ToolbarItem(placement: .automatic) {
                     UserScheduleFilterMenu(store: store)
                 }
@@ -246,24 +236,6 @@ public struct ScheduleViewerView: View {
                 }
                 #endif
 
-                #if os(Android)
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 8) {
-                        if currentTimeDestination != nil {
-                            Button("Now") {
-                                jumpToCurrentTime(animated: true)
-                            }
-                        }
-                        if showsAuthoringControls {
-                            ScheduleAddMenu(
-                                store: store,
-                                selectedScheduleID: selectedScheduleID
-                            )
-                        }
-                        ScheduleKindMenu(store: store)
-                    }
-                }
-#else
                 if currentTimeDestination != nil {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Now") {
@@ -282,9 +254,7 @@ public struct ScheduleViewerView: View {
                 ToolbarItem(placement: .primaryAction) {
                     ScheduleKindMenu(store: store)
                 }
-                #endif
             }
-            #if !os(Android)
             .toolbarTitleMenu {
                 if !store.state.usesSingletonSchedule,
                    let timeZone = store.timeZone {
@@ -295,7 +265,6 @@ public struct ScheduleViewerView: View {
                     }
                 }
             }
-            #endif
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -359,35 +328,8 @@ public struct ScheduleViewerView: View {
     }
 
     var navigationTitle: String {
-        #if os(Android)
-        ""
-        #else
         selectedScheduleTitle
-        #endif
     }
-
-    #if os(Android)
-    @ViewBuilder
-    var androidScheduleTitle: some View {
-        if store.state.usesSingletonSchedule {
-            Text(selectedScheduleTitle)
-        } else if let timeZone = store.timeZone {
-            Menu {
-                ForEach(store.schedules) { schedule in
-                    Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
-                        selectedScheduleID = schedule.id.scheduleID
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedScheduleTitle)
-                    Image(systemName: "chevron.down")
-                }
-            }
-            .accessibilityLabel("Schedule, \(selectedScheduleTitle)")
-        }
-    }
-    #endif
 
     @ViewBuilder
     var content: some View {

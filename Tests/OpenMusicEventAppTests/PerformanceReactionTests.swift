@@ -140,6 +140,28 @@ struct PerformanceReactionTests {
     }
 
     @Test
+    func reactionMenuTriggerKeepsEverySelectedReactionInOrder() {
+        let selected: [PerformanceReaction.Emoji] = [
+            .heart,
+            .fire,
+            .eyes,
+            .raisedHands,
+            .explodingHead,
+        ]
+        let reactions = selected.enumerated().map { offset, emoji in
+            PerformanceReaction(
+                id: UUID(offset),
+                performanceID: performanceID,
+                emoji: emoji,
+                reactedAt: Date(timeIntervalSince1970: TimeInterval(offset))
+            )
+        }
+        let context = PerformanceReactionMenuContext(reactions: reactions)
+
+        #expect(context.selectedEmojis(for: performanceID) == selected)
+    }
+
+    @Test
     func addingAnAlreadySelectedCustomEmojiDoesNotTeachUsageAgain() async throws {
         let database = try preparedDatabase()
         let custom = try #require(PerformanceReaction.Emoji(rawValue: "🪩"))

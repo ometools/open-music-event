@@ -450,7 +450,7 @@ public struct PerformanceDetailView: View {
                     }
 
                     ToolbarItem {
-                        PerformanceReactionPicker(
+                        PerformanceReactionMenu(
                             performanceID: store.fullPerformanceID,
                             context: reactionMenuContext
                         )
@@ -481,11 +481,6 @@ public struct PerformanceDetailView: View {
                     }
                 }
                 .navigationTitle("Performance")
-            }
-        }
-        .toolbar {
-            Section("Your Reactions") {
-
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
@@ -540,7 +535,10 @@ public struct PerformanceUserScheduleMenu: View {
                 Label("Add to a new schedule", systemImage: "plus")
             }
         } label: {
-            Label("Personal Schedules", systemImage: "calendar")
+            Label(
+                "Personal Schedules",
+                mappedSystemImage: userScheduleSystemImage
+            )
                 .labelStyle(.iconOnly)
         }
         .accessibilityLabel("Personal schedules")
@@ -557,7 +555,7 @@ public struct PerformanceUserScheduleMenu: View {
         } label: {
             Label(
                 "\(isMember ? "Remove from" : "Add to") \(schedule.title)",
-                systemImage: isMember ? "checkmark-circle" : "calendar"
+                mappedSystemImage: userScheduleSystemImage
             )
         }
     }
@@ -627,12 +625,10 @@ struct PerformanceSummaryRow: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.55)
 #if !os(Android)
                     .portableLayoutPriority(1)
 #endif
-                    #if os(iOS)
-                    .minimumScaleFactor(0.55)
-                    #endif
 
                     PeriodicTimelineView(every: 1) { currentDate in
                         PerformanceTimingChip(

@@ -82,7 +82,11 @@ struct OMEScheduleStageSelector: View {
                             ScheduleStageIcon(stage: stage)
                                 .frame(width: 34, height: 34)
                                 .padding(9)
-                                .foregroundStyle(selectedStageID == stage.id.stageID ? .white : stage.color.swiftUIColor)
+                                .foregroundStyle(
+                                    selectedStageID == stage.id.stageID
+                                    ? .white
+                                    : stage.color.swiftUIColor
+                                )
                                 .background {
                                     Circle()
                                         .fill(
@@ -98,11 +102,7 @@ struct OMEScheduleStageSelector: View {
                                     .lineLimit(2)
                                     .minimumScaleFactor(0.78)
                                     .multilineTextAlignment(.center)
-                                    .foregroundStyle(
-                                        selectedStageID == stage.id.stageID
-                                        ? stage.color.swiftUIColor
-                                        : .secondary
-                                    )
+                                    .foregroundStyle(.white)
                             }
                         }
                         .frame(width: showStageNameLabels ? 112 : 76)
@@ -115,7 +115,6 @@ struct OMEScheduleStageSelector: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .background(Color.secondary.opacity(0.06))
         #endif
     }
 }
@@ -141,7 +140,6 @@ struct AndroidScheduleStagePicker: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
         }
-        .background(Color.secondary.opacity(0.06))
     }
 }
 
@@ -180,7 +178,7 @@ struct AndroidScheduleStagePickerItem: View {
                         .font(.caption2)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(isSelected ? stage.color.swiftUIColor : .secondary)
+                        .foregroundStyle(.white)
                 }
             }
             .frame(width: itemWidth)
