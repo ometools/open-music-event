@@ -336,25 +336,30 @@ struct NavigationTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                try await database.write { db in
-                    try Self.insertOrganizer(db, id: eventID.organizerID)
-                    try Self.insertEvent(db, id: eventID, name: "Event 1")
-                    try EventSourceProvenanceRecord.insert {
-                        EventSourceProvenanceRecord(
-                            id: eventID,
-                            sourceKind: .tangled,
-                            sourceReference: "tangled.org/example/event-1",
-                            ref: "main",
-                            eventIDOrigin: .explicit,
-                            sourceEventDirectory: "event-1"
-                        )
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    installations.withLock { $0.append(uri) }
+                    try await database.write { db in
+                        try Self.insertOrganizer(db, id: eventID.organizerID)
+                        try Self.insertEvent(db, id: eventID, name: "Event 1")
+                        try EventSourceProvenanceRecord.insert {
+                            EventSourceProvenanceRecord(
+                                id: eventID,
+                                sourceKind: .tangled,
+                                sourceReference: "tangled.org/example/event-1",
+                                ref: "main",
+                                eventIDOrigin: .explicit,
+                                sourceEventDirectory: "event-1"
+                            )
+                        }
+                        .execute(db)
                     }
-                    .execute(db)
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
                 }
-                return eventID
-            }
+            )
         } operation: {
             store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         }
@@ -491,15 +496,20 @@ struct NavigationTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = firstEventID
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                guard let eventID = OME.Event.ID(uri) else {
-                    throw OMEEventInstallationError.invalidEventURI(uri)
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    guard let eventID = OME.Event.ID(uri) else {
+                        throw OMEEventInstallationError.invalidEventURI(uri)
+                    }
+                    try await database.write { db in
+                        try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+                    }
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
                 }
-                try await database.write { db in
-                    try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-                }
-                return eventID
-            }
+            )
         } operation: {
             Store(initialState: OpenMusicEventAppRoot.State()) {
                 OpenMusicEventAppRoot()
@@ -7492,15 +7502,20 @@ struct NavigationTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                guard let eventID = OME.Event.ID(uri) else {
-                    throw OMEEventInstallationError.invalidEventURI(uri)
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    guard let eventID = OME.Event.ID(uri) else {
+                        throw OMEEventInstallationError.invalidEventURI(uri)
+                    }
+                    try await database.write { db in
+                        try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+                    }
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
                 }
-                try await database.write { db in
-                    try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-                }
-                return eventID
-            }
+            )
         } operation: {
             var state = RootHarness.State()
             state.root = OpenMusicEventAppRoot.State(

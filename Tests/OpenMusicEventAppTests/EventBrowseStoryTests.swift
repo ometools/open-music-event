@@ -279,6 +279,7 @@ struct EventBrowseStoryTests {
 
         let notificationVersion = "manual-wicked-woods-1"
         let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+        let checkoutPause = EventBrowseCheckoutPause()
 
         try await withDependencies {
             $0.context = .test
@@ -300,17 +301,27 @@ struct EventBrowseStoryTests {
                 synchronize: {},
                 signals: { AsyncStream { $0.finish() } }
             )
-            $0.omeEventSourceRefresh = .liveValue
+            $0.omeEventInstallation = .liveValue
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                checkoutRequests.withLock { $0.append(request) }
+                let checkoutNumber = checkoutRequests.withLock { requests in
+                    requests.append(request)
+                    return requests.count
+                }
+                if checkoutNumber == 1 {
+                    await checkoutPause.pause()
+                }
                 try FileManager.default.createDirectory(
                     at: request.outputURL,
                     withIntermediateDirectories: true
                 )
-                try writeWickedWoodsSourceWithTwoEvents(
-                    to: request.outputURL,
-                    event2026Name: "Wicked Woods 2026 — Updated"
-                )
+                if checkoutNumber <= 2 {
+                    try writeWickedWoodsSourceWithTwoEvents(
+                        to: request.outputURL,
+                        event2026Name: "Wicked Woods 2026 — Updated"
+                    )
+                } else {
+                    try writeWickedWoodsSourceWithout2026(to: request.outputURL)
+                }
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
         } operation: {
@@ -379,15 +390,41 @@ struct EventBrowseStoryTests {
                     delivery: .contentAvailable
                 )
             )
-            await notificationTask?.value
+            let notificationDidReturn = Mutex(false)
+            let notificationCompletion = Task { @MainActor in
+                await notificationTask?.value
+                notificationDidReturn.withLock { $0 = true }
+            }
+            await checkoutPause.waitUntilStarted()
 
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(1))
-            while store.destination?.eventViewer?
-                .authoring.content.content.event?.name != "Wicked Woods 2026 — Updated",
-                  clock.now < deadline
-            {
-                try await clock.sleep(for: .milliseconds(1))
+            // The provider callback cannot observe new content before the canonical checkout has
+            // produced a validated insertion.
+            expectNoDifference(notificationDidReturn.withLock { $0 }, false)
+            let eventNameBeforeCheckoutCompletes = try await database.read { database in
+                try OME.Event.find(eventID).fetchOne(database)?.name
+            }
+            expectNoDifference(eventNameBeforeCheckoutCompletes, "Wicked Woods 2026")
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+
+            // Once the external checkout completes, notification handling must not return until
+            // the event-scoped transaction has committed.
+            await checkoutPause.continueCheckout()
+            await notificationCompletion.value
+            expectNoDifference(notificationDidReturn.withLock { $0 }, true)
+
+            let committedEventName = try await database.read { database in
+                try OME.Event.find(eventID).fetchOne(database)?.name
+            }
+            expectNoDifference(committedEventName, "Wicked Woods 2026 — Updated")
+
+            // SQLite observation, rather than a remount or a timing loop, updates the mounted
+            // viewer after the committed transaction.
+            await waitForEventBrowseObservation {
+                store.destination?.eventViewer?
+                    .authoring.content.content.event?.name == "Wicked Woods 2026 — Updated"
             }
 
             expectNoDifference(
@@ -419,6 +456,219 @@ struct EventBrowseStoryTests {
                 try OME.Event.fetchAll(database).map(\.id)
             }
             expectNoDifference(installedEventIDs, [eventID])
+
+            // APNs may redeliver the same opaque notification version. Repeating the provider
+            // message revalidates canonical source but converges on the same mounted read model.
+            let repeatedNotificationTask = try store.state.notificationEvent(
+                NotificationEvent(
+                    json: notificationJSON,
+                    delivery: .contentAvailable
+                )
+            )
+            await repeatedNotificationTask?.value
+            expectNoDifference(checkoutRequests.withLock { $0.count }, 2)
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 — Updated"
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.context.id,
+                mountedWorkspaceID
+            )
+
+            // A later canonical checkout that no longer contains this installed event is a
+            // failed refresh, not permission to delete or remount the attendee's live content.
+            let invalidNotificationJSON = """
+            {
+              "aps": {
+                "content-available": 1
+              },
+              "kind": "source_available",
+              "source": "\(OME.Event.reference(id: eventID).uri.description)",
+              "version": "manual-wicked-woods-invalid-source-1"
+            }
+            """
+            try await expectReportedIssue(containing: "eventNotFound") {
+                let invalidNotificationTask = try store.state.notificationEvent(
+                    NotificationEvent(
+                        json: invalidNotificationJSON,
+                        delivery: .contentAvailable
+                    )
+                )
+                await invalidNotificationTask?.value
+            }
+
+            let eventNameAfterFailedRefresh = try await database.read { database in
+                try OME.Event.find(eventID).fetchOne(database)?.name
+            }
+            expectNoDifference(eventNameAfterFailedRefresh, "Wicked Woods 2026 — Updated")
+            expectNoDifference(checkoutRequests.withLock { $0.count }, 3)
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026 — Updated"
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.context.id,
+                mountedWorkspaceID
+            )
+            withExtendedLifetime(store) {}
+        }
+    }
+
+    @Test @MainActor
+    func `a non-authoring viewer downloads canonical content before workspace reconciliation`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
+        )
+        let workspaceID = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/wickedwoods.ca/ome-workspace",
+            branch: "main"
+        ).id
+        try await database.write { database in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(database)
+            try OME.Event.insert {
+                testEventDraft(id: eventID, name: "Wicked Woods 2026")
+            }
+            .execute(database)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: "tangled.org/wickedwoods.ca/ome-workspace",
+                    ref: "main",
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "2026"
+                )
+            }
+            .execute(database)
+            try SourceWorkspaceInstallationRecord.insert {
+                SourceWorkspaceInstallationRecord(
+                    id: workspaceID,
+                    revision: "historical-authoring-revision"
+                )
+            }
+            .execute(database)
+        }
+
+        let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+
+        try await withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.uuid = .incrementing
+            OME.prepareDependencies(&$0, database: database)
+            $0.defaultEventID = eventID
+            $0.calendarEvents = CalendarEventsClient(
+                browse: { _ in CalendarEvent.Page(events: []) },
+                event: { _ in throw CalendarEventsClientError.unimplemented },
+                organizer: { _ in throw CalendarEventsClientError.unimplemented }
+            )
+            $0.notificationTokenClient = NotificationTokenClient(
+                tokens: { AsyncStream { $0.finish() } }
+            )
+            $0.notificationsClient = NotificationsClient(
+                registerDestination: { _ in },
+                replaceSubscriptions: { _ in },
+                synchronize: {},
+                signals: { AsyncStream { $0.finish() } }
+            )
+            $0.omeEventInstallation = .liveValue
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                checkoutRequests.withLock { $0.append(request) }
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                try writeWickedWoodsSourceWithTwoEvents(
+                    to: request.outputURL,
+                    event2026Name: "Wicked Woods 2026 — Downloaded"
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            let store = Store(
+                initialState: OpenMusicEventAppRoot.State(
+                    variant: .whiteLabel(
+                        WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
+                    ),
+                    selectedEventIDAtLaunch: eventID
+                )
+            ) {
+                OpenMusicEventAppRoot()
+            }
+            let mountedWorkspaceID = store.destination?.eventViewer?.authoring.context.id
+            #expect(store.destination?.eventViewer?.authoring.grant == nil)
+
+            // A previous authoring session may leave workspace metadata behind. That row is not
+            // active authoring state and must not prevent acquisition of current canonical source.
+            let notificationJSON = """
+            {
+              "aps": {
+                "content-available": 1
+              },
+              "kind": "source_available",
+              "source": "\(OME.Event.reference(id: eventID).uri.description)",
+              "version": "manual-wicked-woods-prepared-workspace-1"
+            }
+            """
+            try await expectReportedIssue(containing: "preparedWorkspace") {
+                let notificationTask = try store.state.notificationEvent(
+                    NotificationEvent(
+                        json: notificationJSON,
+                        delivery: .contentAvailable
+                    )
+                )
+                await notificationTask?.value
+            }
+
+            expectNoDifference(
+                checkoutRequests.withLock { $0.map(\.ref) },
+                ["main"]
+            )
+            expectNoDifference(
+                checkoutRequests.withLock {
+                    $0.map(\.repository.normalizedReference)
+                },
+                ["tangled.org/wickedwoods.ca/ome-workspace"]
+            )
+
+            // Reconciliation is not part of the attendee slice. Until it has an explicit owner,
+            // the transaction preserves both the installed event and the historical baseline.
+            let preservedInstallation = try await database.read { database in
+                (
+                    eventName: try OME.Event.find(eventID).fetchOne(database)?.name,
+                    revision: try SourceWorkspaceInstallationRecord
+                        .find(workspaceID)
+                        .fetchOne(database)?
+                        .revision
+                )
+            }
+            expectNoDifference(preservedInstallation.eventName, "Wicked Woods 2026")
+            expectNoDifference(
+                preservedInstallation.revision,
+                "historical-authoring-revision"
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.context.id,
+                mountedWorkspaceID
+            )
+            expectNoDifference(
+                store.destination?.eventViewer?.authoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
             withExtendedLifetime(store) {}
         }
     }
@@ -823,10 +1073,15 @@ struct EventBrowseStoryTests {
                 event: { _ in selectedEvent },
                 organizer: { _ in selectedEvent.organizer }
             )
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                return selectedEventID
-            }
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    installations.withLock { $0.append(uri) }
+                    return selectedEventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
+                }
+            )
         } operation: {
             TestStore(
                 initialState: OrganizationDetailStory.State(organizerID: organizerID)
@@ -999,7 +1254,7 @@ struct EventBrowseStoryTests {
             $0.defaultDatabase = database
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { _, _ in
-                Data(Self.wickedWoodsAppViewPageResponse.utf8)
+                Data(Self.wickedWoodsAppViewEventResponse.utf8)
             }
             $0.omeEventInstallation = .liveValue
             $0.uuid = .constant(downloadUUID)
@@ -1084,9 +1339,14 @@ struct EventBrowseStoryTests {
         )
         let store = withDependencies {
             $0.context = .test
-            $0.omeEventInstallation = OMEEventInstallationClient { _ in
-                throw InstallationFailure()
-            }
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { _ in
+                    throw InstallationFailure()
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
+                }
+            )
         } operation: {
             Store(initialState: EnterEventStory.State(event: omeEvent)) {
                 EnterEventStory()
@@ -1187,36 +1447,32 @@ extension EventBrowseStoryTests {
         }
         """#
 
-    static let wickedWoodsAppViewPageResponse = #"""
+    static let wickedWoodsAppViewEventResponse = #"""
         {
-          "events": [
-            {
-              "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
-              "name": "Wicked Woods 2026",
-              "locations": [],
-              "links": [],
-              "media": [],
-              "organizer": {
-                "id": "did:plc:5df2u7ief6m6tn77jznicxob",
-                "displayName": "Wicked Woods"
-              },
-              "attendance": {
-                "going": 0,
-                "interested": 0,
-                "notGoing": 0
-              },
-              "source": {
-                "collection": "app.openmusicevent.event",
-                "appViewHost": "openmusicevent.app",
-                "sourceRecord": {
-                  "$type": "app.openmusicevent.source",
-                  "kind": "tangled",
-                  "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
-                  "ref": "main"
-                }
-              }
+          "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
+          "name": "Wicked Woods 2026",
+          "locations": [],
+          "links": [],
+          "media": [],
+          "organizer": {
+            "id": "did:plc:5df2u7ief6m6tn77jznicxob",
+            "displayName": "Wicked Woods"
+          },
+          "attendance": {
+            "going": 0,
+            "interested": 0,
+            "notGoing": 0
+          },
+          "source": {
+            "collection": "app.openmusicevent.event",
+            "appViewHost": "openmusicevent.app",
+            "sourceRecord": {
+              "$type": "app.openmusicevent.source",
+              "kind": "tangled",
+              "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+              "ref": "main"
             }
-          ]
+          }
         }
         """#
 }
@@ -1275,6 +1531,52 @@ struct OrganizationDetailStory {
     }
 }
 
+actor EventBrowseCheckoutPause {
+    var continuation: CheckedContinuation<Void, Never>?
+    var started = false
+    var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func continueCheckout() {
+        precondition(started, "The source checkout has not started.")
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func pause() async {
+        precondition(!started, "The source checkout unexpectedly started more than once.")
+        started = true
+        for waiter in startWaiters {
+            waiter.resume()
+        }
+        startWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+}
+
+@MainActor
+func waitForEventBrowseObservation(
+    _ condition: @escaping @MainActor () -> Bool
+) async {
+    while !condition() {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
+        }
+    }
+}
+
 private func writeWickedWoodsSourceWithTwoEvents(
     to repositoryURL: URL,
     event2026Name: String = "Wicked Woods 2026"
@@ -1292,6 +1594,20 @@ private func writeWickedWoodsSourceWithTwoEvents(
                 name: event2026Name,
                 timeZone: timeZone
             ),
+        ]
+    )
+    _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
+}
+
+private func writeWickedWoodsSourceWithout2026(to repositoryURL: URL) throws {
+    let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+    let source = OpenMusicEventSourceRepository(
+        events: [
+            wickedWoodsSourceEvent(
+                directoryName: "2025",
+                name: "Wicked Woods 2025",
+                timeZone: timeZone
+            )
         ]
     )
     _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)

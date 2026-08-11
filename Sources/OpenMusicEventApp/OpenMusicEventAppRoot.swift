@@ -99,7 +99,6 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.omeEventInstallation) var eventInstallation
-    @Dependency(\.omeEventSourceRefresh) var eventSourceRefresh
     public var body: some Feature {
 //        let _ = Self._logChanges()
 
@@ -324,25 +323,42 @@ public struct OpenMusicEventAppRoot {
                     : nil
             }
             let refreshesBrowse = state.variant == .generic
-            guard refreshesBrowse || refreshesMountedEvent != nil else { return }
+            guard refreshesBrowse || refreshesMountedEvent != nil else {
+                NotificationRefreshDiagnostics.debug("""
+                Ignoring source-available notification with no relevant mounted content
+                source: \(source.id.rawValue)
+                version: \(source.version.rawValue)
+                """)
+                return
+            }
             store.addTask {
-                if let eventID = refreshesMountedEvent {
-                    do {
-                        _ = try await eventSourceRefresh.refresh(
-                            OMEEventSourceRefreshRequest(
-                                eventID: eventID
-                            )
-                        )
-                    } catch {
-                        reportIssue(error)
+                NotificationRefreshDiagnostics.notice("""
+                Source-available notification refresh started
+                source: \(source.id.rawValue)
+                version: \(source.version.rawValue)
+                event: \(refreshesMountedEvent.map { OMERecord.Event.reference(id: $0).uri.description } ?? "none")
+                browse: \(refreshesBrowse)
+                """)
+                do {
+                    if let eventID = refreshesMountedEvent {
+                        try await eventInstallation.synchronizeInstalledEvent(eventID)
                     }
-                }
-                if refreshesBrowse {
-                    do {
+                    if refreshesBrowse {
                         try await store.browser.browse.refresh()?.value
-                    } catch {
-                        reportIssue(error)
                     }
+                    NotificationRefreshDiagnostics.notice("""
+                    Source-available notification refresh completed
+                    source: \(source.id.rawValue)
+                    version: \(source.version.rawValue)
+                    """)
+                } catch {
+                    NotificationRefreshDiagnostics.failure("""
+                    Source-available notification refresh failed
+                    source: \(source.id.rawValue)
+                    version: \(source.version.rawValue)
+                    error: \(String(describing: error))
+                    """)
+                    throw error
                 }
             }
         }

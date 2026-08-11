@@ -98,7 +98,13 @@ typealias AppType = NSApplication
         do {
             let json = try notificationJSON(userInfo)
             Task { @MainActor in
+                notificationLogger.notice(
+                    "Background notification processing started before fetch completion"
+                )
                 let handled = await AppDelegate.shared.onRemoteNotificationAndWait(json: json)
+                notificationLogger.notice(
+                    "Background notification processing finished before fetch completion; delivered: \(handled, privacy: .public)"
+                )
                 completionHandler(handled ? .newData : .failed)
             }
         } catch {

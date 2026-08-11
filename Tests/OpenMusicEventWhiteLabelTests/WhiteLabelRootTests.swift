@@ -38,10 +38,15 @@ struct WhiteLabelRootTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.calendarEvents = .openMusicEventAndAtmo(database: database)
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                return eventID
-            }
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    installations.withLock { $0.append(uri) }
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
+                }
+            )
             recordUnexpectedGitOperations(in: &$0, recorder: gitOperations)
         } operation: {
             Store(
@@ -101,10 +106,15 @@ struct WhiteLabelRootTests {
                 event: { _ in selectedEvent },
                 organizer: { _ in selectedEvent.organizer }
             )
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                return eventID
-            }
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    installations.withLock { $0.append(uri) }
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
+                }
+            )
         } operation: {
             Store(
                 initialState: WhiteLabelRoot.State(
@@ -158,10 +168,15 @@ struct WhiteLabelRootTests {
                 resolvedHandles.withLock { $0.append(handle) }
                 return organizerID
             }
-            $0.omeEventInstallation = OMEEventInstallationClient { uri in
-                installations.withLock { $0.append(uri) }
-                return eventID
-            }
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { uri in
+                    installations.withLock { $0.append(uri) }
+                    return eventID
+                },
+                synchronizeInstalledEvent: { _ in
+                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
+                }
+            )
         } operation: {
             Store(
                 initialState: WhiteLabelRoot.State(
