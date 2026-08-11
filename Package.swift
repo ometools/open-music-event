@@ -191,6 +191,8 @@ let applicationProducts: [Product] = [
     .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
     .library(name: "SourceEditing", targets: ["SourceEditing"]),
     .library(name: "OpenMusicEventApp", type: .dynamic, targets: ["OpenMusicEventApp"]),
+    .library(name: "OpenMusicEventEntry", targets: ["OpenMusicEventEntry"]),
+    .library(name: "OpenMusicEventAppRouting", targets: ["OpenMusicEventAppRouting"]),
     .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
     .library(name: "OpenMusicEventEditors", targets: ["OpenMusicEventEditors"]),
     .library(name: "OpenMusicEventViewers", targets: ["OpenMusicEventViewers"]),
@@ -719,6 +721,8 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
         package: "composable-atmosphere-userinput"
     ),
     "ErrorHandling",
+    "OpenMusicEventEntry",
+    "OpenMusicEventAppRouting",
     "OpenMusicEventAppEventViewer",
     "OpenMusicEventAuthentication",
     "OpenMusicEventComponents",
@@ -760,6 +764,22 @@ if !isAndroidAppBuild {
 }
 
 applicationTargets.append(contentsOf: [
+    .target(
+        name: "OpenMusicEventEntry",
+        dependencies: [
+            "OpenMusicEventAppRouting",
+            "OpenMusicEventComponents",
+        ],
+        plugins: skipstonePlugins
+    ),
+    .target(
+        name: "OpenMusicEventAppRouting",
+        dependencies: [
+            "OpenMusicEventLexicon",
+            "OpenMusicEventViewers",
+            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+        ]
+    ),
     .target(
         name: "OpenMusicEventApp",
         dependencies: openMusicEventAppDependencies,

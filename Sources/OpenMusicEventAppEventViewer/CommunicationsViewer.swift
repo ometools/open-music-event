@@ -644,9 +644,7 @@ public struct CommunicationChannelDetail {
                 updateNotificationState(notificationState, state: state)
 
             case let .postButtonTapped(postID):
-                guard let post = state.posts.first(where: { $0.id == postID })
-                else { return }
-                state.destination = .postDetail(CommsPostDetail.State(post: post))
+                state.destination = .postDetail(CommsPostDetail.State(postID: postID))
 
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }
@@ -885,12 +883,14 @@ public struct CommsPostDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public init(post: CommsPost) {
-            self.post = post
+        public init(postID: CommsPost.ID) {
+            self.postID = postID
+            _post = FetchOne(CommsPost.where { $0.id.eq(postID) })
         }
 
-        public var post: CommsPost
-        public var id: CommsPost.ID { post.id }
+        public let postID: CommsPost.ID
+        @FetchOne public var post: CommsPost?
+        public var id: CommsPost.ID { postID }
     }
 
     public enum Action {}
@@ -908,58 +908,68 @@ public struct CommsPostDetailView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let headerImageURL = store.post.headerImageURL {
-                    CachedRemoteImage(url: headerImageURL) { phase in
-                        switch phase {
-                        case let .success(image, _):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                        case .empty:
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        case .failure, .unavailable:
-                            Color.clear
+        Group {
+            if let post = store.post {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let headerImageURL = post.headerImageURL {
+                            CachedRemoteImage(url: headerImageURL) { phase in
+                                switch phase {
+                                case let .success(image, _):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                case .empty:
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity)
+                                case .failure, .unavailable:
+                                    Color.clear
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(maxHeight: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(post.title)
+                                .font(.title2)
+                                .fontWeight(.bold)
+
+                            if let timestamp = post.timestamp {
+                                Text(timestamp, format: .relative(presentation: .named))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        CommsMarkdownText(post.contents)
+                            .multilineTextAlignment(.leading)
+
+                        ForEach((post.images ?? []).indices, id: \.self) { index in
+                            let image = (post.images ?? [])[index]
+                            ImageAssetAsyncImage(
+                                asset: image,
+                                cacheContext: LocalImageCacheContext(commsPostID: post.id),
+                                contentMode: .fit
+                            ) {
+                                ImageAssetPickerThumbnailPlaceholder()
+                            }
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: 300)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(store.post.title)
-                        .font(.title2)
-                        .fontWeight(.bold)
-
-                    if let timestamp = store.post.timestamp {
-                        Text(timestamp, format: .relative(presentation: .named))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                CommsMarkdownText(store.post.contents)
-                    .multilineTextAlignment(.leading)
-
-                ForEach((store.post.images ?? []).indices, id: \.self) { index in
-                    let image = (store.post.images ?? [])[index]
-                    ImageAssetAsyncImage(
-                        asset: image,
-                        cacheContext: LocalImageCacheContext(commsPostID: store.post.id),
-                        contentMode: .fit
-                    ) {
-                        ImageAssetPickerThumbnailPlaceholder()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "Post",
+                    systemImage: "doc.text",
+                    description: "This post could not be loaded."
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 12)
         }
     }
 }

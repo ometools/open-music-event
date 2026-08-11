@@ -402,6 +402,47 @@ public struct EventViewer {
             self.selectedFeature = target.eventFeature
 
             switch target {
+            case let .channel(channelID):
+                let eventID = self.eventID
+                if self.communicationsViewer == nil {
+                    self.communicationsViewer = withEventDependencies {
+                        CommunicationsViewer.State(eventID: eventID)
+                    }
+                }
+                let destination: CommunicationsViewer.Destination.State = withEventDependencies {
+                    .channelDetail(
+                        CommunicationChannelDetail.State(
+                            channelID: channelID,
+                            eventID: eventID
+                        )
+                    )
+                }
+                self.communicationsViewer?.destination = destination
+            case let .post(channelID, postID):
+                let eventID = self.eventID
+                let postID = CommsPost.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    channelID: channelID,
+                    postID: postID
+                )
+                if self.communicationsViewer == nil {
+                    self.communicationsViewer = withEventDependencies {
+                        CommunicationsViewer.State(eventID: eventID)
+                    }
+                }
+                let destination: CommunicationsViewer.Destination.State = withEventDependencies {
+                    .channelDetail(
+                        CommunicationChannelDetail.State(
+                            channelID: channelID,
+                            eventID: eventID,
+                            destination: .postDetail(
+                                CommsPostDetail.State(postID: postID)
+                            )
+                        )
+                    )
+                }
+                self.communicationsViewer?.destination = destination
             case let .contributor(contributorID):
                 let eventID = self.eventID
                 self.eventSearch.state = withEventDependencies {

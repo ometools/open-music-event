@@ -5,10 +5,12 @@ import ComposableWorkspace
 import ComposableNotifications
 import Dependencies
 import ErrorHandling
+import Foundation
 import IssueReporting
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
+import OpenMusicEventEntry
 import OpenMusicEventSourceEditing
 import Sharing
 import SourceEditing
@@ -62,6 +64,7 @@ public struct OpenMusicEventAppRoot {
 
         public var browser = OpenMusicEventBrowser.State()
         public var destination: Destination.State?
+        public var eventEntry: EventEntryState?
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
         @Trigger<NotificationContent<AppRoute>> public var notificationContent
@@ -71,6 +74,7 @@ public struct OpenMusicEventAppRoot {
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
+        @DebugSnapshotIgnored var activeRouteRequestID: UUID?
         @DebugSnapshotIgnored var workspaceRestorationError: (any Error)?
 
         @FetchOne(AppState.find(1))
@@ -85,6 +89,8 @@ public struct OpenMusicEventAppRoot {
         case appDelegateEvent(AppDelegateEvent)
         case browser(OpenMusicEventBrowser.Action)
         case destination(Destination.Action)
+        case eventEntryDismissed
+        case eventEntryRetryTapped
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
         case openURL(URL)
@@ -99,6 +105,7 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.omeEventInstallation) var eventInstallation
+    @Dependency(\.uuid) var uuid
     public var body: some Feature {
 //        let _ = Self._logChanges()
 
@@ -148,36 +155,98 @@ public struct OpenMusicEventAppRoot {
                 case .destination:
                     break
 
-                case .handleNavigationRequest(let request):
+                case let .handleNavigationRequest(request):
                     switch request {
+                    case let .event(eventID, target):
+                        store.addTask {
+                            try store.send(.openRoute(.event(eventID, target)))
+                        }
+
+                    case let .externalURL(url):
+                        state.openExternalURL(url)
+                    }
+
+                case let .openRoute(route):
+                    switch route.navigationRequest {
                     case let .event(eventID, target):
                         let eventURI = OMERecord.Event.reference(id: eventID).uri
                         let persistsSelectedEvent = state.persistsSelectedEvent
+                        let routeRequestID = uuid()
+                        state.activeRouteRequestID = routeRequestID
+                        state.eventEntry = EventEntryState(
+                            id: routeRequestID,
+                            route: route
+                        )
                         store.addTask {
-                            let installedEventID = await store.withErrorHandling(
-                                fallbackMessage: .eventInstallationFailed,
-                                operation: .eventInstallation
-                            ) {
-                                try await eventInstallation.ensureInstalled(eventURI)
-                            }
-                            guard let installedEventID else { return }
-                            let eventViewer = await store.withErrorHandling(
-                                fallbackMessage: .eventWorkspaceRestoreFailed,
-                                operation: .eventWorkspaceRestore
-                            ) {
-                                try Self.eventViewerState(
-                                    eventID: installedEventID,
-                                    target: target
-                                )
-                            }
-                            guard let eventViewer else { return }
-                            try store.modify { $0.destination = .eventViewer(eventViewer) }
-                            if persistsSelectedEvent {
-                                persistSelectedEvent(installedEventID, store.state)
-                            }
                             do {
-                                try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
+                                for try await progress in eventInstallation.install(eventURI) {
+                                    guard store.state.activeRouteRequestID == routeRequestID else {
+                                        return
+                                    }
+                                    switch progress {
+                                    case let .preview(preview):
+                                        try store.modify {
+                                            guard $0.eventEntry?.id == routeRequestID else { return }
+                                            $0.eventEntry?.title = preview.title
+                                            $0.eventEntry?.logoURL = preview.logoURL
+                                        }
+                                    case let .installed(installedEventID):
+                                        let eventViewer: OpenMusicEventWorkspace.State
+                                        do {
+                                            eventViewer = try Self.eventViewerState(
+                                                eventID: installedEventID,
+                                                target: target
+                                            )
+                                        } catch {
+                                            guard store.state.activeRouteRequestID == routeRequestID else {
+                                                return
+                                            }
+                                            await store.reportError(
+                                                error,
+                                                fallbackMessage: .eventWorkspaceRestoreFailed,
+                                                operation: .eventWorkspaceRestore
+                                            )
+                                            try store.modify {
+                                                guard $0.eventEntry?.id == routeRequestID else { return }
+                                                $0.eventEntry?.phase = .failed(
+                                                    "This event could not be opened."
+                                                )
+                                            }
+                                            return
+                                        }
+                                        let mount = try store.modify {
+                                            guard $0.eventEntry?.id == routeRequestID else { return }
+                                            $0.destination = .eventViewer(eventViewer)
+                                            $0.eventEntry = nil
+                                        }
+                                        await mount?.value
+                                        guard store.state.activeRouteRequestID == routeRequestID else {
+                                            return
+                                        }
+                                        if persistsSelectedEvent {
+                                            persistSelectedEvent(installedEventID, store.state)
+                                        }
+                                        do {
+                                            try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
+                                        } catch {
+                                        }
+                                    }
+                                }
                             } catch {
+                                guard store.state.activeRouteRequestID == routeRequestID else {
+                                    return
+                                }
+                                await store.reportError(
+                                    error,
+                                    fallbackMessage: .eventInstallationFailed,
+                                    operation: .eventInstallation
+                                )
+                                try store.modify {
+                                    guard $0.eventEntry?.id == routeRequestID else { return }
+                                    $0.eventEntry?.phase = .failed(
+                                        "This event could not be loaded."
+                                    )
+                                }
                             }
                         }
 
@@ -185,41 +254,14 @@ public struct OpenMusicEventAppRoot {
                         state.openExternalURL(url)
                     }
 
-                case .openRoute(let route):
-                    switch route.navigationRequest {
-                    case let .event(eventID, target):
-                        let eventURI = OMERecord.Event.reference(id: eventID).uri
-                        let persistsSelectedEvent = state.persistsSelectedEvent
-                        store.addTask {
-                            let installedEventID = await store.withErrorHandling(
-                                fallbackMessage: .eventInstallationFailed,
-                                operation: .eventInstallation
-                            ) {
-                                try await eventInstallation.ensureInstalled(eventURI)
-                            }
-                            guard let installedEventID else { return }
-                            let eventViewer = await store.withErrorHandling(
-                                fallbackMessage: .eventWorkspaceRestoreFailed,
-                                operation: .eventWorkspaceRestore
-                            ) {
-                                try Self.eventViewerState(
-                                    eventID: installedEventID,
-                                    target: target
-                                )
-                            }
-                            guard let eventViewer else { return }
-                            try store.modify { $0.destination = .eventViewer(eventViewer) }
-                            if persistsSelectedEvent {
-                                persistSelectedEvent(installedEventID, store.state)
-                            }
-                            do {
-                                try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
-                            } catch {
-                            }
-                        }
+                case .eventEntryDismissed:
+                    state.activeRouteRequestID = nil
+                    state.eventEntry = nil
 
-                    case let .externalURL(url):
-                        state.openExternalURL(url)
+                case .eventEntryRetryTapped:
+                    guard let route = state.eventEntry?.route else { return }
+                    store.addTask {
+                        try store.send(.openRoute(route))
                     }
 
                 case .openURL(let url):
@@ -258,40 +300,8 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onEvent(NavigationRequested.self) { request, state in
-            switch request {
-            case let .event(eventID, target):
-                let eventURI = OMERecord.Event.reference(id: eventID).uri
-                let persistsSelectedEvent = state.persistsSelectedEvent
-                store.addTask {
-                    let installedEventID = await store.withErrorHandling(
-                        fallbackMessage: .eventInstallationFailed,
-                        operation: .eventInstallation
-                    ) {
-                        try await eventInstallation.ensureInstalled(eventURI)
-                    }
-                    guard let installedEventID else { return }
-                    let eventViewer = await store.withErrorHandling(
-                        fallbackMessage: .eventWorkspaceRestoreFailed,
-                        operation: .eventWorkspaceRestore
-                    ) {
-                        try Self.eventViewerState(
-                            eventID: installedEventID,
-                            target: target
-                        )
-                    }
-                    guard let eventViewer else { return }
-                    try store.modify { $0.destination = .eventViewer(eventViewer) }
-                    if persistsSelectedEvent {
-                        persistSelectedEvent(installedEventID, store.state)
-                    }
-                    do {
-                        try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
-                    } catch {
-                    }
-                }
-
-            case let .externalURL(url):
-                state.openExternalURL(url)
+            store.addTask {
+                try store.send(.handleNavigationRequest(request))
             }
         }
         .onEvent(EventViewerDismissalRequested.self) { eventID, state in
@@ -401,6 +411,15 @@ public struct OpenMusicEventAppRootView: View {
 
     public var body: some View {
         OpenMusicEventAppSurfaceView(store: store)
+        .overlay {
+            if let eventEntry = store.eventEntry {
+                EventEntryView(
+                    state: eventEntry,
+                    retry: { store.send(.eventEntryRetryTapped) },
+                    dismiss: { store.send(.eventEntryDismissed) }
+                )
+            }
+        }
         .openMusicEventViewerPresentation(
             item: $store
                 .scope(\.destination, action: \.destination)

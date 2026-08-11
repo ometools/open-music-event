@@ -239,6 +239,20 @@ struct NavigationTests {
                 "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/settings",
                 AppRoute.event(eventID("event-1"), .settings)
             ),
+            (
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general",
+                AppRoute.event(eventID("event-1"), .channel(channelLocalID("general")))
+            ),
+            (
+                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/gates-are-open",
+                AppRoute.event(
+                    eventID("event-1"),
+                    .post(
+                        channelID: channelLocalID("general"),
+                        postID: CommsPost.PostID("gates-are-open")
+                    )
+                )
+            ),
         ]
     )
     func appRouteRoundTrips(urlString: String, expected: AppRoute) throws {
@@ -289,6 +303,18 @@ struct NavigationTests {
         ]
     )
     func appRouteRejectsIncompleteOrUnsupportedPerformanceURLs(urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(AppRoute(url: url) == nil)
+    }
+
+    @Test(
+        arguments: [
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/post/welcome",
+            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/welcome/extra",
+        ]
+    )
+    func appRouteRejectsIncompleteOrUnsupportedCommunicationURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
         #expect(AppRoute(url: url) == nil)
     }
@@ -376,6 +402,231 @@ struct NavigationTests {
         #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == eventID)
         #expect(
             store.state.root.destination?.eventViewer?.authoring.content.content.pendingScheduleLaunchAction == nil
+        )
+    }
+
+    @Test
+    func unloadedDeepLinkShowsEventLogoUntilInstallationFinishes() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let logoURL = try #require(URL(string: "https://openmusicevent.app/event-logo.png"))
+        try await database.write { db in
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+        }
+
+        typealias Continuation = AsyncThrowingStream<
+            OMEEventInstallationProgress,
+            any Error
+        >.Continuation
+        let installationContinuation = Mutex<Continuation?>(nil)
+        let client = OMEEventInstallationClient(
+            ensureInstalled: { uri in
+                throw OMEEventInstallationError.eventIsNotInstalled(uri)
+            },
+            synchronizeInstalledEvent: { eventID in
+                throw OMEEventInstallationError.eventIsNotInstalled(
+                    OME.Event.reference(id: eventID).uri
+                )
+            },
+            install: { _ in
+                AsyncThrowingStream { continuation in
+                    installationContinuation.withLock { $0 = continuation }
+                    continuation.yield(
+                        .preview(
+                            EventEntryPreview(
+                                title: "Wicked Woods",
+                                logoURL: logoURL
+                            )
+                        )
+                    )
+                }
+            }
+        )
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            installationClient: client
+        )
+        let route = AppRoute.event(eventID, .communications)
+
+        let navigationTask = store.send(.root(.openRoute(route)))
+        await waitUntil { store.state.root.eventEntry?.title == "Wicked Woods" }
+
+        #expect(store.state.root.eventEntry?.logoURL == logoURL)
+        #expect(store.state.root.eventEntry?.phase == .loading)
+        #expect(store.state.root.destination?.eventViewer.map { _ in true } == nil)
+
+        let continuation = try #require(
+            installationContinuation.withLock { $0 }
+        )
+        continuation.yield(.installed(eventID))
+        continuation.finish()
+        await navigationTask?.value
+
+        #expect(store.state.root.eventEntry == nil)
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .communications
+        )
+    }
+
+    @Test
+    func supersededDeepLinkCannotReplaceTheNewerEvent() async throws {
+        let database = try makePreparedDatabase()
+        let firstEventID = eventID("event-1")
+        let secondEventID = eventID("event-2")
+        try await database.write { db in
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: firstEventID)
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: secondEventID)
+        }
+
+        typealias Continuation = AsyncThrowingStream<
+            OMEEventInstallationProgress,
+            any Error
+        >.Continuation
+        let installationContinuations = Mutex<[String: Continuation]>([:])
+        let client = OMEEventInstallationClient(
+            ensureInstalled: { uri in
+                throw OMEEventInstallationError.eventIsNotInstalled(uri)
+            },
+            synchronizeInstalledEvent: { eventID in
+                throw OMEEventInstallationError.eventIsNotInstalled(
+                    OME.Event.reference(id: eventID).uri
+                )
+            },
+            install: { uri in
+                AsyncThrowingStream { continuation in
+                    installationContinuations.withLock {
+                        $0[uri.description] = continuation
+                    }
+                }
+            }
+        )
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: firstEventID,
+            installationClient: client
+        )
+        let firstRoute = AppRoute.event(firstEventID, .schedule)
+        let secondRoute = AppRoute.event(secondEventID, .communications)
+
+        let firstTask = store.send(.root(.openRoute(firstRoute)))
+        let firstURI = OMERecord.Event.reference(id: firstEventID).uri.description
+        await waitUntil {
+            installationContinuations.withLock { $0[firstURI] != nil }
+        }
+
+        let secondTask = store.send(.root(.openRoute(secondRoute)))
+        let secondURI = OMERecord.Event.reference(id: secondEventID).uri.description
+        await waitUntil {
+            installationContinuations.withLock { $0[secondURI] != nil }
+        }
+
+        let secondContinuation = try #require(
+            installationContinuations.withLock { $0[secondURI] }
+        )
+        secondContinuation.yield(.installed(secondEventID))
+        secondContinuation.finish()
+        await secondTask?.value
+
+        let firstContinuation = try #require(
+            installationContinuations.withLock { $0[firstURI] }
+        )
+        firstContinuation.yield(.installed(firstEventID))
+        firstContinuation.finish()
+        await firstTask?.value
+
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.id == secondEventID
+        )
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .communications
+        )
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+        #expect(appState?.selectedEventID == secondEventID)
+    }
+
+    @Test
+    func failedDeepLinkRetainsItsPreviewAndCanRetry() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let eventURI = OMERecord.Event.reference(id: eventID).uri
+        let logoURL = try #require(URL(string: "https://openmusicevent.app/event-logo.png"))
+        try await database.write { db in
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+        }
+
+        typealias Continuation = AsyncThrowingStream<
+            OMEEventInstallationProgress,
+            any Error
+        >.Continuation
+        let installationContinuations = Mutex<[Continuation]>([])
+        let client = OMEEventInstallationClient(
+            ensureInstalled: { uri in
+                throw OMEEventInstallationError.eventIsNotInstalled(uri)
+            },
+            synchronizeInstalledEvent: { eventID in
+                throw OMEEventInstallationError.eventIsNotInstalled(
+                    OME.Event.reference(id: eventID).uri
+                )
+            },
+            install: { _ in
+                AsyncThrowingStream { continuation in
+                    installationContinuations.withLock { $0.append(continuation) }
+                }
+            }
+        )
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+        } operation: {
+            makeRootHarnessStore(
+                database: database,
+                eventID: eventID,
+                installationClient: client
+            )
+        }
+        let route = AppRoute.event(eventID, .communications)
+
+        try await expectReportedIssue(containing: "installationSourceUnavailable") {
+            let firstTask = store.send(.root(.openRoute(route)))
+            await waitUntil { installationContinuations.withLock { $0.count == 1 } }
+            let firstContinuation = try #require(
+                installationContinuations.withLock { $0.first }
+            )
+            firstContinuation.yield(
+                .preview(EventEntryPreview(title: "Wicked Woods", logoURL: logoURL))
+            )
+            firstContinuation.finish(
+                throwing: OMEEventInstallationError.installationSourceUnavailable(eventURI)
+            )
+            await firstTask?.value
+        }
+
+        #expect(store.state.root.eventEntry?.route == route)
+        #expect(store.state.root.eventEntry?.title == "Wicked Woods")
+        #expect(store.state.root.eventEntry?.logoURL == logoURL)
+        #expect(
+            store.state.root.eventEntry?.phase
+                == .failed("This event could not be loaded.")
+        )
+
+        store.send(.root(.eventEntryRetryTapped))
+        await waitUntil { installationContinuations.withLock { $0.count == 2 } }
+        #expect(store.state.root.eventEntry?.phase == .loading)
+        let retryContinuation = try #require(
+            installationContinuations.withLock { $0.last }
+        )
+        retryContinuation.yield(.installed(eventID))
+        retryContinuation.finish()
+        await waitUntil { store.state.root.eventEntry == nil }
+
+        #expect(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.selectedFeature == .communications
         )
     }
 
@@ -663,6 +914,89 @@ struct NavigationTests {
         let performanceDetail = try #require(scheduleViewer.state.destination?.performanceDetail)
         #expect(performanceDetail.performanceID == performanceID)
         #expect(performanceDetail.performance == nil)
+    }
+
+    @Test
+    func channelDeepLinkPresentsChannelDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General"
+            )
+        }
+
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let url = try #require(URL(
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general"
+        ))
+        await store.send(.root(.openURL(url)))?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.channelID == channelID
+        }
+
+        let eventViewer = try #require(
+            store.state.root.destination?.eventViewer?.authoring.content.content
+        )
+        #expect(eventViewer.selectedFeature == .communications)
+        #expect(eventViewer.communicationsViewer?.destination?.channelDetail?.channelID == channelID)
+        #expect(eventViewer.communicationsViewer?.destination?.channelDetail?.channel?.name == "General")
+    }
+
+    @Test
+    func postDeepLinkPresentsPostDetailByStableID() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let postID = commsPostID("welcome", channelID: "general", eventID: eventID)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General"
+            )
+            try Self.insertCommsPost(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                postID: "welcome",
+                title: "Welcome",
+                contents: "Welcome to the event.",
+                sortIndex: 0
+            )
+        }
+
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let url = try #require(URL(
+            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/welcome"
+        ))
+        await store.send(.root(.openURL(url)))?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.destination?
+                .postDetail?.postID == postID
+        }
+
+        let eventViewer = try #require(
+            store.state.root.destination?.eventViewer?.authoring.content.content
+        )
+        let channel = try #require(
+            eventViewer.communicationsViewer?.destination?.channelDetail
+        )
+        #expect(eventViewer.selectedFeature == .communications)
+        #expect(channel.destination?.postDetail?.postID == postID)
+        #expect(channel.destination?.postDetail?.post?.title == "Welcome")
     }
 
     @Test
@@ -6556,8 +6890,8 @@ struct NavigationTests {
 
         store.send(.postButtonTapped(postID))
 
-        #expect(store.state.destination?.postDetail?.post.id == postID)
-        #expect(store.state.destination?.postDetail?.post.title == "Welcome")
+        #expect(store.state.destination?.postDetail?.postID == postID)
+        #expect(store.state.destination?.postDetail?.post?.title == "Welcome")
     }
 
     @Test
@@ -7495,14 +7829,15 @@ struct NavigationTests {
         database: any DatabaseWriter,
         eventID: OMERecord.Event.ID = eventID("event-1"),
         variant: OpenMusicEventAppVariant = .generic,
-        selectedEventIDAtLaunch: OMERecord.Event.ID? = nil
+        selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
+        installationClient: OMEEventInstallationClient? = nil
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.omeEventInstallation = OMEEventInstallationClient(
+            $0.omeEventInstallation = installationClient ?? OMEEventInstallationClient(
                 ensureInstalled: { uri in
                     guard let eventID = OME.Event.ID(uri) else {
                         throw OMEEventInstallationError.invalidEventURI(uri)

@@ -10,6 +10,11 @@ public enum EventTarget: Equatable, Sendable {
     case stages
     case stage(OMERecord.ID<OMERecord.Stage>)
     case communications
+    case channel(OMERecord.ID<OMERecord.Channel>)
+    case post(
+        channelID: OMERecord.ID<OMERecord.Channel>,
+        postID: CommsPost.PostID
+    )
     case contactInfo
     case location
     case siteMap
@@ -44,7 +49,7 @@ extension EventTarget {
             .stages
         case .search:
             .search
-        case .communications:
+        case .communications, .channel, .post:
             .communications
         case .contactInfo:
             .contactInfo

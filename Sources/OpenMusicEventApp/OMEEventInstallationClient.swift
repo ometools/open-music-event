@@ -3,6 +3,7 @@ import ComposableArchitecture2
 import ComposableCalendarEvents
 import Dependencies
 import OpenMusicEventDatabase
+import OpenMusicEventEntry
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -45,6 +46,9 @@ enum NotificationRefreshDiagnostics {
 }
 
 public struct OMEEventInstallationClient: Sendable {
+    public var install: @Sendable (
+        ATProto.URI
+    ) -> AsyncThrowingStream<OMEEventInstallationProgress, any Error>
     public var ensureInstalled: @Sendable (ATProto.URI) async throws -> OMERecord.Event.ID
     public var synchronizeInstalledEvent: @Sendable (OMERecord.Event.ID) async throws -> Void
 
@@ -52,11 +56,42 @@ public struct OMEEventInstallationClient: Sendable {
         ensureInstalled: @escaping @Sendable (ATProto.URI) async throws -> OMERecord.Event.ID,
         synchronizeInstalledEvent: @escaping @Sendable (
             OMERecord.Event.ID
-        ) async throws -> Void
+        ) async throws -> Void,
+        install: (@Sendable (
+            ATProto.URI
+        ) -> AsyncThrowingStream<OMEEventInstallationProgress, any Error>)? = nil
     ) {
         self.ensureInstalled = ensureInstalled
         self.synchronizeInstalledEvent = synchronizeInstalledEvent
+        self.install = install ?? { eventURI in
+            AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        continuation.yield(.installed(try await ensureInstalled(eventURI)))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
     }
+}
+
+public enum OMEEventInstallationProgress: Equatable, Sendable {
+    case preview(EventEntryPreview)
+    case installed(OMERecord.Event.ID)
+}
+
+public struct EventEntryPreview: Equatable, Sendable {
+    public init(title: String, logoURL: URL?) {
+        self.title = title
+        self.logoURL = logoURL
+    }
+
+    public let title: String
+    public let logoURL: URL?
 }
 
 public enum OMEEventInstallationError: Error, Equatable {
@@ -67,53 +102,65 @@ public enum OMEEventInstallationError: Error, Equatable {
 
 extension OMEEventInstallationClient: DependencyKey {
     public static var liveValue: Self {
-        Self(
-            ensureInstalled: { eventURI in
-                @Dependency(\.defaultDatabase) var database
-                guard let eventID = OME.Event.ID(eventURI) else {
-                    throw OMEEventInstallationError.invalidEventURI(eventURI)
-                }
-                let installation = try await database.read { db in
-                    (
-                        event: try OME.Event.find(eventID).fetchOne(db),
-                        provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
-                    )
-                }
-                if installation.event != nil, let provenance = installation.provenance {
-                    try await database.write { db in
-                        try InstalledEventRecord.upsert {
-                            InstalledEventRecord(
-                                id: eventID,
-                                sourceProvenance: provenance.sourceProvenance
-                            )
-                        }
-                        .execute(db)
+        let install = { @Sendable (
+            eventURI: ATProto.URI,
+            preview: @escaping @Sendable (EventEntryPreview) -> Void
+        ) async throws -> OMERecord.Event.ID in
+            @Dependency(\.defaultDatabase) var database
+            guard let eventID = OME.Event.ID(eventURI) else {
+                throw OMEEventInstallationError.invalidEventURI(eventURI)
+            }
+            let installation = try await database.read { db in
+                (
+                    event: try OME.Event.find(eventID).fetchOne(db),
+                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+                )
+            }
+            if installation.event != nil, let provenance = installation.provenance {
+                try await database.write { db in
+                    try InstalledEventRecord.upsert {
+                        InstalledEventRecord(
+                            id: eventID,
+                            sourceProvenance: provenance.sourceProvenance
+                        )
                     }
-                    return eventID
+                    .execute(db)
                 }
-
-                let catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
-                guard let installationRequest = catalogEvent.source.installationRequest(
-                    organizerID: eventID.organizerID
-                )
-                else {
-                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-                }
-
-                let result = try await OpenMusicEventSourceValidator(installationRequest)
-                    .validate(eventID: eventID)
-                guard let workspace = result.insertion.eventSourceProvenances
-                    .first(where: { $0.eventID == eventID })
-                    .flatMap({ EventSourceProvenanceRecord($0).workspace })
-                else {
-                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-                }
-                try await result.insertion.installCanonicalEvent(
-                    eventID,
-                    from: workspace,
-                    in: database
-                )
                 return eventID
+            }
+
+            let catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
+            preview(
+                EventEntryPreview(
+                    title: catalogEvent.name,
+                    logoURL: catalogEvent.eventEntryLogoURL
+                )
+            )
+            guard let installationRequest = catalogEvent.source.installationRequest(
+                organizerID: eventID.organizerID
+            ) else {
+                throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+            }
+
+            let result = try await OpenMusicEventSourceValidator(installationRequest)
+                .validate(eventID: eventID)
+            guard let workspace = result.insertion.eventSourceProvenances
+                .first(where: { $0.eventID == eventID })
+                .flatMap({ EventSourceProvenanceRecord($0).workspace })
+            else {
+                throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+            }
+            try await result.insertion.installCanonicalEvent(
+                eventID,
+                from: workspace,
+                in: database
+            )
+            return eventID
+        }
+
+        return Self(
+            ensureInstalled: { eventURI in
+                try await install(eventURI) { _ in }
             },
             synchronizeInstalledEvent: { eventID in
                 @Dependency(\.defaultDatabase) var database
@@ -168,6 +215,22 @@ extension OMEEventInstallationClient: DependencyKey {
                 repository: \(workspace.repository)
                 ref: \(workspace.branch)
                 """)
+            },
+            install: { eventURI in
+                AsyncThrowingStream { continuation in
+                    let task = Task {
+                        do {
+                            let eventID = try await install(eventURI) { preview in
+                                continuation.yield(.preview(preview))
+                            }
+                            continuation.yield(.installed(eventID))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
             }
         )
     }
@@ -183,6 +246,23 @@ extension OMEEventInstallationClient: DependencyKey {
                 )
             }
         )
+    }
+}
+
+private extension OME.CalendarEvent {
+    var eventEntryLogoURL: URL? {
+        media.first { $0.normalizedEventEntryRole == "icon" }?.url
+            ?? media.first { $0.normalizedEventEntryRole == "logo" }?.url
+    }
+}
+
+private extension OME.CalendarEvent.Media {
+    var normalizedEventEntryRole: String? {
+        role?
+            .split(separator: "#")
+            .last
+            .map(String.init)?
+            .lowercased()
     }
 }
 

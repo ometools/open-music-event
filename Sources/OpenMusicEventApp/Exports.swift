@@ -6,3 +6,4 @@
 //
 
 @_exported import OpenMusicEventLexicon
+@_exported import OpenMusicEventAppRouting
