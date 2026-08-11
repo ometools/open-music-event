@@ -16,7 +16,7 @@ import SwiftUITabFeatures
 @available(iOS 18, macOS 15, tvOS 18, visionOS 2, watchOS 11, *)
 public struct MoreNavigationFixture: View {
     @State var selection = "schedule"
-    @State var overflowSelection: String?
+    @State var morePath: [String] = []
     @State var layout = TabFeatureLayout()
 
     public init() {
@@ -24,14 +24,14 @@ public struct MoreNavigationFixture: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            Text("selection: \(selection); overflow: \(overflowSelection ?? "none")")
+            Text("selection: \(selection); overflow: \(morePath.first ?? "none")")
                 .accessibilityIdentifier("more-navigation-state")
 
             TabFeaturesView(
                 selection: $selection,
                 layout: $layout,
                 policy: TabFeaturePolicy(maxVisibleTabs: 1),
-                overflowSelection: $overflowSelection
+                morePath: $morePath
             ) {
                 TabFeature(
                     "schedule",

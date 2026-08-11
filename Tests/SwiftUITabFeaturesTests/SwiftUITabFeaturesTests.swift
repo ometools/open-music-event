@@ -91,21 +91,21 @@ struct SwiftUITabFeaturesTests {
     @Test func `More remembers its destination while visiting a tab bar tab`() {
         var state = TabFeatureSelectionState(
             selection: DemoTab.schedule,
-            overflowSelection: DemoTab.settings,
+            morePath: [DemoTab.settings],
             isMoreSelected: true
         )
 
         state.select(.feature(.about))
 
         #expect(state.selection == .about)
-        #expect(state.overflowSelection == .settings)
+        #expect(state.morePath == [.settings])
         #expect(state.isMoreSelected == false)
         #expect(state.tabSelection(showsMore: true) == .feature(.about))
 
         state.select(.more)
 
         #expect(state.selection == .about)
-        #expect(state.overflowSelection == .settings)
+        #expect(state.morePath == [.settings])
         #expect(state.isMoreSelected)
         #expect(state.tabSelection(showsMore: true) == .more)
     }
@@ -113,7 +113,7 @@ struct SwiftUITabFeaturesTests {
     @Test func `programmatic selection follows a feature into and out of More`() {
         var state = TabFeatureSelectionState(
             selection: DemoTab.settings,
-            overflowSelection: nil,
+            morePath: [],
             isMoreSelected: false
         )
 
@@ -121,7 +121,7 @@ struct SwiftUITabFeaturesTests {
         state.synchronizeSelection(moreValues: [.settings])
 
         #expect(state.selection == .settings)
-        #expect(state.overflowSelection == .settings)
+        #expect(state.morePath == [.settings])
         #expect(state.isMoreSelected)
         #expect(state.tabSelection(showsMore: true) == .more)
 
@@ -130,7 +130,7 @@ struct SwiftUITabFeaturesTests {
         state.synchronizeSelection(moreValues: [.settings])
 
         #expect(state.selection == .schedule)
-        #expect(state.overflowSelection == .settings)
+        #expect(state.morePath == [.settings])
         #expect(!state.isMoreSelected)
         #expect(state.tabSelection(showsMore: true) == .feature(.schedule))
     }
@@ -138,7 +138,7 @@ struct SwiftUITabFeaturesTests {
     @Test func `selection follows a feature when the rendered hierarchy moves it out of More`() {
         var state = TabFeatureSelectionState(
             selection: DemoTab.settings,
-            overflowSelection: nil,
+            morePath: [],
             isMoreSelected: false
         )
         state.synchronizeSelection(moreValues: [.settings])
@@ -147,7 +147,7 @@ struct SwiftUITabFeaturesTests {
         state.synchronizeSelection(moreValues: [])
 
         #expect(state.selection == .settings)
-        #expect(state.overflowSelection == nil)
+        #expect(state.morePath.isEmpty)
         #expect(!state.isMoreSelected)
         #expect(state.tabSelection(showsMore: false) == .feature(.settings))
     }
