@@ -330,8 +330,7 @@ public struct OpenMusicEventAppRoot {
                     do {
                         _ = try await eventSourceRefresh.refresh(
                             OMEEventSourceRefreshRequest(
-                                eventID: eventID,
-                                version: source.version
+                                eventID: eventID
                             )
                         )
                     } catch {

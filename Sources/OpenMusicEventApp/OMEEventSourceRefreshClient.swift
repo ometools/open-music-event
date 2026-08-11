@@ -1,4 +1,3 @@
-import ComposableNotifications
 import Dependencies
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -7,16 +6,11 @@ import OpenMusicEventSourceEditing
 import SQLiteData
 
 public struct OMEEventSourceRefreshRequest: Equatable, Sendable {
-    public init(
-        eventID: OMERecord.Event.ID,
-        version: NotificationSource.Version
-    ) {
+    public init(eventID: OMERecord.Event.ID) {
         self.eventID = eventID
-        self.version = version
     }
 
     public var eventID: OMERecord.Event.ID
-    public var version: NotificationSource.Version
 }
 
 public enum OMEEventSourceRefreshResult: Equatable, Sendable {
@@ -77,7 +71,7 @@ extension OMEEventSourceRefreshClient: DependencyKey {
                 OpenMusicEventSourceValidationRequest(
                     source: workspace.repository,
                     organizerID: workspace.organizerID,
-                    ref: request.version.rawValue
+                    ref: workspace.branch
                 )
             )
             .validate(eventID: request.eventID)
@@ -85,8 +79,6 @@ extension OMEEventSourceRefreshClient: DependencyKey {
                 throw OMEEventSourceRefreshError.unexpectedEvent(request.eventID)
             }
 
-            // The notification version selects one immutable Tangled revision. Persisted
-            // provenance continues to describe the canonical branch that produced it.
             var insertion = validation.insertion
             for index in insertion.eventSourceProvenances.indices {
                 insertion.eventSourceProvenances[index].source = workspace.sourceProvenance

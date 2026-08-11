@@ -277,7 +277,7 @@ struct EventBrowseStoryTests {
             .execute(database)
         }
 
-        let revision = "2222222222222222222222222222222222222222"
+        let notificationVersion = "manual-wicked-woods-1"
         let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
 
         try await withDependencies {
@@ -339,7 +339,7 @@ struct EventBrowseStoryTests {
               },
               "kind": "source_available",
               "source": "at://did:plc:somebody-else/app.openmusicevent.event/other-event",
-              "version": "1111111111111111111111111111111111111111"
+              "version": "manual-other-event-1"
             }
             """
             let unrelatedNotificationTask = try store.state.notificationEvent(
@@ -360,8 +360,9 @@ struct EventBrowseStoryTests {
             )
             expectNoDifference(checkoutRequests.withLock { $0 }, [])
 
-            // This is the exact provider JSON delivered through the app delegate. The source ID
-            // matches the subscription published by the already-mounted event viewer.
+            // This is the exact provider JSON delivered through the app delegate. Its version is
+            // opaque notification metadata, while the source ID matches the subscription
+            // published by the already-mounted event viewer.
             let notificationJSON = """
             {
               "aps": {
@@ -369,7 +370,7 @@ struct EventBrowseStoryTests {
               },
               "kind": "source_available",
               "source": "\(OME.Event.reference(id: eventID).uri.description)",
-              "version": "\(revision)"
+              "version": "\(notificationVersion)"
             }
             """
             let notificationTask = try store.state.notificationEvent(
@@ -403,7 +404,7 @@ struct EventBrowseStoryTests {
             )
             expectNoDifference(
                 checkoutRequests.withLock { $0.map(\.ref) },
-                [revision]
+                ["main"]
             )
             expectNoDifference(
                 checkoutRequests.withLock {
