@@ -40,6 +40,32 @@ public extension OME.SourceDatabaseInsertion {
         }
     }
 
+    /// Installs one canonical event and records the attendee's installation intent in the same
+    /// transaction.
+    func installCanonicalEvent(
+        _ eventID: OME.Event.ID,
+        from workspace: SourceWorkspace,
+        in database: any DatabaseWriter
+    ) async throws {
+        try validateCanonicalEvent(eventID, from: workspace)
+        let prepared = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: self,
+            importedAt: Date()
+        )
+        try await database.write { db in
+            try validateEventSourceProvenanceConflicts(in: db)
+            try OME.Event.find(eventID).delete().execute(db)
+            try prepared.insert(into: db)
+            try InstalledEventRecord.upsert {
+                InstalledEventRecord(
+                    id: eventID,
+                    sourceProvenance: workspace.sourceProvenance
+                )
+            }
+            .execute(db)
+        }
+    }
+
     /// Replaces exactly the rows owned by `workspace`, preserving every unrelated source already
     /// installed in the writable application database.
     func replaceSourceWorkspace(
@@ -121,19 +147,7 @@ public extension OME.SourceDatabaseInsertion {
         from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        let incomingProvenances = eventSourceProvenances.map(EventSourceProvenanceRecord.init)
-        guard !incomingProvenances.isEmpty,
-              incomingProvenances.allSatisfy({
-                  $0.id == eventID && $0.workspace?.id == workspace.id
-              }),
-              events.count == 1,
-              events.first?.id == eventID
-        else {
-            throw SourceWorkspaceInstallationError.mismatchedEvent(
-                eventID,
-                workspace.id
-            )
-        }
+        try validateCanonicalEvent(eventID, from: workspace)
 
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
@@ -159,6 +173,85 @@ public extension OME.SourceDatabaseInsertion {
 
             try OME.Event.find(eventID).delete().execute(db)
             try prepared.insert(into: db)
+        }
+    }
+
+    /// Restores the attendee view of a prepared workspace from canonical event-scoped source.
+    ///
+    /// Every event currently owned by the workspace is removed, but only events represented by an
+    /// explicit `InstalledEventRecord` are reinserted. Baseline and publication rows are discarded
+    /// in the same transaction, so the database is never half attendee and half authoring state.
+    static func restoreCanonicalEvents(
+        _ canonicalEvents: [OME.SourceDatabaseInsertion],
+        from workspace: SourceWorkspace,
+        in database: any DatabaseWriter
+    ) async throws {
+        var preparedEvents: [(OME.Event.ID, PreparedSourceDatabaseInsertion)] = []
+        preparedEvents.reserveCapacity(canonicalEvents.count)
+        for insertion in canonicalEvents {
+            guard let eventID = insertion.events.only?.id else {
+                throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
+            }
+            try insertion.validateCanonicalEvent(eventID, from: workspace)
+            preparedEvents.append(
+                (
+                    eventID,
+                    try await PreparedSourceDatabaseInsertion(
+                        sourceInsertion: insertion,
+                        importedAt: Date()
+                    )
+                )
+            )
+        }
+        let canonicalEventIDs = Set(preparedEvents.map(\.0))
+        let canonicalPreparedEvents = preparedEvents
+
+        try await database.write { db in
+            let installedEventIDs = Set(
+                try InstalledEventRecord.all
+                    .fetchAll(db)
+                    .filter { $0.workspace?.id == workspace.id }
+                    .map(\.id)
+            )
+            guard installedEventIDs == canonicalEventIDs else {
+                throw SourceWorkspaceInstallationError.installedEventSetChanged(workspace.id)
+            }
+
+            let workspaceEventIDs = try EventSourceProvenanceRecord
+                .where { $0.id.organizerID.eq(workspace.organizerID) }
+                .fetchAll(db)
+                .filter { $0.workspace?.id == workspace.id }
+                .map(\.id)
+            for eventID in workspaceEventIDs {
+                try OME.Event.find(eventID).delete().execute(db)
+            }
+            for (_, prepared) in canonicalPreparedEvents {
+                try prepared.insert(into: db)
+            }
+            try SourceWorkspaceEditingState.discard(workspace.id, in: db)
+            try SourceWorkspaceCanonicalResetRecord.upsert {
+                SourceWorkspaceCanonicalResetRecord(id: workspace.id)
+            }
+            .execute(db)
+        }
+    }
+
+    private func validateCanonicalEvent(
+        _ eventID: OME.Event.ID,
+        from workspace: SourceWorkspace
+    ) throws {
+        let incomingProvenances = eventSourceProvenances.map(EventSourceProvenanceRecord.init)
+        guard !incomingProvenances.isEmpty,
+              incomingProvenances.allSatisfy({
+                  $0.id == eventID && $0.workspace?.id == workspace.id
+              }),
+              events.count == 1,
+              events.first?.id == eventID
+        else {
+            throw SourceWorkspaceInstallationError.mismatchedEvent(
+                eventID,
+                workspace.id
+            )
         }
     }
 
@@ -210,7 +303,14 @@ private enum SourceWorkspaceInstallationError: Error, Equatable {
     case mismatchedEvent(OME.Event.ID, SourceWorkspace.ID)
     case mismatchedSource(SourceWorkspace.ID)
     case preparedWorkspace(SourceWorkspace.ID)
+    case installedEventSetChanged(SourceWorkspace.ID)
     case unscopedOrganizerSource(OME.Organizer.ID)
+}
+
+private extension Array {
+    var only: Element? {
+        count == 1 ? self[0] : nil
+    }
 }
 
 private struct PreparedSourceDatabaseInsertion {

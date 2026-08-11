@@ -1545,6 +1545,142 @@ struct DatabaseMigrationTests {
         }
     }
 
+    @Test
+    func `existing events become explicit installations and replacement does not erase intent`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:installed-event"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: localID("summer-2026")
+        )
+        let authoringOnlyEventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: localID("summer-2025")
+        )
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/summer-workspace",
+            branch: "main"
+        )
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(
+            database,
+            upTo: "Name OpenMusicEvent record tables after their lexicons"
+        )
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Summer Festival",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: timeZone,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil,
+                    policies: nil,
+                    reportingLinks: nil
+                )
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: authoringOnlyEventID,
+                    name: "Materialized only for authoring",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: timeZone,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil,
+                    policies: nil,
+                    reportingLinks: nil
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: workspace.repository,
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "summer-2026"
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: authoringOnlyEventID,
+                    sourceKind: .tangled,
+                    sourceReference: workspace.repository,
+                    ref: "main",
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "summer-2025"
+                )
+            }
+            .execute(db)
+            try SourceWorkspaceInstallationRecord.insert {
+                SourceWorkspaceInstallationRecord(id: workspace.id, revision: "prepared")
+            }
+            .execute(db)
+            try db.execute(sql: """
+                CREATE TABLE "appState" (
+                  "id" INTEGER PRIMARY KEY CHECK ("id" = 1),
+                  "organizerID" TEXT,
+                  "eventID" TEXT
+                ) STRICT;
+                INSERT INTO "appState" ("id", "organizerID", "eventID")
+                VALUES (1, ?, ?);
+                """, arguments: [
+                    eventID.organizerID.description,
+                    eventID.eventID.rawValue.rawValue,
+                ]
+            )
+        }
+
+        try migrator.migrate(database)
+
+        try await database.write { db in
+            let installation = try #require(try InstalledEventRecord.fetchOne(db))
+            expectNoDifference(installation.id, eventID)
+            expectNoDifference(
+                installation.workspace?.repository,
+                "tangled.org/example/summer-workspace"
+            )
+            expectNoDifference(installation.workspace?.branch, "main")
+            #expect(
+                try InstalledEventRecord.find(authoringOnlyEventID).fetchOne(db) == nil
+            )
+            #expect(try OME.Event.find(authoringOnlyEventID).fetchOne(db) != nil)
+
+            // Canonical refresh deletes and reinserts event content. Installation intent is a
+            // separate local decision and must survive that replacement boundary.
+            try OME.Event.find(eventID).delete().execute(db)
+            expectNoDifference(
+                try InstalledEventRecord.fetchAll(db).map(\.id),
+                [eventID]
+            )
+        }
+    }
+
     private static let oldParticipantSchemaMigrationIdentifiers = [
         "Create OpenMusicEvent core schema",
         "Add OpenMusicEvent participant actor policies",

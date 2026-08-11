@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import ComposableAuthoring
+import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -28,11 +29,13 @@ public struct EventSettings {
         }
 
         @FetchOne public var event: OMERecord.Event?
+        public var destination: Destination.State?
         public var eventID: OMERecord.Event.ID
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
     }
 
     public enum Action {
+        case destination(Destination.Action)
         case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
         case exitAuthoringButtonTapped
@@ -41,13 +44,42 @@ public struct EventSettings {
         case testErrorButtonTapped
     }
 
+    @Feature
+    public enum Destination {
+        case exitAuthoringConfirmation(ExitAuthoringConfirmation)
+    }
+
+    @Feature
+    public struct ExitAuthoringConfirmation: Prompt {
+        public enum Action {
+            case cancelButtonTapped
+            case exitAndDeleteButtonTapped
+        }
+    }
+
+    @Dependency(\.defaultDatabase) var database
     @Dependency(\.devicePermissions) var devicePermissions
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    var workspace
+
+    private func requestAuthoringExit() {
+        store.addTask {
+            let task = try store.post(key: AuthoringExitRequested.self, value: ())
+            await task?.value
+        }
+    }
 
     public var body: some Feature {
         let _ = Self._logChanges()
 
         Update { state, action in
             switch action {
+            case .destination(.exitAuthoringConfirmation(.cancelButtonTapped)):
+                break
+
+            case .destination(.exitAuthoringConfirmation(.exitAndDeleteButtonTapped)):
+                requestAuthoringExit()
+
             case .enterAuthoringButtonTapped:
                 store.addTask {
                     let task = try store.post(key: AuthoringRequested.self, value: ())
@@ -65,9 +97,45 @@ public struct EventSettings {
                 }
 
             case .exitAuthoringButtonTapped:
+                guard let source = workspace.source.wrappedValue else {
+                    // Without the prepared reference, cleanliness cannot be proven. Preserve the
+                    // same explicit destructive confirmation used for a known dirty workspace.
+                    state.destination = .exitAuthoringConfirmation(
+                        ExitAuthoringConfirmation.State()
+                    )
+                    return
+                }
+                let sourceWorkspace = source.workspace
+                let referenceDatabase = source.referenceDatabase
+                let database = database
                 store.addTask {
-                    let task = try store.post(key: AuthoringExitRequested.self, value: ())
-                    await task?.value
+                    let hasNoUnpublishedChanges: Bool
+                    do {
+                        let summary = try await database.read { db in
+                            try SourceWorkspaceEditSummary.query(
+                                workspace: sourceWorkspace,
+                                in: db,
+                                referenceDatabase: referenceDatabase
+                            )
+                        }
+                        hasNoUnpublishedChanges = summary.availability == .available
+                            && summary.totalCount == 0
+                    } catch {
+                        // If the comparison cannot prove the workspace is clean, require the same
+                        // explicit destructive confirmation as a known dirty workspace.
+                        hasNoUnpublishedChanges = false
+                    }
+
+                    if hasNoUnpublishedChanges {
+                        let task = try store.post(key: AuthoringExitRequested.self, value: ())
+                        await task?.value
+                    } else {
+                        try store.modify {
+                            $0.destination = .exitAuthoringConfirmation(
+                                ExitAuthoringConfirmation.State()
+                            )
+                        }
+                    }
                 }
 
             case .notificationPermissionButtonTapped:
@@ -98,7 +166,13 @@ public struct EventSettings {
                         try await throwEventSettingsTestError()
                     }
                 }
+
+            case .destination:
+                break
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
     }
 }
@@ -260,6 +334,32 @@ public struct EventSettingsView: View {
             }
         }
         .navigationTitle("Event Settings")
+        .alert(
+            "Delete unpublished changes?",
+            isPresented: $store.scope(
+                \.destination,
+                action: \.destination
+            ).exitAuthoringConfirmation.isPresented
+        ) {
+            Button("Exit and Delete Changes", role: .destructive) {
+                store.send(
+                    .destination(
+                        .exitAuthoringConfirmation(.exitAndDeleteButtonTapped)
+                    )
+                )
+            }
+            Button("Keep Editing", role: .cancel) {
+                store.send(
+                    .destination(
+                        .exitAuthoringConfirmation(.cancelButtonTapped)
+                    )
+                )
+            }
+        } message: {
+            Text(
+                "Exiting authoring restores Published content and permanently deletes unpublished changes on this device."
+            )
+        }
         .onChange(of: store.permissions.notifications) { _, authorization in
             if authorization != .unknown {
                 isNotificationPermissionExpanded = false

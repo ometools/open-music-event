@@ -20,7 +20,16 @@ public struct MyEvents {
         case eventButtonTapped(OME.Event.ID)
     }
 
-    static let query = OME.Event.order { ($0.startDate.asc(), $0.name) }
+    static let query = OME.Event
+        .where { event in
+            InstalledEventRecord
+                .where { installedEvent in
+                    installedEvent.id.organizerID.eq(event.id.organizerID)
+                        .and(installedEvent.id.eventID.eq(event.id.eventID))
+                }
+                .exists()
+        }
+        .order { ($0.startDate.asc(), $0.name) }
 
     public var body: some Feature {
         Update { _, action in

@@ -5,6 +5,9 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+#if canImport(OSLog)
+import OSLog
+#endif
 import SourceControlClient
 import SourceEditing
 import SQLiteData
@@ -13,6 +16,20 @@ public typealias SourceWorkspaceRevisionResolver = @Sendable (
     _ repository: Repository,
     _ ref: RefName
 ) async throws -> CommitID
+
+struct SourceWorkspaceCanonicalCheckoutClient: Sendable {
+    var checkout: @Sendable (
+        TangledSourceCheckoutRequest
+    ) async throws -> TangledSourceCheckout
+}
+
+extension SourceWorkspaceCanonicalCheckoutClient: DependencyKey {
+    static var liveValue: Self {
+        Self(checkout: TangledSourceCheckoutClient.git.checkout)
+    }
+
+    static var testValue: Self { liveValue }
+}
 
 public extension SourceWorkspacePreparationClient {
     static func openMusicEvent(
@@ -159,8 +176,28 @@ private func prepareOpenMusicEventSourceWorkspace(
     @Dependency(\.defaultDatabase) var mainDatabase
     @Dependency(\.sourceControl) var sourceControl
     @Dependency(\.sourceWorkspaceStorage) var storage
+    @Dependency(SourceWorkspaceCanonicalCheckoutClient.self) var canonicalCheckout
 
     let location = try storage.location(workspace.id)
+    let resetsCanonicalCheckout = try await mainDatabase.read { db in
+        try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) != nil
+    }
+    if resetsCanonicalCheckout {
+        SourceWorkspaceResetDiagnostics.notice("""
+        Confirmed authoring exit rebuilding canonical checkout
+        workspace: \(workspace.id.rawValue)
+        repository: \(workspace.repository)
+        ref: \(workspace.branch)
+        """)
+        // Only the durable marker written by a confirmed authoring exit authorizes this deletion.
+        // An absent installation record alone is ambiguous: initial preparation may have crashed.
+        try await mainDatabase.write { db in
+            try SourceWorkspaceEditingState.discard(workspace.id, in: db)
+        }
+        if FileManager.default.fileExists(atPath: location.directoryURL.path(percentEncoded: false)) {
+            try FileManager.default.removeItem(at: location.directoryURL)
+        }
+    }
     try FileManager.default.createDirectory(
         at: location.directoryURL,
         withIntermediateDirectories: true
@@ -183,7 +220,7 @@ private func prepareOpenMusicEventSourceWorkspace(
     if repositoryExists {
         repository = try await sourceControl.open(location.repositoryURL)
     } else {
-        _ = try await TangledSourceCheckoutClient.git.checkout(
+        _ = try await canonicalCheckout.checkout(
             TangledSourceCheckoutRequest(
                 repository: try TangledRepositoryReference(
                     sourceReference: workspace.repository
@@ -272,7 +309,7 @@ private func prepareOpenMusicEventSourceWorkspace(
         )
     }
 
-    return WorkspacePreparation(
+    let preparation = WorkspacePreparation(
         line: .canonical(
             WorkspaceBranchReference(
                 branch: WorkspaceBranch(rawValue: workspace.branch),
@@ -286,6 +323,33 @@ private func prepareOpenMusicEventSourceWorkspace(
             referenceDatabase: referenceDatabase
         )
     )
+    if resetsCanonicalCheckout {
+        try await mainDatabase.write { db in
+            try SourceWorkspaceCanonicalResetRecord.find(workspace.id).delete().execute(db)
+        }
+        SourceWorkspaceResetDiagnostics.notice("""
+        Canonical authoring checkout rebuild completed
+        workspace: \(workspace.id.rawValue)
+        """)
+    }
+    return preparation
+}
+
+private enum SourceWorkspaceResetDiagnostics {
+    #if canImport(OSLog)
+    static let logger = Logger(
+        subsystem: "app.openmusicevent",
+        category: "authoring"
+    )
+    #endif
+
+    static func notice(_ message: String) {
+        #if canImport(OSLog)
+        logger.notice("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
 }
 
 private func sourceInsertion(

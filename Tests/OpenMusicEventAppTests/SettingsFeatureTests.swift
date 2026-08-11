@@ -5,6 +5,7 @@ import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import ComposableArchitecture2
 import ComposableNotifications
+import ComposableWorkspace
 import CustomDump
 import Dependencies
 import ErrorHandling
@@ -14,6 +15,7 @@ import HTTPTypes
 import IssueReporting
 import Lexicon
 import OpenMusicEventComponents
+import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
@@ -154,6 +156,76 @@ struct TechnicalDetailsTests {
 @MainActor
 @Suite(.tcaExhaustivity(.off))
 struct SettingsFeatureTests {
+    @Test
+    func `clean authoring exit proceeds without a destructive prompt`() async throws {
+        let fixture = try await makeEventSettingsAuthoringExitFixture(isDirty: false)
+        let store = fixture.store
+        let summary = try await fixture.database.read { db in
+            try SourceWorkspaceEditSummary.query(
+                workspace: fixture.source.workspace,
+                in: db,
+                referenceDatabase: fixture.source.referenceDatabase
+            )
+        }
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+
+        let exit = store.send(.exitAuthoringButtonTapped)
+        await store.receive(
+            key: AuthoringExitRequested.self,
+            value: TestStoreMatcher<Void>(matching: { _ in true }),
+            timeout: .seconds(1)
+        )
+        await exit?.value
+
+        #expect(store.destination == nil)
+    }
+
+    @Test
+    func `unpublished changes require confirmation and cancel keeps editing`() async throws {
+        let fixture = try await makeEventSettingsAuthoringExitFixture(isDirty: true)
+        let store = fixture.store
+
+        await store.send(.exitAuthoringButtonTapped)?.value
+        #expect(store.destination?.exitAuthoringConfirmation != nil)
+
+        store.send(
+            .destination(
+                .exitAuthoringConfirmation(.cancelButtonTapped)
+            )
+        )
+
+        #expect(store.destination == nil)
+        #expect(fixture.grant.wrappedValue != nil)
+        let eventName = try await fixture.database.read { db in
+            try OMERecord.Event.find(fixture.eventID).fetchOne(db)?.name
+        }
+        expectNoDifference(eventName, "Unpublished Event Name")
+    }
+
+    @Test
+    func `confirming unpublished changes requests the guarded authoring exit`() async throws {
+        let fixture = try await makeEventSettingsAuthoringExitFixture(isDirty: true)
+        let store = fixture.store
+
+        await store.send(.exitAuthoringButtonTapped)?.value
+        #expect(store.destination?.exitAuthoringConfirmation != nil)
+
+        let confirmation = store.send(
+            .destination(
+                .exitAuthoringConfirmation(.exitAndDeleteButtonTapped)
+            )
+        )
+        await store.receive(
+            key: AuthoringExitRequested.self,
+            value: TestStoreMatcher<Void>(matching: { _ in true }),
+            timeout: .seconds(1)
+        )
+        await confirmation?.value
+
+        #expect(store.destination == nil)
+    }
+
     @Test
     func canonicalFeedbackBoardMapsToUserInputConfiguration() throws {
         let configuration = try #require(
@@ -610,6 +682,112 @@ struct SettingsFeatureTests {
             contributorPolicies(profile: expectedProfile)
         )
     }
+}
+
+private struct EventSettingsAuthoringExitFixture {
+    let database: any DatabaseWriter
+    let eventID: OMERecord.Event.ID
+    let grant: Shared<AuthoringGrant?>
+    let source: SourceWorkspaceResource
+    let store: TestStore<AnyFeature<EventSettings.State, EventSettings.Action>>
+}
+
+@MainActor
+private func makeEventSettingsAuthoringExitFixture(
+    isDirty: Bool
+) async throws -> EventSettingsAuthoringExitFixture {
+    let database = try makePreparedDatabase()
+    let referenceDatabase = try defaultBaselineDatabase()
+    let organizerID = try #require(OMERecord.Organizer.ID("did:plc:eventsettingsowner"))
+    let eventID = OMERecord.Event.ID(
+        organizerID: organizerID,
+        eventID: OMERecord.ID<OMERecord.Event>(rawValue: "event-settings")
+    )
+    let workspace = SourceWorkspace(
+        organizerID: organizerID,
+        repository: "tangled.org/eventsettingsowner/events",
+        branch: "main"
+    )
+    let actorID = try #require(DID(organizerID.description))
+
+    var referenceMigrator = DatabaseMigrator()
+    OMERecord.DatabaseMigrations.register(into: &referenceMigrator)
+    try referenceMigrator.migrate(referenceDatabase.database)
+    for targetDatabase in [database, referenceDatabase.database as any DatabaseWriter] {
+        try await targetDatabase.write { db in
+            try OMERecord.Organizer.insert {
+                OMERecord.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OMERecord.Event.insert {
+                testEventDraft(id: eventID, name: "Published Event Name")
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .tangled,
+                    sourceReference: workspace.repository,
+                    ref: workspace.branch,
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-settings"
+                )
+            }
+            .execute(db)
+        }
+    }
+    if isDirty {
+        try await database.write { db in
+            try OMERecord.Event.find(eventID).update {
+                $0.name = "Unpublished Event Name"
+            }
+            .execute(db)
+        }
+    }
+
+    let resource = SourceWorkspaceResource(
+        workspace: workspace,
+        repositoryURL: FileManager.default.temporaryDirectory,
+        mainDatabase: database,
+        referenceDatabase: referenceDatabase
+    )
+    let grant = withDependencies {
+        $0.context = .test
+        $0.defaultDatabase = database
+        $0.defaultEventID = eventID
+    } operation: {
+        Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+    }
+    grant.withLock {
+        $0 = AuthoringGrant(
+            principal: AuthoringPrincipal(actorID: actorID),
+            role: .owner,
+            workspaceID: workspace.id
+        )
+    }
+    let store = withDependencies {
+        $0.context = .test
+        $0.defaultDatabase = database
+    } operation: {
+        TestStore(initialState: EventSettings.State(eventID: eventID)) {
+            AnyFeature(
+                EventSettings()
+                    .environment(
+                        WorkspaceContext<SourceWorkspaceResource, SourcePatch>(
+                            phase: SharedReader(value: .inactive),
+                            source: SharedReader(value: resource)
+                        )
+                    )
+                )
+        }
+    }
+    return EventSettingsAuthoringExitFixture(
+        database: database,
+        eventID: eventID,
+        grant: grant,
+        source: resource,
+        store: store
+    )
 }
 
 @MainActor

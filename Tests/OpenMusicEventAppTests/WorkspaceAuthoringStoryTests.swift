@@ -11,7 +11,7 @@ import HTTPClient
 import HTTPTypes
 import IssueReporting
 import OpenMusicEventAuthentication
-import OpenMusicEventDatabase
+@testable import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -285,9 +285,14 @@ struct WorkspaceAuthoringStoryTests {
             let liveSourceControl = $0.sourceControl
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            // The sign-in scenario mutates process-wide OAuth storage from its mocked browser
+            // callback. Give that out-of-tree callback the same event identity that AppRoot scopes
+            // onto the mounted EventViewer so its event-keyed authoring grant remains deterministic.
+            $0.defaultEventID = selectedEventID
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
-            // The second app mount must reopen this checkout instead of creating another one.
+            // Reentry uses this durable location, but only a confirmed exit marker may authorize
+            // replacing its authoring checkout with a fresh canonical checkout.
             $0.sourceWorkspaceStorage = .fileBacked(rootURL: storageRoot.appending(path: "workspaces"))
             // The selected OAuth account owns the source repository but is not the event organizer.
             $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(
@@ -874,29 +879,41 @@ struct WorkspaceAuthoringStoryTests {
             #expect(operations.count(of: "formatPatch") == 1)
             #expect(operations.count(of: "push") == 1)
 
-            // Exiting revokes the grant, but the settled workspace and proposal survive by design.
+            // Publishing leaves no unpublished database edits. Exit therefore needs no prompt,
+            // but it still restores the attendee database from canonical main and records that a
+            // future authoring entry must replace the proposal checkout.
             await opened.send(
                 to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                 .exitAuthoringButtonTapped
             )?.value
-            #expect(opened.state.content.destination?.eventViewer?.authoring.grant == nil)
+            let exitedAuthoring = try #require(
+                opened.state.content.destination?.eventViewer?.authoring
+            )
+            #expect(exitedAuthoring.grant == nil)
             expectNoDifference(
-                opened.state.content.destination?.eventViewer?.authoring.phase,
+                exitedAuthoring.phase,
                 .inactive(.eligible(eligibility))
             )
-            guard case let .ready(.proposal(settledProposal)) = opened.state.content.destination?.eventViewer?
-                .authoring.content.phase,
-                settledProposal == proposal
-            else {
-                Issue.record("Grant loss must not discard the settled proposal workspace.")
-                return
+            expectNoDifference(exitedAuthoring.content.phase, .inactive)
+            #expect(exitedAuthoring.content.source == nil)
+            expectNoDifference(exitedAuthoring.content.content.authoringAccess, .attendee)
+            #expect(!exitedAuthoring.content.content.installedFeatures.contains(.workspace))
+            expectNoDifference(
+                exitedAuthoring.content.content.event?.name,
+                "Wicked Woods 2026"
+            )
+            let exitedEventNames = try await workspaceStoryEventNames(in: database)
+            expectNoDifference(exitedEventNames, ["Wicked Woods 2026"])
+            let confirmedResetExists = try await database.read { db in
+                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) != nil
             }
+            #expect(confirmedResetExists)
 
-            let openedRepositoriesBeforeRemount = operations.count(of: "open")
             await opened.dismount(timeout: .seconds(1))
 
-            // A fresh application mount repeats the same route-owned transition. It must open and
-            // validate the durable repository and proposal rather than cloning or reinstalling it.
+            // A fresh application mount starts in attendee mode. Reentering authoring consumes the
+            // explicit reset marker, replaces the old proposal checkout, and starts from canonical
+            // main without reviving the published proposal as editable local state.
             let remountedStore = TestStore(
                 initialState: OpenMusicEventApplication.State(
                     storage: authenticationStorage
@@ -923,7 +940,7 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case .ready(.proposal) = authoring.content.phase
+                          case .ready(.canonical) = authoring.content.phase
                     else { return false }
                     return true
                 }
@@ -943,33 +960,37 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            expectNoDifference(remountedAuthoring.content.phase, .ready(.proposal(proposal)))
+            guard case .ready(.canonical) = remountedAuthoring.content.phase else {
+                Issue.record("Reentry after confirmed exit must start from canonical main.")
+                return
+            }
             expectNoDifference(
                 remountedAuthoring.content.content.eventWorkspace?.changes.openProposal,
-                proposal
+                nil
             )
-            expectNoDifference(operations.count(of: "clone"), 1)
-            #expect(operations.count(of: "open") > openedRepositoriesBeforeRemount)
+            expectNoDifference(operations.count(of: "clone"), 2)
             let remountedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
                 remountedEventNames,
-                ["Wicked Woods 2025", "Wicked Woods 2026 - Local Edit"]
+                ["Wicked Woods 2025", "Wicked Woods 2026"]
             )
             let remountedEvent = try await database.read { db in
                 try #require(try OMERecord.Event.find(selectedEventID).fetchOne(db))
             }
-            expectNoDifference(remountedEvent.contactNumbers?.first?.title, "Event office")
-            expectNoDifference(
-                remountedEvent.locations?.first?.address,
-                "123 Festival Road, Denver, CO"
-            )
+            expectNoDifference(remountedEvent.name, "Wicked Woods 2026")
+            expectNoDifference(remountedEvent.contactNumbers, nil)
+            expectNoDifference(remountedEvent.locations, nil)
             let remountedStages = try await database.read { db in
                 try OMERecord.Stage
                     .where { $0.id.organizerID.eq(selectedEventID.organizerID) }
                     .where { $0.id.eventID.eq(selectedEventID.eventID) }
                     .fetchAll(db)
             }
-            #expect(remountedStages.contains { $0.name == "Meadow Stage" })
+            #expect(!remountedStages.contains { $0.name == "Meadow Stage" })
+            let confirmedResetWasConsumed = try await database.read { db in
+                try SourceWorkspaceCanonicalResetRecord.find(workspace.id).fetchOne(db) == nil
+            }
+            #expect(confirmedResetWasConsumed)
 
             // Revoking the selected account invalidates the one authoring phase. Settings can no
             // longer offer entry, the active grant disappears, and no second workspace path is
@@ -1027,6 +1048,7 @@ struct WorkspaceAuthoringStoryTests {
             let livePreparation = $0[SourceWorkspacePreparationClient.self]
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.defaultEventID = selectedEventID
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Restoration must reopen the same durable source location after authorization succeeds.
@@ -1152,6 +1174,7 @@ struct WorkspaceAuthoringStoryTests {
             let livePreparation = $0[SourceWorkspacePreparationClient.self]
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.defaultEventID = selectedEventID
             $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Retry must reuse the same persisted checkout after the controlled first failure.
@@ -1299,8 +1322,8 @@ struct WorkspaceAuthoringStoryTests {
             )
             expectNoDifference(operations.count(of: "clone"), 1)
 
-            // Exiting authoring removes Workspace from navigation even though its settled state is
-            // retained for durable reentry.
+            // A clean exit still restores canonical attendee content and resets only the generic
+            // Workspace layer. The mounted EventViewer remains alive in attendee mode.
             await opened.send(
                 to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
                 .exitAuthoringButtonTapped
@@ -1310,7 +1333,253 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(exited.content.content.authoringAccess, .attendee)
             #expect(!exited.content.content.installedFeatures.contains(.workspace))
             #expect(exited.content.content.eventWorkspace != nil)
+            expectNoDifference(exited.content.phase, .inactive)
+            #expect(exited.content.source == nil)
+            let exitedWorkspaceID = exited.context.id
+            let confirmedResetExists = try await database.read { db in
+                try SourceWorkspaceCanonicalResetRecord.find(exitedWorkspaceID).fetchOne(db) != nil
+            }
+            #expect(confirmedResetExists)
             await opened.dismount(timeout: .seconds(1))
+        }
+    }
+
+    @Test(.tcaExhaustivity(.off))
+    func `confirmed exit waits for canonical attendee restoration before clearing authoring`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:authoringexitstory")
+        )
+        let actorID = try #require(DID(organizerID.description))
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let authoringOnlyEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2025"
+        )
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/wickedwoods.ca/ome-workspace",
+            branch: "main"
+        )
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let source = OpenMusicEventSourceRepository(
+            events: [
+                workspaceStorySourceEvent(
+                    id: authoringOnlyEventID,
+                    directoryName: "2025",
+                    name: "Wicked Woods 2025",
+                    timeZone: timeZone
+                ),
+                workspaceStorySourceEvent(
+                    id: selectedEventID,
+                    directoryName: "2026",
+                    name: "Wicked Woods 2026",
+                    timeZone: timeZone
+                ),
+            ]
+        )
+        let insertion = try OMERecord.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: workspace.sourceProvenance
+            )
+        )
+        let referenceDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: referenceDatabase.path) }
+        try await insertion.migrateAndInsert(into: referenceDatabase.database)
+        let resourceDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "OME-AuthoringExitResource-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: resourceDirectory) }
+        try FileManager.default.createDirectory(
+            at: resourceDirectory,
+            withIntermediateDirectories: true
+        )
+        let resource = SourceWorkspaceResource(
+            workspace: workspace,
+            repositoryURL: resourceDirectory,
+            mainDatabase: database,
+            referenceDatabase: referenceDatabase
+        )
+        try await insertion.replaceSourceWorkspace(
+            workspace,
+            revision: "authoring-revision",
+            in: database
+        )
+        let principal = AuthoringPrincipal(actorID: actorID)
+        try await database.write { db in
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(
+                    id: selectedEventID,
+                    sourceProvenance: workspace.sourceProvenance
+                )
+            }
+            .execute(db)
+            try OMERecord.Event.find(selectedEventID).update {
+                $0.name = "Unpublished Wicked Woods"
+            }
+            .execute(db)
+            try WorkspaceAuthoringActivationRecord.insert {
+                WorkspaceAuthoringActivationRecord(
+                    id: workspace.id,
+                    principal: principal,
+                    role: .owner,
+                    activatedAt: Date(timeIntervalSince1970: 1_786_000_000)
+                )
+            }
+            .execute(db)
+        }
+        let storedActivation = try await database.read { db in
+            try WorkspaceAuthoringActivationRecord.find(workspace.id).fetchOne(db)
+        }
+        #expect(storedActivation != nil)
+
+        let authoringGrant = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = selectedEventID
+        } operation: {
+            Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+        }
+        defer { authoringGrant.withLock { $0 = nil } }
+
+        let checkoutPause = WorkspaceStoryCheckoutPause()
+        let authenticationStorage = workspaceStoryOAuthStorage(actorID: actorID)
+        let route = AppRoute.event(selectedEventID, .settings)
+        let routeURL = try #require(URL(string: "ome://authoring-exit\(route.path)"))
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            $0.continuousClock = ContinuousClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.defaultEventID = selectedEventID
+            $0.omeEventInstallation = .liveValue
+            $0.uuid = .incrementing
+            $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
+                _, requestedActorID in
+                #expect(requestedActorID == actorID)
+                return .owner
+            }
+            $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient {
+                requestedWorkspace in
+                #expect(requestedWorkspace == workspace)
+                return WorkspacePreparation(
+                    line: .canonical(
+                        WorkspaceBranchReference(
+                            branch: WorkspaceBranch(rawValue: workspace.branch),
+                            revision: WorkspaceRevision(rawValue: "authoring-revision")
+                        )
+                    ),
+                    source: resource
+                )
+            }
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                await checkoutPause.pause()
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    source,
+                    to: request.outputURL
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            let store = TestStore(
+                initialState: OpenMusicEventApplication.State(
+                    storage: authenticationStorage
+                ) {
+                    OpenMusicEventAppRoot.State()
+                }
+            ) {
+                OpenMusicEventApplication(storage: authenticationStorage) {
+                    OpenMusicEventAppRoot()
+                }
+                    .presentAuthorizationFailures()
+                    .deliverAuthoringAuthorizationChanges()
+            }
+            await workspaceStoryOpenEvent(store, route: route, url: routeURL)
+            try await workspaceStoryWaitUntil {
+                guard case .active = store.content.destination?.eventViewer?.authoring.phase,
+                      case .ready(.canonical) = store.content.destination?.eventViewer?
+                        .authoring.content.phase
+                else { return false }
+                return true
+            }
+            #expect(
+                store.content.destination?.eventViewer?.authoring.content.content.eventSettings != nil
+            )
+
+            await store.send(
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
+                .exitAuthoringButtonTapped
+            )?.value
+            #expect(
+                store.content.destination?.eventViewer?.authoring.content.content.eventSettings?
+                    .destination?.exitAuthoringConfirmation != nil
+            )
+
+            let confirmedExit = store.send(
+                to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
+                .destination(.exitAuthoringConfirmation(.exitAndDeleteButtonTapped))
+            )
+            await checkoutPause.waitUntilStarted()
+
+            // The destructive prompt has been accepted, but the download is still paused.
+            // Authoring and the unpublished content remain intact until canonical validation and
+            // the one database transaction have both succeeded.
+            #expect(authoringGrant.wrappedValue != nil)
+            let pausedEventName = try await database.read { db in
+                try OMERecord.Event.find(selectedEventID).fetchOne(db)?.name
+            }
+            expectNoDifference(
+                pausedEventName,
+                "Unpublished Wicked Woods"
+            )
+
+            await checkoutPause.continueCheckout()
+            await confirmedExit?.value
+
+            try await workspaceStoryWaitUntil {
+                guard let authoring = store.content.destination?.eventViewer?.authoring else {
+                    return false
+                }
+                return authoring.grant == nil
+                    && authoring.content.phase == .inactive
+                    && authoring.content.content.event?.name == "Wicked Woods 2026"
+            }
+            #expect(authoringGrant.wrappedValue == nil)
+            #expect(store.content.destination?.eventViewer?.authoring.grant == nil)
+            try await database.read { db in
+                expectNoDifference(
+                    try OMERecord.Event.find(selectedEventID).fetchOne(db)?.name,
+                    "Wicked Woods 2026"
+                )
+                #expect(try OMERecord.Event.find(authoringOnlyEventID).fetchOne(db) == nil)
+                expectNoDifference(
+                    try InstalledEventRecord.fetchAll(db).map(\.id),
+                    [selectedEventID]
+                )
+                #expect(
+                    try SourceWorkspaceInstallationRecord.find(workspace.id).fetchOne(db) == nil
+                )
+                #expect(
+                    try WorkspaceAuthoringActivationRecord.find(workspace.id).fetchOne(db) == nil
+                )
+                expectNoDifference(
+                    try Int.fetchOne(
+                        db,
+                        sql: #"SELECT COUNT(*) FROM "sourceWorkspaceCanonicalResets" WHERE "id" = ?"#,
+                        arguments: [workspace.id.rawValue]
+                    ),
+                    1
+                )
+            }
         }
     }
 
@@ -2043,6 +2312,37 @@ private actor WorkspaceStoryPreparationGate {
         precondition(firstAttemptStarted, "The first preparation attempt has not started.")
         firstAttemptFailure?.resume()
         firstAttemptFailure = nil
+    }
+}
+
+private actor WorkspaceStoryCheckoutPause {
+    private var checkoutContinuation: CheckedContinuation<Void, Never>?
+    private var isStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func pause() async {
+        precondition(!isStarted, "Canonical checkout unexpectedly started more than once.")
+        isStarted = true
+        for waiter in startWaiters {
+            waiter.resume()
+        }
+        startWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            checkoutContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !isStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func continueCheckout() {
+        precondition(isStarted, "Canonical checkout has not started.")
+        checkoutContinuation?.resume()
+        checkoutContinuation = nil
     }
 }
 

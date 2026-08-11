@@ -973,6 +973,78 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Track explicitly installed OpenMusicEvent events") { db in
+                // There is deliberately no event foreign key. Canonical refresh replaces event
+                // records transactionally and must not erase the attendee's installation intent.
+                try #sql("""
+                    CREATE TABLE "installedEvents" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "sourceKind" TEXT,
+                      "sourceReference" TEXT,
+                      "ref" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                // Older attendee databases treated every visible event as installed. Preserve
+                // those events unless they were expanded into the writable database by an active
+                // source workspace. For that ambiguous legacy case, retain only the app's selected
+                // event: authoring must not silently turn every event in the repository into an
+                // attendee installation.
+                let selectedOrganizerID = try db.tableExists("appState")
+                    ? String.fetchOne(
+                        db,
+                        sql: #"SELECT "organizerID" FROM "appState" WHERE "id" = 1"#
+                    )
+                    : nil
+                let selectedEventID = try db.tableExists("appState")
+                    ? String.fetchOne(
+                        db,
+                        sql: #"SELECT "eventID" FROM "appState" WHERE "id" = 1"#
+                    )
+                    : nil
+                let selectedCoordinates = selectedOrganizerID.flatMap { organizerID in
+                    selectedEventID.map { eventID in (organizerID, eventID) }
+                }
+                let preparedWorkspaceIDs = Set(
+                    try SourceWorkspaceInstallationRecord.fetchAll(db).map(\.id)
+                )
+                let provenancesByEventID = Dictionary(
+                    uniqueKeysWithValues: try EventSourceProvenanceRecord.fetchAll(db)
+                        .map { ($0.id, $0) }
+                )
+
+                for event in try OME.Event.fetchAll(db) {
+                    let provenance = provenancesByEventID[event.id]
+                    let belongsToPreparedWorkspace = provenance?.workspace.map {
+                        preparedWorkspaceIDs.contains($0.id)
+                    } ?? false
+                    let wasSelected = selectedCoordinates.map {
+                        $0.0 == event.id.organizerID.description
+                            && $0.1 == event.id.eventID.rawValue.rawValue
+                    } ?? false
+                    guard !belongsToPreparedWorkspace || wasSelected else { continue }
+                    try InstalledEventRecord.insert {
+                        InstalledEventRecord(
+                            id: event.id,
+                            sourceProvenance: provenance?.sourceProvenance
+                        )
+                    }
+                    .execute(db)
+                }
+            }
+
+            migrator.registerMigration("Track confirmed source workspace canonical resets") { db in
+                try #sql("""
+                    CREATE TABLE "sourceWorkspaceCanonicalResets" (
+                      "id" TEXT PRIMARY KEY NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

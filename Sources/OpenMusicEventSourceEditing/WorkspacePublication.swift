@@ -73,6 +73,24 @@ public enum WorkspacePublicationMigrations {
     }
 }
 
+/// Durable workspace state that is meaningful only while this device is authoring the source.
+public enum SourceWorkspaceEditingState {
+    /// Removes the writable baseline and all in-flight publication state in the caller's
+    /// transaction. The reference database belongs to the source checkout and is not mutated here.
+    public static func discard(
+        _ workspaceID: SourceWorkspace.ID,
+        in database: Database
+    ) throws {
+        try WorkspacePublicationRecord.find(workspaceID).delete().execute(database)
+        try WorkspaceAuthoringActivationRecord.find(workspaceID).delete().execute(database)
+        try SourceWorkspaceInstallationRecord.find(workspaceID).delete().execute(database)
+        try WorkspaceRelationshipRecord
+            .where { $0.id.workspaceID.eq(workspaceID) }
+            .delete()
+            .execute(database)
+    }
+}
+
 /// The durable identity of the proposal branch currently owned by a source workspace.
 /// Transient submission retry state remains private to the publication implementation.
 public struct SourceWorkspaceOpenProposalStore: Sendable {

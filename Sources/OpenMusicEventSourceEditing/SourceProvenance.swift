@@ -82,7 +82,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         )
     }
 
-    static func normalizedBranch(_ branch: String?) -> String {
+    public static func normalizedBranch(_ branch: String?) -> String {
         let branch = branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if branch.isEmpty || branch == "HEAD" {
             return "main"

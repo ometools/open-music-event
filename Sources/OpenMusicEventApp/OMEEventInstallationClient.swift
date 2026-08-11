@@ -79,7 +79,16 @@ extension OMEEventInstallationClient: DependencyKey {
                         provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
                     )
                 }
-                if installation.event != nil, installation.provenance != nil {
+                if installation.event != nil, let provenance = installation.provenance {
+                    try await database.write { db in
+                        try InstalledEventRecord.upsert {
+                            InstalledEventRecord(
+                                id: eventID,
+                                sourceProvenance: provenance.sourceProvenance
+                            )
+                        }
+                        .execute(db)
+                    }
                     return eventID
                 }
 
@@ -93,23 +102,17 @@ extension OMEEventInstallationClient: DependencyKey {
 
                 let result = try await OpenMusicEventSourceValidator(installationRequest)
                     .validate(eventID: eventID)
-                if installation.event == nil {
-                    try await result.insertion.migrateAndInsert(into: database)
-                } else {
-                    guard let provenance = result.insertion.eventSourceProvenances
-                        .first(where: { $0.eventID == eventID })
-                    else {
-                        throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-                    }
-                    try await database.write { db in
-                        try EventSourceProvenanceRecord.insert {
-                            EventSourceProvenanceRecord(provenance)
-                        } onConflict: {
-                            $0.id
-                        }
-                        .execute(db)
-                    }
+                guard let workspace = result.insertion.eventSourceProvenances
+                    .first(where: { $0.eventID == eventID })
+                    .flatMap({ EventSourceProvenanceRecord($0).workspace })
+                else {
+                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
                 }
+                try await result.insertion.installCanonicalEvent(
+                    eventID,
+                    from: workspace,
+                    in: database
+                )
                 return eventID
             },
             synchronizeInstalledEvent: { eventID in

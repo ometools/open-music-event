@@ -1,10 +1,17 @@
 import ATProto
 import ComposableAuthoring
 import Dependencies
+import Foundation
 import OpenMusicEventAuthentication
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+#if canImport(OSLog)
+import OSLog
+#endif
+import SQLiteData
 import TangledLexicon
 import TangledXRPC
 import XRPCClient
@@ -88,7 +95,7 @@ where
                 guard grant.workspaceID == workspace.id else {
                     throw OpenMusicEventAuthoringClientError.grantWorkspaceMismatch
                 }
-                try await activations.deactivate(workspace.id)
+                try await restoreAttendeeInstallation(for: workspace)
             },
             restore: { workspace in
                 guard let activation = try activations.current(workspace.id) else {
@@ -143,7 +150,128 @@ private func authoringEligibility(
     )
 }
 
+private func restoreAttendeeInstallation(for workspace: SourceWorkspace) async throws {
+    AuthoringExitDiagnostics.notice("""
+    Authoring exit canonical restoration started
+    workspace: \(workspace.id.rawValue)
+    repository: \(workspace.repository)
+    ref: \(workspace.branch)
+    """)
+    do {
+        try await performAttendeeInstallationRestoration(for: workspace)
+        AuthoringExitDiagnostics.notice("""
+        Authoring exit canonical restoration completed
+        workspace: \(workspace.id.rawValue)
+        """)
+    } catch {
+        AuthoringExitDiagnostics.failure("""
+        Authoring exit canonical restoration failed
+        workspace: \(workspace.id.rawValue)
+        error: \(String(describing: error))
+        """)
+        throw error
+    }
+}
+
+private func performAttendeeInstallationRestoration(
+    for workspace: SourceWorkspace
+) async throws {
+    @Dependency(\.defaultDatabase) var database
+    let installedEventIDs = try await database.read { db in
+        try InstalledEventRecord.all
+            .fetchAll(db)
+            .filter { $0.workspace?.id == workspace.id }
+            .map(\.id)
+            .sorted { $0.eventID.rawValue < $1.eventID.rawValue }
+    }
+    guard !installedEventIDs.isEmpty else {
+        throw OpenMusicEventAuthoringClientError.noInstalledEvents(workspace.id)
+    }
+    AuthoringExitDiagnostics.notice("""
+    Authoring exit attendee installations resolved
+    workspace: \(workspace.id.rawValue)
+    eventCount: \(installedEventIDs.count)
+    """)
+
+    @Dependency(\.uuid) var uuid
+    let outputURL = TangledSourceCloner.temporaryOutputURL(uuid: uuid())
+    defer { try? FileManager.default.removeItem(at: outputURL) }
+
+    let downloaded = try await OpenMusicEventSourceValidator(
+        OpenMusicEventSourceValidationRequest(
+            source: workspace.repository,
+            organizerID: workspace.organizerID,
+            ref: workspace.branch,
+            outputURL: outputURL
+        )
+    )
+    .validate()
+    guard downloaded.organizerID == workspace.organizerID else {
+        throw OpenMusicEventAuthoringClientError.canonicalSourceMismatch(workspace.id)
+    }
+    AuthoringExitDiagnostics.notice("""
+    Authoring exit canonical source downloaded
+    workspace: \(workspace.id.rawValue)
+    """)
+
+    var canonicalEvents: [OME.SourceDatabaseInsertion] = []
+    canonicalEvents.reserveCapacity(installedEventIDs.count)
+    for eventID in installedEventIDs {
+        var insertion = try await OpenMusicEventSourceValidator(
+            OpenMusicEventSourceValidationRequest(
+                source: downloaded.repositoryURL.path(percentEncoded: false),
+                organizerID: workspace.organizerID,
+                ref: workspace.branch
+            )
+        )
+        .validate(eventID: eventID)
+        .insertion
+        for index in insertion.eventSourceProvenances.indices {
+            insertion.eventSourceProvenances[index].source = workspace.sourceProvenance
+        }
+        canonicalEvents.append(insertion)
+    }
+    AuthoringExitDiagnostics.notice("""
+    Authoring exit canonical attendee events validated
+    workspace: \(workspace.id.rawValue)
+    eventCount: \(canonicalEvents.count)
+    """)
+
+    try await OME.SourceDatabaseInsertion.restoreCanonicalEvents(
+        canonicalEvents,
+        from: workspace,
+        in: database
+    )
+}
+
+private enum AuthoringExitDiagnostics {
+    #if canImport(OSLog)
+    static let logger = Logger(
+        subsystem: "app.openmusicevent",
+        category: "authoring"
+    )
+    #endif
+
+    static func notice(_ message: String) {
+        #if canImport(OSLog)
+        logger.notice("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
+
+    static func failure(_ message: String) {
+        #if canImport(OSLog)
+        logger.error("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
+}
+
 private enum OpenMusicEventAuthoringClientError: Error {
+    case canonicalSourceMismatch(SourceWorkspace.ID)
     case eligibilityChanged
     case grantWorkspaceMismatch
+    case noInstalledEvents(SourceWorkspace.ID)
 }

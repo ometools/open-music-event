@@ -93,12 +93,25 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     await entry?.value
                 }
             }
-            .onEvent(AuthoringExitRequested.self) { _, _ in
+            .onEvent(AuthoringExitRequested.self) { _, state in
+                let workspaceID = state.authoring.context.id
                 store.addTask {
                     let exit = try store.send(
                         .authoring(.exitButtonTapped)
                     )
                     await exit?.value
+                    guard store.state.authoring.grant == nil else { return }
+                    let reset = try store.modify { state in
+                        // Canonical content is already committed to SQLite. Preserve the mounted
+                        // EventViewer read model, but discard the authorized source/phase so a
+                        // later authoring entry must prepare a fresh canonical workspace.
+                        let content = state.authoring.content.content
+                        state.authoring.content = WorkspaceAuthoring.WorkspaceFeature.State(
+                            workspaceID: WorkspaceID(rawValue: workspaceID.rawValue),
+                            makeContentState: { content }
+                        )
+                    }
+                    await reset?.value
                 }
             }
             .onEvent(SourceWorkspacePreparationRetryRequested.self) { _, _ in
