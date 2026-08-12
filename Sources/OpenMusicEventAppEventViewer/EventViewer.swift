@@ -338,18 +338,6 @@ public struct EventViewer {
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
-        var notificationSubscriptions: Set<NotificationSubscription> {
-            [
-                NotificationSubscription(
-                    sourceID: .init(
-                        rawValue: OMERecord.Event.reference(id: eventID)
-                            .uri
-                            .description
-                    )
-                )
-            ]
-        }
-
         public var scheduleViewers: [Spawn<ScheduleViewer>] = []
         public var contributorsViewer: Spawn<ContributorsViewer>?
         public var stagesViewer: Spawn<StagesViewer>?
@@ -919,10 +907,6 @@ public struct EventViewer {
 //        let _ = Self._logChanges()
         Features {
             AnyFeature(
-                EmptyFeature<State, Action>()
-                    .notificationSubscriptions(\.notificationSubscriptions)
-            )
-            AnyFeature(
                 Update { state, action in
                     switch action {
                     case .closeButtonTapped:
@@ -1352,6 +1336,7 @@ public struct EventViewerView: View {
                         title: EventViewer.EventFeature.communications.title,
                         systemImage: EventViewer.EventFeature.communications.systemImage,
                         labelTint: EventViewer.EventFeature.communications.labelTint,
+                        badgeValue: featureStore.unreadPostCount,
                         navigation: .stack
                     ) {
                         CommunicationsViewerView(store: featureStore)
@@ -1565,7 +1550,10 @@ public struct EventViewerView: View {
                 \.communicationsViewer,
                 action: \.communicationsViewer
             ) {
-                viewerTab(.communications) {
+                viewerTab(
+                    .communications,
+                    badgeValue: featureStore.unreadPostCount
+                ) {
                     CommunicationsViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.communications)
@@ -1692,7 +1680,10 @@ public struct EventViewerView: View {
                 \.communicationsViewer,
                 action: \.communicationsViewer
             ) {
-                viewerTab(.communications) {
+                viewerTab(
+                    .communications,
+                    badgeValue: featureStore.unreadPostCount
+                ) {
                     CommunicationsViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.communications)

@@ -21,7 +21,11 @@ struct MyEventsView: View {
                 Button {
                     store.send(.eventButtonTapped(event.id))
                 } label: {
-                    EventRowView(event: event)
+                    EventRowView(
+                        event: event,
+                        notificationIndicatorCount:
+                            store.notificationIndicatorCountsByEventID[event.id, default: 0]
+                    )
                 }
             }
         }
@@ -32,6 +36,15 @@ struct MyEventsView: View {
 
 struct EventRowView: View {
     let event: OMERecord.Event
+    let notificationIndicatorCount: Int
+
+    init(
+        event: OMERecord.Event,
+        notificationIndicatorCount: Int = 0
+    ) {
+        self.event = event
+        self.notificationIndicatorCount = notificationIndicatorCount
+    }
 
     nonisolated static func imageAssets(
         icon: OME.ImageAsset?,
@@ -61,6 +74,19 @@ struct EventRowView: View {
                 }
             }
             Spacer()
+            if notificationIndicatorCount > 0 {
+                Text("\(notificationIndicatorCount)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.tint, in: Capsule())
+                    .accessibilityLabel(
+                        Text("\(notificationIndicatorCount) unread notifications")
+                    )
+            }
         }
         .foregroundStyle(.primary)
     }

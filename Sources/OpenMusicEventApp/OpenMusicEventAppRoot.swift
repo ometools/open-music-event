@@ -34,6 +34,15 @@ public struct OpenMusicEventAppRoot {
             selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
             workspaceRestorationErrorAtLaunch: (any Error)? = nil
         ) {
+            _installedEvents = FetchAll(InstalledEventRecord.all)
+            _notificationIndicatorSummary = Fetch(
+                wrappedValue: ApplicationNotificationIndicatorSummary(),
+                ApplicationNotificationIndicatorSummaryRequest()
+            )
+            _notificationSubscriptions = Fetch(
+                wrappedValue: [],
+                ApplicationNotificationSubscriptionsRequest()
+            )
             self.variant = variant
             self.workspaceRestorationError = workspaceRestorationErrorAtLaunch
             if workspaceRestorationErrorAtLaunch == nil,
@@ -80,6 +89,10 @@ public struct OpenMusicEventAppRoot {
         @FetchOne(AppState.find(1))
         public var appState: AppState?
 
+        @FetchAll public var installedEvents: [InstalledEventRecord]
+        @Fetch public var notificationIndicatorSummary: ApplicationNotificationIndicatorSummary
+        @Fetch public var notificationSubscriptions: Set<NotificationSubscription>
+
         public var selectedEventID: OMERecord.Event.ID? {
             appState?.selectedEventID
         }
@@ -103,11 +116,22 @@ public struct OpenMusicEventAppRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.applicationIconBadgeClient) var applicationIconBadgeClient
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.omeEventInstallation) var eventInstallation
     @Dependency(\.uuid) var uuid
     public var body: some Feature {
 //        let _ = Self._logChanges()
+
+        let setApplicationIconBadge: (Int) -> Void = { count in
+            store.addTask {
+                do {
+                    try await applicationIconBadgeClient.setCount(count)
+                } catch {
+                    reportIssue(error)
+                }
+            }
+        }
 
         let prefetchAssetsOnOpen: (OMERecord.Event.ID) -> Void = { eventID in
             store.addTask {
@@ -289,6 +313,7 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onMount { state in
+            setApplicationIconBadge(state.notificationIndicatorSummary.totalCount)
             guard let error = state.workspaceRestorationError else { return }
             state.workspaceRestorationError = nil
             store.addTask {
@@ -298,6 +323,10 @@ public struct OpenMusicEventAppRoot {
                     operation: .eventWorkspaceRestore
                 )
             }
+        }
+        .onChange(of: store.notificationIndicatorSummary.totalCount) {
+            _, count, _ in
+            setApplicationIconBadge(count)
         }
         .onEvent(NavigationRequested.self) { request, state in
             store.addTask {
@@ -320,22 +349,27 @@ public struct OpenMusicEventAppRoot {
         .onTrigger(store.notificationSignal) {
             (signal: NotificationSignal, state: inout State) in
             guard case let .sourceAvailable(source) = signal else { return }
-            let mountedEventID = state.destination?.eventViewer?
-                .authoring
-                .content
-                .content
-                .id
-            let refreshesMountedEvent = mountedEventID.flatMap { eventID in
-                source.id.rawValue == OMERecord.Event.reference(id: eventID)
-                    .uri
-                    .description
-                    ? eventID
-                    : nil
+            let installedEventIDs = Set(state.installedEvents.map(\.id))
+            let routedEventID: OMERecord.Event.ID?
+            if let route = AppRoute(notificationRoute: source.id.rawValue),
+               case let .event(eventID, _) = route,
+               installedEventIDs.contains(eventID) {
+                routedEventID = eventID
+            } else {
+                routedEventID = nil
             }
+            let refreshesInstalledEvents = routedEventID.map { [$0] }
+                ?? state.installedEvents.compactMap { installedEvent in
+                    source.id.rawValue == OMERecord.Event.reference(id: installedEvent.id)
+                        .uri
+                        .description
+                        ? installedEvent.id
+                        : nil
+                }
             let refreshesBrowse = state.variant == .generic
-            guard refreshesBrowse || refreshesMountedEvent != nil else {
+            guard refreshesBrowse || !refreshesInstalledEvents.isEmpty else {
                 NotificationRefreshDiagnostics.debug("""
-                Ignoring source-available notification with no relevant mounted content
+                Ignoring source-available notification with no relevant installed content
                 source: \(source.id.rawValue)
                 version: \(source.version.rawValue)
                 """)
@@ -346,16 +380,20 @@ public struct OpenMusicEventAppRoot {
                 Source-available notification refresh started
                 source: \(source.id.rawValue)
                 version: \(source.version.rawValue)
-                event: \(refreshesMountedEvent.map { OMERecord.Event.reference(id: $0).uri.description } ?? "none")
+                events: \(refreshesInstalledEvents.map { OMERecord.Event.reference(id: $0).uri.description }.joined(separator: ", "))
                 browse: \(refreshesBrowse)
                 """)
                 do {
-                    if let eventID = refreshesMountedEvent {
+                    for eventID in refreshesInstalledEvents {
                         try await eventInstallation.synchronizeInstalledEvent(eventID)
                     }
                     if refreshesBrowse {
                         try await store.browser.browse.refresh()?.value
                     }
+                    let summary = try await database.read { database in
+                        try ApplicationNotificationIndicatorSummaryRequest().fetch(database)
+                    }
+                    try await applicationIconBadgeClient.setCount(summary.totalCount)
                     NotificationRefreshDiagnostics.notice("""
                     Source-available notification refresh completed
                     source: \(source.id.rawValue)
@@ -391,6 +429,7 @@ public struct OpenMusicEventAppRoot {
         .ifLet(\.whiteLabelRoot) {
             WhiteLabelRoot()
         }
+        .notificationSubscriptions(\.notificationSubscriptions)
         .notifications(
             appDelegateEventTrigger: \.appDelegateEvent,
             contentTrigger: \.notificationContent,

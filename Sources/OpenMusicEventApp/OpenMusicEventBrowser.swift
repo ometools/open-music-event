@@ -57,6 +57,10 @@ public struct OpenMusicEventBrowser {
         public var search = Spawn(Browse.State())
         public var settings = Settings.State()
         public var myEvents = Spawn(MyEvents.State())
+
+        public var myEventsNotificationIndicatorCount: Int {
+            myEvents.notificationIndicatorCount
+        }
     }
 
     public enum Action {
@@ -148,6 +152,7 @@ public struct OpenMusicEventBrowserView: View {
                 .myEvents,
                 title: "My Events",
                 systemImage: "star",
+                badgeValue: store.myEventsNotificationIndicatorCount,
                 navigation: .stack
             ) {
                 MyEventsView(store: store.spawn(\.myEvents))
@@ -198,6 +203,7 @@ public struct OpenMusicEventBrowserView: View {
                 Label("My Events", systemImage: "star")
             }
             .tag(OpenMusicEventBrowser.Tab.myEvents)
+            .badge(store.myEventsNotificationIndicatorCount)
 
             NavigationStack {
                 SettingsFeatureView(
@@ -245,6 +251,7 @@ public struct OpenMusicEventBrowserView: View {
                 Label("My Events", systemImage: "star")
             }
             .tag(OpenMusicEventBrowser.Tab.myEvents)
+            .badge(store.myEventsNotificationIndicatorCount)
 
             NavigationStack {
                 SettingsFeatureView(

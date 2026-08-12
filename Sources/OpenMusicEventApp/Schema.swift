@@ -1,6 +1,7 @@
 import BlueskyActorCache
 import Dependencies
 import Foundation
+import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
@@ -349,6 +350,22 @@ public enum OpenMusicEventAppDatabaseMigrations {
             ADD COLUMN "didInitializeUserSchedules" INTEGER NOT NULL DEFAULT 0
             """)
             .execute(db)
+    }
+
+    migrator.registerMigration("Create local communication post read state") { db in
+        let tableName = CommsPostRead.tableName
+        try #sql(
+            """
+            CREATE TABLE \(quote: tableName) (
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "channelID" TEXT NOT NULL,
+              "postID" TEXT NOT NULL,
+              PRIMARY KEY ("organizerID", "eventID", "channelID", "postID")
+            ) STRICT
+            """
+        )
+        .execute(db)
     }
     }
 }

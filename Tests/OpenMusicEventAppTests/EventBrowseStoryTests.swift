@@ -166,7 +166,7 @@ struct EventBrowseStoryTests {
 
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     @Test(.tcaExhaustivity(.off)) @MainActor
-    func `entering an event publishes its notification subscription`() async throws {
+    func `an installed event publishes its notification subscription before it is opened`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -186,6 +186,10 @@ struct EventBrowseStoryTests {
             .execute(database)
             try OME.Event.insert {
                 testEventDraft(id: eventID, name: "Wicked Woods 2026")
+            }
+            .execute(database)
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(id: eventID)
             }
             .execute(database)
             try EventSourceProvenanceRecord.insert {
@@ -262,6 +266,10 @@ struct EventBrowseStoryTests {
             .execute(database)
             try OME.Event.insert {
                 testEventDraft(id: eventID, name: "Wicked Woods 2026")
+            }
+            .execute(database)
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(id: eventID)
             }
             .execute(database)
             try EventSourceProvenanceRecord.insert {
@@ -344,7 +352,7 @@ struct EventBrowseStoryTests {
                 OpenMusicEventAppRoot()
             }
 
-            // A source update for some other subscription must not touch the mounted event.
+            // A source update for some other subscription must not touch the installed event.
             // Keeping this as provider JSON proves that filtering happens after the same
             // notification decoding boundary used by the app delegate.
             let unrelatedNotificationJSON = """
@@ -377,7 +385,7 @@ struct EventBrowseStoryTests {
 
             // This is the exact provider JSON delivered through the app delegate. Its version is
             // opaque notification metadata, while the source ID matches the subscription
-            // published by the already-mounted event viewer.
+            // published by the installed-event library.
             let notificationJSON = """
             {
               "aps": {

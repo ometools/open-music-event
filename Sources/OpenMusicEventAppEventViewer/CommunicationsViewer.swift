@@ -17,10 +17,7 @@ struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
     var id: OMERecord.Channel.ID { channel.id }
 
     var effectiveNotificationState: OMERecord.Channel.NotificationState {
-        if channel.notificationsRequired {
-            return .subscribed
-        }
-        return preference?.notificationState ?? channel.defaultNotificationState
+        channel.effectiveNotificationState(preference: preference)
     }
 
     var notificationSystemImage: String {
@@ -62,6 +59,7 @@ public struct CommunicationsViewer {
         @FetchAll public var channels: [OMERecord.Channel]
         @FetchAll public var channelPreferences: [ChannelPreferences]
         @FetchOne public var event: OMERecord.Event?
+        @Fetch public var unreadPostCounts: CommsUnreadPostCounts
 
         public init(
             eventID: OMERecord.Event.ID,
@@ -72,6 +70,10 @@ public struct CommunicationsViewer {
             _channels = FetchAll(CommunicationsViewer.channelsQuery(eventID: eventID))
             _channelPreferences = FetchAll(CommunicationsViewer.channelPreferencesQuery(eventID: eventID))
             _event = FetchOne(OMERecord.Event.where { $0.id.eq(eventID) })
+            _unreadPostCounts = Fetch(
+                wrappedValue: CommsUnreadPostCounts(),
+                CommsUnreadPostCountsRequest(eventIDs: [eventID])
+            )
         }
 
         var channelRows: [CommunicationChannelRow] {
@@ -100,6 +102,10 @@ public struct CommunicationsViewer {
 
         public var canManageChannels: Bool {
             authoringGrant?.access.canEditContent == true
+        }
+
+        public var unreadPostCount: Int {
+            unreadPostCounts.count(for: eventID)
         }
     }
 
@@ -516,6 +522,12 @@ public struct CommunicationChannelDetail {
                     eventID: eventID
                 )
             )
+            _postReads = FetchAll(
+                CommunicationChannelDetail.postReadsQuery(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            )
         }
 
         public let channelID: OMERecord.ID<OMERecord.Channel>
@@ -528,6 +540,7 @@ public struct CommunicationChannelDetail {
         @FetchOne public var channel: OMERecord.Channel?
         @FetchOne public var preference: ChannelPreferences?
         @FetchAll public var posts: [CommsPost]
+        @FetchAll public var postReads: [CommsPostRead]
 
         public var id: OMERecord.ID<OMERecord.Channel> { channelID }
 
@@ -565,11 +578,17 @@ public struct CommunicationChannelDetail {
         var shouldShowEmptyPostsFooter: Bool {
             posts.isEmpty
         }
+
+        var readPostIDs: Set<CommsPost.ID> {
+            Set(postReads.map(\.id))
+        }
     }
 
     public enum Action {
         case deleteChannelButtonTapped
         case editChannelButtonTapped(OMERecord.Channel)
+        case markPostReadButtonTapped(CommsPost.ID)
+        case markPostUnreadButtonTapped(CommsPost.ID)
         case newPostButtonTapped
         case notificationStateButtonTapped(OMERecord.Channel.NotificationState)
         case postButtonTapped(CommsPost.ID)
@@ -617,6 +636,16 @@ public struct CommunicationChannelDetail {
             .order { ($0.sortIndex, $0.title.collate(.nocase)) }
     }
 
+    static func postReadsQuery(
+        channelID: OMERecord.ID<OMERecord.Channel>,
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<CommsPostRead> {
+        CommsPostRead
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .where { $0.id.channelID.eq(channelID) }
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
@@ -627,6 +656,12 @@ public struct CommunicationChannelDetail {
 
             case let .editChannelButtonTapped(channel):
                 state.destination = .channelForm(ChannelForm.State(channel: channel))
+
+            case let .markPostReadButtonTapped(postID):
+                updateReadState(true, postID: postID)
+
+            case let .markPostUnreadButtonTapped(postID):
+                updateReadState(false, postID: postID)
 
             case .newPostButtonTapped:
                 guard state.canEditChannel else { return }
@@ -697,6 +732,25 @@ public struct CommunicationChannelDetail {
             }
         }
     }
+
+    func updateReadState(_ isRead: Bool, postID: CommsPost.ID) {
+        store.addTask {
+            do {
+                try await database.write { database in
+                    try CommsPostRead.setRead(isRead, postID: postID, in: database)
+                }
+                try store.modify {
+                    $0.errorMessage = nil
+                }
+            } catch {
+                try store.modify {
+                    $0.errorMessage = isRead
+                        ? "Unable to mark this post as read."
+                        : "Unable to mark this post as unread."
+                }
+            }
+        }
+    }
 }
 
 public struct CommunicationChannelDetailView: View {
@@ -722,13 +776,7 @@ public struct CommunicationChannelDetailView: View {
                     if !store.pinnedPosts.isEmpty {
                         Section("Pinned Posts") {
                             ForEach(store.pinnedPosts) { post in
-                                Button {
-                                    store.send(.postButtonTapped(post.id))
-                                } label: {
-                                    CommsPostRowView(post: post)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
+                                postRow(post)
                             }
                         }
                     }
@@ -736,13 +784,7 @@ public struct CommunicationChannelDetailView: View {
                     if !store.recentPosts.isEmpty {
                         Section("Recent Posts") {
                             ForEach(store.recentPosts) { post in
-                                Button {
-                                    store.send(.postButtonTapped(post.id))
-                                } label: {
-                                    CommsPostRowView(post: post)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
+                                postRow(post)
                             }
                         }
                     }
@@ -876,6 +918,39 @@ public struct CommunicationChannelDetailView: View {
             }
         }
     }
+
+    @ViewBuilder
+    func postRow(_ post: CommsPost) -> some View {
+        let isRead = store.readPostIDs.contains(post.id)
+        Button {
+            store.send(.postButtonTapped(post.id))
+        } label: {
+            CommsPostRowView(post: post, isRead: isRead)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                store.send(.markPostReadButtonTapped(post.id))
+            } label: {
+                Label(
+                    "Mark as Read",
+                    systemImage: isRead ? "checkmark" : "mail-open"
+                )
+            }
+            .disabled(isRead)
+
+            Button {
+                store.send(.markPostUnreadButtonTapped(post.id))
+            } label: {
+                Label(
+                    "Mark as Unread",
+                    systemImage: isRead ? "mail-unread" : "checkmark"
+                )
+            }
+            .disabled(!isRead)
+        }
+    }
 }
 
 @Feature
@@ -890,13 +965,38 @@ public struct CommsPostDetail {
 
         public let postID: CommsPost.ID
         @FetchOne public var post: CommsPost?
+        public var errorMessage: String?
         public var id: CommsPost.ID { postID }
     }
 
-    public enum Action {}
+    public enum Action {
+        case postBecameVisible
+    }
+
+    @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case .postBecameVisible:
+                guard state.post != nil else { return }
+                let postID = state.postID
+                store.addTask {
+                    do {
+                        try await database.write { database in
+                            try CommsPostRead.setRead(true, postID: postID, in: database)
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to mark this post as read."
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -946,6 +1046,12 @@ public struct CommsPostDetailView: View {
                         CommsMarkdownText(post.contents)
                             .multilineTextAlignment(.leading)
 
+                        if let errorMessage = store.errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+
                         ForEach((post.images ?? []).indices, id: \.self) { index in
                             let image = (post.images ?? [])[index]
                             ImageAssetAsyncImage(
@@ -963,6 +1069,9 @@ public struct CommsPostDetailView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 12)
                 }
+                .task(id: post.id) {
+                    await store.send(.postBecameVisible)?.value
+                }
             } else {
                 ViewerPlaceholderView(
                     title: "Post",
@@ -976,13 +1085,21 @@ public struct CommsPostDetailView: View {
 
 struct CommsPostRowView: View {
     let post: CommsPost
+    let isRead: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if !isRead {
+                    Circle()
+                        .fill(.tint)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                }
+
                 Text(post.title)
                     .font(.headline)
-                    .fontWeight(.medium)
+                    .fontWeight(isRead ? .regular : .semibold)
                     .foregroundStyle(.primary)
 
                 Spacer()
@@ -1001,6 +1118,7 @@ struct CommsPostRowView: View {
                 .lineLimit(4)
         }
         .padding(.vertical, 4)
+        .accessibilityValue(Text(isRead ? "Read" : "Unread"))
     }
 }
 

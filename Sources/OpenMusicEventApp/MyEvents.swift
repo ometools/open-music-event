@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ComposableNotifications
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventViewers
@@ -11,9 +12,31 @@ import SQLiteData
 @Feature
 public struct MyEvents {
     public struct State {
+        public init() {
+            _notificationIndicatorSummary = Fetch(
+                wrappedValue: ApplicationNotificationIndicatorSummary(),
+                ApplicationNotificationIndicatorSummaryRequest()
+            )
+        }
+
         @DebugSnapshotIgnored
         @FetchAll(MyEvents.query)
         var events
+
+        @DebugSnapshotIgnored
+        @Fetch var notificationIndicatorSummary: ApplicationNotificationIndicatorSummary
+
+        var notificationIndicatorCount: Int {
+            notificationIndicatorSummary.totalCount
+        }
+
+        var notificationIndicatorCountsByEventID: [OME.Event.ID: Int] {
+            Dictionary(
+                uniqueKeysWithValues: events.map { event in
+                    (event.id, notificationIndicatorSummary.count(for: event.id))
+                }
+            )
+        }
     }
 
     public enum Action {
