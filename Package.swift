@@ -435,6 +435,7 @@ scheduleComponentsDependencies.append(
 let routingTarget = Target.target(
     name: "OpenMusicEventRouting",
     dependencies: [
+        "OpenMusicEventLexicon",
         .product(name: "Tagged", package: "swift-tagged"),
     ]
 )
@@ -786,6 +787,7 @@ applicationTargets.append(contentsOf: [
         name: "OpenMusicEventAppRouting",
         dependencies: [
             "OpenMusicEventLexicon",
+            "OpenMusicEventRouting",
             "OpenMusicEventViewers",
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
         ]

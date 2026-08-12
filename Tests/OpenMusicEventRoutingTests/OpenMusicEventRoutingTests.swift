@@ -1,4 +1,5 @@
 import CustomDump
+import OpenMusicEventLexicon
 import OpenMusicEventRouting
 import Testing
 
@@ -138,4 +139,62 @@ struct OpenMusicEventRoutingTests {
             "http://preview.openmusicevent.app/styles.css"
         )
     }
+
+    @Test func `routes an exact branded event claim by host`() {
+        let claim = BrandedEventRouteClaim(
+            host: "wickedwoods.openmusicevent.app",
+            eventClaim: "2026",
+            eventID: wickedWoodsEventID
+        )
+        let router = OpenMusicEventRouter(
+            configuration: OpenMusicEventRoutingConfiguration(
+                brandedEventRouteClaims: [claim]
+            )
+        )
+
+        expectNoDifference(
+            router.route(
+                OpenMusicEventIncomingRequest(
+                    host: OpenMusicEventHost(rawValue: "wickedwoods.openmusicevent.app"),
+                    path: OpenMusicEventPath(rawValue: "/events/2026")
+                )
+            ),
+            .brandedEvent(claim)
+        )
+        expectNoDifference(
+            router.url(for: .brandedEvent(claim)).absoluteString,
+            "https://wickedwoods.openmusicevent.app/events/2026"
+        )
+    }
+
+    @Test func `rejects a branded event route on another host claim or nested path`() {
+        let claim = BrandedEventRouteClaim(
+            host: "wickedwoods.openmusicevent.app",
+            eventClaim: "2026",
+            eventID: wickedWoodsEventID
+        )
+        let router = OpenMusicEventRouter(
+            configuration: OpenMusicEventRoutingConfiguration(
+                brandedEventRouteClaims: [claim]
+            )
+        )
+
+        #expect(router.route(.init(
+            host: .init(rawValue: "openmusicevent.app"),
+            path: .init(rawValue: "/events/2026")
+        )) == nil)
+        #expect(router.route(.init(
+            host: .init(rawValue: "wickedwoods.openmusicevent.app"),
+            path: .init(rawValue: "/events/2025")
+        )) == nil)
+        #expect(router.route(.init(
+            host: .init(rawValue: "wickedwoods.openmusicevent.app"),
+            path: .init(rawValue: "/events/2026/schedule")
+        )) == nil)
+    }
 }
+
+private let wickedWoodsEventID = OME.Event.ID(
+    organizerID: OME.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")!,
+    eventID: OME.ID<OME.Event>(.init("ome-workspace-2026"))
+)

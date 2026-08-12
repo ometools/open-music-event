@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "FYZE6539TN.com.Festivl.WickedWoods"
+        ],
+        "components": [
+          {
+            "/": "/events/2026"
+          }
+        ]
+      }
+    ]
+  },
+  "appclips": {
+    "apps": [
+      "FYZE6539TN.com.Festivl.WickedWoods.Clip"
+    ]
+  }
+}

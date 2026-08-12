@@ -1,7 +1,10 @@
 import ComposableNotifications
 import Foundation
 import OpenMusicEventLexicon
+import OpenMusicEventRouting
 import OpenMusicEventViewers
+
+public typealias BrandedEventRouteClaim = OpenMusicEventRouting.BrandedEventRouteClaim
 
 public enum AppRoute: Equatable, NotificationRoute, Sendable {
     case event(OMERecord.Event.ID, EventTarget?)
@@ -17,21 +20,49 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
     }
 
     public init?(url: URL) {
+        self.init(url: url, brandedClaims: [])
+    }
+
+    public init?(
+        url: URL,
+        brandedClaims: [BrandedEventRouteClaim]
+    ) {
         let segments = url.path.split(separator: "/").map(String.init)
+        if segments.count >= 4,
+           segments[0] == "orgs",
+           segments[2] == "events",
+           let organizerID = OMERecord.Organizer.ID(segments[1].decodedPathSegment) {
+            self.init(
+                eventID: OMERecord.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OMERecord.ID<OMERecord.Event>(
+                        .init(segments[3].decodedPathSegment)
+                    )
+                ),
+                tail: Array(segments.dropFirst(4))
+            )
+            return
+        }
+
         guard
-            segments.count >= 4,
-            segments[0] == "orgs",
-            segments[2] == "events",
-            let organizerID = OMERecord.Organizer.ID(segments[1].decodedPathSegment)
+            url.scheme?.lowercased() == "https",
+            url.port == nil || url.port == 443,
+            let host = url.host?.lowercased(),
+            segments.count >= 2,
+            segments[0] == "events",
+            let claim = brandedClaims.first(where: {
+                $0.host.lowercased() == host
+                    && $0.eventClaim == segments[1].decodedPathSegment
+            })
         else { return nil }
 
-        let localEventID = OMERecord.ID<OMERecord.Event>(.init(segments[3].decodedPathSegment))
-        let eventID = OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: localEventID
+        self.init(
+            eventID: claim.eventID,
+            tail: Array(segments.dropFirst(2))
         )
-        let tail = Array(segments.dropFirst(4))
+    }
 
+    private init?(eventID: OMERecord.Event.ID, tail: [String]) {
         if tail.isEmpty {
             self = .event(eventID, nil)
         } else if tail == ["schedule"] {

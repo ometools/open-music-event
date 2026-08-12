@@ -267,6 +267,62 @@ struct NavigationTests {
 
     @Test(
         arguments: [
+            (
+                "https://festival.example/events/2026",
+                AppRoute.event(eventID("ome-workspace-2026"), nil)
+            ),
+            (
+                "https://festival.example/events/2026/schedule",
+                AppRoute.event(eventID("ome-workspace-2026"), .schedule)
+            ),
+            (
+                "https://festival.example:443/events/2026",
+                AppRoute.event(eventID("ome-workspace-2026"), nil)
+            ),
+        ]
+    )
+    func brandedEventRouteClaimsResolveIntoDurableRoutes(
+        urlString: String,
+        expected: AppRoute
+    ) throws {
+        let claim = BrandedEventRouteClaim(
+            host: "festival.example",
+            eventClaim: "2026",
+            eventID: eventID("ome-workspace-2026")
+        )
+        let url = try #require(URL(string: urlString))
+        let route = try #require(AppRoute(url: url, brandedClaims: [claim]))
+
+        expectNoDifference(route, expected)
+        expectNoDifference(
+            route.path,
+            "/orgs/did%3Aweb%3Aexample.com/events/ome-workspace-2026"
+                + (url.path.hasSuffix("/schedule") ? "/schedule" : "")
+        )
+        #expect(AppRoute(url: url) == nil)
+    }
+
+    @Test(
+        arguments: [
+            "https://somewhere-else.example/events/2026",
+            "https://festival.example/events/2025",
+            "http://festival.example/events/2026",
+            "https://festival.example:8443/events/2026",
+        ]
+    )
+    func brandedEventRouteClaimsRequireTheExactSecureOrigin(urlString: String) throws {
+        let claim = BrandedEventRouteClaim(
+            host: "festival.example",
+            eventClaim: "2026",
+            eventID: eventID("ome-workspace-2026")
+        )
+        let url = try #require(URL(string: urlString))
+
+        #expect(AppRoute(url: url, brandedClaims: [claim]) == nil)
+    }
+
+    @Test(
+        arguments: [
             "https://example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
             "orgs/did%3Aweb%3Aexample.com/events/event-1",
             "//example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
@@ -859,6 +915,44 @@ struct NavigationTests {
         }
 
         try await waitForSelectedEventID(secondEventID, in: database)
+    }
+
+    @Test
+    func brandedEventURLInstallsAndMountsTheDurableEvent() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        ))
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: eventLocalID("ome-workspace-2026")
+        )
+        let claim = BrandedEventRouteClaim(
+            host: "wickedwoods.openmusicevent.app",
+            eventClaim: "2026",
+            eventID: eventID
+        )
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            brandedEventRouteClaims: [claim]
+        )
+        let url = try #require(URL(
+            string: "https://wickedwoods.openmusicevent.app/events/2026"
+        ))
+
+        await store.send(.root(.openURL(url)))?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.eventID == eventID
+        }
+
+        expectNoDifference(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.eventID,
+            eventID
+        )
+        try await waitForSelectedEventID(eventID, in: database)
     }
     #endif
 
@@ -7905,13 +7999,18 @@ struct NavigationTests {
         eventID: OMERecord.Event.ID = eventID("event-1"),
         variant: OpenMusicEventAppVariant = .generic,
         selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
-        installationClient: OMEEventInstallationClient? = nil
+        installationClient: OMEEventInstallationClient? = nil,
+        brandedEventRouteClaims: [BrandedEventRouteClaim] = []
     ) -> TestStore<RootHarness> {
         withDependencies {
+            $0.appDelegateClient = AppDelegateClient(
+                events: { AsyncStream { $0.finish() } }
+            )
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.brandedEventRouteClaims = brandedEventRouteClaims
             $0.omeEventInstallation = installationClient ?? OMEEventInstallationClient(
                 ensureInstalled: { uri in
                     guard let eventID = OME.Event.ID(uri) else {

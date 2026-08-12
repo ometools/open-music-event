@@ -17,6 +17,7 @@ The AppView origin is intended to serve `openmusicevent.app`, `ome.social`,
 - `GET /.well-known/apple-app-site-association`: Apple Universal Links association.
 - `GET /apple-app-site-association`: Apple root-path fallback.
 - `GET /.well-known/assetlinks.json`: Android App Links association.
+- `GET /events/{claim}`: host-scoped branded attendee page for a configured durable event.
 - `POST /notifications/v1/installations`: creates an anonymous installation credential.
 - `PUT /notifications/v1/destination`: replaces the authenticated installation's typed APNs or
   FCM destination.
@@ -38,6 +39,7 @@ OME_APPVIEW_HOST=0.0.0.0
 OME_APPVIEW_PORT=8080
 OME_APPVIEW_WELL_KNOWN_ROOT=/absolute/path/to/WellKnown
 OME_APPVIEW_DATABASE_PATH=/absolute/path/to/open-music-event-appview.sqlite
+OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH=/absolute/path/to/branded-event-routes.json
 OME_NOTIFICATION_DESTINATION_KEY=<base64-encoded-32-byte-key>
 OME_NOTIFICATION_DESTINATION_KEY_VERSION=1
 OME_NOTIFICATION_REGISTRATION_AUTHORIZATION=anonymous
@@ -53,6 +55,25 @@ OME_TANGLED_WEBHOOK_CONFIGURATION_PATH=/absolute/path/to/tangled-webhooks.json
 OME_WEBHOOK_SECRET_KEY_PATH=/absolute/path/to/webhook-secret-key
 OME_WEBHOOK_SECRET_KEY_VERSION=1
 ```
+
+Branded route configuration keeps the public claim separate from the durable event identity. The
+Wicked Woods production entry is:
+
+```json
+{
+  "claims": [
+    {
+      "host": "wickedwoods.openmusicevent.app",
+      "eventClaim": "2026",
+      "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+      "eventRKey": "ome-workspace-2026"
+    }
+  ]
+}
+```
+
+The attendee URL therefore stays `https://wickedwoods.openmusicevent.app/events/2026`; the event
+rkey is deployment configuration and never appears in the branded path.
 
 The notification destination key belongs to the deployment, not the database or source tree.
 AppView stores AES-GCM ciphertext plus its key version so a future key rotation can retain old keys

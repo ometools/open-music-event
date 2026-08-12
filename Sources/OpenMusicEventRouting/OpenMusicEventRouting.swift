@@ -1,4 +1,5 @@
 import Foundation
+import OpenMusicEventLexicon
 import Tagged
 
 public enum OpenMusicEventHostTag {}
@@ -12,6 +13,22 @@ public typealias OpenMusicEventPath = Tagged<OpenMusicEventPathTag, String>
 public typealias OpenMusicEventQuery = Tagged<OpenMusicEventQueryTag, String>
 public typealias OpenMusicEventSiteAsset = Tagged<OpenMusicEventSiteAssetTag, String>
 public typealias OpenMusicEventWellKnownFile = Tagged<OpenMusicEventWellKnownFileTag, String>
+
+public struct BrandedEventRouteClaim: Equatable, Sendable {
+    public init(
+        host: String,
+        eventClaim: String,
+        eventID: OME.Event.ID
+    ) {
+        self.host = host
+        self.eventClaim = eventClaim
+        self.eventID = eventID
+    }
+
+    public let host: String
+    public let eventClaim: String
+    public let eventID: OME.Event.ID
+}
 
 public struct OpenMusicEventIncomingRequest: Equatable, Sendable {
     public var host: OpenMusicEventHost
@@ -32,13 +49,16 @@ public struct OpenMusicEventIncomingRequest: Equatable, Sendable {
 public struct OpenMusicEventRoutingConfiguration: Equatable, Sendable {
     public var appHost: OpenMusicEventHost
     public var handleHost: OpenMusicEventHost
+    public var brandedEventRouteClaims: [BrandedEventRouteClaim]
 
     public init(
         appHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "openmusicevent.app"),
-        handleHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "ome.social")
+        handleHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "ome.social"),
+        brandedEventRouteClaims: [BrandedEventRouteClaim] = []
     ) {
         self.appHost = appHost
         self.handleHost = handleHost
+        self.brandedEventRouteClaims = brandedEventRouteClaims
     }
 
     public static let production = Self()
@@ -46,6 +66,7 @@ public struct OpenMusicEventRoutingConfiguration: Equatable, Sendable {
 
 public enum OpenMusicEventRoute: Equatable, Sendable {
     case appleAppSiteAssociation
+    case brandedEvent(BrandedEventRouteClaim)
     case health
     case ready
     case site(OpenMusicEventSiteRoute)
@@ -114,6 +135,9 @@ public struct OpenMusicEventPathRouter: Sendable {
         case .appleAppSiteAssociation:
             return "/apple-app-site-association"
 
+        case let .brandedEvent(claim):
+            return "/events/\(claim.eventClaim.encodedPathSegment)"
+
         case .health:
             return "/healthz"
 
@@ -163,7 +187,22 @@ public struct OpenMusicEventRouter: Sendable {
     }
 
     public func route(_ request: OpenMusicEventIncomingRequest) -> OpenMusicEventRoute? {
-        openMusicEventPathRouter.parse(normalizedPath(request.path))
+        let path = normalizedPath(request.path)
+        if let route = openMusicEventPathRouter.parse(path) {
+            return route
+        }
+
+        let components = path.pathComponents
+        guard components.count == 2, components[0] == "events" else {
+            return nil
+        }
+        let host = request.host.rawValue.lowercased()
+        guard let claim = configuration.brandedEventRouteClaims.first(where: {
+            $0.host.lowercased() == host && $0.eventClaim == components[1]
+        }) else {
+            return nil
+        }
+        return .brandedEvent(claim)
     }
 
     public func path(for route: OpenMusicEventRoute) -> String {
@@ -177,7 +216,13 @@ public struct OpenMusicEventRouter: Sendable {
     ) -> URL {
         var components = URLComponents()
         components.scheme = scheme
-        components.host = (host ?? configuration.appHost).rawValue
+        if let host {
+            components.host = host.rawValue
+        } else if case let .brandedEvent(claim) = route {
+            components.host = claim.host
+        } else {
+            components.host = configuration.appHost.rawValue
+        }
         components.path = path(for: route)
         return components.url!
     }
@@ -226,5 +271,12 @@ private extension OpenMusicEventQuery {
 private extension String {
     var pathComponents: [String] {
         split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    var encodedPathSegment: String {
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        return addingPercentEncoding(withAllowedCharacters: allowed) ?? self
     }
 }

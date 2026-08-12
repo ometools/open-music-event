@@ -3,6 +3,7 @@ import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
 import Dependencies
 import Foundation
+import OpenMusicEventAppRouting
 
 public struct OpenMusicEventAppConfiguration: Equatable, Sendable {
     public var productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration?
@@ -58,9 +59,19 @@ private enum OpenMusicEventAppConfigurationKey: DependencyKey {
     static var testValue: OpenMusicEventAppConfiguration { .openMusicEvent }
 }
 
+private enum BrandedEventRouteClaimsKey: DependencyKey {
+    static var liveValue: [BrandedEventRouteClaim] { [] }
+    static var testValue: [BrandedEventRouteClaim] { [] }
+}
+
 public extension DependencyValues {
     var openMusicEventAppConfiguration: OpenMusicEventAppConfiguration {
         get { self[OpenMusicEventAppConfigurationKey.self] }
         set { self[OpenMusicEventAppConfigurationKey.self] = newValue }
+    }
+
+    var brandedEventRouteClaims: [BrandedEventRouteClaim] {
+        get { self[BrandedEventRouteClaimsKey.self] }
+        set { self[BrandedEventRouteClaimsKey.self] = newValue }
     }
 }

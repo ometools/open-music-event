@@ -2,6 +2,8 @@ import ATProto
 import ComposableNotifications
 import Foundation
 import Hummingbird
+import OpenMusicEventLexicon
+import OpenMusicEventRouting
 import Tagged
 
 public struct AppViewNotificationRegistrationConfiguration: Equatable, Sendable {
@@ -57,6 +59,7 @@ public struct AppViewConfiguration: Sendable {
         port: Int = 8080,
         siteRoot: URL? = nil,
         wellKnownRoot: URL? = nil,
+        brandedEventRouteClaims: [BrandedEventRouteClaim] = [],
         databaseURL: URL? = nil,
         ingestion: AppViewIngestionConfiguration? = nil,
         apnsNotificationProvider: AppViewAPNSNotificationProviderConfiguration? = nil,
@@ -69,6 +72,7 @@ public struct AppViewConfiguration: Sendable {
         self.port = port
         self.siteRoot = siteRoot ?? Bundle.module.resourceURL!.appendingPathComponent("Site")
         self.wellKnownRoot = wellKnownRoot ?? Bundle.module.resourceURL!.appendingPathComponent("WellKnown")
+        self.brandedEventRouteClaims = brandedEventRouteClaims
         self.databaseURL = databaseURL
         self.ingestion = ingestion
         self.apnsNotificationProvider = apnsNotificationProvider
@@ -82,6 +86,7 @@ public struct AppViewConfiguration: Sendable {
     public var port: Int
     public var siteRoot: URL
     public var wellKnownRoot: URL
+    public var brandedEventRouteClaims: [BrandedEventRouteClaim]
     public var databaseURL: URL?
     public var ingestion: AppViewIngestionConfiguration?
     public var apnsNotificationProvider: AppViewAPNSNotificationProviderConfiguration?
@@ -174,11 +179,13 @@ public extension AppViewConfiguration {
         guard tangledWebhook == nil || webhookSecretProtection != nil else {
             throw AppViewConfigurationError.webhookSecretKeyMissing
         }
+        let brandedEventRouteClaims = try brandedEventRouteClaims(environment: environment)
         return Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
             siteRoot: environment["OME_APPVIEW_SITE_ROOT"].map(URL.init(fileURLWithPath:)),
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
+            brandedEventRouteClaims: brandedEventRouteClaims,
             databaseURL: databaseURL,
             ingestion: ingestion,
             apnsNotificationProvider: apnsNotificationProvider,
@@ -191,12 +198,13 @@ public extension AppViewConfiguration {
 
     static func lambda(
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Self {
+    ) throws -> Self {
         Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
             siteRoot: lambdaSiteRoot(environment: environment),
-            wellKnownRoot: lambdaWellKnownRoot(environment: environment)
+            wellKnownRoot: lambdaWellKnownRoot(environment: environment),
+            brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment)
         )
     }
 
@@ -260,6 +268,68 @@ public extension AppViewConfiguration {
             )
         }
         return try TangledWebhookConfiguration(watches: watches)
+    }
+
+    private static func brandedEventRouteClaims(
+        environment: [String: String]
+    ) throws -> [BrandedEventRouteClaim] {
+        guard let path = environment["OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH"] else {
+            return []
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: URL(fileURLWithPath: path))
+        } catch {
+            throw AppViewConfigurationError.brandedEventRouteConfigurationUnreadable(path)
+        }
+
+        let file: BrandedEventRouteConfigurationFile
+        do {
+            file = try JSONDecoder().decode(BrandedEventRouteConfigurationFile.self, from: data)
+        } catch {
+            throw AppViewConfigurationError.brandedEventRouteConfigurationInvalid(path)
+        }
+
+        var routeKeys: Set<String> = []
+        return try file.claims.map { configuredClaim in
+            let host = configuredClaim.host.lowercased()
+            guard isSafeDomainName(host) else {
+                throw AppViewConfigurationError.invalidBrandedEventRouteHost(
+                    configuredClaim.host
+                )
+            }
+            guard isSafeRouteComponent(configuredClaim.eventClaim) else {
+                throw AppViewConfigurationError.invalidBrandedEventRouteClaim(
+                    configuredClaim.eventClaim
+                )
+            }
+            guard let organizerID = OME.Organizer.ID(configuredClaim.organizerID) else {
+                throw AppViewConfigurationError.invalidBrandedEventRouteOrganizerID(
+                    configuredClaim.organizerID
+                )
+            }
+            guard !configuredClaim.eventRKey.isEmpty else {
+                throw AppViewConfigurationError.invalidBrandedEventRouteRKey(
+                    configuredClaim.eventRKey
+                )
+            }
+            guard routeKeys.insert("\(host)/\(configuredClaim.eventClaim)").inserted else {
+                throw AppViewConfigurationError.duplicateBrandedEventRoute(
+                    host: host,
+                    eventClaim: configuredClaim.eventClaim
+                )
+            }
+
+            return BrandedEventRouteClaim(
+                host: host,
+                eventClaim: configuredClaim.eventClaim,
+                eventID: OME.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OME.ID<OME.Event>(.init(configuredClaim.eventRKey))
+                )
+            )
+        }
     }
 
     private static func apnsNotificationProviderConfiguration(
@@ -342,7 +412,14 @@ public extension AppViewConfiguration {
 public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case apnsConfigurationValueMissing(String)
     case apnsPrivateKeyUnreadable(String)
+    case brandedEventRouteConfigurationInvalid(String)
+    case brandedEventRouteConfigurationUnreadable(String)
+    case duplicateBrandedEventRoute(host: String, eventClaim: String)
     case invalidAPNSEnvironment(String)
+    case invalidBrandedEventRouteClaim(String)
+    case invalidBrandedEventRouteHost(String)
+    case invalidBrandedEventRouteOrganizerID(String)
+    case invalidBrandedEventRouteRKey(String)
     case invalidNotificationDestinationKeyVersion(String)
     case invalidWebhookSecretKeyVersion(String)
     case notificationApplicationIDsMissing
@@ -365,5 +442,37 @@ private struct TangledWebhookConfigurationFile: Decodable {
         var repositoryKey: String
         var ref: String
         var sourceID: String
+    }
+}
+
+private struct BrandedEventRouteConfigurationFile: Decodable {
+    var claims: [Claim]
+
+    struct Claim: Decodable {
+        var host: String
+        var eventClaim: String
+        var organizerID: String
+        var eventRKey: String
+    }
+}
+
+private func isSafeDomainName(_ value: String) -> Bool {
+    !value.isEmpty && value.allSatisfy { character in
+        character.isASCII
+            && (character.isLetter || character.isNumber || character == "." || character == "-")
+    }
+}
+
+private func isSafeRouteComponent(_ value: String) -> Bool {
+    !value.isEmpty && value.allSatisfy { character in
+        character.isASCII
+            && (
+                character.isLetter
+                    || character.isNumber
+                    || character == "-"
+                    || character == "."
+                    || character == "_"
+                    || character == "~"
+            )
     }
 }

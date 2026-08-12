@@ -39,7 +39,11 @@ public enum OpenMusicEventAppViewServer {
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<Context> {
         let hummingbirdRouter = Router(context: context, options: [.autoGenerateHeadEndpoints])
-        let routeResolver = OpenMusicEventRouter()
+        let routeResolver = OpenMusicEventRouter(
+            configuration: OpenMusicEventRoutingConfiguration(
+                brandedEventRouteClaims: configuration.brandedEventRouteClaims
+            )
+        )
         let staticSiteFiles = StaticSiteFiles(rootDirectory: configuration.siteRoot)
         let wellKnownFiles = WellKnownFiles(rootDirectory: configuration.wellKnownRoot)
 
@@ -476,6 +480,16 @@ public enum OpenMusicEventAppViewServer {
             )
         }
 
+        hummingbirdRouter.get("/events/{eventClaim}") { request, context async throws -> Response in
+            try response(
+                host: request.authority,
+                path: "/events/\(context.parameters.get("eventClaim") ?? "")",
+                routeResolver: routeResolver,
+                staticSiteFiles: staticSiteFiles,
+                wellKnownFiles: wellKnownFiles
+            )
+        }
+
         hummingbirdRouter.get("/healthz") { request, _ async throws -> Response in
             try response(
                 host: request.authority,
@@ -595,6 +609,20 @@ public enum OpenMusicEventAppViewServer {
             }
             return file.response
 
+        case let .brandedEvent(claim):
+            guard let event = try BundledCalendarEventCatalog.event(
+                uri: OME.Event.reference(id: claim.eventID).uri
+            ) else {
+                return textResponse(
+                    "Event \(claim.eventClaim) is temporarily unavailable.",
+                    status: .serviceUnavailable
+                )
+            }
+            return brandedEventResponse(
+                event: event,
+                canonicalURL: routeResolver.url(for: route)
+            )
+
         case .health:
             return textResponse("ok")
 
@@ -639,6 +667,58 @@ public enum OpenMusicEventAppViewServer {
         )
     }
 
+    private static func brandedEventResponse(
+        event: OME.CalendarEvent,
+        canonicalURL: URL
+    ) -> Response {
+        let hero = event.media.first { $0.role == OME.ImageAsset.Role.hero.rawValue }
+            ?? event.media.first
+        let organizerName = event.organizer.displayName ?? "OpenMusicEvent"
+        let heroMarkup = hero.map {
+            "<img class=\"hero-mark\" src=\"\($0.url.absoluteString.htmlEscaped)\" alt=\"\(($0.alt ?? event.name).htmlEscaped)\">"
+        } ?? ""
+        let descriptionMarkup = event.description.map {
+            "<p class=\"lede\">\($0.htmlEscaped)</p>"
+        } ?? ""
+        let imageMetadata = hero.map {
+            "<meta property=\"og:image\" content=\"\($0.url.absoluteString.htmlEscaped)\">"
+        } ?? ""
+        let canonicalURLString = canonicalURL.absoluteString.htmlEscaped
+        let eventName = event.name.htmlEscaped
+        let html = """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>\(eventName)</title>
+                <link rel="canonical" href="\(canonicalURLString)">
+                <meta property="og:title" content="\(eventName)">
+                <meta property="og:url" content="\(canonicalURLString)">
+                \(imageMetadata)
+                <link rel="stylesheet" href="/styles.css">
+              </head>
+              <body>
+                <main>
+                  <section class="hero" aria-label="\(eventName)">
+                    \(heroMarkup)
+                    <div class="hero-copy">
+                      <p class="eyebrow">\(organizerName.htmlEscaped)</p>
+                      <h1>\(eventName)</h1>
+                      \(descriptionMarkup)
+                    </div>
+                  </section>
+                </main>
+              </body>
+            </html>
+            """
+        return Response(
+            status: .ok,
+            headers: [.contentType: "text/html; charset=utf-8"],
+            body: .init(byteBuffer: .init(data: Data(html.utf8)))
+        )
+    }
+
     private static func observeNotificationRegistration<Context: RequestContext, Value>(
         operation: String,
         context: Context,
@@ -678,7 +758,18 @@ public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
 
 private extension Request {
     var authority: String {
-        self.head.authority?.split(separator: ":").first.map(String.init) ?? "localhost"
+        let value = self.head.authority ?? "localhost"
+        return value.split(separator: ":").first.map(String.init) ?? "localhost"
+    }
+}
+
+private extension String {
+    var htmlEscaped: String {
+        replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }
 

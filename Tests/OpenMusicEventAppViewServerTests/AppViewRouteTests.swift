@@ -10,6 +10,7 @@ import HydrantClient
 import IssueReporting
 import OpenMusicEventAppViewServer
 import OpenMusicEventLexicon
+import OpenMusicEventRouting
 import ServiceLifecycle
 import SQLiteData
 import Testing
@@ -280,6 +281,164 @@ struct AppViewRouteTests {
                     )
                 )
             }
+        }
+    }
+
+    @Test
+    func `serves a branded attendee URL from its durable event`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        let organizerID = try #require(OME.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        ))
+        var configuration = roots.configuration
+        configuration.brandedEventRouteClaims = [
+            BrandedEventRouteClaim(
+                host: "localhost",
+                eventClaim: "2026",
+                eventID: OME.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OME.ID<OME.Event>(.init("ome-workspace-2026"))
+                )
+            )
+        ]
+        let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events/2026",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.contentType] == "text/html; charset=utf-8")
+                let html = String(buffer: response.body)
+                #expect(html.contains("<h1>Wicked Woods 2026</h1>"))
+                #expect(html.contains(
+                    "https://localhost/events/2026"
+                ))
+                #expect(html.contains(
+                    "https://resources.openmusicevent.app/wickedwoods/2026_ww_hero.png"
+                ))
+            }
+        }
+    }
+
+    @Test
+    func `rejects an unknown event claim before catalog lookup`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        let organizerID = try #require(OME.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        ))
+        var configuration = roots.configuration
+        configuration.brandedEventRouteClaims = [
+            BrandedEventRouteClaim(
+                host: "localhost",
+                eventClaim: "2026",
+                eventID: OME.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OME.ID<OME.Event>(.init("ome-workspace-2026"))
+                )
+            )
+        ]
+        let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events/2025",
+                method: .get
+            ) { response in
+                #expect(response.status == .notFound)
+            }
+        }
+    }
+
+    @Test
+    func `reports a configured branded event as unavailable when its projection is missing`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        let organizerID = try #require(OME.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        ))
+        var configuration = roots.configuration
+        configuration.brandedEventRouteClaims = [
+            BrandedEventRouteClaim(
+                host: "localhost",
+                eventClaim: "2030",
+                eventID: OME.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OME.ID<OME.Event>(.init("missing-event"))
+                )
+            )
+        ]
+        let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events/2030",
+                method: .get
+            ) { response in
+                #expect(response.status == .serviceUnavailable)
+                expectNoDifference(
+                    String(buffer: response.body),
+                    "Event 2030 is temporarily unavailable."
+                )
+            }
+        }
+    }
+
+    @Test
+    func `loads branded route claims from public AppView configuration`() throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        let configurationURL = roots.root.appendingPathComponent("branded-routes.json")
+        try Data(
+            #"""
+            {
+              "claims": [
+                {
+                  "host": "WickedWoods.OpenMusicEvent.App",
+                  "eventClaim": "2026",
+                  "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+                  "eventRKey": "ome-workspace-2026"
+                }
+              ]
+            }
+            """#.utf8
+        ).write(to: configurationURL)
+
+        let configuration = try AppViewConfiguration.fromEnvironment(
+            environment: [
+                "OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH": configurationURL.path
+            ]
+        )
+        let claim = try #require(configuration.brandedEventRouteClaims.first)
+
+        expectNoDifference(claim.host, "wickedwoods.openmusicevent.app")
+        expectNoDifference(claim.eventClaim, "2026")
+        expectNoDifference(claim.eventID.organizerID.description, "did:plc:5df2u7ief6m6tn77jznicxob")
+        expectNoDifference(claim.eventID.eventID.rawValue.rawValue, "ome-workspace-2026")
+    }
+
+    @Test
+    func `serves the Wicked Woods association file from its exact host`() throws {
+        let files = WellKnownFiles(
+            rootDirectory: AppViewConfiguration().wellKnownRoot
+        )
+
+        for path in [
+            "/.well-known/apple-app-site-association",
+            "/apple-app-site-association",
+        ] {
+            let file = try #require(try files.file(
+                host: "wickedwoods.openmusicevent.app",
+                requestPath: path
+            ))
+            #expect(file.contentType == "application/json")
+            let association = String(decoding: file.data, as: UTF8.self)
+            #expect(association.contains("FYZE6539TN.com.Festivl.WickedWoods"))
+            #expect(association.contains("FYZE6539TN.com.Festivl.WickedWoods.Clip"))
+            #expect(association.contains("\"/\": \"/events/2026\""))
         }
     }
 

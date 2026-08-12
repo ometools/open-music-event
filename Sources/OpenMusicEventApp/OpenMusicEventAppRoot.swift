@@ -117,6 +117,7 @@ public struct OpenMusicEventAppRoot {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.applicationIconBadgeClient) var applicationIconBadgeClient
+    @Dependency(\.brandedEventRouteClaims) var brandedEventRouteClaims
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.omeEventInstallation) var eventInstallation
     @Dependency(\.uuid) var uuid
@@ -289,7 +290,10 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .openURL(let url):
-                    if let route = AppRoute(url: url) {
+                    if let route = AppRoute(
+                        url: url,
+                        brandedClaims: brandedEventRouteClaims
+                    ) {
                         store.addTask {
                             await Task.yield()
                             try store.send(.openRoute(route))
