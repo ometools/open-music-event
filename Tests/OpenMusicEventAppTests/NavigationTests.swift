@@ -5023,6 +5023,39 @@ struct NavigationTests {
     }
 
     @Test
+    func editContributorPhotoDetailsSaveThroughParentDestination() async throws {
+        let eventID = eventID("event-1")
+        let imageID = UUID(uuidString: "00000000-0000-0000-0000-00000000c004")!
+        let imageURL = try #require(URL(string: "https://example.com/contributor-photo.jpg"))
+        let image = ImageAssetPicker.ImageValue(
+            id: imageID,
+            asset: OMERecord.ImageAsset(
+                source: .url(imageURL),
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        )
+        var state = EditContributor.State(eventID: eventID)
+        state.photoImagePicker.images = [image]
+
+        @Bindable var store = Store(initialState: state) {
+            EditContributor()
+        }
+
+        store.send(.photoImagePicker(.imageInfoButtonTapped(imageID)))
+        @Bindable var imageInfoStore = try #require(
+            $store.scope(\.destination, action: \.destination).photoImageInfo.wrappedValue
+        )
+        $imageInfoStore.asset.appearance.wrappedValue = .dark
+        await imageInfoStore.send(.saveButtonTapped)?.value
+
+        await waitUntil { store.destination == nil }
+        expectNoDifference(store.photoImagePicker.images.map(\.asset.appearance), [.dark])
+        #expect(store.logoImagePicker.images.isEmpty)
+    }
+
+    @Test
     func `image picker shows remote URL and local filename`() throws {
         let remoteURL = try #require(
             URL(

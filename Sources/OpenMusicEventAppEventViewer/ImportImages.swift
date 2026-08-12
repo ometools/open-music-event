@@ -36,7 +36,7 @@ public struct ImportImages {
         public init(
             configuration: Configuration,
             destination: Destination.State? = nil,
-            imageInfo: Spawn<ImageInfo>? = nil,
+            imageInfo: ImageInfo.State? = nil,
             images: [ImportedImage] = []
         ) {
             self.configuration = configuration
@@ -66,7 +66,7 @@ public struct ImportImages {
             !images.isEmpty && !isImporting && !isSaving
         }
 
-        public var imageInfo: Spawn<ImageInfo>? {
+        public var imageInfo: ImageInfo.State? {
             get {
                 guard case let .imageInfo(imageInfo) = destination else { return nil }
                 return imageInfo
@@ -99,7 +99,7 @@ public struct ImportImages {
 
     @Feature
     public enum Destination {
-        case imageInfo(Spawn<ImageInfo>)
+        case imageInfo(ImageInfo)
     }
 
     let onSave: (([ImportedImage]) async throws -> Void)?
@@ -112,6 +112,13 @@ public struct ImportImages {
                     try store.dismiss()
                 }
 
+            case .destination(.imageInfo(.saveButtonTapped)):
+                guard case let .imageInfo(imageInfo) = state.destination else { return }
+                guard let index = state.images.firstIndex(where: { $0.id == imageInfo.id }) else {
+                    return
+                }
+                state.images[index].asset = imageInfo.asset
+
             case .destination:
                 break
 
@@ -119,7 +126,7 @@ public struct ImportImages {
                 guard let image = state.images.first(where: { $0.id == id }) else {
                     return
                 }
-                state.destination = .imageInfo(Spawn(
+                state.destination = .imageInfo(
                     ImageInfo.State(
                         id: image.id,
                         asset: image.asset,
@@ -127,7 +134,7 @@ public struct ImportImages {
                         sourceLabel: image.sourceLabel,
                         previewData: image.data
                     )
-                ))
+                )
 
             case let .imageImportFailed(message):
                 state.errorMessage = message
@@ -173,17 +180,7 @@ public struct ImportImages {
             }
         }
         .ifLet(\.destination, action: \.destination) {
-            EmptyFeature()
-                .ifCaseLet(\.imageInfo) {
-                    ImageInfo { imageID, asset in
-                        try store.modify {
-                            guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                                return
-                            }
-                            $0.images[index].asset = asset
-                        }
-                    }
-                }
+            Destination.body
         }
     }
 }

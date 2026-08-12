@@ -225,35 +225,34 @@ struct PosterImportTests {
             mimeType: "image/png",
             data: Data("night-poster".utf8)
         )
-        var editedAsset = importedImage.asset
-        editedAsset.appearance = .dark
-        editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
-
-        let store = Store(
+        @Bindable var store = Store(
             initialState: ImportImages.State(
                 configuration: .posters,
-                imageInfo: Spawn(
-                    ImageInfo.State(
-                        id: imageID,
-                        asset: editedAsset,
-                        configuration: .posters,
-                        sourceLabel: importedImage.sourceLabel
-                    )
-                ),
                 images: [importedImage]
             )
         ) {
             ImportImages { _ in }
         }
-        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+
+        store.send(.imageInfoButtonTapped(imageID))
+        @Bindable var imageInfoStore = try #require(
+            $store.scope(\.destination, action: \.destination).imageInfo.wrappedValue
+        )
+        $imageInfoStore.asset.appearance.wrappedValue = .dark
+        $imageInfoStore.asset.focalPoint.wrappedValue = OMERecord.ImageAsset.FocalPoint(
+            x: 0.4,
+            y: 0.65
+        )
 
         await imageInfoStore.send(.saveButtonTapped)?.value
 
+        await waitUntil { store.destination == nil }
         let updatedImage = try #require(store.images.first)
-        expectNoDifference(updatedImage.asset, editedAsset)
         expectNoDifference(updatedImage.localImageImportRequest.appearance, .dark)
-        expectNoDifference(updatedImage.localImageImportRequest.focalPoint, editedAsset.focalPoint)
-        #expect(store.spawn(\.imageInfo) == nil)
+        expectNoDifference(
+            updatedImage.localImageImportRequest.focalPoint,
+            OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
+        )
     }
 
     @Test

@@ -731,9 +731,9 @@ public struct EditContributor {
 
     @Feature
     public enum Destination {
-        case logoImageInfo(Spawn<ImageInfo>)
+        case logoImageInfo(ImageInfo)
         case logoImportImages(Spawn<ImportImages>)
-        case photoImageInfo(Spawn<ImageInfo>)
+        case photoImageInfo(ImageInfo)
         case photoImportImages(Spawn<ImportImages>)
     }
 
@@ -821,6 +821,20 @@ public struct EditContributor {
                     try store.dismiss()
                 }
 
+            case .destination(.logoImageInfo(.saveButtonTapped)):
+                guard case let .logoImageInfo(imageInfo) = state.destination else { return }
+                state.logoImagePicker.updateImageInfo(
+                    imageID: imageInfo.id,
+                    asset: imageInfo.asset
+                )
+
+            case .destination(.photoImageInfo(.saveButtonTapped)):
+                guard case let .photoImageInfo(imageInfo) = state.destination else { return }
+                state.photoImagePicker.updateImageInfo(
+                    imageID: imageInfo.id,
+                    asset: imageInfo.asset
+                )
+
             case .destination:
                 break
 
@@ -879,7 +893,7 @@ public struct EditContributor {
                 guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
                     return
                 }
-                state.destination = .logoImageInfo(Spawn(imageInfoState))
+                state.destination = .logoImageInfo(imageInfoState)
 
             case .logoImagePicker:
                 break
@@ -893,7 +907,7 @@ public struct EditContributor {
                 guard let imageInfoState = state.photoImagePicker.imageInfoState(for: id) else {
                     return
                 }
-                state.destination = .photoImageInfo(Spawn(imageInfoState))
+                state.destination = .photoImageInfo(imageInfoState)
 
             case .photoImagePicker:
                 break
@@ -949,33 +963,7 @@ public struct EditContributor {
             }
         }
         .ifLet(\.destination, action: \.destination) {
-            EmptyFeature()
-                .ifCaseLet(\.logoImportImages) {
-                    ImportImages()
-                }
-                .ifCaseLet(\.logoImageInfo) {
-                    ImageInfo { imageID, asset in
-                        try store.modify {
-                            $0.logoImagePicker.updateImageInfo(
-                                imageID: imageID,
-                                asset: asset
-                            )
-                        }
-                    }
-                }
-                .ifCaseLet(\.photoImportImages) {
-                    ImportImages()
-                }
-                .ifCaseLet(\.photoImageInfo) {
-                    ImageInfo { imageID, asset in
-                        try store.modify {
-                            $0.photoImagePicker.updateImageInfo(
-                                imageID: imageID,
-                                asset: asset
-                            )
-                        }
-                    }
-                }
+            Destination.body
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
             switch state.destination {
