@@ -72,13 +72,6 @@ func workspacePackagePath(_ name: String) -> String {
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
-let composableNotificationsPath = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"]
-    ?? [
-        workspacePackagePath("swift-composable-notifications"),
-        packagePath("../../swift-packages/swift-composable-notifications"),
-    ]
-    .first { FileManager.default.fileExists(atPath: $0) }
-    ?? packagePath("../../swift-packages/swift-composable-notifications")
 let tca26Dependency: Package.Dependency = {
     if let path = environment["OME_TCA26_PATH"] {
         return .package(
@@ -100,15 +93,6 @@ let tca26Dependency: Package.Dependency = {
         traits: ["Dependencies"]
     )
 }()
-let composableAtmosphereConstellationPath = workspacePackagePath("composable-atmosphere-constellation")
-let composableAtmosphereTangledPath = workspacePackagePath("composable-atmosphere-tangled")
-let composableAtmosphereUserInputPath = [
-    workspacePackagePath("composable-atmosphere-userinput"),
-    packagePath("../composable-atmosphere-userinput"),
-    packagePath("../../composable-atmosphere-userinput"),
-]
-.first { FileManager.default.fileExists(atPath: $0) }
-    ?? packagePath("../composable-atmosphere-userinput")
 let appViewComposableCalendarEventsDependency: Package.Dependency
 if let composableCalendarEventsPath = environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"] {
     appViewComposableCalendarEventsDependency = .package(
@@ -239,25 +223,19 @@ let routingDependency: Package.Dependency = .package(
 )
 
 var applicationDependencies: [Package.Dependency] = [
-    .package(
-        name: "composable-atmosphere-userinput",
-        path: composableAtmosphereUserInputPath
-    ),
+    .package(url: "https://source.woody.fm/composable-atmosphere-userinput", branch: "main"),
     .package(
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
     ),
-    .package(
-        name: "swift-composable-notifications",
-        path: composableNotificationsPath
-    ),
+    .package(url: "https://source.woody.fm/swift-composable-notifications", branch: "main"),
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
             name: "swift-composable-atmosphere",
@@ -269,14 +247,8 @@ var applicationDependencies: [Package.Dependency] = [
             branch: "main",
             traits: ["TCA26"]
         ),
-    .package(
-        name: "composable-atmosphere-constellation",
-        path: composableAtmosphereConstellationPath
-    ),
-    .package(
-        name: "composable-atmosphere-tangled",
-        path: composableAtmosphereTangledPath
-    ),
+    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
+    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
@@ -331,15 +303,12 @@ let appViewDependencies: [Package.Dependency] = [
     appViewComposableCalendarEventsDependency,
     appViewComposableAtmosphereDependency,
     tca26Dependency,
-    .package(
-        name: "swift-composable-notifications",
-        path: composableNotificationsPath
-    ),
+    .package(url: "https://source.woody.fm/swift-composable-notifications", branch: "main"),
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(
-        url: "https://tangled.org/woody.fm/swift-dependencies-http-client",
+        url: "https://source.woody.fm/swift-dependencies-http-client",
         branch: "main"
     ),
     .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),

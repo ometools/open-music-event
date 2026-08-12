@@ -122,6 +122,8 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     await retry?.value
                 }
             }
-            .dependency(\.defaultEventID, store.id)
+            .transformDependency(\.self) {
+                $0.defaultEventID = store.id
+            }
     }
 }
