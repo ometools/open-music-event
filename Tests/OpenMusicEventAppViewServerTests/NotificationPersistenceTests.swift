@@ -419,6 +419,45 @@ struct NotificationPersistenceTests {
     }
 
     @Test
+    func `environment names the deployment APNs credential without embedding it`() throws {
+        let privateKeyPath = "/run/credentials/open-music-event-appview/apns-private-key"
+        let configuration = try AppViewConfiguration.fromEnvironment(
+            environment: [
+                "OME_APNS_APPLICATION_ID": "app.openmusicevent",
+                "OME_APNS_ENVIRONMENT": "development",
+                "OME_APNS_KEY_ID": "ABCDEFGHIJ",
+                "OME_APNS_PRIVATE_KEY_PATH": privateKeyPath,
+                "OME_APNS_TEAM_ID": "YJRWV8Z7KT",
+            ]
+        )
+
+        expectNoDifference(
+            configuration.apnsNotificationProvider,
+            AppViewAPNSNotificationProviderConfiguration(
+                applicationID: .init(rawValue: "app.openmusicevent"),
+                environment: .development,
+                topic: "app.openmusicevent",
+                teamID: "YJRWV8Z7KT",
+                keyID: "ABCDEFGHIJ",
+                privateKeyURL: URL(fileURLWithPath: privateKeyPath)
+            )
+        )
+    }
+
+    @Test
+    func `partial APNs environment fails before the server starts`() {
+        #expect(
+            throws: AppViewConfigurationError.apnsConfigurationValueMissing(
+                "OME_APNS_ENVIRONMENT"
+            )
+        ) {
+            try AppViewConfiguration.fromEnvironment(
+                environment: ["OME_APNS_APPLICATION_ID": "app.openmusicevent"]
+            )
+        }
+    }
+
+    @Test
     func `environment configures destination protection without embedding the key`() throws {
         let databasePath = "/tmp/open-music-event-appview-test.sqlite"
         let configuration = try AppViewConfiguration.fromEnvironment(

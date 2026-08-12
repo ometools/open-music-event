@@ -4,7 +4,11 @@ import OpenMusicEventAppViewServer
 switch try AppViewCommand(arguments: Array(CommandLine.arguments.dropFirst())) {
 case .serve:
     let configuration = try AppViewConfiguration.fromEnvironment()
-    let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
+    let notificationProvider = try await configuration.notificationProvider()
+    let app = try OpenMusicEventAppViewServer.application(
+        configuration: configuration,
+        notificationProvider: notificationProvider
+    )
     try await app.runService()
 
 case .setTangledWebhookSecret(let watchID, let secretFile):

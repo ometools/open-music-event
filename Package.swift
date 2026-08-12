@@ -325,6 +325,11 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
+    .package(
+        url: "https://tangled.org/woody.fm/swift-dependencies-http-client",
+        branch: "main"
+    ),
+    .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
     .package(
         url: "https://github.com/pointfreeco/sqlite-data",
@@ -1023,6 +1028,10 @@ let appViewTargets: [Target] = [
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+            .product(
+                name: "ComposableNotificationsHTTP",
+                package: "swift-composable-notifications"
+            ),
             .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "GRDB", package: grdbPackageName),
@@ -1066,6 +1075,8 @@ let appViewTargets: [Target] = [
             .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
+            .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+            .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),

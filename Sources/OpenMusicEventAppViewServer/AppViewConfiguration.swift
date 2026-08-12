@@ -21,6 +21,36 @@ public struct AppViewNotificationRegistrationConfiguration: Equatable, Sendable 
     public var allowedApplicationIDs: Set<Push.ApplicationID>
 }
 
+public struct AppViewAPNSNotificationProviderConfiguration: Equatable, Sendable {
+    public enum Environment: String, Equatable, Sendable {
+        case development
+        case production
+    }
+
+    public init(
+        applicationID: Push.ApplicationID,
+        environment: Environment,
+        topic: String,
+        teamID: String,
+        keyID: String,
+        privateKeyURL: URL
+    ) {
+        self.applicationID = applicationID
+        self.environment = environment
+        self.topic = topic
+        self.teamID = teamID
+        self.keyID = keyID
+        self.privateKeyURL = privateKeyURL
+    }
+
+    public var applicationID: Push.ApplicationID
+    public var environment: Environment
+    public var topic: String
+    public var teamID: String
+    public var keyID: String
+    public var privateKeyURL: URL
+}
+
 public struct AppViewConfiguration: Sendable {
     public init(
         host: String = "127.0.0.1",
@@ -29,6 +59,7 @@ public struct AppViewConfiguration: Sendable {
         wellKnownRoot: URL? = nil,
         databaseURL: URL? = nil,
         ingestion: AppViewIngestionConfiguration? = nil,
+        apnsNotificationProvider: AppViewAPNSNotificationProviderConfiguration? = nil,
         notificationDestinationProtection: NotificationDestinationProtection? = nil,
         notificationRegistration: AppViewNotificationRegistrationConfiguration? = nil,
         webhookSecretProtection: WebhookSecretProtection? = nil,
@@ -40,6 +71,7 @@ public struct AppViewConfiguration: Sendable {
         self.wellKnownRoot = wellKnownRoot ?? Bundle.module.resourceURL!.appendingPathComponent("WellKnown")
         self.databaseURL = databaseURL
         self.ingestion = ingestion
+        self.apnsNotificationProvider = apnsNotificationProvider
         self.notificationDestinationProtection = notificationDestinationProtection
         self.notificationRegistration = notificationRegistration
         self.webhookSecretProtection = webhookSecretProtection
@@ -52,6 +84,7 @@ public struct AppViewConfiguration: Sendable {
     public var wellKnownRoot: URL
     public var databaseURL: URL?
     public var ingestion: AppViewIngestionConfiguration?
+    public var apnsNotificationProvider: AppViewAPNSNotificationProviderConfiguration?
     public var notificationDestinationProtection: NotificationDestinationProtection?
     public var notificationRegistration: AppViewNotificationRegistrationConfiguration?
     public var webhookSecretProtection: WebhookSecretProtection?
@@ -86,6 +119,9 @@ public extension AppViewConfiguration {
                     ?? "hydrant|community.lexicon.calendar.event"
             )
         }
+        let apnsNotificationProvider = try apnsNotificationProviderConfiguration(
+            environment: environment
+        )
         let notificationDestinationProtection: NotificationDestinationProtection?
         if let encodedKey = environment["OME_NOTIFICATION_DESTINATION_KEY"] {
             let rawKeyVersion = environment["OME_NOTIFICATION_DESTINATION_KEY_VERSION"] ?? "1"
@@ -145,6 +181,7 @@ public extension AppViewConfiguration {
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
             databaseURL: databaseURL,
             ingestion: ingestion,
+            apnsNotificationProvider: apnsNotificationProvider,
             notificationDestinationProtection: notificationDestinationProtection,
             notificationRegistration: notificationRegistration,
             webhookSecretProtection: webhookSecretProtection,
@@ -225,6 +262,53 @@ public extension AppViewConfiguration {
         return try TangledWebhookConfiguration(watches: watches)
     }
 
+    private static func apnsNotificationProviderConfiguration(
+        environment: [String: String]
+    ) throws -> AppViewAPNSNotificationProviderConfiguration? {
+        let keys = [
+            "OME_APNS_APPLICATION_ID",
+            "OME_APNS_ENVIRONMENT",
+            "OME_APNS_KEY_ID",
+            "OME_APNS_PRIVATE_KEY_PATH",
+            "OME_APNS_TEAM_ID",
+            "OME_APNS_TOPIC",
+        ]
+        guard keys.contains(where: { environment[$0] != nil }) else {
+            return nil
+        }
+
+        func required(_ key: String) throws -> String {
+            guard let value = environment[key]?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !value.isEmpty else {
+                throw AppViewConfigurationError.apnsConfigurationValueMissing(key)
+            }
+            return value
+        }
+
+        let applicationID = try required("OME_APNS_APPLICATION_ID")
+        let rawEnvironment = try required("OME_APNS_ENVIRONMENT")
+        guard let providerEnvironment = AppViewAPNSNotificationProviderConfiguration.Environment(
+            rawValue: rawEnvironment
+        ) else {
+            throw AppViewConfigurationError.invalidAPNSEnvironment(rawEnvironment)
+        }
+        let topic = environment["OME_APNS_TOPIC"]?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        return try AppViewAPNSNotificationProviderConfiguration(
+            applicationID: Push.ApplicationID(rawValue: applicationID),
+            environment: providerEnvironment,
+            topic: topic.flatMap { $0.isEmpty ? nil : $0 } ?? applicationID,
+            teamID: required("OME_APNS_TEAM_ID"),
+            keyID: required("OME_APNS_KEY_ID"),
+            privateKeyURL: URL(
+                fileURLWithPath: required("OME_APNS_PRIVATE_KEY_PATH")
+            )
+        )
+    }
+
     private static func webhookSecretProtection(
         environment: [String: String]
     ) throws -> WebhookSecretProtection? {
@@ -256,6 +340,9 @@ public extension AppViewConfiguration {
 }
 
 public enum AppViewConfigurationError: Error, Equatable, Sendable {
+    case apnsConfigurationValueMissing(String)
+    case apnsPrivateKeyUnreadable(String)
+    case invalidAPNSEnvironment(String)
     case invalidNotificationDestinationKeyVersion(String)
     case invalidWebhookSecretKeyVersion(String)
     case notificationApplicationIDsMissing

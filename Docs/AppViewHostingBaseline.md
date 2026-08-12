@@ -41,7 +41,14 @@ OME_APPVIEW_DATABASE_PATH=/absolute/path/to/open-music-event-appview.sqlite
 OME_NOTIFICATION_DESTINATION_KEY=<base64-encoded-32-byte-key>
 OME_NOTIFICATION_DESTINATION_KEY_VERSION=1
 OME_NOTIFICATION_REGISTRATION_AUTHORIZATION=anonymous
-OME_NOTIFICATION_APPLICATION_IDS=com.Festivl.WickedWoods
+OME_NOTIFICATION_APPLICATION_IDS=app.openmusicevent,fm.woody.openmusicevent
+OME_APNS_APPLICATION_ID=app.openmusicevent
+OME_APNS_ENVIRONMENT=development
+OME_APNS_TEAM_ID=YJRWV8Z7KT
+OME_APNS_KEY_ID=<Apple-key-ID>
+OME_APNS_PRIVATE_KEY_PATH=/run/credentials/ome-appview.service/apns-private-key
+# Optional; defaults to OME_APNS_APPLICATION_ID.
+OME_APNS_TOPIC=app.openmusicevent
 OME_TANGLED_WEBHOOK_CONFIGURATION_PATH=/absolute/path/to/tangled-webhooks.json
 OME_WEBHOOK_SECRET_KEY_PATH=/absolute/path/to/webhook-secret-key
 OME_WEBHOOK_SECRET_KEY_VERSION=1
@@ -82,6 +89,27 @@ sqlite3 /srv/ome-appview/data/appview/open-music-event-appview.sqlite \
 For the temporary first-device acceptance deployment, anonymous bootstrap may be enabled before
 edge rate limiting is installed. Treat that as an explicit short-lived exception: monitor the
 installation count and add public-edge rate protection before broader distribution.
+
+## Inline Notification Delivery
+
+The current acceptance slice delivers notifications inline. After a Tangled request is verified
+and recorded in the durable inbox, the route awaits subscription lookup and provider sends before
+returning `202 Accepted`. The first provider failure aborts the request and leaves the webhook
+unacknowledged so Tangled can retry the delivery. `source_available` is an idempotent refresh hint,
+so that retry may safely resend to destinations that already succeeded. A durable notification
+outbox remains the next reliability boundary; until it exists, provider latency is also
+webhook-response latency.
+
+AppView installs an APNs provider only when the APNs environment is complete. Supplying any APNs
+variable without the other required values fails server startup. The `.p8` private key remains a
+deployment-owned credential file; only its path is stored in the environment. Use `development`
+for device tokens issued to an Xcode development build and `production` for distributed builds.
+The provider signs ES256 authentication tokens on first use and reuses each token for twenty
+minutes.
+
+FCM request encoding and whole-stack fanout are covered by the black-box test, but production FCM
+OAuth credentials and the Android Firebase Messaging token bridge are not installed yet. APNs is
+the only live provider in this slice.
 
 ## Tangled Webhook Intake
 
@@ -135,6 +163,9 @@ inbox.
   provider tokens out of plaintext database rows.
 - Keep `OME_NOTIFICATION_DESTINATION_KEY` in the Lightsail deployment environment or secret
   injection mechanism. Do not log the key, installation credentials, or provider tokens.
+- Keep the APNs `.p8` key in the Lightsail/systemd credential mechanism, mount it read-only for the
+  AppView service, and point `OME_APNS_PRIVATE_KEY_PATH` at that mounted file. Do not put the key
+  contents in an environment variable or source-controlled configuration.
 - Keep the Tangled webhook master encryption key in the Lightsail deployment secret mechanism,
   and store each hook secret only through `set-tangled-webhook-secret` so AppView persists its
   ciphertext in SQLite. Do not commit either secret to the watch file, log request signatures, or

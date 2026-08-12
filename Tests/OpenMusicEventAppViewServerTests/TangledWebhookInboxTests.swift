@@ -7,6 +7,8 @@ import Foundation
 import GRDB
 import Hummingbird
 import HummingbirdTesting
+import HTTPClient
+import HTTPTypes
 @testable import OpenMusicEventAppViewServer
 import Testing
 
@@ -297,11 +299,77 @@ struct TangledWebhookInboxTests {
     }
 
     @Test
+    func `an inline processing failure leaves the durable webhook retryable`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let store = try OpenMusicEventAppViewStore(
+            databaseURL: databaseURL,
+            webhookSecretProtection: Self.webhookSecretProtection()
+        )
+        try await store.replaceWebhookSecret(
+            Self.secret,
+            source: .tangled,
+            watchID: Self.watchID
+        )
+        let processor = FailOnceSourceUpdateProcessor()
+        let app = try withDependencies {
+            $0.date.now = Self.receivedAt
+        } operation: {
+            try OpenMusicEventAppViewServer.application(
+                configuration: AppViewConfiguration(
+                    port: 0,
+                    tangledWebhook: Self.webhookConfiguration()
+                ),
+                store: store,
+                tangledSourceUpdateProcessor: TangledSourceUpdateProcessor { update in
+                    try await processor.process(update)
+                }
+            )
+        }
+        let payload = Self.pushPayload()
+
+        try await withDependencies {
+            $0.date.now = Self.receivedAt
+        } operation: {
+            try await app.test(.router) { client in
+                try await client.execute(
+                    uri: TangledWebhookEndpoint.path,
+                    method: .post,
+                    headers: Self.headers(authenticating: payload),
+                    body: ByteBuffer(data: payload)
+                ) { response in
+                    #expect(response.status == .internalServerError)
+                }
+                try await client.execute(
+                    uri: TangledWebhookEndpoint.path,
+                    method: .post,
+                    headers: Self.headers(authenticating: payload),
+                    body: ByteBuffer(data: payload)
+                ) { response in
+                    #expect(response.status == .accepted)
+                }
+            }
+        }
+
+        let attemptCount = await processor.attemptCount
+        let persistedCount = try await Self.persistedInbox(at: databaseURL).count
+        expectNoDifference(attemptCount, 2)
+        expectNoDifference(persistedCount, 1)
+    }
+
+    @Test
     func `a verified source update fans out exact APNs and FCM JSON`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+
+        let apnsPrivateKeyURL = directory.appending(path: "AuthKey_ABCDEFGHIJ.p8")
+        try Data(Self.fixtureAPNSPrivateKey.utf8).write(to: apnsPrivateKeyURL)
 
         let destinationProtection = try NotificationDestinationProtection(
             keyData: Data(repeating: 0x3B, count: 32)
@@ -311,16 +379,17 @@ struct TangledWebhookInboxTests {
             notificationDestinationProtection: destinationProtection,
             webhookSecretProtection: Self.webhookSecretProtection()
         )
-        let applicationID = Push.ApplicationID(rawValue: "fm.woody.openmusicevent")
+        let apnsApplicationID = Push.ApplicationID(rawValue: "app.openmusicevent")
+        let fcmApplicationID = Push.ApplicationID(rawValue: "fm.woody.openmusicevent")
         let apnsDestination = Push.Destination.apns(
             Push.APNS(
-                applicationID: applicationID,
+                applicationID: apnsApplicationID,
                 deviceToken: .init(rawValue: "fixture-apns-device-token")
             )
         )
         let fcmDestination = Push.Destination.fcm(
             Push.FCM(
-                applicationID: applicationID,
+                applicationID: fcmApplicationID,
                 registrationToken: .init(rawValue: "fixture-fcm-registration-token")
             )
         )
@@ -338,39 +407,61 @@ struct TangledWebhookInboxTests {
 
         // This is the only mocked boundary in the story. The request has already passed through
         // the real signed webhook route, SQLite inbox and subscription lookup, dispatcher, provider
-        // selection, and provider JSON encoder before it reaches this raw-network closure.
+        // selection, APNs credential loading and JWT signing, and provider JSON encoder before it
+        // reaches this raw-network closure.
         try await withDependencies {
             $0.date.now = Self.receivedAt
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
+                await providerRequests.record(request, body: body)
+                return (Data(), HTTPResponse(status: .ok))
+            }
         } operation: {
-            let provider = NotificationProviderClient.http(
+            let appConfiguration = AppViewConfiguration(
+                port: 0,
+                apnsNotificationProvider: AppViewAPNSNotificationProviderConfiguration(
+                    applicationID: apnsApplicationID,
+                    environment: .production,
+                    topic: "app.openmusicevent",
+                    teamID: "YJRWV8Z7KT",
+                    keyID: "ABCDEFGHIJ",
+                    privateKeyURL: apnsPrivateKeyURL
+                ),
+                notificationRegistration: AppViewNotificationRegistrationConfiguration(
+                    authorization: .anonymous,
+                    allowedApplicationIDs: [apnsApplicationID, fcmApplicationID]
+                ),
+                tangledWebhook: try Self.webhookConfiguration()
+            )
+            let configuredAPNSProvider = try #require(
+                await appConfiguration.notificationProvider()
+            )
+            let fcmProvider = NotificationProviderClient.http(
                 configuration: NotificationProviderHTTPConfiguration(
-                    apns: [
-                        applicationID: .init(
-                            environment: .production,
-                            topic: "fm.woody.openmusicevent"
-                        )
-                    ],
                     fcm: [
-                        applicationID: .init(projectID: "open-music-event")
+                        fcmApplicationID: .init(projectID: "open-music-event")
                     ]
                 ),
                 authorization: NotificationProviderAuthorization(
-                    apnsBearerToken: { _ in "fixture-apns-jwt" },
+                    apnsBearerToken: { applicationID in
+                        throw NotificationProviderHTTPError.missingAPNSConfiguration(applicationID)
+                    },
                     fcmAccessToken: { _ in "fixture-fcm-oauth" }
-                ),
-                transport: NotificationProviderHTTPTransport { request in
-                    await providerRequests.record(request)
-                }
+                )
             )
+            let provider = NotificationProviderClient { message, destination in
+                switch destination {
+                case .apns:
+                    try await configuredAPNSProvider.send(message, destination)
+                case .fcm:
+                    try await fcmProvider.send(message, destination)
+                }
+            }
             let app = try OpenMusicEventAppViewServer.application(
-                configuration: AppViewConfiguration(
-                    port: 0,
-                    notificationRegistration: AppViewNotificationRegistrationConfiguration(
-                        authorization: .anonymous,
-                        allowedApplicationIDs: [applicationID]
-                    ),
-                    tangledWebhook: Self.webhookConfiguration()
-                ),
+                configuration: appConfiguration,
                 store: store,
                 notificationProvider: provider
             )
@@ -471,47 +562,62 @@ struct TangledWebhookInboxTests {
         expectNoDifference(requests.count, 2)
         let apns = try #require(
             requests.first {
-                $0.url.absoluteString.hasPrefix("https://api.push.apple.com/")
+                $0.request.url?.absoluteString.hasPrefix("https://api.push.apple.com/") == true
             }
         )
         let fcm = try #require(
             requests.first {
-                $0.url.absoluteString.hasPrefix("https://fcm.googleapis.com/")
+                $0.request.url?.absoluteString.hasPrefix("https://fcm.googleapis.com/") == true
             }
         )
 
         // APNs receives a background push whose custom keys preserve the opaque source revision.
-        expectNoDifference(apns.method, .post)
+        expectNoDifference(apns.request.method, .post)
         expectNoDifference(
-            apns.url.absoluteString,
+            apns.request.url?.absoluteString,
             "https://api.push.apple.com/3/device/fixture-apns-device-token"
         )
-        expectNoDifference(apns.headerFields["Authorization"], "bearer fixture-apns-jwt")
-        expectNoDifference(apns.headerFields["Content-Type"], "application/json")
-        expectNoDifference(apns.headerFields["apns-priority"], "5")
+        let authorization = try #require(apns.request.headerFields[.authorization])
+        let token = try #require(
+            authorization.hasPrefix("bearer ")
+                ? String(authorization.dropFirst("bearer ".count))
+                : nil
+        )
         expectNoDifference(
-            apns.headerFields["apns-push-type"],
+            try Self.decodedAPNSProviderToken(token),
+            DecodedAPNSProviderToken(
+                algorithm: "ES256",
+                issuedAt: Int64(Self.receivedAt.timeIntervalSince1970),
+                issuer: "YJRWV8Z7KT",
+                keyID: "ABCDEFGHIJ",
+                type: "JWT"
+            )
+        )
+        expectNoDifference(apns.request.headerFields[.contentType], "application/json")
+        expectNoDifference(apns.request.headerFields[.init("apns-priority")!], "5")
+        expectNoDifference(
+            apns.request.headerFields[.init("apns-push-type")!],
             "background"
         )
         expectNoDifference(
-            apns.headerFields["apns-topic"],
-            "fm.woody.openmusicevent"
+            apns.request.headerFields[.init("apns-topic")!],
+            "app.openmusicevent"
         )
         expectNoDifference(
-            String(decoding: apns.body, as: UTF8.self),
+            String(decoding: try #require(apns.body), as: UTF8.self),
             #"{"aps":{"content-available":1},"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"}"#
         )
 
         // FCM receives the same semantic data as string values in its HTTP v1 message envelope.
-        expectNoDifference(fcm.method, .post)
+        expectNoDifference(fcm.request.method, .post)
         expectNoDifference(
-            fcm.url.absoluteString,
+            fcm.request.url?.absoluteString,
             "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
         )
-        expectNoDifference(fcm.headerFields["Authorization"], "Bearer fixture-fcm-oauth")
-        expectNoDifference(fcm.headerFields["Content-Type"], "application/json")
+        expectNoDifference(fcm.request.headerFields[.authorization], "Bearer fixture-fcm-oauth")
+        expectNoDifference(fcm.request.headerFields[.contentType], "application/json")
         expectNoDifference(
-            String(decoding: fcm.body, as: UTF8.self),
+            String(decoding: try #require(fcm.body), as: UTF8.self),
             #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"token":"fixture-fcm-registration-token"}}"#
         )
     }
@@ -660,6 +766,43 @@ private extension TangledWebhookInboxTests {
     static let secret = Data("fixture-webhook-secret".utf8)
     static let protectionKey = Data(repeating: 0x2A, count: 32)
     static let receivedAt = Date(timeIntervalSince1970: 1_786_291_200)
+    static let fixtureAPNSPrivateKey = """
+        -----BEGIN PRIVATE KEY-----
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgEGyTvWE/fARuNzwP
+        jtjWV+YYelL6/PYZHNvD9LTSB/qhRANCAATZotYl3SYD4sy5kDC919aeH5rBFXaC
+        NB10Nw/hVyIkTbgYJ0XiGshcDw3XWUYhqLyrHJpvfWoKDHjiXjzDAuc5
+        -----END PRIVATE KEY-----
+        """
+
+    static func decodedAPNSProviderToken(_ token: String) throws -> DecodedAPNSProviderToken {
+        let header = try decodedProviderTokenSegment(token, index: 0)
+        let payload = try decodedProviderTokenSegment(token, index: 1)
+        return try DecodedAPNSProviderToken(
+            algorithm: #require(header["alg"] as? String),
+            issuedAt: #require((payload["iat"] as? NSNumber)?.int64Value),
+            issuer: #require(payload["iss"] as? String),
+            keyID: #require(header["kid"] as? String),
+            type: #require(header["typ"] as? String)
+        )
+    }
+
+    static func decodedProviderTokenSegment(
+        _ token: String,
+        index: Int
+    ) throws -> [String: Any] {
+        let segments = token.split(separator: ".")
+        guard segments.indices.contains(index) else {
+            throw DecodedProviderTokenError.missingSegment(index)
+        }
+        var value = String(segments[index])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        value += String(repeating: "=", count: (4 - value.count % 4) % 4)
+        let object = try JSONSerialization.jsonObject(
+            with: #require(Data(base64Encoded: value))
+        )
+        return try #require(object as? [String: Any])
+    }
 
     static func webhookSecretProtection() throws -> WebhookSecretProtection {
         try WebhookSecretProtection(keyData: protectionKey)
@@ -770,10 +913,42 @@ private struct PersistedDelivery: Equatable, Sendable {
     var receivedAt: Date
 }
 
-private actor ProviderHTTPRequestRecorder {
-    var requests: [NotificationProviderHTTPRequest] = []
+private struct DecodedAPNSProviderToken: Equatable {
+    var algorithm: String
+    var issuedAt: Int64
+    var issuer: String
+    var keyID: String
+    var type: String
+}
 
-    func record(_ request: NotificationProviderHTTPRequest) {
-        requests.append(request)
+private enum DecodedProviderTokenError: Error {
+    case missingSegment(Int)
+}
+
+private actor FailOnceSourceUpdateProcessor {
+    private(set) var attemptCount = 0
+
+    func process(_: TangledSourceUpdate) throws {
+        attemptCount += 1
+        if attemptCount == 1 {
+            throw Failure.firstAttempt
+        }
+    }
+
+    private enum Failure: Error {
+        case firstAttempt
+    }
+}
+
+private actor ProviderHTTPRequestRecorder {
+    struct Request: Sendable {
+        var body: Data?
+        var request: HTTPRequest
+    }
+
+    var requests: [Request] = []
+
+    func record(_ request: HTTPRequest, body: Data?) {
+        requests.append(Request(body: body, request: request))
     }
 }
