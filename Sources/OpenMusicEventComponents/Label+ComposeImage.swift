@@ -168,7 +168,9 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.ExpandLess
         case "gearshape":
             imageVector = Icons.Outlined.Settings
-        case "heart.badge.plus":
+        case "heart":
+            imageVector = Icons.Outlined.Heart
+        case "heart.badge":
             imageVector = ImageVector.Builder(
                 name = "HeartBadgePlus",
                 defaultWidth: Float(24).dp,

@@ -86,9 +86,8 @@ struct PerformanceReactionMenuLabel: View {
 
     var body: some View {
         if emojis.isEmpty {
-            MappedSystemImage(systemName: "heart.badge.plus")
+            MappedSystemImage(systemName: "heart")
                 .frame(width: 22, height: 22)
-                .foregroundStyle(.secondary)
         } else {
             HStack(spacing: -7) {
                 ForEach(emojis, id: \.self) { emoji in
