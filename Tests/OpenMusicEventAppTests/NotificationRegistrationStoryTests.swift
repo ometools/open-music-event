@@ -199,12 +199,28 @@ struct NotificationRegistrationStoryTests {
             source: .tangled,
             watchID: webhookWatchID
         )
-        let fakeFCM = FakeFCMProvider()
+        let fakeFCM = FakeFCMTransport()
         let sourceUpdateProcessor = TangledSourceUpdateProcessor.notifications(
             store: appViewStore,
-            provider: NotificationProviderClient { message, destination in
-                try await fakeFCM.send(message, to: destination)
-            }
+            provider: NotificationProviderClient.http(
+                configuration: NotificationProviderHTTPConfiguration(
+                    fcm: [
+                        .init(rawValue: "app.openmusicevent"): .init(
+                            projectID: "open-music-event"
+                        )
+                    ]
+                ),
+                authorization: NotificationProviderAuthorization(
+                    apnsBearerToken: { _ in "unused-apns-token" },
+                    fcmAccessToken: { applicationID in
+                        expectNoDifference(applicationID.rawValue, "app.openmusicevent")
+                        return "fixture-fcm-oauth-token"
+                    }
+                ),
+                transport: NotificationProviderHTTPTransport { request in
+                    try await fakeFCM.send(request)
+                }
+            )
         )
 
         do {
@@ -221,6 +237,7 @@ struct NotificationRegistrationStoryTests {
                     $0.httpClient = .liveValue
                     $0.keychainStorage = keychainStorage
                     OME.prepareDependencies(&$0, database: database)
+                    $0.defaultEventID = eventID
                     $0.notificationTokenClient = tokenClient
                     $0[XRPC.Client.self] = .liveValue
                     $0.requestInterceptors = []
@@ -251,6 +268,7 @@ struct NotificationRegistrationStoryTests {
                         let responseBody = Data(response.body.readableBytesView)
                         await requestRecorder.record(
                             request,
+                            requestBody: body,
                             response: response.head,
                             responseBody: responseBody
                         )
@@ -310,17 +328,24 @@ struct NotificationRegistrationStoryTests {
                     #expect(webhookResponse.head.status == .accepted)
                     try await requestRecorder.waitForRequestCount(5)
 
-                    let providerDeliveries = await fakeFCM.deliveries()
+                    let providerRequests = await fakeFCM.requests()
+                    let providerRequest = try #require(providerRequests.first)
+                    expectNoDifference(providerRequests.count, 1)
+                    expectNoDifference(providerRequest.method, .post)
                     expectNoDifference(
-                        providerDeliveries,
+                        providerRequest.url.absoluteString,
+                        "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
+                    )
+                    expectNoDifference(
+                        providerRequest.headerFields,
                         [
-                            FakeFCMProvider.Delivery(
-                                message: NotificationProviderMessage(
-                                    signal: .sourceAvailable(updatedSource)
-                                ),
-                                destination: destination
-                            )
+                            "Authorization": "Bearer fixture-fcm-oauth-token",
+                            "Content-Type": "application/json",
                         ]
+                    )
+                    expectNoDifference(
+                        String(decoding: providerRequest.body, as: UTF8.self),
+                        #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"token":"fcm-registration-token-that-must-not-be-rewritten"}}"#
                     )
                     withExtendedLifetime(appStore) {}
                 }
@@ -357,6 +382,7 @@ struct NotificationRegistrationStoryTests {
                 $0.httpClient = .liveValue
                 $0.keychainStorage = keychainStorage
                 OME.prepareDependencies(&$0, database: database)
+                $0.defaultEventID = eventID
                 $0.notificationTokenClient = tokenClient
                 $0[XRPC.Client.self] = .liveValue
                 $0.requestInterceptors = []
@@ -378,6 +404,7 @@ struct NotificationRegistrationStoryTests {
                     let responseBody = Data(response.body.readableBytesView)
                     await requestRecorder.record(
                         request,
+                        requestBody: body,
                         response: response.head,
                         responseBody: responseBody
                     )
@@ -472,6 +499,18 @@ struct NotificationRegistrationStoryTests {
             registrationExchanges.map { $0.response.status },
             [.created, .noContent, .noContent, .noContent, .noContent]
         )
+        expectNoDifference(
+            try registrationExchanges.map { exchange in
+                try exchange.requestBody.map(canonicalJSONString)
+            },
+            [
+                nil,
+                #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
+                #"{"sourceIDs":["at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
+                #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
+                #"{"sourceIDs":["at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
+            ]
+        )
         expectNoDifference(browseExchanges.count, 2)
         #expect(browseExchanges.allSatisfy { $0.response.status == .ok })
         #expect(registrationExchanges.dropFirst().allSatisfy { $0.responseBody.isEmpty })
@@ -531,34 +570,35 @@ private func tangledWebhookHeaders(
     ]
 }
 
-private actor FakeFCMProvider {
-    struct Delivery: Equatable, Sendable {
-        var message: NotificationProviderMessage
-        var destination: Push.Destination
-    }
+private actor FakeFCMTransport {
+    private var recordedRequests: [NotificationProviderHTTPRequest] = []
 
-    private var recordedDeliveries: [Delivery] = []
-
-    func send(
-        _ message: NotificationProviderMessage,
-        to destination: Push.Destination
-    ) throws {
-        guard case .fcm = destination else {
-            throw FakeFCMProviderError.unsupportedDestination
+    func send(_ request: NotificationProviderHTTPRequest) throws {
+        let payload = try JSONSerialization.jsonObject(with: request.body)
+        guard
+            let payload = payload as? [String: Any],
+            let message = payload["message"] as? [String: Any],
+            let data = message["data"] as? [String: String]
+        else {
+            throw FakeFCMTransportError.invalidPayload
         }
-        recordedDeliveries.append(
-            Delivery(message: message, destination: destination)
+        recordedRequests.append(request)
+        let appPayload = try JSONSerialization.data(
+            withJSONObject: data,
+            options: [.sortedKeys, .withoutEscapingSlashes]
         )
-        OpenMusicEventAppDelegate.shared.onRemoteNotification(data: message.data)
+        OpenMusicEventAppDelegate.shared.onRemoteNotification(
+            json: String(decoding: appPayload, as: UTF8.self)
+        )
     }
 
-    func deliveries() -> [Delivery] {
-        recordedDeliveries
+    func requests() -> [NotificationProviderHTTPRequest] {
+        recordedRequests
     }
 }
 
-private enum FakeFCMProviderError: Error {
-    case unsupportedDestination
+private enum FakeFCMTransportError: Error {
+    case invalidPayload
 }
 
 private struct NotificationRequestSummary: Equatable {
@@ -581,6 +621,7 @@ private struct NotificationRequestSummary: Equatable {
 private actor NotificationRequestRecorder {
     struct Exchange: Sendable {
         var request: HTTPRequest
+        var requestBody: Data?
         var response: HTTPResponse
         var responseBody: Data
     }
@@ -589,11 +630,17 @@ private actor NotificationRequestRecorder {
 
     func record(
         _ request: HTTPRequest,
+        requestBody: Data?,
         response: HTTPResponse,
         responseBody: Data
     ) {
         exchanges.append(
-            Exchange(request: request, response: response, responseBody: responseBody)
+            Exchange(
+                request: request,
+                requestBody: requestBody,
+                response: response,
+                responseBody: responseBody
+            )
         )
     }
 
@@ -622,6 +669,15 @@ private actor NotificationRequestRecorder {
         )
         .credential
     }
+}
+
+private func canonicalJSONString(_ data: Data) throws -> String {
+    let object = try JSONSerialization.jsonObject(with: data)
+    let canonicalData = try JSONSerialization.data(
+        withJSONObject: object,
+        options: [.sortedKeys, .withoutEscapingSlashes]
+    )
+    return String(decoding: canonicalData, as: UTF8.self)
 }
 
 private enum NotificationRequestRecorderError: Error, Equatable {
