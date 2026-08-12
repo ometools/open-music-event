@@ -318,6 +318,11 @@ let appViewDependencies: [Package.Dependency] = [
 ] + (packageBuild == .appView ? [
     appViewComposableCalendarEventsDependency,
     appViewComposableAtmosphereDependency,
+    .package(
+        name: "swift-composable-notifications",
+        path: composableNotificationsPath
+    ),
+    .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
@@ -1017,6 +1022,8 @@ let appViewTargets: [Target] = [
             .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+            .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Hummingbird", package: "hummingbird"),
@@ -1025,6 +1032,7 @@ let appViewTargets: [Target] = [
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             .product(name: "SQLiteData", package: "sqlite-data"),
+            .product(name: "Tagged", package: "swift-tagged"),
             .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
@@ -1054,6 +1062,8 @@ let appViewTargets: [Target] = [
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
+            .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),

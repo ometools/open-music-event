@@ -1,6 +1,8 @@
 import AppViewIndex
 import ATProto
 import ComposableCalendarEvents
+import ComposableNotifications
+import Crypto
 import Foundation
 import GRDB
 import IssueReporting
@@ -32,15 +34,27 @@ public actor OpenMusicEventAppViewReadiness {
     }
 }
 
-public struct OpenMusicEventAppViewStore: Sendable {
+public struct OpenMusicEventAppViewStore:
+    NotificationDeliveryStore,
+    NotificationInstallationStore,
+    NotificationRegistrationStore,
+    WebhookInboxStore,
+    Sendable
+{
     public let readiness: OpenMusicEventAppViewReadiness
     let database: any DatabaseWriter
+    private let notificationDestinationProtection: NotificationDestinationProtection?
+    private let webhookSecretProtection: WebhookSecretProtection?
 
     public init(
         database: any DatabaseWriter,
+        notificationDestinationProtection: NotificationDestinationProtection? = nil,
+        webhookSecretProtection: WebhookSecretProtection? = nil,
         initiallyReady: Bool = true
     ) throws {
         self.database = database
+        self.notificationDestinationProtection = notificationDestinationProtection
+        self.webhookSecretProtection = webhookSecretProtection
         self.readiness = OpenMusicEventAppViewReadiness(
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
         )
@@ -49,17 +63,290 @@ public struct OpenMusicEventAppViewStore: Sendable {
 
     public init(
         databaseURL: URL,
+        notificationDestinationProtection: NotificationDestinationProtection? = nil,
+        webhookSecretProtection: WebhookSecretProtection? = nil,
         initiallyReady: Bool = true
     ) throws {
         try FileManager.default.createDirectory(
             at: databaseURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        configuration.foreignKeysEnabled = true
         try self.init(
-            database: SQLiteData.defaultDatabase(
-                path: databaseURL.path(percentEncoded: false)
+            database: DatabasePool(
+                path: databaseURL.path(percentEncoded: false),
+                configuration: configuration
             ),
+            notificationDestinationProtection: notificationDestinationProtection,
+            webhookSecretProtection: webhookSecretProtection,
             initiallyReady: initiallyReady
+        )
+    }
+
+    var supportsNotificationRegistration: Bool {
+        notificationDestinationProtection != nil
+    }
+
+    public func insertInstallation(
+        _ installation: NotificationInstallation,
+        credentialFingerprint: NotificationInstallation.CredentialFingerprint
+    ) async throws {
+        try await database.write { database in
+            try PushInstallationRow.insert {
+                PushInstallationRow(
+                    id: installation.id.rawValue,
+                    credentialFingerprint: credentialFingerprint.rawValue
+                )
+            }
+            .execute(database)
+        }
+    }
+
+    public func installationID(
+        for credentialFingerprint: NotificationInstallation.CredentialFingerprint
+    ) async throws -> NotificationInstallation.ID? {
+        try await database.read { database in
+            try PushInstallationRow
+                .where { $0.credentialFingerprint.eq(credentialFingerprint.rawValue) }
+                .select(\.id)
+                .fetchOne(database)
+            .map(NotificationInstallation.ID.init(rawValue:))
+        }
+    }
+
+    public func replaceDestination(
+        _ destination: Push.Destination,
+        for installationID: NotificationInstallation.ID
+    ) async throws {
+        guard let notificationDestinationProtection else {
+            throw NotificationPersistenceError.destinationProtectionUnavailable
+        }
+        let persistedDestination = PersistedNotificationDestination(destination)
+        let ciphertext = try notificationDestinationProtection.seal(
+            persistedDestination,
+            for: installationID
+        )
+        let destinationFingerprint = Self.destinationFingerprint(for: persistedDestination)
+        let keyVersion = notificationDestinationProtection.keyVersion
+
+        try await database.write { database in
+            try Self.requireInstallation(installationID, in: database)
+            try PushRegistrationRow.upsert {
+                PushRegistrationRow(
+                    installationID: installationID.rawValue,
+                    applicationID: persistedDestination.applicationID.rawValue,
+                    provider: persistedDestination.provider.rawValue,
+                    destination: ciphertext,
+                    destinationFingerprint: destinationFingerprint,
+                    destinationKeyVersion: keyVersion
+                )
+            }
+            .execute(database)
+        }
+    }
+
+    public func replaceSubscriptions(
+        _ subscriptions: Set<NotificationSubscription>,
+        for installationID: NotificationInstallation.ID
+    ) async throws {
+        let rows = subscriptions
+            .map(\.sourceID.rawValue)
+            .sorted()
+            .map {
+                PushSubscriptionRow(
+                    installationID: installationID.rawValue,
+                    sourceID: $0
+                )
+            }
+
+        try await database.write { database in
+            try Self.requireInstallation(installationID, in: database)
+            try PushSubscriptionRow
+                .where { $0.installationID.eq(installationID.rawValue) }
+                .delete()
+                .execute(database)
+            guard !rows.isEmpty else { return }
+            try PushSubscriptionRow.insert { rows }.execute(database)
+        }
+    }
+
+    public func notificationDestination(
+        for installationID: NotificationInstallation.ID
+    ) async throws -> Push.Destination? {
+        guard let notificationDestinationProtection else {
+            throw NotificationPersistenceError.destinationProtectionUnavailable
+        }
+        guard let row = try await database.read({ database in
+            try PushRegistrationRow.find(installationID.rawValue).fetchOne(database)
+        }) else { return nil }
+        return try notificationDestination(
+            from: row,
+            for: installationID,
+            using: notificationDestinationProtection
+        )
+    }
+
+    private func notificationDestination(
+        from row: PushRegistrationRow,
+        for installationID: NotificationInstallation.ID,
+        using notificationDestinationProtection: NotificationDestinationProtection
+    ) throws -> Push.Destination {
+        guard let provider = PersistedNotificationDestination.Provider(rawValue: row.provider) else {
+            throw NotificationPersistenceError.unsupportedProvider(row.provider)
+        }
+        let applicationID = Push.ApplicationID(rawValue: row.applicationID)
+        let value = try notificationDestinationProtection.open(
+            row.destination,
+            applicationID: applicationID,
+            provider: provider,
+            installationID: installationID,
+            keyVersion: row.destinationKeyVersion
+        )
+        return PersistedNotificationDestination(
+            applicationID: applicationID,
+            provider: provider,
+            value: value
+        )
+        .destination
+    }
+
+    public func notificationDeliveryTargets(
+        subscribedTo sourceID: NotificationSource.ID
+    ) async throws -> [NotificationDeliveryTarget] {
+        guard let notificationDestinationProtection else {
+            throw NotificationPersistenceError.destinationProtectionUnavailable
+        }
+        let registrations = try await database.read { database in
+            try PushSubscriptionRow
+                .where { $0.sourceID.eq(sourceID.rawValue) }
+                .join(PushRegistrationRow.all) { subscription, registration in
+                    subscription.installationID.eq(registration.installationID)
+                }
+                .order { subscription, _ in subscription.installationID }
+                .select { _, registration in registration }
+                .fetchAll(database)
+        }
+        return try registrations.map { registration in
+            let installationID = NotificationInstallation.ID(
+                rawValue: registration.installationID
+            )
+            return NotificationDeliveryTarget(
+                installationID: installationID,
+                destination: try notificationDestination(
+                    from: registration,
+                    for: installationID,
+                    using: notificationDestinationProtection
+                )
+            )
+        }
+    }
+
+    public func notificationSubscriptions(
+        for installationID: NotificationInstallation.ID
+    ) async throws -> Set<NotificationSubscription> {
+        let rows = try await database.read { database in
+            try PushSubscriptionRow
+                .where { $0.installationID.eq(installationID.rawValue) }
+                .order(by: \.sourceID)
+                .fetchAll(database)
+        }
+        return Set(
+            rows.map {
+                NotificationSubscription(sourceID: .init(rawValue: $0.sourceID))
+            }
+        )
+    }
+
+    public func record(
+        _ delivery: WebhookInboxDelivery
+    ) async throws -> WebhookInboxRecordResult {
+        let row = WebhookInboxDeliveryRow(
+            source: delivery.source.rawValue,
+            watchID: delivery.watchID.rawValue,
+            deliveryID: delivery.deliveryID.rawValue,
+            event: delivery.event,
+            payload: delivery.payload,
+            payloadDigest: Self.webhookPayloadDigest(delivery.payload),
+            receivedAt: delivery.receivedAt
+        )
+        return try await database.write { database in
+            let existing = try WebhookInboxDeliveryRow
+                .where { delivery in delivery.source.eq(row.source) }
+                .where { delivery in delivery.deliveryID.eq(row.deliveryID) }
+                .fetchOne(database)
+            if let existing {
+                guard existing.watchID == row.watchID,
+                      existing.event == row.event,
+                      existing.payloadDigest == row.payloadDigest,
+                      existing.payload == row.payload
+                else {
+                    throw WebhookInboxError.deliveryConflict(
+                        source: delivery.source,
+                        deliveryID: delivery.deliveryID
+                    )
+                }
+                return .duplicate
+            }
+
+            try WebhookInboxDeliveryRow.insert { row }.execute(database)
+            return .inserted
+        }
+    }
+
+    public func replaceWebhookSecret(
+        _ secret: Data,
+        source: WebhookInboxDelivery.Source,
+        watchID: WebhookInboxDelivery.WatchID
+    ) async throws {
+        guard !secret.isEmpty else {
+            throw WebhookSecretPersistenceError.emptySecret
+        }
+        guard let webhookSecretProtection else {
+            throw WebhookSecretPersistenceError.protectionUnavailable
+        }
+        let ciphertext = try webhookSecretProtection.seal(
+            secret,
+            source: source,
+            watchID: watchID
+        )
+        try await database.write { database in
+            try WebhookSecretRow
+                .where { $0.source.eq(source.rawValue) }
+                .where { $0.watchID.eq(watchID.rawValue) }
+                .delete()
+                .execute(database)
+            try WebhookSecretRow.insert {
+                WebhookSecretRow(
+                    source: source.rawValue,
+                    watchID: watchID.rawValue,
+                    secret: ciphertext,
+                    secretKeyVersion: webhookSecretProtection.keyVersion
+                )
+            }
+            .execute(database)
+        }
+    }
+
+    public func webhookSecret(
+        source: WebhookInboxDelivery.Source,
+        watchID: WebhookInboxDelivery.WatchID
+    ) async throws -> Data? {
+        guard let webhookSecretProtection else {
+            throw WebhookSecretPersistenceError.protectionUnavailable
+        }
+        guard let row = try await database.read({ database in
+            try WebhookSecretRow
+                .where { $0.source.eq(source.rawValue) }
+                .where { $0.watchID.eq(watchID.rawValue) }
+                .fetchOne(database)
+        }) else { return nil }
+        return try webhookSecretProtection.open(
+            row.secret,
+            source: source,
+            watchID: watchID,
+            keyVersion: row.secretKeyVersion
         )
     }
 
@@ -147,12 +434,198 @@ public struct OpenMusicEventAppViewStore: Sendable {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
+        NotificationPersistenceSchema.registerMigration(into: &migrator)
+        WebhookInboxSchema.registerMigration(into: &migrator)
+        WebhookSecretSchema.registerMigration(into: &migrator)
         try migrator.migrate(database)
+    }
+
+    private static func destinationFingerprint(
+        for destination: PersistedNotificationDestination
+    ) -> String {
+        Data(SHA256.hash(data: destination.fingerprintData)).base64EncodedString()
+    }
+
+    private static func webhookPayloadDigest(_ payload: Data) -> String {
+        Data(SHA256.hash(data: payload)).base64EncodedString()
+    }
+
+    private static func requireInstallation(
+        _ installationID: NotificationInstallation.ID,
+        in database: Database
+    ) throws {
+        guard try PushInstallationRow.find(installationID.rawValue).fetchOne(database) != nil
+        else {
+            throw NotificationPersistenceError.unknownInstallation(installationID)
+        }
     }
 }
 
 public enum OpenMusicEventAppViewStoreError: Error, Equatable, Sendable {
     case invalidCursor(String)
+}
+
+public enum NotificationPersistenceError: Error, Equatable, Sendable {
+    case destinationProtectionUnavailable
+    case invalidDestinationEncoding
+    case unsupportedProvider(String)
+    case unknownInstallation(NotificationInstallation.ID)
+}
+
+public enum WebhookSecretPersistenceError: Error, Equatable, Sendable {
+    case emptySecret
+    case protectionUnavailable
+}
+
+@Table("pushInstallations")
+private struct PushInstallationRow: Equatable, Sendable {
+    @Column(primaryKey: true) var id: String
+    var credentialFingerprint: String
+}
+
+@Table("pushRegistrations")
+private struct PushRegistrationRow: Equatable, Sendable {
+    @Column(primaryKey: true) var installationID: String
+    var applicationID: String
+    var provider: String
+    var destination: Data
+    var destinationFingerprint: String
+    var destinationKeyVersion: Int
+}
+
+@Table("pushSubscriptions")
+private struct PushSubscriptionRow: Equatable, Sendable {
+    var installationID: String
+    var sourceID: String
+}
+
+@Table("webhookInboxDeliveries")
+private struct WebhookInboxDeliveryRow: Equatable, Sendable {
+    var source: String
+    var watchID: String
+    var deliveryID: String
+    var event: String
+    var payload: Data
+    var payloadDigest: String
+    var receivedAt: Date
+}
+
+@Table("webhookSecrets")
+private struct WebhookSecretRow: Equatable, Sendable {
+    var source: String
+    var watchID: String
+    var secret: Data
+    var secretKeyVersion: Int
+}
+
+private enum WebhookInboxSchema {
+    static func registerMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Create webhook inbox deliveries") { database in
+            let tableName = WebhookInboxDeliveryRow.tableName
+            try #sql(
+                """
+                    CREATE TABLE \(quote: tableName) (
+                      source TEXT NOT NULL,
+                      watchID TEXT NOT NULL,
+                      deliveryID TEXT NOT NULL,
+                      event TEXT NOT NULL,
+                      payload BLOB NOT NULL,
+                      payloadDigest TEXT NOT NULL,
+                      receivedAt TEXT NOT NULL,
+                      PRIMARY KEY (source, deliveryID)
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+        }
+    }
+}
+
+private enum WebhookSecretSchema {
+    static func registerMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Create webhook secrets") { database in
+            let tableName = WebhookSecretRow.tableName
+            try #sql(
+                """
+                    CREATE TABLE \(quote: tableName) (
+                      source TEXT NOT NULL,
+                      watchID TEXT NOT NULL,
+                      secret BLOB NOT NULL,
+                      secretKeyVersion INTEGER NOT NULL,
+                      PRIMARY KEY (source, watchID)
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+        }
+    }
+}
+
+private enum NotificationPersistenceSchema {
+    static func registerMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Create push notification registrations") { database in
+            let installationsTable = PushInstallationRow.tableName
+            let registrationsTable = PushRegistrationRow.tableName
+            let subscriptionsTable = PushSubscriptionRow.tableName
+            let destinationIndex = "\(registrationsTable)_destination"
+            try #sql(
+                """
+                    CREATE TABLE \(quote: installationsTable) (
+                      id TEXT PRIMARY KEY NOT NULL,
+                      credentialFingerprint TEXT NOT NULL UNIQUE
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+            try #sql(
+                """
+                    CREATE TABLE \(quote: registrationsTable) (
+                      installationID TEXT PRIMARY KEY NOT NULL
+                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
+                      applicationID TEXT NOT NULL,
+                      provider TEXT NOT NULL,
+                      destination BLOB NOT NULL,
+                      destinationFingerprint TEXT NOT NULL,
+                      destinationKeyVersion INTEGER NOT NULL
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+            try #sql(
+                """
+                    CREATE INDEX \(quote: destinationIndex)
+                    ON \(quote: registrationsTable) (
+                      applicationID,
+                      provider,
+                      destinationFingerprint
+                    )
+                    """
+            )
+            .execute(database)
+            try #sql(
+                """
+                    CREATE TABLE \(quote: subscriptionsTable) (
+                      installationID TEXT NOT NULL
+                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
+                      sourceID TEXT NOT NULL,
+                      PRIMARY KEY (installationID, sourceID)
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+        }
+        migrator.registerMigration("Index push notification subscriptions by source") { database in
+            let subscriptionsTable = PushSubscriptionRow.tableName
+            let sourceIndex = "\(subscriptionsTable)_source"
+            try #sql(
+                """
+                    CREATE INDEX \(quote: sourceIndex)
+                    ON \(quote: subscriptionsTable) (sourceID)
+                    """
+            )
+            .execute(database)
+        }
+    }
 }
 
 @Table("communityCalendarEventProjections")

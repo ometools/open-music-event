@@ -8,7 +8,7 @@
   "alsoKnownAs": [
     "at://openmusicevent.app"
   ],
-Yp  "service": [
+  "service": [
     {
       "id": "#atproto_pds",
       "type": "AtprotoPersonalDataServer",

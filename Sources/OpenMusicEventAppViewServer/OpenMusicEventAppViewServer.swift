@@ -1,4 +1,6 @@
 import ComposableCalendarEvents
+import ComposableNotifications
+import Dependencies
 import Foundation
 import Hummingbird
 import HydrantClient
@@ -13,13 +15,17 @@ public enum OpenMusicEventAppViewServer {
     public static func router(
         configuration: AppViewConfiguration = .init(),
         store: OpenMusicEventAppViewStore? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil
+        commsPostSubmission: CommsPostSubmission? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<BasicRequestContext> {
         router(
             context: BasicRequestContext.self,
             configuration: configuration,
             store: store,
-            commsPostSubmission: commsPostSubmission
+            commsPostSubmission: commsPostSubmission,
+            notificationRegistration: notificationRegistration,
+            tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
         )
     }
 
@@ -27,7 +33,9 @@ public enum OpenMusicEventAppViewServer {
         context: Context.Type,
         configuration: AppViewConfiguration = .init(),
         store: OpenMusicEventAppViewStore? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil
+        commsPostSubmission: CommsPostSubmission? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<Context> {
         let hummingbirdRouter = Router(context: context, options: [.autoGenerateHeadEndpoints])
         let routeResolver = OpenMusicEventRouter()
@@ -40,7 +48,10 @@ public enum OpenMusicEventAppViewServer {
             staticSiteFiles: staticSiteFiles,
             wellKnownFiles: wellKnownFiles,
             store: store,
-            commsPostSubmission: commsPostSubmission
+            commsPostSubmission: commsPostSubmission,
+            notificationRegistration: notificationRegistration,
+            tangledWebhookConfiguration: configuration.tangledWebhook,
+            tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
         )
 
         return hummingbirdRouter
@@ -50,7 +61,11 @@ public enum OpenMusicEventAppViewServer {
         configuration: AppViewConfiguration = .init(),
         store providedStore: OpenMusicEventAppViewStore? = nil,
         hydrantClient: HydrantClient? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil
+        commsPostSubmission: CommsPostSubmission? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        notificationProvider: NotificationProviderClient? = nil,
+        tangledSourceUpdateProcessor providedTangledSourceUpdateProcessor:
+            TangledSourceUpdateProcessor? = nil
     ) throws -> some ApplicationProtocol {
         let store: OpenMusicEventAppViewStore?
         if let providedStore {
@@ -58,10 +73,15 @@ public enum OpenMusicEventAppViewServer {
         } else if let databaseURL = configuration.databaseURL {
             store = try OpenMusicEventAppViewStore(
                 databaseURL: databaseURL,
+                notificationDestinationProtection: configuration.notificationDestinationProtection,
+                webhookSecretProtection: configuration.webhookSecretProtection,
                 initiallyReady: configuration.ingestion == nil
             )
         } else {
             store = nil
+        }
+        if configuration.tangledWebhook != nil, store == nil {
+            throw OpenMusicEventAppViewServerError.tangledWebhookRequiresDatabase
         }
 
         let services: [any Service]
@@ -79,10 +99,31 @@ public enum OpenMusicEventAppViewServer {
         } else {
             services = []
         }
+        let notificationRegistration = try notificationRegistration
+            ?? configuredNotificationRegistration(
+                configuration: configuration,
+                store: store
+            )
+        let tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
+        if let providedTangledSourceUpdateProcessor {
+            tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
+        } else if let notificationProvider {
+            guard let store else {
+                throw OpenMusicEventAppViewServerError.notificationDeliveryRequiresDatabase
+            }
+            tangledSourceUpdateProcessor = .notifications(
+                store: store,
+                provider: notificationProvider
+            )
+        } else {
+            tangledSourceUpdateProcessor = nil
+        }
         let hummingbirdRouter = router(
             configuration: configuration,
             store: store,
-            commsPostSubmission: commsPostSubmission
+            commsPostSubmission: commsPostSubmission,
+            notificationRegistration: notificationRegistration,
+            tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
         )
 
         return Application(
@@ -92,13 +133,43 @@ public enum OpenMusicEventAppViewServer {
         )
     }
 
+    private static func configuredNotificationRegistration(
+        configuration: AppViewConfiguration,
+        store: OpenMusicEventAppViewStore?
+    ) throws -> NotificationRegistrationServer? {
+        guard let notificationConfiguration = configuration.notificationRegistration else {
+            return nil
+        }
+        guard let store else {
+            throw OpenMusicEventAppViewServerError.notificationRegistrationRequiresDatabase
+        }
+        guard store.supportsNotificationRegistration else {
+            throw OpenMusicEventAppViewServerError
+                .notificationRegistrationRequiresDestinationProtection
+        }
+
+        switch notificationConfiguration.authorization {
+        case .anonymous:
+            return NotificationRegistrationServer(
+                store: store,
+                installationAuthorizer: .anonymous(store: store),
+                policy: NotificationRegistrationPolicy(
+                    allowedApplicationIDs: notificationConfiguration.allowedApplicationIDs
+                )
+            )
+        }
+    }
+
     private static func installRoutes<Context: RequestContext>(
         on hummingbirdRouter: Router<Context>,
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
         store: OpenMusicEventAppViewStore?,
-        commsPostSubmission: CommsPostSubmission?
+        commsPostSubmission: CommsPostSubmission?,
+        notificationRegistration: NotificationRegistrationServer?,
+        tangledWebhookConfiguration: TangledWebhookConfiguration?,
+        tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
     ) {
         if let commsPostSubmission {
             hummingbirdRouter.register(
@@ -177,6 +248,178 @@ public enum OpenMusicEventAppViewServer {
                     error: "InvalidCursor",
                     message: "The XRPC cursor is invalid."
                 )
+            }
+        }
+
+        hummingbirdRouter.put(.init(NotificationRegistrationEndpoint.destinationPath)) {
+            request,
+            context async throws -> Response in
+            try await observeNotificationRegistration(
+                operation: "replace_destination",
+                context: context
+            ) {
+                guard let notificationRegistration else {
+                    throw HTTPError(.serviceUnavailable)
+                }
+                let installationID = try await notificationRegistration
+                    .installationAuthorizer
+                    .authenticateInstallation(request)
+                let payload = try await request.decode(
+                    as: NotificationDestinationPayload.self,
+                    context: context
+                )
+                try notificationRegistration.policy.validate(payload)
+                try await notificationRegistration.store.replaceDestination(
+                    payload.destination,
+                    for: installationID
+                )
+                context.logger.info(
+                    "Notification destination registered",
+                    metadata: [
+                        "notification.application.id": .string(payload.applicationID),
+                        "notification.destination.provider": .string(payload.provider.rawValue),
+                        "notification.installation.id": .string(installationID.rawValue),
+                    ]
+                )
+                return Response(status: .noContent)
+            }
+        }
+
+        hummingbirdRouter.put(.init(NotificationRegistrationEndpoint.subscriptionsPath)) {
+            request,
+            context async throws -> Response in
+            try await observeNotificationRegistration(
+                operation: "replace_subscriptions",
+                context: context
+            ) {
+                guard let notificationRegistration else {
+                    throw HTTPError(.serviceUnavailable)
+                }
+                let installationID = try await notificationRegistration
+                    .installationAuthorizer
+                    .authenticateInstallation(request)
+                let payload = try await request.decode(
+                    as: NotificationSubscriptionsPayload.self,
+                    context: context
+                )
+                try notificationRegistration.policy.validate(payload)
+                try await notificationRegistration.store.replaceSubscriptions(
+                    payload.subscriptions,
+                    for: installationID
+                )
+                context.logger.info(
+                    "Notification subscriptions registered",
+                    metadata: [
+                        "notification.installation.id": .string(installationID.rawValue),
+                        "notification.subscription.count": .string("\(payload.subscriptions.count)"),
+                    ]
+                )
+                return Response(status: .noContent)
+            }
+        }
+
+        hummingbirdRouter.post(.init(NotificationRegistrationEndpoint.installationsPath)) {
+            _, context async throws -> Response in
+            try await observeNotificationRegistration(
+                operation: "create_installation",
+                context: context
+            ) {
+                guard let notificationRegistration else {
+                    throw HTTPError(.serviceUnavailable)
+                }
+                let installation = try await notificationRegistration
+                    .installationAuthorizer
+                    .createInstallation()
+                let data = try JSONEncoder().encode(
+                    NotificationInstallationCredentialPayload(
+                        credential: installation.credential
+                    )
+                )
+                context.logger.info(
+                    "Notification installation created",
+                    metadata: [
+                        "notification.installation.id": .string(installation.id.rawValue)
+                    ]
+                )
+                return Response(
+                    status: .created,
+                    headers: [
+                        .cacheControl: "no-store",
+                        .contentLength: "\(data.count)",
+                        .contentType: "application/json",
+                    ],
+                    body: .init(byteBuffer: ByteBuffer(bytes: data))
+                )
+            }
+        }
+
+        if let tangledWebhookConfiguration {
+            @Dependency(\.date.now) var now
+            hummingbirdRouter.post(.init(TangledWebhookEndpoint.path)) {
+                request,
+                context async throws -> Response in
+                guard let store else {
+                    throw HTTPError(.serviceUnavailable)
+                }
+                let tangledWebhook = TangledWebhookServer(
+                    configuration: tangledWebhookConfiguration,
+                    inbox: store,
+                    secret: { watchID in
+                        try await store.webhookSecret(source: .tangled, watchID: watchID)
+                    }
+                )
+                let buffer = try await request.body.collect(upTo: 1_048_576)
+                let webhookRequest = TangledWebhookRequest(
+                    event: request.headers[.init("X-Tangled-Event")!],
+                    hookID: request.headers[.init("X-Tangled-Hook-ID")!],
+                    deliveryID: request.headers[.init("X-Tangled-Delivery")!],
+                    repository: request.headers[.init("X-Tangled-Repo")!],
+                    signature: request.headers[.init("X-Tangled-Signature-256")!],
+                    payload: Data(buffer.readableBytesView)
+                )
+
+                do {
+                    let reception = try await tangledWebhook.receive(
+                        webhookRequest,
+                        receivedAt: now
+                    )
+                    if let tangledSourceUpdateProcessor {
+                        try await tangledSourceUpdateProcessor.process(reception.sourceUpdate)
+                        context.logger.info(
+                            "Tangled source update published",
+                            metadata: [
+                                "notification.source.id": .string(
+                                    reception.sourceUpdate.source.id.rawValue
+                                ),
+                                "notification.source.version": .string(
+                                    reception.sourceUpdate.source.version.rawValue
+                                ),
+                                "webhook.delivery.id": .string(
+                                    reception.sourceUpdate.deliveryID.rawValue
+                                ),
+                            ]
+                        )
+                    }
+                    return Response(status: .accepted)
+                } catch let error as TangledWebhookReceiveError {
+                    switch error {
+                    case .authenticationFailed:
+                        throw HTTPError(.unauthorized)
+                    case .secretUnavailable:
+                        throw HTTPError(.serviceUnavailable)
+                    case .unsupportedEvent,
+                         .invalidDeliveryID,
+                         .invalidPayload,
+                         .refMismatch,
+                         .repositoryMismatch:
+                        throw HTTPError(.badRequest)
+                    }
+                } catch let error as WebhookInboxError {
+                    switch error {
+                    case .deliveryConflict:
+                        throw HTTPError(.conflict)
+                    }
+                }
             }
         }
 
@@ -362,10 +605,36 @@ public enum OpenMusicEventAppViewServer {
             body: .init(byteBuffer: .init(data: Data(text.utf8)))
         )
     }
+
+    private static func observeNotificationRegistration<Context: RequestContext, Value>(
+        operation: String,
+        context: Context,
+        _ body: () async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await body()
+        } catch {
+            let status = (error as? any HTTPResponseError)?.status.code ?? 500
+            context.logger.log(
+                level: status >= 500 ? .error : .warning,
+                "Notification registration failed",
+                metadata: [
+                    "error.type": .string(String(reflecting: type(of: error))),
+                    "http.response.status_code": .string("\(status)"),
+                    "notification.registration.operation": .string(operation),
+                ]
+            )
+            throw error
+        }
+    }
 }
 
 public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
     case ingestionRequiresDatabase
+    case notificationDeliveryRequiresDatabase
+    case notificationRegistrationRequiresDatabase
+    case notificationRegistrationRequiresDestinationProtection
+    case tangledWebhookRequiresDatabase
 }
 
 private extension Request {
