@@ -1,5 +1,6 @@
 import ComposableCalendarEvents
 import ComposableNotifications
+import ComposableNotificationsServer
 import Dependencies
 import Foundation
 import Hummingbird
@@ -73,7 +74,6 @@ public enum OpenMusicEventAppViewServer {
         } else if let databaseURL = configuration.databaseURL {
             store = try OpenMusicEventAppViewStore(
                 databaseURL: databaseURL,
-                notificationDestinationProtection: configuration.notificationDestinationProtection,
                 webhookSecretProtection: configuration.webhookSecretProtection,
                 initiallyReady: configuration.ingestion == nil
             )
@@ -98,30 +98,37 @@ public enum OpenMusicEventAppViewServer {
             )
         }
         let notificationRegistration = try notificationRegistration
-            ?? configuredNotificationRegistration(
-                configuration: configuration,
-                store: store
-            )
-        let notificationOutboxClient = store.map {
-            NotificationOutboxClient(appViewStore: $0)
-        }
+            ?? withNotificationDependencies(configuration: configuration, store: store) {
+                try configuredNotificationRegistration(
+                    configuration: configuration,
+                    store: store
+                )
+            }
         let tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
         if let providedTangledSourceUpdateProcessor {
             tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
-        } else if configuration.tangledWebhook != nil, let notificationOutboxClient {
-            tangledSourceUpdateProcessor = .notificationOutbox(
-                client: notificationOutboxClient
-            )
+        } else if configuration.tangledWebhook != nil, store != nil {
+            tangledSourceUpdateProcessor = withNotificationDependencies(
+                configuration: configuration,
+                store: store
+            ) {
+                .notificationOutbox()
+            }
         } else {
             tangledSourceUpdateProcessor = nil
         }
         if let notificationProvider {
-            guard let notificationOutboxClient else {
+            guard let store else {
                 throw OpenMusicEventAppViewServerError.notificationDeliveryRequiresDatabase
+            }
+            guard let destinationProtection = configuration.notificationDestinationProtection else {
+                throw OpenMusicEventAppViewServerError
+                    .notificationDeliveryRequiresDestinationProtection
             }
             services.append(
                 NotificationOutboxService(
-                    client: notificationOutboxClient,
+                    database: store.database,
+                    destinationProtection: destinationProtection,
                     provider: notificationProvider
                 )
             )
@@ -148,23 +155,41 @@ public enum OpenMusicEventAppViewServer {
         guard let notificationConfiguration = configuration.notificationRegistration else {
             return nil
         }
-        guard let store else {
+        guard store != nil else {
             throw OpenMusicEventAppViewServerError.notificationRegistrationRequiresDatabase
         }
-        guard store.supportsNotificationRegistration else {
+        guard configuration.notificationDestinationProtection != nil else {
             throw OpenMusicEventAppViewServerError
                 .notificationRegistrationRequiresDestinationProtection
         }
 
         switch notificationConfiguration.authorization {
         case .anonymous:
+            let notificationDatabase = NotificationDatabase()
             return NotificationRegistrationServer(
-                store: store,
-                installationAuthorizer: .anonymous(store: store),
+                database: notificationDatabase,
+                installationAuthorizer: .anonymous(database: notificationDatabase),
                 policy: NotificationRegistrationPolicy(
                     allowedApplicationIDs: notificationConfiguration.allowedApplicationIDs
                 )
             )
+        }
+    }
+
+    private static func withNotificationDependencies<Value>(
+        configuration: AppViewConfiguration,
+        store: OpenMusicEventAppViewStore?,
+        operation: () throws -> Value
+    ) rethrows -> Value {
+        try withDependencies {
+            if let store {
+                $0.defaultDatabase = store.database
+            }
+            if let protection = configuration.notificationDestinationProtection {
+                $0.notificationDestinationProtectionClient = protection.client
+            }
+        } operation: {
+            try operation()
         }
     }
 
@@ -277,7 +302,7 @@ public enum OpenMusicEventAppViewServer {
                     context: context
                 )
                 try notificationRegistration.policy.validate(payload)
-                try await notificationRegistration.store.replaceDestination(
+                try await notificationRegistration.database.replaceDestination(
                     payload.destination,
                     for: installationID
                 )
@@ -311,7 +336,7 @@ public enum OpenMusicEventAppViewServer {
                     context: context
                 )
                 try notificationRegistration.policy.validate(payload)
-                try await notificationRegistration.store.replaceSubscriptions(
+                try await notificationRegistration.database.replaceSubscriptions(
                     payload.subscriptions,
                     for: installationID
                 )
@@ -623,9 +648,14 @@ public enum OpenMusicEventAppViewServer {
             return try await body()
         } catch {
             let status = (error as? any HTTPResponseError)?.status.code ?? 500
+            #if DEBUG
+            let message = "Notification registration failed: \(String(describing: error))"
+            #else
+            let message = "Notification registration failed"
+            #endif
             context.logger.log(
                 level: status >= 500 ? .error : .warning,
-                "Notification registration failed",
+                "\(message)",
                 metadata: [
                     "error.type": .string(String(reflecting: type(of: error))),
                     "http.response.status_code": .string("\(status)"),
@@ -640,6 +670,7 @@ public enum OpenMusicEventAppViewServer {
 public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
     case ingestionRequiresDatabase
     case notificationDeliveryRequiresDatabase
+    case notificationDeliveryRequiresDestinationProtection
     case notificationRegistrationRequiresDatabase
     case notificationRegistrationRequiresDestinationProtection
     case tangledWebhookRequiresDatabase

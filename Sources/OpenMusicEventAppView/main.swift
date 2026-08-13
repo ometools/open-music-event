@@ -36,7 +36,6 @@ case .setTangledWebhookSecret(let watchID, let secretFile):
     }
     let store = try OpenMusicEventAppViewStore(
         databaseURL: databaseURL,
-        notificationDestinationProtection: configuration.notificationDestinationProtection,
         webhookSecretProtection: protection,
         initiallyReady: configuration.ingestion == nil
     )

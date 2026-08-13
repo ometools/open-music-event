@@ -1,4 +1,5 @@
 import ComposableNotifications
+import ComposableNotificationsServer
 import Crypto
 import Foundation
 
@@ -11,6 +12,7 @@ public struct NotificationDestinationProtection: Sendable {
         case invalidBase64Key
         case invalidKeyLength(Int)
         case invalidKeyVersion(Int)
+        case invalidDestinationEncoding
         case missingCombinedCiphertext
         case unsupportedKeyVersion(Int)
     }
@@ -80,9 +82,45 @@ public struct NotificationDestinationProtection: Sendable {
             authenticating: context.authenticatedData
         )
         guard let rawValue = String(data: plaintext, encoding: .utf8) else {
-            throw NotificationPersistenceError.invalidDestinationEncoding
+            throw Error.invalidDestinationEncoding
         }
         return rawValue
+    }
+}
+
+extension NotificationDestinationProtection {
+    public var client: NotificationDestinationProtectionClient {
+        NotificationDestinationProtectionClient(
+            protect: { destination, installationID in
+                let persisted = PersistedNotificationDestination(destination)
+                return ProtectedNotificationDestination(
+                    applicationID: persisted.applicationID,
+                    provider: persisted.provider.protectedProvider,
+                    ciphertext: try seal(persisted, for: installationID),
+                    fingerprint: Data(
+                        SHA256.hash(data: persisted.fingerprintData)
+                    )
+                    .base64EncodedString(),
+                    keyVersion: keyVersion
+                )
+            },
+            reveal: { protected, installationID in
+                let provider = PersistedNotificationDestination.Provider(protected.provider)
+                let value = try open(
+                    protected.ciphertext,
+                    applicationID: protected.applicationID,
+                    provider: provider,
+                    installationID: installationID,
+                    keyVersion: protected.keyVersion
+                )
+                return PersistedNotificationDestination(
+                    applicationID: protected.applicationID,
+                    provider: provider,
+                    value: value
+                )
+                .destination
+            }
+        )
     }
 }
 
@@ -167,6 +205,22 @@ struct PersistedNotificationDestination: Equatable, Sendable {
             provider.rawValue,
             value,
         ])
+    }
+}
+
+private extension PersistedNotificationDestination.Provider {
+    init(_ provider: ProtectedNotificationDestination.Provider) {
+        switch provider {
+        case .apns: self = .apns
+        case .fcm: self = .fcm
+        }
+    }
+
+    var protectedProvider: ProtectedNotificationDestination.Provider {
+        switch self {
+        case .apns: .apns
+        case .fcm: .fcm
+        }
     }
 }
 

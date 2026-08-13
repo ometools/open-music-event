@@ -2,6 +2,7 @@ import AppViewIndex
 import ATProto
 import ComposableCalendarEvents
 import ComposableNotifications
+import ComposableNotificationsServer
 import Crypto
 import Foundation
 import GRDB
@@ -34,25 +35,17 @@ public actor OpenMusicEventAppViewReadiness {
     }
 }
 
-public struct OpenMusicEventAppViewStore:
-    NotificationInstallationStore,
-    NotificationRegistrationStore,
-    WebhookInboxStore,
-    Sendable
-{
+public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     public let readiness: OpenMusicEventAppViewReadiness
     let database: any DatabaseWriter
-    private let notificationDestinationProtection: NotificationDestinationProtection?
     private let webhookSecretProtection: WebhookSecretProtection?
 
     public init(
         database: any DatabaseWriter,
-        notificationDestinationProtection: NotificationDestinationProtection? = nil,
         webhookSecretProtection: WebhookSecretProtection? = nil,
         initiallyReady: Bool = true
     ) throws {
         self.database = database
-        self.notificationDestinationProtection = notificationDestinationProtection
         self.webhookSecretProtection = webhookSecretProtection
         self.readiness = OpenMusicEventAppViewReadiness(
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
@@ -62,7 +55,6 @@ public struct OpenMusicEventAppViewStore:
 
     public init(
         databaseURL: URL,
-        notificationDestinationProtection: NotificationDestinationProtection? = nil,
         webhookSecretProtection: WebhookSecretProtection? = nil,
         initiallyReady: Bool = true
     ) throws {
@@ -78,305 +70,8 @@ public struct OpenMusicEventAppViewStore:
                 path: databaseURL.path(percentEncoded: false),
                 configuration: configuration
             ),
-            notificationDestinationProtection: notificationDestinationProtection,
             webhookSecretProtection: webhookSecretProtection,
             initiallyReady: initiallyReady
-        )
-    }
-
-    var supportsNotificationRegistration: Bool {
-        notificationDestinationProtection != nil
-    }
-
-    public func insertInstallation(
-        _ installation: NotificationInstallation,
-        credentialFingerprint: NotificationInstallation.CredentialFingerprint
-    ) async throws {
-        try await database.write { database in
-            try PushInstallationRow.insert {
-                PushInstallationRow(
-                    id: installation.id.rawValue,
-                    credentialFingerprint: credentialFingerprint.rawValue
-                )
-            }
-            .execute(database)
-        }
-    }
-
-    public func installationID(
-        for credentialFingerprint: NotificationInstallation.CredentialFingerprint
-    ) async throws -> NotificationInstallation.ID? {
-        try await database.read { database in
-            try PushInstallationRow
-                .where { $0.credentialFingerprint.eq(credentialFingerprint.rawValue) }
-                .select(\.id)
-                .fetchOne(database)
-            .map(NotificationInstallation.ID.init(rawValue:))
-        }
-    }
-
-    public func replaceDestination(
-        _ destination: Push.Destination,
-        for installationID: NotificationInstallation.ID
-    ) async throws {
-        guard let notificationDestinationProtection else {
-            throw NotificationPersistenceError.destinationProtectionUnavailable
-        }
-        let persistedDestination = PersistedNotificationDestination(destination)
-        let ciphertext = try notificationDestinationProtection.seal(
-            persistedDestination,
-            for: installationID
-        )
-        let destinationFingerprint = Self.destinationFingerprint(for: persistedDestination)
-        let keyVersion = notificationDestinationProtection.keyVersion
-
-        try await database.write { database in
-            try Self.requireInstallation(installationID, in: database)
-            try PushRegistrationRow.upsert {
-                PushRegistrationRow(
-                    installationID: installationID.rawValue,
-                    applicationID: persistedDestination.applicationID.rawValue,
-                    provider: persistedDestination.provider.rawValue,
-                    destination: ciphertext,
-                    destinationFingerprint: destinationFingerprint,
-                    destinationKeyVersion: keyVersion
-                )
-            }
-            .execute(database)
-        }
-    }
-
-    public func replaceSubscriptions(
-        _ subscriptions: Set<NotificationSubscription>,
-        for installationID: NotificationInstallation.ID
-    ) async throws {
-        let rows = subscriptions
-            .map(\.sourceID.rawValue)
-            .sorted()
-            .map {
-                PushSubscriptionRow(
-                    installationID: installationID.rawValue,
-                    sourceID: $0
-                )
-            }
-
-        try await database.write { database in
-            try Self.requireInstallation(installationID, in: database)
-            try PushSubscriptionRow
-                .where { $0.installationID.eq(installationID.rawValue) }
-                .delete()
-                .execute(database)
-            guard !rows.isEmpty else { return }
-            try PushSubscriptionRow.insert { rows }.execute(database)
-        }
-    }
-
-    public func notificationDestination(
-        for installationID: NotificationInstallation.ID
-    ) async throws -> Push.Destination? {
-        guard let notificationDestinationProtection else {
-            throw NotificationPersistenceError.destinationProtectionUnavailable
-        }
-        guard let row = try await database.read({ database in
-            try PushRegistrationRow.find(installationID.rawValue).fetchOne(database)
-        }) else { return nil }
-        return try notificationDestination(
-            from: row,
-            for: installationID,
-            using: notificationDestinationProtection
-        )
-    }
-
-    private func notificationDestination(
-        from row: PushRegistrationRow,
-        for installationID: NotificationInstallation.ID,
-        using notificationDestinationProtection: NotificationDestinationProtection
-    ) throws -> Push.Destination {
-        guard let provider = PersistedNotificationDestination.Provider(rawValue: row.provider) else {
-            throw NotificationPersistenceError.unsupportedProvider(row.provider)
-        }
-        let applicationID = Push.ApplicationID(rawValue: row.applicationID)
-        let value = try notificationDestinationProtection.open(
-            row.destination,
-            applicationID: applicationID,
-            provider: provider,
-            installationID: installationID,
-            keyVersion: row.destinationKeyVersion
-        )
-        return PersistedNotificationDestination(
-            applicationID: applicationID,
-            provider: provider,
-            value: value
-        )
-        .destination
-    }
-
-    func enqueueNotificationDeliveries(
-        for source: NotificationSource,
-        at date: Date
-    ) async throws -> Int {
-        let message = try JSONEncoder().encode(
-            NotificationProviderMessage(signal: .sourceAvailable(source)).data
-        )
-        return try await database.write { database in
-            let outboxTable = PushOutboxRow.tableName
-            let registrationsTable = PushRegistrationRow.tableName
-            let subscriptionsTable = PushSubscriptionRow.tableName
-            try database.execute(
-                sql: """
-                    INSERT OR IGNORE INTO "\(outboxTable)" (
-                      installationID,
-                      sourceID,
-                      sourceVersion,
-                      reason,
-                      message,
-                      createdAt,
-                      failedAttempts,
-                      nextAttemptAt
-                    )
-                    SELECT
-                      subscription.installationID,
-                      ?,
-                      ?,
-                      'source_available',
-                      ?,
-                      ?,
-                      0,
-                      ?
-                    FROM "\(subscriptionsTable)" AS subscription
-                    INNER JOIN "\(registrationsTable)" AS registration
-                      ON registration.installationID = subscription.installationID
-                    WHERE subscription.sourceID = ?
-                    """,
-                arguments: [
-                    source.id.rawValue,
-                    source.version.rawValue,
-                    message,
-                    date,
-                    date,
-                    source.id.rawValue,
-                ]
-            )
-            return database.changesCount
-        }
-    }
-
-    func nextNotificationDelivery(
-        at date: Date
-    ) async throws -> NotificationOutboxDelivery? {
-        guard let notificationDestinationProtection else {
-            throw NotificationPersistenceError.destinationProtectionUnavailable
-        }
-        return try await database.read { database in
-            let outboxTable = PushOutboxRow.tableName
-            let registrationsTable = PushRegistrationRow.tableName
-            guard let row = try Row.fetchOne(
-                database,
-                sql: """
-                    SELECT
-                      outbox.id AS outboxID,
-                      outbox.message,
-                      outbox.failedAttempts,
-                      registration.installationID,
-                      registration.applicationID,
-                      registration.provider,
-                      registration.destination,
-                      registration.destinationFingerprint,
-                      registration.destinationKeyVersion
-                    FROM "\(outboxTable)" AS outbox
-                    INNER JOIN "\(registrationsTable)" AS registration
-                      ON registration.installationID = outbox.installationID
-                    WHERE outbox.deliveredAt IS NULL
-                      AND outbox.nextAttemptAt <= ?
-                    ORDER BY outbox.nextAttemptAt, outbox.id
-                    LIMIT 1
-                    """,
-                arguments: [date]
-            ) else { return nil }
-
-            let installationID = NotificationInstallation.ID(
-                rawValue: row["installationID"]
-            )
-            let registration = PushRegistrationRow(
-                installationID: installationID.rawValue,
-                applicationID: row["applicationID"],
-                provider: row["provider"],
-                destination: row["destination"],
-                destinationFingerprint: row["destinationFingerprint"],
-                destinationKeyVersion: row["destinationKeyVersion"]
-            )
-            return NotificationOutboxDelivery(
-                id: .init(rawValue: row["outboxID"]),
-                message: try NotificationProviderMessage(
-                    json: String(decoding: row["message"] as Data, as: UTF8.self)
-                ),
-                destination: try notificationDestination(
-                    from: registration,
-                    for: installationID,
-                    using: notificationDestinationProtection
-                ),
-                failedAttempts: row["failedAttempts"]
-            )
-        }
-    }
-
-    func markNotificationDeliverySucceeded(
-        id: NotificationOutboxDelivery.ID,
-        at date: Date
-    ) async throws {
-        try await database.write { database in
-            let tableName = PushOutboxRow.tableName
-            try database.execute(
-                sql: """
-                    UPDATE "\(tableName)"
-                    SET lastAttemptAt = ?, deliveredAt = ?
-                    WHERE id = ? AND deliveredAt IS NULL
-                """,
-                arguments: [date, date, id.rawValue]
-            )
-            guard database.changesCount == 1 else {
-                throw NotificationPersistenceError.unknownOutboxDelivery(id)
-            }
-        }
-    }
-
-    func markNotificationDeliveryFailed(
-        id: NotificationOutboxDelivery.ID,
-        attemptedAt: Date,
-        retryAt: Date
-    ) async throws {
-        try await database.write { database in
-            let tableName = PushOutboxRow.tableName
-            try database.execute(
-                sql: """
-                    UPDATE "\(tableName)"
-                    SET
-                      failedAttempts = failedAttempts + 1,
-                      lastAttemptAt = ?,
-                      nextAttemptAt = ?
-                    WHERE id = ? AND deliveredAt IS NULL
-                """,
-                arguments: [attemptedAt, retryAt, id.rawValue]
-            )
-            guard database.changesCount == 1 else {
-                throw NotificationPersistenceError.unknownOutboxDelivery(id)
-            }
-        }
-    }
-
-    public func notificationSubscriptions(
-        for installationID: NotificationInstallation.ID
-    ) async throws -> Set<NotificationSubscription> {
-        let rows = try await database.read { database in
-            try PushSubscriptionRow
-                .where { $0.installationID.eq(installationID.rawValue) }
-                .order(by: \.sourceID)
-                .fetchAll(database)
-        }
-        return Set(
-            rows.map {
-                NotificationSubscription(sourceID: .init(rawValue: $0.sourceID))
-            }
         )
     }
 
@@ -555,108 +250,25 @@ public struct OpenMusicEventAppViewStore:
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
-        NotificationPersistenceSchema.registerMigration(into: &migrator)
+        NotificationDatabase.registerMigrations(into: &migrator)
         WebhookInboxSchema.registerMigration(into: &migrator)
         WebhookSecretSchema.registerMigration(into: &migrator)
         try migrator.migrate(database)
-    }
-
-    private static func destinationFingerprint(
-        for destination: PersistedNotificationDestination
-    ) -> String {
-        Data(SHA256.hash(data: destination.fingerprintData)).base64EncodedString()
     }
 
     private static func webhookPayloadDigest(_ payload: Data) -> String {
         Data(SHA256.hash(data: payload)).base64EncodedString()
     }
 
-    private static func requireInstallation(
-        _ installationID: NotificationInstallation.ID,
-        in database: Database
-    ) throws {
-        guard try PushInstallationRow.find(installationID.rawValue).fetchOne(database) != nil
-        else {
-            throw NotificationPersistenceError.unknownInstallation(installationID)
-        }
-    }
-}
-
-extension NotificationOutboxClient {
-    init(appViewStore store: OpenMusicEventAppViewStore) {
-        self.init(
-            enqueue: { source, date in
-                try await store.enqueueNotificationDeliveries(for: source, at: date)
-            },
-            next: { date in
-                try await store.nextNotificationDelivery(at: date)
-            },
-            markSucceeded: { id, date in
-                try await store.markNotificationDeliverySucceeded(id: id, at: date)
-            },
-            markFailed: { id, attemptedAt, retryAt in
-                try await store.markNotificationDeliveryFailed(
-                    id: id,
-                    attemptedAt: attemptedAt,
-                    retryAt: retryAt
-                )
-            }
-        )
-    }
 }
 
 public enum OpenMusicEventAppViewStoreError: Error, Equatable, Sendable {
     case invalidCursor(String)
 }
 
-public enum NotificationPersistenceError: Error, Equatable, Sendable {
-    case destinationProtectionUnavailable
-    case invalidDestinationEncoding
-    case unsupportedProvider(String)
-    case unknownInstallation(NotificationInstallation.ID)
-    case unknownOutboxDelivery(NotificationOutboxDelivery.ID)
-}
-
 public enum WebhookSecretPersistenceError: Error, Equatable, Sendable {
     case emptySecret
     case protectionUnavailable
-}
-
-@Table("pushInstallations")
-private struct PushInstallationRow: Equatable, Sendable {
-    @Column(primaryKey: true) var id: String
-    var credentialFingerprint: String
-}
-
-@Table("pushRegistrations")
-private struct PushRegistrationRow: Equatable, Sendable {
-    @Column(primaryKey: true) var installationID: String
-    var applicationID: String
-    var provider: String
-    var destination: Data
-    var destinationFingerprint: String
-    var destinationKeyVersion: Int
-}
-
-@Table("pushSubscriptions")
-private struct PushSubscriptionRow: Equatable, Sendable {
-    var installationID: String
-    var sourceID: String
-}
-
-@Table("pushOutbox")
-private struct PushOutboxRow: Equatable, Sendable {
-    @Column(primaryKey: true) var id: Int64
-    var installationID: String
-    var sourceID: String
-    var sourceVersion: String
-    var reason: String
-    var message: Data
-    var createdAt: Date
-    var failedAttempts: Int
-    var lastAttemptAt: Date?
-    var nextAttemptAt: Date
-    var deliveredAt: Date?
 }
 
 @Table("webhookInboxDeliveries")
@@ -714,105 +326,6 @@ private enum WebhookSecretSchema {
                       secretKeyVersion INTEGER NOT NULL,
                       PRIMARY KEY (source, watchID)
                     ) STRICT
-                    """
-            )
-            .execute(database)
-        }
-    }
-}
-
-private enum NotificationPersistenceSchema {
-    static func registerMigration(into migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("Create push notification registrations") { database in
-            let installationsTable = PushInstallationRow.tableName
-            let registrationsTable = PushRegistrationRow.tableName
-            let subscriptionsTable = PushSubscriptionRow.tableName
-            let destinationIndex = "\(registrationsTable)_destination"
-            try #sql(
-                """
-                    CREATE TABLE \(quote: installationsTable) (
-                      id TEXT PRIMARY KEY NOT NULL,
-                      credentialFingerprint TEXT NOT NULL UNIQUE
-                    ) STRICT
-                    """
-            )
-            .execute(database)
-            try #sql(
-                """
-                    CREATE TABLE \(quote: registrationsTable) (
-                      installationID TEXT PRIMARY KEY NOT NULL
-                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
-                      applicationID TEXT NOT NULL,
-                      provider TEXT NOT NULL,
-                      destination BLOB NOT NULL,
-                      destinationFingerprint TEXT NOT NULL,
-                      destinationKeyVersion INTEGER NOT NULL
-                    ) STRICT
-                    """
-            )
-            .execute(database)
-            try #sql(
-                """
-                    CREATE INDEX \(quote: destinationIndex)
-                    ON \(quote: registrationsTable) (
-                      applicationID,
-                      provider,
-                      destinationFingerprint
-                    )
-                    """
-            )
-            .execute(database)
-            try #sql(
-                """
-                    CREATE TABLE \(quote: subscriptionsTable) (
-                      installationID TEXT NOT NULL
-                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
-                      sourceID TEXT NOT NULL,
-                      PRIMARY KEY (installationID, sourceID)
-                    ) STRICT
-                    """
-            )
-            .execute(database)
-        }
-        migrator.registerMigration("Index push notification subscriptions by source") { database in
-            let subscriptionsTable = PushSubscriptionRow.tableName
-            let sourceIndex = "\(subscriptionsTable)_source"
-            try #sql(
-                """
-                    CREATE INDEX \(quote: sourceIndex)
-                    ON \(quote: subscriptionsTable) (sourceID)
-                    """
-            )
-            .execute(database)
-        }
-        migrator.registerMigration("Create push notification outbox") { database in
-            let installationsTable = PushInstallationRow.tableName
-            let outboxTable = PushOutboxRow.tableName
-            let dueIndex = "\(outboxTable)_due"
-            try #sql(
-                """
-                    CREATE TABLE \(quote: outboxTable) (
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      installationID TEXT NOT NULL
-                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
-                      sourceID TEXT NOT NULL,
-                      sourceVersion TEXT NOT NULL,
-                      reason TEXT NOT NULL,
-                      message BLOB NOT NULL,
-                      createdAt TEXT NOT NULL,
-                      failedAttempts INTEGER NOT NULL,
-                      lastAttemptAt TEXT,
-                      nextAttemptAt TEXT NOT NULL,
-                      deliveredAt TEXT,
-                      UNIQUE (installationID, sourceID, sourceVersion, reason)
-                    ) STRICT
-                    """
-            )
-            .execute(database)
-            try #sql(
-                """
-                    CREATE INDEX \(quote: dueIndex)
-                    ON \(quote: outboxTable) (deliveredAt, nextAttemptAt, id)
                     """
             )
             .execute(database)

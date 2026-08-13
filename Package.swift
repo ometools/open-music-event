@@ -940,6 +940,10 @@ applicationTargets.append(contentsOf: [
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
+            .product(
+                name: "ComposableNotificationsServer",
+                package: "swift-composable-notifications"
+            ),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
@@ -1029,6 +1033,10 @@ let appViewTargets: [Target] = [
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(
+                name: "ComposableNotificationsServer",
+                package: "swift-composable-notifications"
+            ),
+            .product(
                 name: "ComposableNotificationsHTTP",
                 package: "swift-composable-notifications"
             ),
@@ -1073,6 +1081,10 @@ let appViewTargets: [Target] = [
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
+            .product(
+                name: "ComposableNotificationsServer",
+                package: "swift-composable-notifications"
+            ),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),

@@ -1,5 +1,6 @@
 import ATProto
 import ComposableNotifications
+import ComposableNotificationsServer
 import Foundation
 
 /// One verified Tangled repository revision that may advance an application source.
@@ -57,10 +58,10 @@ public struct TangledSourceUpdateProcessor: Sendable {
     }
 
     public static func notificationOutbox(
-        client: NotificationOutboxClient
+        database: NotificationDatabase = NotificationDatabase()
     ) -> Self {
-        return Self { update in
-            _ = try await client.enqueue(update.source, update.receivedAt)
+        Self { update in
+            try await database.enqueue(source: update.source, at: update.receivedAt)
         }
     }
 }

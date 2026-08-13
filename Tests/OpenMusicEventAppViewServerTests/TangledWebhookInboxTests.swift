@@ -377,7 +377,6 @@ struct TangledWebhookInboxTests {
         )
         let store = try OpenMusicEventAppViewStore(
             databaseURL: directory.appending(path: "appview.sqlite"),
-            notificationDestinationProtection: destinationProtection,
             webhookSecretProtection: Self.webhookSecretProtection()
         )
         let apnsApplicationID = Push.ApplicationID(rawValue: "app.openmusicevent")
@@ -432,6 +431,7 @@ struct TangledWebhookInboxTests {
                     keyID: "ABCDEFGHIJ",
                     privateKeyURL: apnsPrivateKeyURL
                 ),
+                notificationDestinationProtection: destinationProtection,
                 notificationRegistration: AppViewNotificationRegistrationConfiguration(
                     authorization: .anonymous,
                     allowedApplicationIDs: [apnsApplicationID, fcmApplicationID]
@@ -669,7 +669,6 @@ struct TangledWebhookInboxTests {
 
         let store = try OpenMusicEventAppViewStore(
             databaseURL: databaseURL,
-            notificationDestinationProtection: destinationProtection,
             webhookSecretProtection: Self.webhookSecretProtection()
         )
         try await store.replaceWebhookSecret(
@@ -706,6 +705,7 @@ struct TangledWebhookInboxTests {
             let app = try OpenMusicEventAppViewServer.application(
                 configuration: AppViewConfiguration(
                     port: 0,
+                    notificationDestinationProtection: destinationProtection,
                     notificationRegistration: AppViewNotificationRegistrationConfiguration(
                         authorization: .anonymous,
                         allowedApplicationIDs: [fcmApplicationID]
@@ -772,7 +772,6 @@ struct TangledWebhookInboxTests {
         let retryAt = Self.receivedAt.addingTimeInterval(1)
         let reopenedStore = try OpenMusicEventAppViewStore(
             databaseURL: databaseURL,
-            notificationDestinationProtection: destinationProtection,
             webhookSecretProtection: Self.webhookSecretProtection()
         )
         try await withDependencies {
@@ -801,7 +800,10 @@ struct TangledWebhookInboxTests {
                 )
             )
             let app = try OpenMusicEventAppViewServer.application(
-                configuration: AppViewConfiguration(port: 0),
+                configuration: AppViewConfiguration(
+                    port: 0,
+                    notificationDestinationProtection: destinationProtection
+                ),
                 store: reopenedStore,
                 notificationProvider: provider
             )

@@ -80,6 +80,12 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        dependencies.appDelegateClient = AppDelegateClient(
+            events: { await OpenMusicEventAppDelegate.shared.appDelegateEvents() }
+        )
+        dependencies.notificationEventClient = NotificationEventClient(
+            events: { await OpenMusicEventAppDelegate.shared.notificationEvents() }
+        )
         dependencies.notificationTokenClient = NotificationTokenClient(
             tokens: { OpenMusicEventAppDelegate.shared.notificationTokens() }
         )
@@ -268,6 +274,8 @@ struct SelectedEventRestoration {
 
     private let notificationTokenContinuation: AsyncStream<Push.Destination>.Continuation
     private let notificationTokenStream: AsyncStream<Push.Destination>
+    private let appDelegateEventBroadcast = EventBroadcast<AppDelegateEvent>()
+    private let notificationEventBroadcast = EventBroadcast<NotificationEvent>()
 
     private init() {
         let (tokenStream, tokenContinuation) = AsyncStream<Push.Destination>.makeStream(
@@ -279,6 +287,14 @@ struct SelectedEventRestoration {
 
     public func notificationTokens() -> AsyncStream<Push.Destination> {
         notificationTokenStream
+    }
+
+    func appDelegateEvents() async -> AsyncStream<AppDelegateEvent> {
+        await appDelegateEventBroadcast.stream()
+    }
+
+    func notificationEvents() async -> AsyncStream<NotificationEvent> {
+        await notificationEventBroadcast.stream()
     }
 
     /* SKIP @bridge */public func onInit() {
@@ -417,14 +433,14 @@ struct SelectedEventRestoration {
     }
 
     private func send(_ event: AppDelegateEvent) {
-        Task { @MainActor in
-            Self.store.send(.content(.appDelegateEvent(event)))
+        Task {
+            await appDelegateEventBroadcast.send(event)
         }
     }
 
     private func sendNotification(_ event: NotificationEvent) {
-        Task { @MainActor in
-            await handleNotification(event)
+        Task {
+            await notificationEventBroadcast.send(event)
         }
     }
 
@@ -455,5 +471,40 @@ struct SelectedEventRestoration {
         Task {
             try? await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
         }
+    }
+}
+
+private actor EventBroadcast<Event: Sendable> {
+    private var continuations: [UUID: AsyncStream<Event>.Continuation] = [:]
+    private var pendingEvent: Event?
+
+    func stream() -> AsyncStream<Event> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Event>.makeStream()
+        continuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeContinuation(id: id)
+            }
+        }
+        if let pendingEvent {
+            continuation.yield(pendingEvent)
+            self.pendingEvent = nil
+        }
+        return stream
+    }
+
+    func send(_ event: Event) {
+        guard !continuations.isEmpty else {
+            pendingEvent = event
+            return
+        }
+        for continuation in continuations.values {
+            continuation.yield(event)
+        }
+    }
+
+    private func removeContinuation(id: UUID) {
+        continuations[id] = nil
     }
 }

@@ -2,8 +2,9 @@ import ATProtoOAuth
 import ComposableArchitecture2
 import ComposableNotifications
 import ComposableNotificationsHTTP
-import CustomDump
+import ComposableNotificationsServer
 import Crypto
+import CustomDump
 import Dependencies
 import Foundation
 import HTTPClient
@@ -11,15 +12,16 @@ import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
 import NIOCore
-@testable import OpenMusicEventApp
 import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
-import Sharing
 import SQLiteData
+import Sharing
 import TCATProtoAuthentication
 import Testing
 import XRPCClient
+
+@testable import OpenMusicEventApp
 
 @Suite(.serialized)
 struct NotificationRegistrationStoryTests {
@@ -47,14 +49,20 @@ struct NotificationRegistrationStoryTests {
 
     @Test @MainActor
     func `registration routes reject requests the host cannot authenticate`() async throws {
-        let installationStore = InMemoryNotificationInstallationStore()
-        let store = InMemoryNotificationRegistrationStore()
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appending(path: "appview.sqlite")
         let app = try OpenMusicEventAppViewServer.application(
-            configuration: AppViewConfiguration(port: 0),
-            notificationRegistration: NotificationRegistrationServer(
-                store: store,
-                installationAuthorizer: .anonymous(store: installationStore),
-                policy: NotificationRegistrationPolicy(
+            configuration: AppViewConfiguration(
+                port: 0,
+                databaseURL: databaseURL,
+                notificationDestinationProtection: try NotificationDestinationProtection(
+                    keyData: Data(repeating: 0x2A, count: 32)
+                ),
+                notificationRegistration: AppViewNotificationRegistrationConfiguration(
+                    authorization: .anonymous,
                     allowedApplicationIDs: [.init(rawValue: "app.openmusicevent")]
                 )
             )
@@ -81,9 +89,15 @@ struct NotificationRegistrationStoryTests {
                 #expect(response.status == .unauthorized)
             }
         }
-
-        #expect(await store.destinationCount == 0)
-        #expect(await installationStore.installationCount == 0)
+        let database = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        let counts = try await database.read { database in
+            (
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushInstallations") ?? 0,
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushRegistrations") ?? 0
+            )
+        }
+        expectNoDifference(counts.0, 0)
+        expectNoDifference(counts.1, 0)
     }
 
     @Test @MainActor
@@ -188,10 +202,10 @@ struct NotificationRegistrationStoryTests {
             }
         }
         let requestRecorder = NotificationRequestRecorder()
+        let eventRefreshRecorder = EventRefreshRecorder()
         let keychainStorage = KeychainStorageClient.inMemory()
         let appViewStore = try OpenMusicEventAppViewStore(
             databaseURL: appViewDatabaseURL,
-            notificationDestinationProtection: destinationProtection,
             webhookSecretProtection: webhookSecretProtection
         )
         try await appViewStore.replaceWebhookSecret(
@@ -200,167 +214,184 @@ struct NotificationRegistrationStoryTests {
             watchID: webhookWatchID
         )
         let fakeFCM = FakeFCMTransport()
-        let sourceUpdateProcessor = TangledSourceUpdateProcessor.notifications(
-            store: appViewStore,
-            provider: NotificationProviderClient.http(
-                configuration: NotificationProviderHTTPConfiguration(
-                    fcm: [
-                        .init(rawValue: "app.openmusicevent"): .init(
-                            projectID: "open-music-event"
-                        )
-                    ]
-                ),
-                authorization: NotificationProviderAuthorization(
-                    apnsBearerToken: { _ in "unused-apns-token" },
-                    fcmAccessToken: { applicationID in
-                        expectNoDifference(applicationID.rawValue, "app.openmusicevent")
-                        return "fixture-fcm-oauth-token"
-                    }
-                ),
-                transport: NotificationProviderHTTPTransport { request in
-                    try await fakeFCM.send(request)
+        let notificationProvider = NotificationProviderClient.http(
+            configuration: NotificationProviderHTTPConfiguration(
+                fcm: [
+                    .init(rawValue: "app.openmusicevent"): .init(
+                        projectID: "open-music-event"
+                    )
+                ]
+            ),
+            authorization: NotificationProviderAuthorization(
+                apnsBearerToken: { _ in "unused-apns-token" },
+                fcmAccessToken: { applicationID in
+                    expectNoDifference(applicationID.rawValue, "app.openmusicevent")
+                    return "fixture-fcm-oauth-token"
                 }
-            )
+            ),
+            transport: NotificationProviderHTTPTransport { request in
+                try await fakeFCM.send(request)
+            }
         )
 
         do {
-            let app = try OpenMusicEventAppViewServer.application(
-                configuration: configuration,
-                store: appViewStore,
-                tangledSourceUpdateProcessor: sourceUpdateProcessor
-            )
-            try await app.test(.router) { server in
-                try await withDependencies {
-                    $0.context = .test
-                    $0.date = .constant(Date(timeIntervalSince1970: 0))
-                    $0.uuid = .incrementing
-                    $0.httpClient = .liveValue
-                    $0.keychainStorage = keychainStorage
-                    OME.prepareDependencies(&$0, database: database)
-                    $0.defaultEventID = eventID
-                    $0.notificationTokenClient = tokenClient
-                    $0[XRPC.Client.self] = .liveValue
-                    $0.requestInterceptors = []
-                    $0.dataForURL = { request, body in
-                        let url = try #require(request.url)
-                        let components = try #require(
-                            URLComponents(url: url, resolvingAgainstBaseURL: false)
-                        )
-                        let uri = components.percentEncodedQuery.map {
-                            "\(components.percentEncodedPath)?\($0)"
-                        } ?? components.percentEncodedPath
-                        let response = try await server.execute(
-                            uri: uri,
-                            method: request.method,
-                            headers: request.headerFields,
-                            body: body.map { ByteBuffer(data: $0) }
-                        )
-                        switch request.url?.path {
-                        case NotificationRegistrationEndpoint.installationsPath:
-                            #expect(response.head.status == .created)
-                            #expect(response.head.headerFields[.cacheControl] == "no-store")
-                        case NotificationRegistrationEndpoint.destinationPath,
-                            NotificationRegistrationEndpoint.subscriptionsPath:
-                            #expect(response.head.status == .noContent)
-                        default:
-                            #expect(response.head.status == .ok)
-                        }
-                        let responseBody = Data(response.body.readableBytesView)
-                        await requestRecorder.record(
-                            request,
-                            requestBody: body,
-                            response: response.head,
-                            responseBody: responseBody
-                        )
-                        return (responseBody, response.head)
-                    }
-                } operation: {
-                    let storage = OAuthSessionStorage(
-                        sessionStore: Shared(value: OAuth.SessionStore()),
-                        authFailureMessage: Shared(value: nil),
-                        selectedSessionID: Shared(value: nil)
-                    )
-                    let appStore = await MainActor.run {
-                        Store(
-                            initialState: OpenMusicEventApplication.State(storage: storage) {
-                                OpenMusicEventAppRoot.State(
-                                    selectedEventIDAtLaunch: eventID
-                                )
+            try await withDependencies {
+                $0.continuousClock = ContinuousClock()
+                $0.date = .constant(Date(timeIntervalSince1970: 0))
+            } operation: {
+                let app = try OpenMusicEventAppViewServer.application(
+                    configuration: configuration,
+                    store: appViewStore,
+                    notificationProvider: notificationProvider
+                )
+                try await app.test(.live) { server in
+                    try await withDependencies {
+                        $0.context = .test
+                        $0.date = .constant(Date(timeIntervalSince1970: 0))
+                        $0.uuid = .incrementing
+                        $0.httpClient = .liveValue
+                        $0.keychainStorage = keychainStorage
+                        OME.prepareDependencies(&$0, database: database)
+                        $0.defaultEventID = eventID
+                        $0.omeEventInstallation = OMEEventInstallationClient(
+                            ensureInstalled: { _ in eventID },
+                            synchronizeInstalledEvent: { eventID in
+                                await eventRefreshRecorder.record(eventID)
                             }
-                        ) {
-                            OpenMusicEventApplication(storage: storage) {
-                                OpenMusicEventAppRoot()
+                        )
+                        $0.notificationTokenClient = tokenClient
+                        $0[XRPC.Client.self] = .liveValue
+                        $0.requestInterceptors = []
+                        $0.dataForURL = { request, body in
+                            let url = try #require(request.url)
+                            let components = try #require(
+                                URLComponents(url: url, resolvingAgainstBaseURL: false)
+                            )
+                            let uri = components.percentEncodedQuery.map {
+                                "\(components.percentEncodedPath)?\($0)"
+                            } ?? components.percentEncodedPath
+                            let response = try await server.execute(
+                                uri: uri,
+                                method: request.method,
+                                headers: request.headerFields,
+                                body: body.map { ByteBuffer(data: $0) }
+                            )
+                            switch request.url?.path {
+                            case NotificationRegistrationEndpoint.installationsPath:
+                                #expect(response.head.status == .created)
+                                #expect(response.head.headerFields[.cacheControl] == "no-store")
+                            case NotificationRegistrationEndpoint.destinationPath,
+                                NotificationRegistrationEndpoint.subscriptionsPath:
+                                #expect(response.head.status == .noContent)
+                            default:
+                                #expect(response.head.status == .ok)
+                            }
+                            let responseBody = Data(response.body.readableBytesView)
+                            await requestRecorder.record(
+                                request,
+                                requestBody: body,
+                                response: response.head,
+                                responseBody: responseBody
+                            )
+                            return (responseBody, response.head)
+                        }
+                    } operation: {
+                        let storage = OAuthSessionStorage(
+                            sessionStore: Shared(value: OAuth.SessionStore()),
+                            authFailureMessage: Shared(value: nil),
+                            selectedSessionID: Shared(value: nil)
+                        )
+                        let appStore = await MainActor.run {
+                            Store(
+                                initialState: OpenMusicEventApplication.State(storage: storage) {
+                                    OpenMusicEventAppRoot.State(
+                                        selectedEventIDAtLaunch: eventID
+                                    )
+                                }
+                            ) {
+                                OpenMusicEventApplication(storage: storage) {
+                                    OpenMusicEventAppRoot()
+                                }
                             }
                         }
-                    }
 
-                    try await requestRecorder.waitForRequestCount(3)
-                    let browse = await MainActor.run {
-                        appStore
-                            .scope(\.content, action: \.content)
-                            .scope(\.browser, action: \.browser)
-                            .spawn(\.browse)
-                    }
-                    let browseTask = await MainActor.run {
-                        browse.send(.task)
-                    }
-                    await browseTask?.value
-                    try await requestRecorder.waitForRequestCount(4)
+                        try await requestRecorder.waitForRequestCount(3)
+                        let browse = await MainActor.run {
+                            appStore
+                                .scope(\.content, action: \.content)
+                                .scope(\.browser, action: \.browser)
+                                .spawn(\.browse)
+                        }
+                        let browseTask = await MainActor.run {
+                            browse.send(.task)
+                        }
+                        await browseTask?.value
+                        try await requestRecorder.waitForRequestCount(4)
 
-                    // Tangled reports the organizer's new source revision to the real webhook.
-                    let webhookPayload = tangledPushPayload(
-                        repositoryDID: organizerID,
-                        repositoryKey: repositoryKey,
-                        after: updatedSource.version.rawValue
-                    )
-                    let webhookResponse = try await server.execute(
-                        uri: TangledWebhookEndpoint.path,
-                        method: .post,
-                        headers: tangledWebhookHeaders(
-                            payload: webhookPayload,
-                            hookID: webhookHookID,
-                            secret: webhookSecret,
+                        // Tangled reports the organizer's new source revision to the real webhook.
+                        let webhookPayload = tangledPushPayload(
                             repositoryDID: organizerID,
-                            repositoryKey: repositoryKey
-                        ),
-                        body: ByteBuffer(data: webhookPayload)
-                    )
-                    #expect(webhookResponse.head.status == .accepted)
-                    try await requestRecorder.waitForRequestCount(5)
+                            repositoryKey: repositoryKey,
+                            after: updatedSource.version.rawValue
+                        )
+                        let webhookResponse = try await server.execute(
+                            uri: TangledWebhookEndpoint.path,
+                            method: .post,
+                            headers: tangledWebhookHeaders(
+                                payload: webhookPayload,
+                                hookID: webhookHookID,
+                                secret: webhookSecret,
+                                repositoryDID: organizerID,
+                                repositoryKey: repositoryKey
+                            ),
+                            body: ByteBuffer(data: webhookPayload)
+                        )
+                        #expect(webhookResponse.head.status == .accepted)
+                        try await fakeFCM.waitForRequestCount(1)
+                        try await requestRecorder.waitForRequestCount(5)
+                        let refreshedEventIDs = await eventRefreshRecorder.eventIDs()
+                        expectNoDifference(
+                            refreshedEventIDs,
+                            [eventID]
+                        )
 
-                    let providerRequests = await fakeFCM.requests()
-                    let providerRequest = try #require(providerRequests.first)
-                    expectNoDifference(providerRequests.count, 1)
-                    expectNoDifference(providerRequest.method, .post)
-                    expectNoDifference(
-                        providerRequest.url.absoluteString,
-                        "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
-                    )
-                    expectNoDifference(
-                        providerRequest.headerFields,
-                        [
-                            "Authorization": "Bearer fixture-fcm-oauth-token",
-                            "Content-Type": "application/json",
-                        ]
-                    )
-                    expectNoDifference(
-                        String(decoding: providerRequest.body, as: UTF8.self),
-                        #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"token":"fcm-registration-token-that-must-not-be-rewritten"}}"#
-                    )
-                    withExtendedLifetime(appStore) {}
+                        let providerRequests = await fakeFCM.requests()
+                        let providerRequest = try #require(providerRequests.first)
+                        expectNoDifference(providerRequests.count, 1)
+                        expectNoDifference(providerRequest.method, .post)
+                        expectNoDifference(
+                            providerRequest.url.absoluteString,
+                            "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
+                        )
+                        expectNoDifference(
+                            providerRequest.headerFields,
+                            [
+                                "Authorization": "Bearer fixture-fcm-oauth-token",
+                                "Content-Type": "application/json",
+                            ]
+                        )
+                        expectNoDifference(
+                            String(decoding: providerRequest.body, as: UTF8.self),
+                            #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"token":"fcm-registration-token-that-must-not-be-rewritten"}}"#
+                        )
+                        withExtendedLifetime(appStore) {}
+                    }
                 }
             }
         }
 
         let installationID = try await storedInstallationID(at: appViewDatabaseURL)
-        let reopenedAppViewStore = try OpenMusicEventAppViewStore(
-            databaseURL: appViewDatabaseURL,
-            notificationDestinationProtection: destinationProtection
+        _ = try OpenMusicEventAppViewStore(
+            databaseURL: appViewDatabaseURL
         )
-        let reopenedDestination = try await reopenedAppViewStore.notificationDestination(
+        let reopenedNotifications = try notificationDatabase(
+            at: appViewDatabaseURL,
+            protection: destinationProtection
+        )
+        let reopenedDestination = try await reopenedNotifications.destination(
             for: installationID
         )
-        let reopenedSubscriptions = try await reopenedAppViewStore.notificationSubscriptions(
+        let reopenedSubscriptions = try await reopenedNotifications.subscriptions(
             for: installationID
         )
         expectNoDifference(
@@ -383,6 +414,12 @@ struct NotificationRegistrationStoryTests {
                 $0.keychainStorage = keychainStorage
                 OME.prepareDependencies(&$0, database: database)
                 $0.defaultEventID = eventID
+                $0.omeEventInstallation = OMEEventInstallationClient(
+                    ensureInstalled: { _ in eventID },
+                    synchronizeInstalledEvent: { eventID in
+                        await eventRefreshRecorder.record(eventID)
+                    }
+                )
                 $0.notificationTokenClient = tokenClient
                 $0[XRPC.Client.self] = .liveValue
                 $0.requestInterceptors = []
@@ -435,14 +472,17 @@ struct NotificationRegistrationStoryTests {
             }
         }
 
-        let relaunchedStore = try OpenMusicEventAppViewStore(
-            databaseURL: appViewDatabaseURL,
-            notificationDestinationProtection: destinationProtection
+        _ = try OpenMusicEventAppViewStore(
+            databaseURL: appViewDatabaseURL
         )
-        let relaunchedDestination = try await relaunchedStore.notificationDestination(
+        let relaunchedNotifications = try notificationDatabase(
+            at: appViewDatabaseURL,
+            protection: destinationProtection
+        )
+        let relaunchedDestination = try await relaunchedNotifications.destination(
             for: installationID
         )
-        let relaunchedSubscriptions = try await relaunchedStore.notificationSubscriptions(
+        let relaunchedSubscriptions = try await relaunchedNotifications.subscriptions(
             for: installationID
         )
         expectNoDifference(
@@ -595,10 +635,34 @@ private actor FakeFCMTransport {
     func requests() -> [NotificationProviderHTTPRequest] {
         recordedRequests
     }
+
+    func waitForRequestCount(_ count: Int) async throws {
+        for _ in 0..<500 {
+            guard recordedRequests.count < count else { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw FakeFCMTransportError.timedOut(
+            expectedRequestCount: count,
+            actualRequestCount: recordedRequests.count
+        )
+    }
+}
+
+private actor EventRefreshRecorder {
+    private var recordedEventIDs: [OMERecord.Event.ID] = []
+
+    func record(_ eventID: OMERecord.Event.ID) {
+        recordedEventIDs.append(eventID)
+    }
+
+    func eventIDs() -> [OMERecord.Event.ID] {
+        recordedEventIDs
+    }
 }
 
 private enum FakeFCMTransportError: Error {
     case invalidPayload
+    case timedOut(expectedRequestCount: Int, actualRequestCount: Int)
 }
 
 private struct NotificationRequestSummary: Equatable {
@@ -698,52 +762,15 @@ private func storedInstallationID(
     return NotificationInstallation.ID(rawValue: rawValue)
 }
 
-private actor InMemoryNotificationInstallationStore: NotificationInstallationStore {
-    private var installationIDsByCredentialFingerprint: [
-        NotificationInstallation.CredentialFingerprint: NotificationInstallation.ID
-    ] = [:]
-
-    var installationCount: Int {
-        installationIDsByCredentialFingerprint.count
-    }
-
-    func insertInstallation(
-        _ installation: NotificationInstallation,
-        credentialFingerprint: NotificationInstallation.CredentialFingerprint
-    ) async throws {
-        installationIDsByCredentialFingerprint[credentialFingerprint] = installation.id
-    }
-
-    func installationID(
-        for credentialFingerprint: NotificationInstallation.CredentialFingerprint
-    ) async throws -> NotificationInstallation.ID? {
-        installationIDsByCredentialFingerprint[credentialFingerprint]
-    }
-}
-
-private actor InMemoryNotificationRegistrationStore: NotificationRegistrationStore {
-    private var destinationsByInstallation: [
-        NotificationInstallation.ID: Push.Destination
-    ] = [:]
-    private var subscriptionsByInstallation: [
-        NotificationInstallation.ID: Set<NotificationSubscription>
-    ] = [:]
-
-    var destinationCount: Int {
-        destinationsByInstallation.count
-    }
-
-    func replaceDestination(
-        _ destination: Push.Destination,
-        for installationID: NotificationInstallation.ID
-    ) {
-        destinationsByInstallation[installationID] = destination
-    }
-
-    func replaceSubscriptions(
-        _ subscriptions: Set<NotificationSubscription>,
-        for installationID: NotificationInstallation.ID
-    ) {
-        subscriptionsByInstallation[installationID] = subscriptions
+private func notificationDatabase(
+    at databaseURL: URL,
+    protection: NotificationDestinationProtection
+) throws -> NotificationDatabase {
+    let database = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+    return withDependencies {
+        $0.defaultDatabase = database
+        $0.notificationDestinationProtectionClient = protection.client
+    } operation: {
+        NotificationDatabase()
     }
 }

@@ -436,6 +436,7 @@ public struct OpenMusicEventAppRoot {
             notificationEventTrigger: \.notificationEvent,
             signalTrigger: \.notificationSignal
         )
+        .appDelegate(eventTrigger: \.appDelegateEvent)
     }
 }
 

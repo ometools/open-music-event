@@ -1,5 +1,7 @@
 import ComposableNotifications
+import ComposableNotificationsServer
 import CustomDump
+import Dependencies
 import Foundation
 import GRDB
 import Hummingbird
@@ -7,6 +9,18 @@ import HummingbirdTesting
 @testable import OpenMusicEventAppViewServer
 import SQLiteData
 import Testing
+
+private func notificationDatabase(
+    store: OpenMusicEventAppViewStore,
+    protection: NotificationDestinationProtection
+) -> NotificationDatabase {
+    withDependencies {
+        $0.defaultDatabase = store.database
+        $0.notificationDestinationProtectionClient = protection.client
+    } operation: {
+        NotificationDatabase()
+    }
+}
 
 @Suite(.serialized)
 struct NotificationPersistenceTests {
@@ -165,9 +179,9 @@ struct NotificationPersistenceTests {
 
         do {
             let store = try OpenMusicEventAppViewStore(
-                databaseURL: databaseURL,
-                notificationDestinationProtection: protection
+                databaseURL: databaseURL
             )
+            let notifications = notificationDatabase(store: store, protection: protection)
             let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
             try await rawDatabase.write { database in
                 try database.execute(
@@ -186,17 +200,17 @@ struct NotificationPersistenceTests {
                     ]
                 )
             }
-            try await store.insertInstallation(
+            try await notifications.insertInstallation(
                 installation,
                 credentialFingerprint: credentialFingerprint
             )
-            try await store.replaceDestination(originalDestination, for: installation.id)
-            try await store.replaceSubscriptions(
+            try await notifications.replaceDestination(originalDestination, for: installation.id)
+            try await notifications.replaceSubscriptions(
                 [NotificationSubscription(sourceID: .init(rawValue: "source-a"))],
                 for: installation.id
             )
-            try await store.replaceDestination(replacementDestination, for: installation.id)
-            try await store.replaceSubscriptions(subscriptions, for: installation.id)
+            try await notifications.replaceDestination(replacementDestination, for: installation.id)
+            try await notifications.replaceSubscriptions(subscriptions, for: installation.id)
         }
 
         let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
@@ -223,16 +237,19 @@ struct NotificationPersistenceTests {
         expectNoDifference(persisted.1, projectionEvent)
 
         let reopenedStore = try OpenMusicEventAppViewStore(
-            databaseURL: databaseURL,
-            notificationDestinationProtection: protection
+            databaseURL: databaseURL
         )
-        let reopenedInstallationID = try await reopenedStore.installationID(
+        let reopenedNotifications = notificationDatabase(
+            store: reopenedStore,
+            protection: protection
+        )
+        let reopenedInstallationID = try await reopenedNotifications.installationID(
             for: credentialFingerprint
         )
-        let reopenedDestination = try await reopenedStore.notificationDestination(
+        let reopenedDestination = try await reopenedNotifications.destination(
             for: installation.id
         )
-        let reopenedSubscriptions = try await reopenedStore.notificationSubscriptions(
+        let reopenedSubscriptions = try await reopenedNotifications.subscriptions(
             for: installation.id
         )
         expectNoDifference(reopenedInstallationID, installation.id)
@@ -285,61 +302,64 @@ struct NotificationPersistenceTests {
 
         do {
             let store = try OpenMusicEventAppViewStore(
-                databaseURL: databaseURL,
-                notificationDestinationProtection: protection
+                databaseURL: databaseURL
             )
-            try await store.insertInstallation(
+            let notifications = notificationDatabase(store: store, protection: protection)
+            try await notifications.insertInstallation(
                 installation,
                 credentialFingerprint: .init(rawValue: "credential-fingerprint")
             )
-            try await store.replaceDestination(destination, for: installation.id)
-            try await store.replaceSubscriptions(
+            try await notifications.replaceDestination(destination, for: installation.id)
+            try await notifications.replaceSubscriptions(
                 [NotificationSubscription(sourceID: source.id)],
                 for: installation.id
             )
 
-            let insertedCount = try await store.enqueueNotificationDeliveries(
-                for: source,
+            let insertedCount = try await notifications.enqueue(
+                source: source,
                 at: receivedAt
             )
-            let duplicateCount = try await store.enqueueNotificationDeliveries(
-                for: source,
+            let duplicateCount = try await notifications.enqueue(
+                source: source,
                 at: receivedAt
             )
             expectNoDifference(insertedCount, 1)
             expectNoDifference(duplicateCount, 0)
             let delivery = try #require(
-                try await store.nextNotificationDelivery(at: receivedAt)
+                try await notifications.nextDelivery(at: receivedAt)
             )
             let signal = try delivery.message.signal()
             expectNoDifference(signal, .sourceAvailable(source))
             expectNoDifference(delivery.destination, destination)
             expectNoDifference(delivery.failedAttempts, 0)
-            try await store.markNotificationDeliveryFailed(
+            try await notifications.markDeliveryFailed(
                 id: delivery.id,
                 attemptedAt: receivedAt,
                 retryAt: retryAt
             )
-            let deliveryBeforeRetry = try await store.nextNotificationDelivery(at: receivedAt)
+            let deliveryBeforeRetry = try await notifications.nextDelivery(at: receivedAt)
             #expect(deliveryBeforeRetry == nil)
         }
 
         let reopenedStore = try OpenMusicEventAppViewStore(
-            databaseURL: databaseURL,
-            notificationDestinationProtection: protection
+            databaseURL: databaseURL
+        )
+        let reopenedNotifications = notificationDatabase(
+            store: reopenedStore,
+            protection: protection
         )
         let retriedDelivery = try #require(
-            try await reopenedStore.nextNotificationDelivery(at: retryAt)
+            try await reopenedNotifications.nextDelivery(at: retryAt)
         )
         let retriedSignal = try retriedDelivery.message.signal()
         expectNoDifference(retriedSignal, .sourceAvailable(source))
         expectNoDifference(retriedDelivery.destination, destination)
         expectNoDifference(retriedDelivery.failedAttempts, 1)
-        try await reopenedStore.markNotificationDeliverySucceeded(
+        try await reopenedNotifications.markDeliverySucceeded(
             id: retriedDelivery.id,
             at: retryAt
         )
-        let deliveryAfterSuccess = try await reopenedStore.nextNotificationDelivery(at: retryAt)
+        let deliveryAfterSuccess = try await reopenedNotifications.nextDelivery(at: retryAt)
         #expect(deliveryAfterSuccess == nil)
 
         let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
@@ -380,10 +400,10 @@ struct NotificationPersistenceTests {
         )
         do {
             let store = try OpenMusicEventAppViewStore(
-                databaseURL: databaseURL,
-                notificationDestinationProtection: protection
+                databaseURL: databaseURL
             )
-            try await store.insertInstallation(
+            let notifications = notificationDatabase(store: store, protection: protection)
+            try await notifications.insertInstallation(
                 installation,
                 credentialFingerprint: credentialFingerprint
             )
@@ -399,10 +419,13 @@ struct NotificationPersistenceTests {
         }
 
         let migratedStore = try OpenMusicEventAppViewStore(
-            databaseURL: databaseURL,
-            notificationDestinationProtection: protection
+            databaseURL: databaseURL
         )
-        let migratedInstallationID = try await migratedStore.installationID(
+        let migratedNotifications = notificationDatabase(
+            store: migratedStore,
+            protection: protection
+        )
+        let migratedInstallationID = try await migratedNotifications.installationID(
             for: credentialFingerprint
         )
         expectNoDifference(migratedInstallationID, installation.id)
@@ -425,14 +448,14 @@ struct NotificationPersistenceTests {
         )
         let installation = NotificationInstallation(id: .init(rawValue: "installation-1"))
         let store = try OpenMusicEventAppViewStore(
-            databaseURL: databaseURL,
-            notificationDestinationProtection: protection
+            databaseURL: databaseURL
         )
-        try await store.insertInstallation(
+        let notifications = notificationDatabase(store: store, protection: protection)
+        try await notifications.insertInstallation(
             installation,
             credentialFingerprint: .init(rawValue: "credential-fingerprint")
         )
-        try await store.replaceDestination(
+        try await notifications.replaceDestination(
             .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "app.openmusicevent"),
@@ -451,7 +474,7 @@ struct NotificationPersistenceTests {
             )
         }
         await #expect(throws: (any Error).self) {
-            try await store.notificationDestination(for: installation.id)
+            try await notifications.destination(for: installation.id)
         }
     }
 

@@ -1,4 +1,5 @@
 import ComposableNotifications
+import ComposableNotificationsServer
 import Crypto
 import Foundation
 import Hummingbird
@@ -14,16 +15,16 @@ import Tagged
 public struct NotificationRegistrationServer: Sendable {
     public var installationAuthorizer: NotificationInstallationAuthorizer
     public var policy: NotificationRegistrationPolicy
-    public var store: any NotificationRegistrationStore
+    public var database: NotificationDatabase
 
     public init(
-        store: any NotificationRegistrationStore,
+        database: NotificationDatabase = NotificationDatabase(),
         installationAuthorizer: NotificationInstallationAuthorizer,
         policy: NotificationRegistrationPolicy
     ) {
         self.installationAuthorizer = installationAuthorizer
         self.policy = policy
-        self.store = store
+        self.database = database
     }
 }
 
@@ -88,7 +89,7 @@ public struct NotificationInstallationAuthorizer: Sendable {
     }
 
     public static func anonymous(
-        store: any NotificationInstallationStore,
+        database: NotificationDatabase = NotificationDatabase(),
         makeInstallationID: (@Sendable () -> NotificationInstallation.ID)? = nil,
         makeCredential: (@Sendable () -> NotificationInstallation.Credential)? = nil
     ) -> Self {
@@ -103,7 +104,7 @@ public struct NotificationInstallationAuthorizer: Sendable {
             createInstallation: {
                 let installation = NotificationInstallation(id: makeInstallationID())
                 let credential = makeCredential()
-                try await store.insertInstallation(
+                try await database.insertInstallation(
                     installation,
                     credentialFingerprint: credential.fingerprint
                 )
@@ -114,7 +115,7 @@ public struct NotificationInstallationAuthorizer: Sendable {
             },
             authenticateInstallation: { request in
                 let credential = try request.notificationInstallationCredential
-                guard let installationID = try await store.installationID(
+                guard let installationID = try await database.installationID(
                     for: credential.fingerprint
                 ) else {
                     throw HTTPError(.unauthorized)
