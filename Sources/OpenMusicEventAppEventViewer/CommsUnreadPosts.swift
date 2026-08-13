@@ -8,14 +8,31 @@ struct CommsPostIdentity: Sendable {
 }
 
 public struct CommsUnreadPostCounts: Equatable, Sendable {
-    public init(countsByEventID: [OMERecord.Event.ID: Int] = [:]) {
-        self.countsByEventID = countsByEventID
+    public init(
+        countsByChannelID: [OMERecord.Channel.ID: Int] = [:],
+        notificationEnabledChannelIDs: Set<OMERecord.Channel.ID> = []
+    ) {
+        self.countsByChannelID = countsByChannelID
+        self.notificationEnabledChannelIDs = notificationEnabledChannelIDs
     }
 
-    public var countsByEventID: [OMERecord.Event.ID: Int]
+    public var countsByChannelID: [OMERecord.Channel.ID: Int]
+    public var notificationEnabledChannelIDs: Set<OMERecord.Channel.ID>
+
+    public func count(for channelID: OMERecord.Channel.ID) -> Int {
+        countsByChannelID[channelID, default: 0]
+    }
 
     public func count(for eventID: OMERecord.Event.ID) -> Int {
-        countsByEventID[eventID, default: 0]
+        var count = 0
+        for (channelID, channelCount) in countsByChannelID {
+            guard notificationEnabledChannelIDs.contains(channelID),
+                  channelID.organizerID == eventID.organizerID,
+                  channelID.eventID == eventID.eventID
+            else { continue }
+            count += channelCount
+        }
+        return count
     }
 
     public static func fetch(
@@ -36,35 +53,40 @@ public struct CommsUnreadPostCounts: Equatable, Sendable {
             uniqueKeysWithValues: preferences.map { ($0.id, $0) }
         )
 
-        let notificationEnabledChannelIDs = Set(
+        let eventChannelIDs = Set(
             channels.compactMap { channel -> OMERecord.Channel.ID? in
                 let eventID = OMERecord.Event.ID(
                     organizerID: channel.id.organizerID,
                     eventID: channel.id.eventID
                 )
                 guard eventIDs.contains(eventID) else { return nil }
+                return channel.id
+            }
+        )
+        let notificationEnabledChannelIDs = Set(
+            channels.compactMap { channel -> OMERecord.Channel.ID? in
+                guard eventChannelIDs.contains(channel.id) else { return nil }
                 return channel.notificationsAreEnabled(
                     preference: preferencesByChannelID[channel.id]
                 ) ? channel.id : nil
             }
         )
 
-        var countsByEventID: [OMERecord.Event.ID: Int] = [:]
+        var countsByChannelID: [OMERecord.Channel.ID: Int] = [:]
         for postID in postIDs.map(\.id) {
             let channelRecordID = OMERecord.Channel.ID(
                 organizerID: postID.organizerID,
                 eventID: postID.eventID,
                 channelID: postID.channelID
             )
-            guard notificationEnabledChannelIDs.contains(channelRecordID) else { continue }
+            guard eventChannelIDs.contains(channelRecordID) else { continue }
             guard !readPostIDs.contains(postID) else { continue }
-            let eventID = OMERecord.Event.ID(
-                organizerID: postID.organizerID,
-                eventID: postID.eventID
-            )
-            countsByEventID[eventID, default: 0] += 1
+            countsByChannelID[channelRecordID, default: 0] += 1
         }
-        return Self(countsByEventID: countsByEventID)
+        return Self(
+            countsByChannelID: countsByChannelID,
+            notificationEnabledChannelIDs: notificationEnabledChannelIDs
+        )
     }
 }
 

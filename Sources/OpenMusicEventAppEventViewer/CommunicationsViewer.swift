@@ -13,6 +13,7 @@ import Tagged
 struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
     let channel: OMERecord.Channel
     let preference: ChannelPreferences?
+    let unreadPostCount: Int
 
     var id: OMERecord.Channel.ID { channel.id }
 
@@ -83,7 +84,8 @@ public struct CommunicationsViewer {
             return channels.map { channel in
                 CommunicationChannelRow(
                     channel: channel,
-                    preference: preferencesByID[channel.id]
+                    preference: preferencesByID[channel.id],
+                    unreadPostCount: unreadPostCounts.count(for: channel.id)
                 )
             }
         }
@@ -1225,6 +1227,20 @@ struct CommunicationChannelRowView: View {
             }
 
             Spacer()
+
+            if row.unreadPostCount > 0 {
+                Text("\(row.unreadPostCount)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .portableMonospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.tint, in: Capsule())
+                    .accessibilityLabel(
+                        Text("Unread posts: \(row.unreadPostCount)")
+                    )
+            }
 
             notificationImage
                 .foregroundStyle(.secondary)

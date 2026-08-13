@@ -6,7 +6,7 @@ import CustomDump
 import Dependencies
 import Foundation
 @testable import OpenMusicEventApp
-import OpenMusicEventAppEventViewer
+@testable import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventWhiteLabel
@@ -143,6 +143,33 @@ struct NotificationIndicatorTests {
         expectNoDifference(
             summary.contributions.map(\.id.sourceID),
             [.unreadCommsPosts]
+        )
+
+        let communicationsState = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = installedEventID
+            $0.defaultDatabase = database
+        } operation: {
+            CommunicationsViewer.State(eventID: installedEventID)
+        }
+        let channelRowsByID = Dictionary(
+            uniqueKeysWithValues: communicationsState.channelRows.map { ($0.id, $0) }
+        )
+        expectNoDifference(
+            channelRowsByID[Self.channelID("required", eventID: installedEventID)]?.unreadPostCount,
+            1
+        )
+        expectNoDifference(
+            channelRowsByID[Self.channelID("default-on", eventID: installedEventID)]?.unreadPostCount,
+            1
+        )
+        expectNoDifference(
+            channelRowsByID[Self.channelID("preference-on", eventID: installedEventID)]?.unreadPostCount,
+            1
+        )
+        expectNoDifference(
+            channelRowsByID[Self.channelID("preference-off", eventID: installedEventID)]?.unreadPostCount,
+            1
         )
 
         let emergencyContribution = ApplicationNotificationIndicatorContribution(
