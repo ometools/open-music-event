@@ -156,6 +156,7 @@ struct TangledWebhookServer: Sendable {
                 ref: payload.ref,
                 before: payload.before,
                 after: payload.after,
+                receivedAt: receivedAt,
                 source: NotificationSource(
                     id: watch.sourceID,
                     version: .init(rawValue: payload.after)

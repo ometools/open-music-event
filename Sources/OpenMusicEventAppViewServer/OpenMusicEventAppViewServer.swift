@@ -84,39 +84,47 @@ public enum OpenMusicEventAppViewServer {
             throw OpenMusicEventAppViewServerError.tangledWebhookRequiresDatabase
         }
 
-        let services: [any Service]
+        var services: [any Service] = []
         if let ingestion = configuration.ingestion {
             guard let store else {
                 throw OpenMusicEventAppViewServerError.ingestionRequiresDatabase
             }
-            services = [
+            services.append(
                 OpenMusicEventAppViewIngestion(
                     store: store,
                     configuration: ingestion,
                     client: hydrantClient ?? .hummingbird()
                 )
-            ]
-        } else {
-            services = []
+            )
         }
         let notificationRegistration = try notificationRegistration
             ?? configuredNotificationRegistration(
                 configuration: configuration,
                 store: store
             )
+        let notificationOutboxClient = store.map {
+            NotificationOutboxClient(appViewStore: $0)
+        }
         let tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
         if let providedTangledSourceUpdateProcessor {
             tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
-        } else if let notificationProvider {
-            guard let store else {
-                throw OpenMusicEventAppViewServerError.notificationDeliveryRequiresDatabase
-            }
-            tangledSourceUpdateProcessor = .notifications(
-                store: store,
-                provider: notificationProvider
+        } else if configuration.tangledWebhook != nil, let notificationOutboxClient {
+            tangledSourceUpdateProcessor = .notificationOutbox(
+                client: notificationOutboxClient
             )
         } else {
             tangledSourceUpdateProcessor = nil
+        }
+        if let notificationProvider {
+            guard let notificationOutboxClient else {
+                throw OpenMusicEventAppViewServerError.notificationDeliveryRequiresDatabase
+            }
+            services.append(
+                NotificationOutboxService(
+                    client: notificationOutboxClient,
+                    provider: notificationProvider
+                )
+            )
         }
         let hummingbirdRouter = router(
             configuration: configuration,
@@ -386,7 +394,7 @@ public enum OpenMusicEventAppViewServer {
                     if let tangledSourceUpdateProcessor {
                         try await tangledSourceUpdateProcessor.process(reception.sourceUpdate)
                         context.logger.info(
-                            "Tangled source update published",
+                            "Tangled source update processed",
                             metadata: [
                                 "notification.source.id": .string(
                                     reception.sourceUpdate.source.id.rawValue

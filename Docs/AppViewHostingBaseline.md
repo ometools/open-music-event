@@ -90,15 +90,19 @@ For the temporary first-device acceptance deployment, anonymous bootstrap may be
 edge rate limiting is installed. Treat that as an explicit short-lived exception: monitor the
 installation count and add public-edge rate protection before broader distribution.
 
-## Inline Notification Delivery
+## Durable Notification Delivery
 
-The current acceptance slice delivers notifications inline. After a Tangled request is verified
-and recorded in the durable inbox, the route awaits subscription lookup and provider sends before
-returning `202 Accepted`. The first provider failure aborts the request and leaves the webhook
-unacknowledged so Tangled can retry the delivery. `source_available` is an idempotent refresh hint,
-so that retry may safely resend to destinations that already succeeded. A durable notification
-outbox remains the next reliability boundary; until it exists, provider latency is also
-webhook-response latency.
+After a Tangled request is verified and recorded in the durable inbox, the route resolves current
+subscriptions and commits idempotent `pushOutbox` rows before returning `202 Accepted`. Provider
+network latency and failure are therefore outside the webhook request. Replaying the same source
+version does not create duplicate installation deliveries.
+
+A ServiceLifecycle-owned worker drains one due job at a time, awaits the provider response, and
+records either delivery or a persisted exponential retry. Pending and failed jobs survive an
+AppView restart, and graceful shutdown cancels provider work without recording cancellation as a
+delivery failure. A short idle poll currently wakes the worker; replacing that poll with a database
+observation wakeup remains a refinement. Permanent invalid-token classification and cleanup also
+remain before broader production rollout.
 
 AppView installs an APNs provider only when the APNs environment is complete. Supplying any APNs
 variable without the other required values fails server startup. The `.p8` private key remains a

@@ -35,7 +35,6 @@ public actor OpenMusicEventAppViewReadiness {
 }
 
 public struct OpenMusicEventAppViewStore:
-    NotificationDeliveryStore,
     NotificationInstallationStore,
     NotificationRegistrationStore,
     WebhookInboxStore,
@@ -212,34 +211,156 @@ public struct OpenMusicEventAppViewStore:
         .destination
     }
 
-    public func notificationDeliveryTargets(
-        subscribedTo sourceID: NotificationSource.ID
-    ) async throws -> [NotificationDeliveryTarget] {
+    func enqueueNotificationDeliveries(
+        for source: NotificationSource,
+        at date: Date
+    ) async throws -> Int {
+        let message = try JSONEncoder().encode(
+            NotificationProviderMessage(signal: .sourceAvailable(source)).data
+        )
+        return try await database.write { database in
+            let outboxTable = PushOutboxRow.tableName
+            let registrationsTable = PushRegistrationRow.tableName
+            let subscriptionsTable = PushSubscriptionRow.tableName
+            try database.execute(
+                sql: """
+                    INSERT OR IGNORE INTO "\(outboxTable)" (
+                      installationID,
+                      sourceID,
+                      sourceVersion,
+                      reason,
+                      message,
+                      createdAt,
+                      failedAttempts,
+                      nextAttemptAt
+                    )
+                    SELECT
+                      subscription.installationID,
+                      ?,
+                      ?,
+                      'source_available',
+                      ?,
+                      ?,
+                      0,
+                      ?
+                    FROM "\(subscriptionsTable)" AS subscription
+                    INNER JOIN "\(registrationsTable)" AS registration
+                      ON registration.installationID = subscription.installationID
+                    WHERE subscription.sourceID = ?
+                    """,
+                arguments: [
+                    source.id.rawValue,
+                    source.version.rawValue,
+                    message,
+                    date,
+                    date,
+                    source.id.rawValue,
+                ]
+            )
+            return database.changesCount
+        }
+    }
+
+    func nextNotificationDelivery(
+        at date: Date
+    ) async throws -> NotificationOutboxDelivery? {
         guard let notificationDestinationProtection else {
             throw NotificationPersistenceError.destinationProtectionUnavailable
         }
-        let registrations = try await database.read { database in
-            try PushSubscriptionRow
-                .where { $0.sourceID.eq(sourceID.rawValue) }
-                .join(PushRegistrationRow.all) { subscription, registration in
-                    subscription.installationID.eq(registration.installationID)
-                }
-                .order { subscription, _ in subscription.installationID }
-                .select { _, registration in registration }
-                .fetchAll(database)
-        }
-        return try registrations.map { registration in
+        return try await database.read { database in
+            let outboxTable = PushOutboxRow.tableName
+            let registrationsTable = PushRegistrationRow.tableName
+            guard let row = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT
+                      outbox.id AS outboxID,
+                      outbox.message,
+                      outbox.failedAttempts,
+                      registration.installationID,
+                      registration.applicationID,
+                      registration.provider,
+                      registration.destination,
+                      registration.destinationFingerprint,
+                      registration.destinationKeyVersion
+                    FROM "\(outboxTable)" AS outbox
+                    INNER JOIN "\(registrationsTable)" AS registration
+                      ON registration.installationID = outbox.installationID
+                    WHERE outbox.deliveredAt IS NULL
+                      AND outbox.nextAttemptAt <= ?
+                    ORDER BY outbox.nextAttemptAt, outbox.id
+                    LIMIT 1
+                    """,
+                arguments: [date]
+            ) else { return nil }
+
             let installationID = NotificationInstallation.ID(
-                rawValue: registration.installationID
+                rawValue: row["installationID"]
             )
-            return NotificationDeliveryTarget(
-                installationID: installationID,
+            let registration = PushRegistrationRow(
+                installationID: installationID.rawValue,
+                applicationID: row["applicationID"],
+                provider: row["provider"],
+                destination: row["destination"],
+                destinationFingerprint: row["destinationFingerprint"],
+                destinationKeyVersion: row["destinationKeyVersion"]
+            )
+            return NotificationOutboxDelivery(
+                id: .init(rawValue: row["outboxID"]),
+                message: try NotificationProviderMessage(
+                    json: String(decoding: row["message"] as Data, as: UTF8.self)
+                ),
                 destination: try notificationDestination(
                     from: registration,
                     for: installationID,
                     using: notificationDestinationProtection
-                )
+                ),
+                failedAttempts: row["failedAttempts"]
             )
+        }
+    }
+
+    func markNotificationDeliverySucceeded(
+        id: NotificationOutboxDelivery.ID,
+        at date: Date
+    ) async throws {
+        try await database.write { database in
+            let tableName = PushOutboxRow.tableName
+            try database.execute(
+                sql: """
+                    UPDATE "\(tableName)"
+                    SET lastAttemptAt = ?, deliveredAt = ?
+                    WHERE id = ? AND deliveredAt IS NULL
+                """,
+                arguments: [date, date, id.rawValue]
+            )
+            guard database.changesCount == 1 else {
+                throw NotificationPersistenceError.unknownOutboxDelivery(id)
+            }
+        }
+    }
+
+    func markNotificationDeliveryFailed(
+        id: NotificationOutboxDelivery.ID,
+        attemptedAt: Date,
+        retryAt: Date
+    ) async throws {
+        try await database.write { database in
+            let tableName = PushOutboxRow.tableName
+            try database.execute(
+                sql: """
+                    UPDATE "\(tableName)"
+                    SET
+                      failedAttempts = failedAttempts + 1,
+                      lastAttemptAt = ?,
+                      nextAttemptAt = ?
+                    WHERE id = ? AND deliveredAt IS NULL
+                """,
+                arguments: [attemptedAt, retryAt, id.rawValue]
+            )
+            guard database.changesCount == 1 else {
+                throw NotificationPersistenceError.unknownOutboxDelivery(id)
+            }
         }
     }
 
@@ -461,6 +582,29 @@ public struct OpenMusicEventAppViewStore:
     }
 }
 
+extension NotificationOutboxClient {
+    init(appViewStore store: OpenMusicEventAppViewStore) {
+        self.init(
+            enqueue: { source, date in
+                try await store.enqueueNotificationDeliveries(for: source, at: date)
+            },
+            next: { date in
+                try await store.nextNotificationDelivery(at: date)
+            },
+            markSucceeded: { id, date in
+                try await store.markNotificationDeliverySucceeded(id: id, at: date)
+            },
+            markFailed: { id, attemptedAt, retryAt in
+                try await store.markNotificationDeliveryFailed(
+                    id: id,
+                    attemptedAt: attemptedAt,
+                    retryAt: retryAt
+                )
+            }
+        )
+    }
+}
+
 public enum OpenMusicEventAppViewStoreError: Error, Equatable, Sendable {
     case invalidCursor(String)
 }
@@ -470,6 +614,7 @@ public enum NotificationPersistenceError: Error, Equatable, Sendable {
     case invalidDestinationEncoding
     case unsupportedProvider(String)
     case unknownInstallation(NotificationInstallation.ID)
+    case unknownOutboxDelivery(NotificationOutboxDelivery.ID)
 }
 
 public enum WebhookSecretPersistenceError: Error, Equatable, Sendable {
@@ -497,6 +642,21 @@ private struct PushRegistrationRow: Equatable, Sendable {
 private struct PushSubscriptionRow: Equatable, Sendable {
     var installationID: String
     var sourceID: String
+}
+
+@Table("pushOutbox")
+private struct PushOutboxRow: Equatable, Sendable {
+    @Column(primaryKey: true) var id: Int64
+    var installationID: String
+    var sourceID: String
+    var sourceVersion: String
+    var reason: String
+    var message: Data
+    var createdAt: Date
+    var failedAttempts: Int
+    var lastAttemptAt: Date?
+    var nextAttemptAt: Date
+    var deliveredAt: Date?
 }
 
 @Table("webhookInboxDeliveries")
@@ -621,6 +781,38 @@ private enum NotificationPersistenceSchema {
                 """
                     CREATE INDEX \(quote: sourceIndex)
                     ON \(quote: subscriptionsTable) (sourceID)
+                    """
+            )
+            .execute(database)
+        }
+        migrator.registerMigration("Create push notification outbox") { database in
+            let installationsTable = PushInstallationRow.tableName
+            let outboxTable = PushOutboxRow.tableName
+            let dueIndex = "\(outboxTable)_due"
+            try #sql(
+                """
+                    CREATE TABLE \(quote: outboxTable) (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      installationID TEXT NOT NULL
+                        REFERENCES \(quote: installationsTable)(id) ON DELETE CASCADE,
+                      sourceID TEXT NOT NULL,
+                      sourceVersion TEXT NOT NULL,
+                      reason TEXT NOT NULL,
+                      message BLOB NOT NULL,
+                      createdAt TEXT NOT NULL,
+                      failedAttempts INTEGER NOT NULL,
+                      lastAttemptAt TEXT,
+                      nextAttemptAt TEXT NOT NULL,
+                      deliveredAt TEXT,
+                      UNIQUE (installationID, sourceID, sourceVersion, reason)
+                    ) STRICT
+                    """
+            )
+            .execute(database)
+            try #sql(
+                """
+                    CREATE INDEX \(quote: dueIndex)
+                    ON \(quote: outboxTable) (deliveredAt, nextAttemptAt, id)
                     """
             )
             .execute(database)

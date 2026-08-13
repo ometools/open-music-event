@@ -1,5 +1,6 @@
 import ATProto
 import ComposableNotifications
+import Foundation
 
 /// One verified Tangled repository revision that may advance an application source.
 ///
@@ -16,6 +17,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
         ref: String,
         before: String,
         after: String,
+        receivedAt: Date,
         source: NotificationSource
     ) {
         self.watchID = watchID
@@ -25,6 +27,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
         self.ref = ref
         self.before = before
         self.after = after
+        self.receivedAt = receivedAt
         self.source = source
     }
 
@@ -35,6 +38,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
     public let ref: String
     public let before: String
     public let after: String
+    public let receivedAt: Date
     public let source: NotificationSource
 }
 
@@ -52,13 +56,11 @@ public struct TangledSourceUpdateProcessor: Sendable {
         self.process = process
     }
 
-    public static func notifications(
-        store: any NotificationDeliveryStore,
-        provider: NotificationProviderClient
+    public static func notificationOutbox(
+        client: NotificationOutboxClient
     ) -> Self {
-        let dispatcher = NotificationSignalDispatcher(store: store, provider: provider)
         return Self { update in
-            try await dispatcher.publish(update.source)
+            _ = try await client.enqueue(update.source, update.receivedAt)
         }
     }
 }

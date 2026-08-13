@@ -255,6 +255,164 @@ struct NotificationPersistenceTests {
     }
 
     @Test
+    func `source delivery remains queued across restart until the provider accepts it`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let installation = NotificationInstallation(
+            id: .init(rawValue: "installation-1")
+        )
+        let destination = Push.Destination.apns(
+            Push.APNS(
+                applicationID: .init(rawValue: "app.openmusicevent"),
+                deviceToken: .init(rawValue: "provider-issued-device-token")
+            )
+        )
+        let source = NotificationSource(
+            id: .init(
+                rawValue: "at://did:plc:wickedwoods/app.openmusicevent.event/2026"
+            ),
+            version: .init(rawValue: "bafy-source-version")
+        )
+        let receivedAt = Date(timeIntervalSince1970: 1_786_291_200)
+        let retryAt = receivedAt.addingTimeInterval(1)
+
+        do {
+            let store = try OpenMusicEventAppViewStore(
+                databaseURL: databaseURL,
+                notificationDestinationProtection: protection
+            )
+            try await store.insertInstallation(
+                installation,
+                credentialFingerprint: .init(rawValue: "credential-fingerprint")
+            )
+            try await store.replaceDestination(destination, for: installation.id)
+            try await store.replaceSubscriptions(
+                [NotificationSubscription(sourceID: source.id)],
+                for: installation.id
+            )
+
+            let insertedCount = try await store.enqueueNotificationDeliveries(
+                for: source,
+                at: receivedAt
+            )
+            let duplicateCount = try await store.enqueueNotificationDeliveries(
+                for: source,
+                at: receivedAt
+            )
+            expectNoDifference(insertedCount, 1)
+            expectNoDifference(duplicateCount, 0)
+            let delivery = try #require(
+                try await store.nextNotificationDelivery(at: receivedAt)
+            )
+            let signal = try delivery.message.signal()
+            expectNoDifference(signal, .sourceAvailable(source))
+            expectNoDifference(delivery.destination, destination)
+            expectNoDifference(delivery.failedAttempts, 0)
+            try await store.markNotificationDeliveryFailed(
+                id: delivery.id,
+                attemptedAt: receivedAt,
+                retryAt: retryAt
+            )
+            let deliveryBeforeRetry = try await store.nextNotificationDelivery(at: receivedAt)
+            #expect(deliveryBeforeRetry == nil)
+        }
+
+        let reopenedStore = try OpenMusicEventAppViewStore(
+            databaseURL: databaseURL,
+            notificationDestinationProtection: protection
+        )
+        let retriedDelivery = try #require(
+            try await reopenedStore.nextNotificationDelivery(at: retryAt)
+        )
+        let retriedSignal = try retriedDelivery.message.signal()
+        expectNoDifference(retriedSignal, .sourceAvailable(source))
+        expectNoDifference(retriedDelivery.destination, destination)
+        expectNoDifference(retriedDelivery.failedAttempts, 1)
+        try await reopenedStore.markNotificationDeliverySucceeded(
+            id: retriedDelivery.id,
+            at: retryAt
+        )
+        let deliveryAfterSuccess = try await reopenedStore.nextNotificationDelivery(at: retryAt)
+        #expect(deliveryAfterSuccess == nil)
+
+        let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        let ledger = try rawDatabase.read { database in
+            try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT failedAttempts, lastAttemptAt, deliveredAt
+                    FROM pushOutbox
+                    """
+            )
+        }
+        let ledgerRow = try #require(ledger)
+        let failedAttempts: Int = ledgerRow["failedAttempts"]
+        let lastAttemptAt: Date = ledgerRow["lastAttemptAt"]
+        let deliveredAt: Date = ledgerRow["deliveredAt"]
+        expectNoDifference(failedAttempts, 1)
+        expectNoDifference(lastAttemptAt, retryAt)
+        expectNoDifference(deliveredAt, retryAt)
+    }
+
+    @Test
+    func `outbox migration preserves an existing notification installation`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let installation = NotificationInstallation(
+            id: .init(rawValue: "pre-outbox-installation")
+        )
+        let credentialFingerprint = NotificationInstallation.CredentialFingerprint(
+            rawValue: "pre-outbox-credential-fingerprint"
+        )
+        do {
+            let store = try OpenMusicEventAppViewStore(
+                databaseURL: databaseURL,
+                notificationDestinationProtection: protection
+            )
+            try await store.insertInstallation(
+                installation,
+                credentialFingerprint: credentialFingerprint
+            )
+        }
+
+        let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        try await rawDatabase.write { database in
+            try database.execute(sql: "DROP TABLE pushOutbox")
+            try database.execute(
+                sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
+                arguments: ["Create push notification outbox"]
+            )
+        }
+
+        let migratedStore = try OpenMusicEventAppViewStore(
+            databaseURL: databaseURL,
+            notificationDestinationProtection: protection
+        )
+        let migratedInstallationID = try await migratedStore.installationID(
+            for: credentialFingerprint
+        )
+        expectNoDifference(migratedInstallationID, installation.id)
+        let outboxExists = try await rawDatabase.read { database in
+            try database.tableExists("pushOutbox")
+        }
+        expectNoDifference(outboxExists, true)
+    }
+
+    @Test
     func `destination ciphertext is bound to its application metadata`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

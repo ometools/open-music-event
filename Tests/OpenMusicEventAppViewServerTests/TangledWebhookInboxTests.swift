@@ -106,6 +106,7 @@ struct TangledWebhookInboxTests {
                 ref: "refs/heads/main",
                 before: "1111111111111111111111111111111111111111",
                 after: "2222222222222222222222222222222222222222",
+                receivedAt: Self.receivedAt,
                 source: NotificationSource(
                     id: Self.sourceID,
                     version: .init(rawValue: "2222222222222222222222222222222222222222")
@@ -299,7 +300,7 @@ struct TangledWebhookInboxTests {
     }
 
     @Test
-    func `an inline processing failure leaves the durable webhook retryable`() async throws {
+    func `a source update processing failure leaves the durable webhook retryable`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -406,17 +407,18 @@ struct TangledWebhookInboxTests {
         let payload = Self.pushPayload()
 
         // This is the only mocked boundary in the story. The request has already passed through
-        // the real signed webhook route, SQLite inbox and subscription lookup, dispatcher, provider
+        // the real signed webhook route, SQLite inbox and outbox, lifecycle worker, provider
         // selection, APNs credential loading and JWT signing, and provider JSON encoder before it
         // reaches this raw-network closure.
         try await withDependencies {
+            $0.continuousClock = ContinuousClock()
             $0.date.now = Self.receivedAt
             $0.httpClient = .liveValue
             $0.requestInterceptors = []
             $0.responseInterceptors = []
             $0.errorInterceptors = []
             $0.dataForURL = { request, body in
-                await providerRequests.record(request, body: body)
+                await providerRequests.recordAndWaitForRelease(request, body: body)
                 return (Data(), HTTPResponse(status: .ok))
             }
         } operation: {
@@ -466,7 +468,7 @@ struct TangledWebhookInboxTests {
                 notificationProvider: provider
             )
 
-            try await app.test(.router) { client in
+            try await app.test(.live) { client in
                 // The iPhone creates an anonymous installation through the public server route.
                 let apnsCredential = try await client.execute(
                     uri: NotificationRegistrationEndpoint.installationsPath,
@@ -545,8 +547,9 @@ struct TangledWebhookInboxTests {
                     #expect(response.status == .noContent)
                 }
 
-                // Tangled's signed HTTP delivery is the trigger. No source-update processor,
-                // notification store, dispatcher, or provider client is called directly.
+                // Tangled's signed HTTP delivery only commits the inbox and two outbox jobs.
+                // Provider responses remain blocked, so a 202 here proves provider I/O is no
+                // longer part of the webhook request.
                 try await client.execute(
                     uri: TangledWebhookEndpoint.path,
                     method: .post,
@@ -555,11 +558,29 @@ struct TangledWebhookInboxTests {
                 ) { response in
                     #expect(response.status == .accepted)
                 }
+
+                // Replaying the same verified delivery cannot enqueue a second pair of jobs.
+                try await client.execute(
+                    uri: TangledWebhookEndpoint.path,
+                    method: .post,
+                    headers: Self.headers(authenticating: payload),
+                    body: ByteBuffer(data: payload)
+                ) { response in
+                    #expect(response.status == .accepted)
+                }
+
+                await providerRequests.releaseProviderResponses()
+                await providerRequests.waitForRequestCount(2)
+                try await Self.waitForDeliveredOutboxCount(2, in: store.database)
             }
         }
 
         let requests = await providerRequests.requests
         expectNoDifference(requests.count, 2)
+        let outboxCount = try await store.database.read { database in
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
+        }
+        expectNoDifference(outboxCount, 2)
         let apns = try #require(
             requests.first {
                 $0.request.url?.absoluteString.hasPrefix("https://api.push.apple.com/") == true
@@ -620,6 +641,198 @@ struct TangledWebhookInboxTests {
             String(decoding: try #require(fcm.body), as: UTF8.self),
             #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"token":"fixture-fcm-registration-token"}}"#
         )
+    }
+
+    @Test
+    func `a failed provider request is delivered from the same outbox after restart`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let destinationProtection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x3B, count: 32)
+        )
+        let fcmApplicationID = Push.ApplicationID(rawValue: "fm.woody.openmusicevent")
+        let destination = Push.Destination.fcm(
+            Push.FCM(
+                applicationID: fcmApplicationID,
+                registrationToken: .init(rawValue: "fixture-fcm-registration-token")
+            )
+        )
+        let subscriptions = NotificationSubscriptionsPayload(
+            [NotificationSubscription(sourceID: Self.sourceID)]
+        )
+        let firstRequests = ProviderHTTPRequestRecorder()
+        let payload = Self.pushPayload()
+
+        let store = try OpenMusicEventAppViewStore(
+            databaseURL: databaseURL,
+            notificationDestinationProtection: destinationProtection,
+            webhookSecretProtection: Self.webhookSecretProtection()
+        )
+        try await store.replaceWebhookSecret(
+            Self.secret,
+            source: .tangled,
+            watchID: Self.watchID
+        )
+
+        try await withDependencies {
+            $0.continuousClock = ContinuousClock()
+            $0.date.now = Self.receivedAt
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
+                await firstRequests.record(request, body: body)
+                throw ProviderTransportFailure.unavailable
+            }
+        } operation: {
+            let provider = NotificationProviderClient.http(
+                configuration: NotificationProviderHTTPConfiguration(
+                    fcm: [fcmApplicationID: .init(projectID: "open-music-event")]
+                ),
+                authorization: NotificationProviderAuthorization(
+                    apnsBearerToken: { applicationID in
+                        throw NotificationProviderHTTPError.missingAPNSConfiguration(
+                            applicationID
+                        )
+                    },
+                    fcmAccessToken: { _ in "fixture-fcm-oauth" }
+                )
+            )
+            let app = try OpenMusicEventAppViewServer.application(
+                configuration: AppViewConfiguration(
+                    port: 0,
+                    notificationRegistration: AppViewNotificationRegistrationConfiguration(
+                        authorization: .anonymous,
+                        allowedApplicationIDs: [fcmApplicationID]
+                    ),
+                    tangledWebhook: Self.webhookConfiguration()
+                ),
+                store: store,
+                notificationProvider: provider
+            )
+
+            try await app.test(.live) { client in
+                let credential = try await client.execute(
+                    uri: NotificationRegistrationEndpoint.installationsPath,
+                    method: .post
+                ) { response in
+                    #expect(response.status == .created)
+                    return try JSONDecoder().decode(
+                        NotificationInstallationCredentialPayload.self,
+                        from: Data(response.body.readableBytesView)
+                    ).credential
+                }
+                try await client.execute(
+                    uri: NotificationRegistrationEndpoint.destinationPath,
+                    method: .put,
+                    headers: [
+                        .authorization: "Notification \(credential.rawValue)",
+                        .contentType: "application/json",
+                    ],
+                    body: ByteBuffer(
+                        data: try JSONEncoder().encode(
+                            NotificationDestinationPayload(destination)
+                        )
+                    )
+                ) { response in
+                    #expect(response.status == .noContent)
+                }
+                try await client.execute(
+                    uri: NotificationRegistrationEndpoint.subscriptionsPath,
+                    method: .put,
+                    headers: [
+                        .authorization: "Notification \(credential.rawValue)",
+                        .contentType: "application/json",
+                    ],
+                    body: ByteBuffer(data: try JSONEncoder().encode(subscriptions))
+                ) { response in
+                    #expect(response.status == .noContent)
+                }
+
+                // Provider failure happens after acknowledgement and leaves the job pending.
+                try await client.execute(
+                    uri: TangledWebhookEndpoint.path,
+                    method: .post,
+                    headers: Self.headers(authenticating: payload),
+                    body: ByteBuffer(data: payload)
+                ) { response in
+                    #expect(response.status == .accepted)
+                }
+                await firstRequests.waitForRequestCount(1)
+                try await Self.waitForFailedOutboxCount(1, in: store.database)
+            }
+        }
+
+        let retryRequests = ProviderHTTPRequestRecorder()
+        let retryAt = Self.receivedAt.addingTimeInterval(1)
+        let reopenedStore = try OpenMusicEventAppViewStore(
+            databaseURL: databaseURL,
+            notificationDestinationProtection: destinationProtection,
+            webhookSecretProtection: Self.webhookSecretProtection()
+        )
+        try await withDependencies {
+            $0.continuousClock = ContinuousClock()
+            $0.date.now = retryAt
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
+                await retryRequests.record(request, body: body)
+                return (Data(), HTTPResponse(status: .ok))
+            }
+        } operation: {
+            let provider = NotificationProviderClient.http(
+                configuration: NotificationProviderHTTPConfiguration(
+                    fcm: [fcmApplicationID: .init(projectID: "open-music-event")]
+                ),
+                authorization: NotificationProviderAuthorization(
+                    apnsBearerToken: { applicationID in
+                        throw NotificationProviderHTTPError.missingAPNSConfiguration(
+                            applicationID
+                        )
+                    },
+                    fcmAccessToken: { _ in "fixture-fcm-oauth" }
+                )
+            )
+            let app = try OpenMusicEventAppViewServer.application(
+                configuration: AppViewConfiguration(port: 0),
+                store: reopenedStore,
+                notificationProvider: provider
+            )
+
+            try await app.test(.live) { _ in
+                await retryRequests.waitForRequestCount(1)
+                try await Self.waitForDeliveredOutboxCount(1, in: reopenedStore.database)
+            }
+        }
+
+        let failedRequests = await firstRequests.requests
+        let retriedRequests = await retryRequests.requests
+        let failedRequest = try #require(failedRequests.first)
+        let retryRequest = try #require(retriedRequests.first)
+        expectNoDifference(failedRequest.request.url, retryRequest.request.url)
+        expectNoDifference(failedRequest.body, retryRequest.body)
+        expectNoDifference(
+            String(decoding: try #require(retryRequest.body), as: UTF8.self),
+            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"token":"fixture-fcm-registration-token"}}"#
+        )
+        let ledger = try reopenedStore.database.read { database in
+            try Row.fetchOne(
+                database,
+                sql: "SELECT failedAttempts, deliveredAt FROM pushOutbox"
+            )
+        }
+        let ledgerRow = try #require(ledger)
+        let failedAttempts: Int = ledgerRow["failedAttempts"]
+        let deliveredAt: Date = ledgerRow["deliveredAt"]
+        expectNoDifference(failedAttempts, 1)
+        expectNoDifference(deliveredAt, retryAt)
     }
 
     @Test
@@ -897,6 +1110,42 @@ private extension TangledWebhookInboxTests {
             return PersistedInbox(count: count, delivery: delivery)
         }
     }
+
+    static func waitForDeliveredOutboxCount(
+        _ expectedCount: Int,
+        in database: any DatabaseWriter
+    ) async throws {
+        let observation = ValueObservation.tracking { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM pushOutbox WHERE deliveredAt IS NOT NULL"
+            ) ?? 0
+        }
+        for try await count in observation.values(
+            in: database,
+            bufferingPolicy: .bufferingNewest(1)
+        ) {
+            if count == expectedCount { return }
+        }
+    }
+
+    static func waitForFailedOutboxCount(
+        _ expectedCount: Int,
+        in database: any DatabaseWriter
+    ) async throws {
+        let observation = ValueObservation.tracking { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM pushOutbox WHERE failedAttempts > 0"
+            ) ?? 0
+        }
+        for try await count in observation.values(
+            in: database,
+            bufferingPolicy: .bufferingNewest(1)
+        ) {
+            if count == expectedCount { return }
+        }
+    }
 }
 
 private struct PersistedInbox: Equatable, Sendable {
@@ -925,6 +1174,10 @@ private enum DecodedProviderTokenError: Error {
     case missingSegment(Int)
 }
 
+private enum ProviderTransportFailure: Error {
+    case unavailable
+}
+
 private actor FailOnceSourceUpdateProcessor {
     private(set) var attemptCount = 0
 
@@ -946,9 +1199,38 @@ private actor ProviderHTTPRequestRecorder {
         var request: HTTPRequest
     }
 
+    var requestCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     var requests: [Request] = []
+    var responsesReleased = false
+    var responseWaiters: [CheckedContinuation<Void, Never>] = []
 
     func record(_ request: HTTPRequest, body: Data?) {
         requests.append(Request(body: body, request: request))
+        let readyCounts = requestCountWaiters.keys.filter { requests.count >= $0 }
+        for count in readyCounts {
+            requestCountWaiters.removeValue(forKey: count)?.forEach { $0.resume() }
+        }
+    }
+
+    func recordAndWaitForRelease(_ request: HTTPRequest, body: Data?) async {
+        record(request, body: body)
+        guard !responsesReleased else { return }
+        await withCheckedContinuation { continuation in
+            responseWaiters.append(continuation)
+        }
+    }
+
+    func releaseProviderResponses() {
+        responsesReleased = true
+        let waiters = responseWaiters
+        responseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitForRequestCount(_ count: Int) async {
+        guard requests.count < count else { return }
+        await withCheckedContinuation { continuation in
+            requestCountWaiters[count, default: []].append(continuation)
+        }
     }
 }
