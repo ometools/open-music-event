@@ -11,6 +11,9 @@
         }
       }
     },
+    "%lld" : {
+
+    },
     "%lld %@" : {
       "localizations" : {
         "en" : {
@@ -1337,6 +1340,9 @@
 
     },
     "Unread" : {
+
+    },
+    "Unread posts: %lld" : {
 
     },
     "Update Proposal" : {
