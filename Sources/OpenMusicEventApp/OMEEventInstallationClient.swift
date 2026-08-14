@@ -2,6 +2,8 @@ import ATProto
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import Dependencies
+import Foundation
+import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventEntry
 import OpenMusicEventLexicon
@@ -111,13 +113,15 @@ extension OMEEventInstallationClient: DependencyKey {
             preview: @escaping @Sendable (EventEntryPreview) -> Void
         ) async throws -> OMERecord.Event.ID in
             @Dependency(\.defaultDatabase) var database
+            @Dependency(\.date.now) var now
             guard let eventID = OME.Event.ID(eventURI) else {
                 throw OMEEventInstallationError.invalidEventURI(eventURI)
             }
             let installation = try await database.read { db in
                 (
                     event: try OME.Event.find(eventID).fetchOne(db),
-                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
+                    installedEvent: try InstalledEventRecord.find(eventID).fetchOne(db)
                 )
             }
             if installation.event != nil, let provenance = installation.provenance {
@@ -129,6 +133,13 @@ extension OMEEventInstallationClient: DependencyKey {
                         )
                     }
                     .execute(db)
+                    if installation.installedEvent == nil {
+                        try initializeCommsPostReadState(
+                            for: eventID,
+                            now: now,
+                            in: db
+                        )
+                    }
                 }
                 return eventID
             }
@@ -147,7 +158,14 @@ extension OMEEventInstallationClient: DependencyKey {
             try await published.insertion.installPublishedEvent(
                 eventID,
                 from: published.workspace,
-                in: database
+                in: database,
+                initializeInstalledEvent: { database in
+                    try initializeCommsPostReadState(
+                        for: eventID,
+                        now: now,
+                        in: database
+                    )
+                }
             )
             return eventID
         }
@@ -322,6 +340,30 @@ private func publishedEventInstallation(
         throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
     }
     return PublishedEventInstallation(insertion: result.insertion, workspace: workspace)
+}
+
+private func initializeCommsPostReadState(
+    for eventID: OME.Event.ID,
+    now: Date,
+    in database: Database
+) throws {
+    guard let event = try OME.Event.find(eventID).fetchOne(database),
+          event.isPast(at: now)
+    else { return }
+    try CommsPostRead.setRead(true, eventID: eventID, in: database)
+}
+
+private extension OME.Event {
+    func isPast(at now: Date) -> Bool {
+        let today = LocalDate(now, in: timeZone)
+        if let endDate {
+            return endDate < today
+        }
+        if let startDate {
+            return startDate < today
+        }
+        return false
+    }
 }
 
 public extension DependencyValues {

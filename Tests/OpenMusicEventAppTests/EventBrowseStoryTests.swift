@@ -14,6 +14,7 @@ import HTTPTypes
 import HummingbirdTesting
 import IssueReporting
 @testable import OpenMusicEventApp
+import OpenMusicEventAppEventViewer
 import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
@@ -1240,6 +1241,8 @@ struct EventBrowseStoryTests {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
         let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
@@ -1263,6 +1266,9 @@ struct EventBrowseStoryTests {
         let downloadUUID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-000000000026")
         )
+        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let now = try #require(LocalDate("2026-08-13")).atStartOfDay(in: eventTimeZone)
+        let eventEndDate = try #require(LocalDate("2026-08-10"))
         let gitOperations = Mutex<[String]>([])
 
         let store = withDependencies {
@@ -1273,6 +1279,7 @@ struct EventBrowseStoryTests {
                 Data(Self.wickedWoodsAppViewEventResponse.utf8)
             }
             $0.omeEventInstallation = .liveValue
+            $0.date.now = now
             $0.uuid = .constant(downloadUUID)
             $0.sourceControl.clone = { _ in
                 gitOperations.withLock { $0.append("clone") }
@@ -1299,7 +1306,11 @@ struct EventBrowseStoryTests {
                     at: request.outputURL,
                     withIntermediateDirectories: true
                 )
-                try writeWickedWoodsSourceWithTwoEvents(to: request.outputURL)
+                try writeWickedWoodsSourceWithTwoEvents(
+                    to: request.outputURL,
+                    event2026EndDate: eventEndDate,
+                    includes2026CommunicationPost: true
+                )
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
         } operation: {
@@ -1324,6 +1335,20 @@ struct EventBrowseStoryTests {
         expectNoDifference(installedEvents.map(\.id), [eventID])
         expectNoDifference(installedEvents.map(\.name), ["Wicked Woods 2026"])
         expectNoDifference(gitOperations.withLock { $0 }, [])
+
+        // The first download of an event that has already ended treats its existing posts as
+        // history, so entering the event does not create a backlog badge.
+        let communicationReadState = try await database.read { db in
+            (
+                postIDs: Set(try CommsPost.fetchAll(db).map(\.id)),
+                readPostIDs: Set(try CommsPostRead.fetchAll(db).map(\.id))
+            )
+        }
+        #expect(!communicationReadState.postIDs.isEmpty)
+        expectNoDifference(
+            communicationReadState.readPostIDs,
+            communicationReadState.postIDs
+        )
 
         // Browse persists only the neutral source locator carried by the OME record. It does not
         // prepare a repository, install an organization source, or manufacture publication state.
@@ -1644,20 +1669,24 @@ private func eventBrowsePublishedEventNetwork(
 
 private func writeWickedWoodsSourceWithTwoEvents(
     to repositoryURL: URL,
-    event2026Name: String = "Wicked Woods 2026"
+    event2026Name: String = "Wicked Woods 2026",
+    event2026EndDate: LocalDate? = nil,
+    includes2026CommunicationPost: Bool = false
 ) throws {
     let timeZone = try #require(TimeZone(identifier: "America/Denver"))
     let source = OpenMusicEventSourceRepository(
         events: [
-            wickedWoodsSourceEvent(
+            try wickedWoodsSourceEvent(
                 directoryName: "2025",
                 name: "Wicked Woods 2025",
                 timeZone: timeZone
             ),
-            wickedWoodsSourceEvent(
+            try wickedWoodsSourceEvent(
                 directoryName: "2026",
                 name: event2026Name,
-                timeZone: timeZone
+                timeZone: timeZone,
+                endDate: event2026EndDate,
+                includesCommunicationPost: includes2026CommunicationPost
             ),
         ]
     )
@@ -1668,7 +1697,7 @@ private func writeWickedWoodsSourceWithout2026(to repositoryURL: URL) throws {
     let timeZone = try #require(TimeZone(identifier: "America/Denver"))
     let source = OpenMusicEventSourceRepository(
         events: [
-            wickedWoodsSourceEvent(
+            try wickedWoodsSourceEvent(
                 directoryName: "2025",
                 name: "Wicked Woods 2025",
                 timeZone: timeZone
@@ -1681,8 +1710,10 @@ private func writeWickedWoodsSourceWithout2026(to repositoryURL: URL) throws {
 private func wickedWoodsSourceEvent(
     directoryName: String,
     name: String,
-    timeZone: TimeZone
-) -> DirectoryContent<OpenMusicEventSourceEvent> {
+    timeZone: TimeZone,
+    endDate: LocalDate? = nil,
+    includesCommunicationPost: Bool = false
+) throws -> DirectoryContent<OpenMusicEventSourceEvent> {
     DirectoryContent(
         directoryName: directoryName,
         components: OpenMusicEventSourceEvent(
@@ -1691,7 +1722,7 @@ private func wickedWoodsSourceEvent(
                 name: name,
                 description: nil,
                 startDate: nil,
-                endDate: nil,
+                endDate: endDate,
                 status: nil,
                 mode: nil,
                 locations: nil,
@@ -1700,7 +1731,42 @@ private func wickedWoodsSourceEvent(
                 images: nil,
                 contactNumbers: nil,
                 categoryConfigs: nil
-            )
+            ),
+            channels: includesCommunicationPost
+                ? [
+                    try FileContent(
+                        fileName: "general",
+                        fileType: "yml",
+                        data: OME.Channel.Draft(
+                            id: nil,
+                            name: "General",
+                            description: "Official updates.",
+                            iconImageURL: nil,
+                            headerImageURL: nil,
+                            sortIndex: nil,
+                            defaultNotificationState: .subscribed,
+                            notificationsRequired: false
+                        )
+                    )
+                ]
+                : nil,
+            communicationPosts: includesCommunicationPost
+                ? [
+                    DirectoryContent(
+                        directoryName: "general",
+                        components: [
+                            try FileContent(
+                                fileName: "welcome",
+                                fileType: "md",
+                                data: CommunicationPostDTO(
+                                    title: "Welcome",
+                                    contents: "Welcome to Wicked Woods."
+                                )
+                            )
+                        ]
+                    )
+                ]
+                : nil
         )
     )
 }

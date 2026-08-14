@@ -45,7 +45,8 @@ public extension OME.SourceDatabaseInsertion {
     func installPublishedEvent(
         _ eventID: OME.Event.ID,
         from workspace: SourceWorkspace,
-        in database: any DatabaseWriter
+        in database: any DatabaseWriter,
+        initializeInstalledEvent: @escaping @Sendable (Database) throws -> Void = { _ in }
     ) async throws {
         try validatePublishedEvent(eventID, from: workspace)
         let prepared = try await PreparedSourceDatabaseInsertion(
@@ -56,6 +57,7 @@ public extension OME.SourceDatabaseInsertion {
             try validateEventSourceProvenanceConflicts(in: db)
             try OME.Event.find(eventID).delete().execute(db)
             try prepared.insert(into: db)
+            try initializeInstalledEvent(db)
             try InstalledEventRecord.upsert {
                 InstalledEventRecord(
                     id: eventID,

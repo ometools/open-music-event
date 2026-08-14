@@ -401,6 +401,75 @@ struct NotificationIndicatorTests {
     }
 
     @Test
+    func `channel long-press actions update every post in only that channel`() async throws {
+        let database = try Self.preparedDatabase()
+        let eventID = try Self.eventID("festival")
+        let generalChannelID = Self.channelID("general", eventID: eventID)
+        let welcomePostID = Self.postID("welcome", channelID: "general", eventID: eventID)
+        let arrivalPostID = Self.postID("arrival", channelID: "general", eventID: eventID)
+        let alertPostID = Self.postID("weather", channelID: "alerts", eventID: eventID)
+        try await database.write { database in
+            try Self.insertOrganizer(database)
+            try Self.insertEvent(database, id: eventID, name: "Festival")
+            try Self.insertChannel(
+                database,
+                eventID: eventID,
+                channelID: "general",
+                defaultState: .subscribed
+            )
+            try Self.insertChannel(
+                database,
+                eventID: eventID,
+                channelID: "alerts",
+                defaultState: .subscribed
+            )
+            try Self.insertPost(
+                database,
+                eventID: eventID,
+                channelID: "general",
+                postID: "welcome"
+            )
+            try Self.insertPost(
+                database,
+                eventID: eventID,
+                channelID: "general",
+                postID: "arrival"
+            )
+            try Self.insertPost(
+                database,
+                eventID: eventID,
+                channelID: "alerts",
+                postID: "weather"
+            )
+            try CommsPostRead.setRead(true, postID: alertPostID, in: database)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        await store.send(.markAllPostsReadButtonTapped(generalChannelID))?.value
+        let readPostIDs = try await Self.readPostIDs(in: database)
+        expectNoDifference(
+            readPostIDs,
+            Set([welcomePostID, arrivalPostID, alertPostID])
+        )
+
+        await store.send(.markAllPostsUnreadButtonTapped(generalChannelID))?.value
+        let remainingReadPostIDs = try await Self.readPostIDs(in: database)
+        expectNoDifference(
+            remainingReadPostIDs,
+            Set([alertPostID])
+        )
+    }
+
+    @Test
     func `application badge replaces its absolute count when read state changes`() async throws {
         let database = try Self.preparedDatabase()
         let eventID = try Self.eventID("festival")
@@ -734,6 +803,14 @@ struct NotificationIndicatorTests {
     ) async throws -> Bool {
         try await database.read { database in
             try CommsPostRead.find(postID).fetchCount(database) == 1
+        }
+    }
+
+    static func readPostIDs(
+        in database: any DatabaseReader
+    ) async throws -> Set<CommsPost.ID> {
+        try await database.read { database in
+            Set(try CommsPostRead.fetchAll(database).map(\.id))
         }
     }
 

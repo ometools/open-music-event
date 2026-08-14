@@ -117,6 +117,8 @@ public struct CommunicationsViewer {
         case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
         case destination(Destination.Action)
         case editChannelButtonTapped(OMERecord.Channel)
+        case markAllPostsReadButtonTapped(OMERecord.Channel.ID)
+        case markAllPostsUnreadButtonTapped(OMERecord.Channel.ID)
         case notificationPermissionButtonTapped
         case notificationStateButtonTapped(
             OMERecord.Channel.ID,
@@ -196,6 +198,42 @@ public struct CommunicationsViewer {
 
             case let .editChannelButtonTapped(channel):
                 state.destination = .channelForm(ChannelForm.State(channel: channel))
+
+            case let .markAllPostsReadButtonTapped(channelID):
+                store.addTask {
+                    do {
+                        try await database.write { database in
+                            try CommsPostRead.setRead(
+                                true,
+                                channelID: channelID,
+                                in: database
+                            )
+                        }
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to mark all posts in this channel as read."
+                        }
+                    }
+                }
+
+            case let .markAllPostsUnreadButtonTapped(channelID):
+                store.addTask {
+                    do {
+                        try await database.write { database in
+                            try CommsPostRead.setRead(
+                                false,
+                                channelID: channelID,
+                                in: database
+                            )
+                        }
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to mark all posts in this channel as unread."
+                        }
+                    }
+                }
 
             case .notificationPermissionButtonTapped:
                 store.addTask {
@@ -363,6 +401,24 @@ public struct CommunicationsViewerView: View {
                                     }
                                 }
                                 .contextMenu {
+                                    Button {
+                                        store.send(
+                                            .markAllPostsReadButtonTapped(row.channel.id)
+                                        )
+                                    } label: {
+                                        Label("Mark All as Read", systemImage: "mail-open")
+                                    }
+
+                                    Button {
+                                        store.send(
+                                            .markAllPostsUnreadButtonTapped(row.channel.id)
+                                        )
+                                    } label: {
+                                        Label("Mark All as Unread", systemImage: "mail-unread")
+                                    }
+
+                                    Divider()
+
                                     Menu {
                                         Button {
                                             store.send(

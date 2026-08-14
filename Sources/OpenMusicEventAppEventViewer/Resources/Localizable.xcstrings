@@ -597,6 +597,12 @@
     "Map Style" : {
       "comment" : "Accessibility label for the site map style menu"
     },
+    "Mark All as Read" : {
+
+    },
+    "Mark All as Unread" : {
+
+    },
     "Mark as Read" : {
 
     },
