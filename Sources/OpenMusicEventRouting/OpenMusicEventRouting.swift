@@ -179,6 +179,34 @@ public struct OpenMusicEventPathRouter: Sendable {
 
 public let openMusicEventPathRouter = OpenMusicEventPathRouter()
 
+/// Canonical paths shared by the app's navigation routes and server-side notification topics.
+public struct OpenMusicEventEventPathRouter: Sendable {
+    public init() {}
+
+    public func path(for eventID: OME.Event.ID) -> String {
+        let organizerID = eventID.organizerID.description.encodedPathSegment
+        let localEventID = eventID.eventID.rawValue.rawValue.encodedPathSegment
+        return "/orgs/\(organizerID)/events/\(localEventID)"
+    }
+
+    public func communicationChannelPath(
+        eventID: OME.Event.ID,
+        channelID: OME.ID<OME.Channel>
+    ) -> String {
+        "\(path(for: eventID))/communications/\(channelID.rawValue.rawValue.encodedPathSegment)"
+    }
+
+    public func communicationPostPath(
+        eventID: OME.Event.ID,
+        channelID: OME.ID<OME.Channel>,
+        postID: String
+    ) -> String {
+        "\(communicationChannelPath(eventID: eventID, channelID: channelID))/posts/\(postID.encodedPathSegment)"
+    }
+}
+
+public let openMusicEventEventPathRouter = OpenMusicEventEventPathRouter()
+
 public struct OpenMusicEventRouter: Sendable {
     public var configuration: OpenMusicEventRoutingConfiguration
 
@@ -268,7 +296,7 @@ private extension OpenMusicEventQuery {
     }
 }
 
-private extension String {
+extension String {
     var pathComponents: [String] {
         split(separator: "/", omittingEmptySubsequences: true).map(String.init)
     }

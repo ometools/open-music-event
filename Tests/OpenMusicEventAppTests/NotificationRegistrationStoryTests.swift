@@ -14,6 +14,7 @@ import HummingbirdTesting
 import NIOCore
 import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SQLiteData
 import Sharing
@@ -101,7 +102,7 @@ struct NotificationRegistrationStoryTests {
     }
 
     @Test @MainActor
-    func `entered event receives an FCM update and survives app and AppView restarts`() async throws {
+    func `entered event receives channel FCM updates and survives app and AppView restarts`() async throws {
         let database = try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -113,6 +114,11 @@ struct NotificationRegistrationStoryTests {
         let eventID = OME.Event.ID(
             organizerID: organizerID,
             eventID: OME.ID<OME.Event>(rawValue: "2026")
+        )
+        let channelID = OME.Channel.ID(
+            organizerID: organizerID,
+            eventID: eventID.eventID,
+            channelID: OME.ID<OME.Channel>(rawValue: "announcements")
         )
         try await database.write { database in
             try OME.Organizer.insert {
@@ -141,10 +147,29 @@ struct NotificationRegistrationStoryTests {
                 )
             }
             .execute(database)
+            try OME.Channel.insert {
+                OME.Channel.Draft(
+                    id: channelID,
+                    name: "Announcements",
+                    description: "Official festival updates.",
+                    iconImageURL: nil,
+                    headerImageURL: nil,
+                    sortIndex: nil,
+                    defaultNotificationState: .subscribed,
+                    notificationsRequired: false
+                )
+            }
+            .execute(database)
         }
         let eventSubscription = NotificationSubscription(
             sourceID: .init(
                 rawValue: "at://did:plc:wickedwoods/app.openmusicevent.event/2026"
+            )
+        )
+        let channelSubscription = NotificationSubscription(
+            sourceID: .init(
+                rawValue: AppRoute.event(eventID, .channel(channelID.channelID))
+                    .notificationRoute
             )
         )
         let updatedSource = NotificationSource(
@@ -156,6 +181,26 @@ struct NotificationRegistrationStoryTests {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let beforeRepository = directory.appending(path: "before", directoryHint: .isDirectory)
+        let afterRepository = directory.appending(path: "after", directoryHint: .isDirectory)
+        try writeNotificationSourceRepository(to: beforeRepository, posts: [:])
+        try writeNotificationSourceRepository(
+            to: afterRepository,
+            posts: ["gates-open": "The gates are now open."]
+        )
+        let sourceCheckout = TangledSourceCheckoutClient { request in
+            let repository: URL
+            switch request.ref {
+            case "1111111111111111111111111111111111111111":
+                repository = beforeRepository
+            case updatedSource.version.rawValue:
+                repository = afterRepository
+            default:
+                throw NotificationSourceFixtureError.unexpectedRevision(request.ref)
+            }
+            try FileManager.default.copyItem(at: repository, to: request.outputURL)
+            return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
         let appViewDatabaseURL = directory.appending(path: "appview.sqlite")
         let destinationProtection = try NotificationDestinationProtection(
             keyData: Data(repeating: 0x2A, count: 32)
@@ -236,6 +281,8 @@ struct NotificationRegistrationStoryTests {
             try await withDependencies {
                 $0.continuousClock = ContinuousClock()
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
+                $0.uuid = .incrementing
+                $0.tangledSourceCheckout = sourceCheckout
             } operation: {
                 let app = try OpenMusicEventAppViewServer.application(
                     configuration: configuration,
@@ -373,32 +420,36 @@ struct NotificationRegistrationStoryTests {
                             body: ByteBuffer(data: webhookPayload)
                         )
                         #expect(webhookResponse.head.status == .accepted)
-                        try await fakeFCM.waitForRequestCount(1)
-                        try await requestRecorder.waitForRequestCount(5)
+                        try await fakeFCM.waitForRequestCount(2)
+                        try await requestRecorder.waitForRequestCount(6)
                         let refreshedEventIDs = await eventRefreshRecorder.eventIDs()
                         expectNoDifference(
                             refreshedEventIDs,
-                            [eventID]
+                            [eventID, eventID]
                         )
 
                         let providerRequests = await fakeFCM.requests()
-                        let providerRequest = try #require(providerRequests.first)
-                        expectNoDifference(providerRequests.count, 1)
-                        expectNoDifference(providerRequest.method, .post)
+                        expectNoDifference(providerRequests.count, 2)
+                        for providerRequest in providerRequests {
+                            expectNoDifference(providerRequest.method, .post)
+                            expectNoDifference(
+                                providerRequest.url.absoluteString,
+                                "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
+                            )
+                            expectNoDifference(
+                                providerRequest.headerFields,
+                                [
+                                    "Authorization": "Bearer fixture-fcm-oauth-token",
+                                    "Content-Type": "application/json",
+                                ]
+                            )
+                        }
                         expectNoDifference(
-                            providerRequest.url.absoluteString,
-                            "https://fcm.googleapis.com/v1/projects/open-music-event/messages:send"
-                        )
-                        expectNoDifference(
-                            providerRequest.headerFields,
+                            providerRequests.map { String(decoding: $0.body, as: UTF8.self) },
                             [
-                                "Authorization": "Bearer fixture-fcm-oauth-token",
-                                "Content-Type": "application/json",
+                                #"{"message":{"data":{"kind":"source_available","source":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#,
+                                #"{"message":{"android":{"priority":"HIGH"},"data":{"body":"The gates are now open.","kind":"content","route":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements/posts/gates-open","source":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","title":"gates-open","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten","notification":{"body":"The gates are now open.","title":"gates-open"}}}"#,
                             ]
-                        )
-                        expectNoDifference(
-                            String(decoding: providerRequest.body, as: UTF8.self),
-                            #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#
                         )
                         withExtendedLifetime(appStore) {}
                     }
@@ -426,7 +477,7 @@ struct NotificationRegistrationStoryTests {
         )
         expectNoDifference(
             reopenedSubscriptions,
-            Set([eventSubscription])
+            Set([eventSubscription, channelSubscription])
         )
         let relaunchedApp = try OpenMusicEventAppViewServer.application(
             configuration: configuration
@@ -531,7 +582,7 @@ struct NotificationRegistrationStoryTests {
         )
         expectNoDifference(
             relaunchedSubscriptions,
-            Set([eventSubscription])
+            Set([eventSubscription, channelSubscription])
         )
 
         let exchanges = await requestRecorder.allExchanges()
@@ -586,12 +637,12 @@ struct NotificationRegistrationStoryTests {
             [
                 nil,
                 #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
-                #"{"sourceIDs":["at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
+                #"{"sourceIDs":["/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
                 #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
-                #"{"sourceIDs":["at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
+                #"{"sourceIDs":["/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
             ]
         )
-        expectNoDifference(browseExchanges.count, 2)
+        expectNoDifference(browseExchanges.count, 3)
         #expect(browseExchanges.allSatisfy { $0.response.status == .ok })
         #expect(registrationExchanges.dropFirst().allSatisfy { $0.responseBody.isEmpty })
         #expect(registrationExchanges[0].request.headerFields[.authorization] == nil)
@@ -624,6 +675,45 @@ private func tangledPushPayload(
         }
         """.utf8
     )
+}
+
+private func writeNotificationSourceRepository(
+    to root: URL,
+    posts: [String: String]
+) throws {
+    let event = root
+        .appending(path: "events", directoryHint: .isDirectory)
+        .appending(path: "2026", directoryHint: .isDirectory)
+    let communications = event
+        .appending(path: "communications", directoryHint: .isDirectory)
+        .appending(path: "announcements", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: communications, withIntermediateDirectories: true)
+    try Data(
+        """
+        id:
+          organizerID: did:plc:wickedwoods
+          eventID: "2026"
+        name: Wicked Woods 2026
+        timeZone: America/Denver
+        """.utf8
+    ).write(to: event.appending(path: "event.yml"))
+    try Data(
+        """
+        name: Announcements
+        description: Official festival updates.
+        defaultNotificationState: subscribed
+        """.utf8
+    ).write(to: communications.appending(path: "channel-info.yaml"))
+    for (postID, contents) in posts {
+        try Data(
+            """
+            ---
+            title: \(postID)
+            ---
+            \(contents)
+            """.utf8
+        ).write(to: communications.appending(path: "\(postID).md"))
+    }
 }
 
 private func tangledWebhookHeaders(
@@ -669,12 +759,12 @@ private actor FakeFCMTransport {
         else {
             throw FakeFCMTransportError.invalidPayload
         }
-        recordedRequests.append(request)
         let appPayload = try JSONSerialization.data(
             withJSONObject: data,
             options: [.sortedKeys, .withoutEscapingSlashes]
         )
         await delivery?(String(decoding: appPayload, as: UTF8.self))
+        recordedRequests.append(request)
     }
 
     func requests() -> [NotificationProviderHTTPRequest] {
@@ -708,6 +798,10 @@ private actor EventRefreshRecorder {
 private enum FakeFCMTransportError: Error {
     case invalidPayload
     case timedOut(expectedRequestCount: Int, actualRequestCount: Int)
+}
+
+private enum NotificationSourceFixtureError: Error {
+    case unexpectedRevision(String)
 }
 
 private struct NotificationRequestSummary: Equatable {

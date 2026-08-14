@@ -111,12 +111,12 @@ public enum OpenMusicEventAppViewServer {
         let tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
         if let providedTangledSourceUpdateProcessor {
             tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
-        } else if configuration.tangledWebhook != nil, store != nil {
+        } else if configuration.tangledWebhook != nil, let store {
             tangledSourceUpdateProcessor = withNotificationDependencies(
                 configuration: configuration,
                 store: store
             ) {
-                .notificationOutbox()
+                .channelNotifications(store: store)
             }
         } else {
             tangledSourceUpdateProcessor = nil

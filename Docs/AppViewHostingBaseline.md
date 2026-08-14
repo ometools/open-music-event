@@ -73,7 +73,7 @@ at least one matching provider route:
     },
     {
       "applicationID": "com.Festivl.WickedWoods",
-      "environment": "development",
+      "environment": "production",
       "topic": "com.Festivl.WickedWoods"
     }
   ],
@@ -86,8 +86,11 @@ at least one matching provider route:
 }
 ```
 
-Use `development` for tokens from Xcode development builds and `production` for distributed iOS
-builds. The routing file contains no private key or service-account JSON.
+Use `development` for an application ID whose tokens come from Xcode development builds and
+`production` for an application ID distributed through TestFlight or the App Store. APNs routing
+is selected independently for every registered application ID; FCM routes each application ID to
+its configured Firebase project and has no APNs-style sandbox host. The routing file contains no
+private key or service-account JSON.
 
 Branded route configuration keeps the public claim separate from the durable event identity. The
 Wicked Woods production entry is:
@@ -189,7 +192,19 @@ metadata in the public server-configuration repository, for example:
 
 The numeric `hookID` is assigned by Tangled; replace `123` with the created hook's ID. The public
 `sourceID` must exactly match the source ID published by the app's mounted event feature, normally
-the event's canonical AT URI. The verified Tangled `after` revision becomes that source's version.
+the event's canonical AT URI. AppView checks out and validates the exact Tangled revisions, stores
+the current revision plus communication-post identities in its primary SQLite database, and
+transactionally enqueues a source-available signal for each channel that gained a post. Only
+installations subscribed to that canonical channel route receive the signal. The first processed
+push compares `before` and `after`, so posts that already existed before AppView was deployed do not
+produce a historical notification burst; a replay of the same `after` revision performs no source
+checkout and creates no duplicate outbox row.
+
+This first projection treats a newly added communication-post identity as notification-worthy.
+Editing or deleting an existing post does not enqueue another notification. Each new post enqueues
+one visible `content` message per subscribed installation, and each affected channel also enqueues
+one background `source_available` refresh per subscribed installation for that source revision.
+
 The watch file never contains the webhook secret. AppView stores that secret as AES-GCM ciphertext
 in its database, keyed by webhook source and watch ID. `OME_WEBHOOK_SECRET_KEY_PATH` names the
 root-readable file containing the base64-encoded 32-byte deployment key used to protect those
@@ -209,6 +224,59 @@ systemd-ask-password "Tangled webhook secret" \
 
 An unsigned or unknown hook must receive an authentication failure and must not enter the durable
 inbox.
+
+## Non-Device Production Acceptance
+
+The first production acceptance pass deliberately stops before provider success or device delivery.
+Run it in a canary AppView process using the exact production executable, provider configuration,
+and credentials, but give it a separate SQLite database, a dedicated Tangled test watch/source, and
+synthetic APNs and FCM destinations. Do not copy a real installation credential, provider token, or
+production outbox row into the canary database.
+
+Record the executable hash, OME revision, resolved Notifications/Atmosphere/JWSETKit revisions,
+configuration-file hashes, canary database path, service start time, and Tangled delivery ID before
+the run. Keep the provider configuration values in that record, but never copy the APNs private key,
+FCM service-account private key, webhook secret, installation credential, or encrypted destination.
+
+| Boundary | Production action | Required evidence |
+| --- | --- | --- |
+| Startup | Start the canary with production provider credentials and routing, its own database, and one dedicated watch. | Startup succeeds; `/healthz` and `/readyz` succeed; Wicked Woods selects APNs `production`, topic `com.Festivl.WickedWoods`, and the intended FCM project. |
+| Registration | Create a synthetic installation through the public route, then replace its APNs or FCM destination and subscribe it to the canary channel route. | The API returns success; one installation, registration, and subscription survive restart; neither the credential nor destination appears in logs or plaintext database searches. |
+| Webhook authentication | Send one correctly signed Tangled `push`, one bad signature, and one exact replay. | The signed request returns `202`; the bad signature is rejected and never enters the inbox; the replay does not add an inbox delivery, projection change, or outbox row. |
+| Source projection | Add one new canary communication post while also editing one existing post and deleting another. | The checkpoint advances to the exact `after` revision; the post-identity projection matches that revision; only the new post creates visible content; the affected channel gets one silent refresh. |
+| Subscription fan-out | Keep one synthetic installation subscribed to the canary channel and one subscribed only to the event. | Only the channel subscriber receives canary outbox rows. Each row records the canonical channel source, exact revision, and canonical post route. |
+| Provider edge | Let the worker send a syntactically valid but nonexistent destination through the real APNs or FCM endpoint. | The complete status and sanitized provider error identify only the nonexistent recipient. APNs must not report provider-token or topic-authorization errors. FCM must not report OAuth, permission, or project-routing errors; a generic `INVALID_ARGUMENT` is insufficient because it can also identify a malformed message contract. A recipient rejection is expected and is not delivery success. |
+| Retry and restart | Stop the canary after the failed provider attempt, restart it with the same database, and observe the job again. | `failedAttempts`, `lastAttemptAt`, and `nextAttemptAt` persist; the same outbox identity is retried; no duplicate job is inserted. |
+
+Use the canary database to capture the durable proof without selecting encrypted destination bytes or
+credential fingerprints:
+
+```sh
+sqlite3 /srv/ome-appview/data/canary/open-music-event-appview.sqlite \
+  'SELECT watchID, repositoryDID, repositoryKey, ref, sourceID, revision
+   FROM tangledSourceRevisions;
+   SELECT sourceID, sourceVersion, reason, failedAttempts,
+          lastAttemptAt, nextAttemptAt, deliveredAt
+   FROM pushOutbox
+   ORDER BY id;'
+```
+
+Archive the sanitized service log, HTTP statuses, provider error classifications, and SQL output as
+one acceptance artifact. Preserve the canary database until the evidence is reviewed; then retire
+the canary watch and service explicitly rather than repointing either one at the production database.
+
+This pass does **not** prove provider `2xx` acceptance, physical-device receipt, foreground or
+background OS handling, badge changes, alert presentation, or tap routing. Those require a real
+release installation and are the next acceptance stage. Permanent invalid-destination
+classification and cleanup must be implemented before the synthetic provider rejection can run in a
+shared production outbox or before notifications are distributed broadly.
+
+The synthetic APNs rejection also cannot independently prove the sandbox/production selection:
+`BadDeviceToken` can mean either a nonexistent token or a token sent to the wrong environment. This
+pass records and reviews the configured production host; the first real TestFlight token is the
+environment proof. For FCM, retain the provider's structured error details and require a documented
+unknown-recipient classification. Do not treat a bare HTTP `400` or `INVALID_ARGUMENT` as evidence
+that the server reached recipient lookup.
 
 ## Hosting Notes
 

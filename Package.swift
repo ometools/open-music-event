@@ -329,6 +329,13 @@ let appViewDependencies: [Package.Dependency] = [
     ),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
+    .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
+    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
+    .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
+    .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
+    .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
+    .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
+    .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
 ] : [])
 
 // Target dependencies
@@ -361,18 +368,23 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
 var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "ArgumentParser", package: "swift-argument-parser"),
     .product(name: "ATProto", package: "swift-composable-atmosphere"),
-    .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
-    .product(name: "Crypto", package: "swift-crypto"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Gzip", package: "gzipswift"),
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
-    .product(name: "Sharing", package: "swift-sharing"),
-    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
     .product(name: "Tar", package: "swift-tar"),
-    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-    .product(name: "Tagged", package: "swift-tagged"),
-    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
 ]
+
+if packageBuild != .appView {
+    openMusicEventSourceCloneDependencies.append(contentsOf: [
+        .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+        .product(name: "Crypto", package: "swift-crypto"),
+        .product(name: "Sharing", package: "swift-sharing"),
+        .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+        .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+        .product(name: "Tagged", package: "swift-tagged"),
+        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+    ])
+}
 
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
@@ -461,6 +473,36 @@ let openMusicEventLexiconTestTarget = Target.testTarget(
     dependencies: [
         "OpenMusicEventLexicon",
         .product(name: "CustomDump", package: "swift-custom-dump"),
+    ]
+)
+
+let openMusicEventSourceCloneTarget = Target.target(
+    name: "OpenMusicEventSourceClone",
+    dependencies: openMusicEventSourceCloneDependencies,
+    exclude: packageBuild == .appView
+        ? [
+            "ATProtoRepoDescription.swift",
+            "TangledLexicon.swift",
+            "TangledOAuthScopes.swift",
+            "TangledSSHCredentialsClient.swift",
+        ]
+        : [],
+    swiftSettings: packageBuild == .appView
+        ? [.define("OME_SOURCE_ARCHIVE_ONLY")]
+        : []
+)
+
+let openMusicEventSourceTarget = Target.target(
+    name: "OpenMusicEventSource",
+    dependencies: [
+        "OpenMusicEventLexicon",
+        "OpenMusicEventSourceClone",
+        .product(name: "Dependencies", package: "swift-dependencies"),
+        .product(name: "FrontmatterParsing", package: "swift-frontmatter-parsing"),
+        .product(name: "FileTree", package: "swift-file-tree"),
+        .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+        .product(name: "OrderedCollections", package: "swift-collections"),
+        "Yams",
     ]
 )
 
@@ -566,23 +608,8 @@ var applicationTargets: [Target] = [
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
-    .target(
-        name: "OpenMusicEventSource",
-        dependencies: [
-            "OpenMusicEventLexicon",
-            "OpenMusicEventSourceClone",
-            .product(name: "Dependencies", package: "swift-dependencies"),
-            .product(name: "FrontmatterParsing", package: "swift-frontmatter-parsing"),
-            .product(name: "FileTree", package: "swift-file-tree"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
-            .product(name: "OrderedCollections", package: "swift-collections"),
-            "Yams",
-        ]
-    ),
-    .target(
-        name: "OpenMusicEventSourceClone",
-        dependencies: openMusicEventSourceCloneDependencies
-    ),
+    openMusicEventSourceTarget,
+    openMusicEventSourceCloneTarget,
     openMusicEventTimeZonesTarget,
     .executableTarget(
         name: "OpenMusicEventCLI",
@@ -1016,6 +1043,7 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
+            "OpenMusicEventSource",
             .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
@@ -1056,6 +1084,8 @@ let appViewTargets: [Target] = [
         name: "OpenMusicEventAppViewLambda",
         dependencies: [
             "OpenMusicEventAppViewServer",
+            "OpenMusicEventLexicon",
+            "OpenMusicEventSourceClone",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
@@ -1066,25 +1096,12 @@ let appViewTargets: [Target] = [
         dependencies: [
             "OpenMusicEventAppViewServer",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
-            .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
-            .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
-            .product(
-                name: "ComposableNotificationsServer",
-                package: "swift-composable-notifications"
-            ),
             .product(name: "CustomDump", package: "swift-custom-dump"),
-            .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
-            .product(name: "HydrantClient", package: "swift-composable-atmosphere"),
-            .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
         resources: [
             .copy("Resources/Site"),
@@ -1118,6 +1135,8 @@ case .appView:
         openMusicEventTimeZonesTarget,
         openMusicEventLexiconTarget,
         openMusicEventLexiconTestTarget,
+        openMusicEventSourceCloneTarget,
+        openMusicEventSourceTarget,
     ]
         + appViewTargets
 }

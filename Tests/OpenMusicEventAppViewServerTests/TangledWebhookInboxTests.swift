@@ -189,7 +189,8 @@ struct TangledWebhookInboxTests {
                         port: 0,
                         tangledWebhook: Self.webhookConfiguration()
                     ),
-                    store: store
+                    store: store,
+                    tangledSourceUpdateProcessor: Self.notificationOutbox(store: store)
                 )
             }
 
@@ -263,7 +264,8 @@ struct TangledWebhookInboxTests {
                         port: 0,
                         tangledWebhook: Self.webhookConfiguration()
                     ),
-                    store: reopenedStore
+                    store: reopenedStore,
+                    tangledSourceUpdateProcessor: Self.notificationOutbox(store: reopenedStore)
                 )
             }
             try await withDependencies {
@@ -388,7 +390,7 @@ struct TangledWebhookInboxTests {
               "apns": [
                 {
                   "applicationID": "app.openmusicevent",
-                  "environment": "production",
+                  "environment": "development",
                   "topic": "app.openmusicevent"
                 },
                 {
@@ -431,7 +433,7 @@ struct TangledWebhookInboxTests {
         let wickedWoodsFCMDestination = Push.Destination.fcm(
             Push.FCM(
                 applicationID: wickedWoodsApplicationID,
-                registrationToken: .init(rawValue: "fixture-wicked-woods-fcm-token")
+                installationID: .init(rawValue: "fixture-wicked-woods-fcm-installation-id")
             )
         )
         let subscriptions = NotificationSubscriptionsPayload(
@@ -501,7 +503,8 @@ struct TangledWebhookInboxTests {
             let app = try OpenMusicEventAppViewServer.application(
                 configuration: appConfiguration,
                 store: store,
-                notificationProvider: provider
+                notificationProvider: provider,
+                tangledSourceUpdateProcessor: Self.notificationOutbox(store: store)
             )
 
             try await app.test(.live) { client in
@@ -583,7 +586,8 @@ struct TangledWebhookInboxTests {
                     #expect(response.status == .noContent)
                 }
 
-                // The Android app independently registers its FCM token for the same source.
+                // The Android app independently registers its FCM installation ID for the same
+                // source.
                 let fcmCredential = try await client.execute(
                     uri: NotificationRegistrationEndpoint.installationsPath,
                     method: .post
@@ -644,7 +648,7 @@ struct TangledWebhookInboxTests {
                 }
 
                 await providerRequests.releaseProviderResponses()
-                await providerRequests.waitForRequestCount(3)
+                try await providerRequests.waitForRequestCount(3)
                 try await Self.waitForDeliveredOutboxCount(3, in: store.database)
             }
         }
@@ -656,7 +660,7 @@ struct TangledWebhookInboxTests {
         }
         expectNoDifference(outboxCount, 3)
         let apns = requests.filter {
-            $0.request.url?.absoluteString.hasPrefix("https://api.push.apple.com/") == true
+            $0.request.url?.host?.hasSuffix("push.apple.com") == true
         }
         expectNoDifference(apns.count, 2)
         let fcm = try #require(
@@ -682,7 +686,11 @@ struct TangledWebhookInboxTests {
         expectNoDifference(omeAPNS.request.method, .post)
         expectNoDifference(
             omeAPNS.request.url?.absoluteString,
-            "https://api.push.apple.com/3/device/fixture-ome-apns-device-token"
+            "https://api.sandbox.push.apple.com/3/device/fixture-ome-apns-device-token"
+        )
+        expectNoDifference(
+            wickedWoodsAPNS.request.url?.absoluteString,
+            "https://api.push.apple.com/3/device/fixture-wicked-woods-apns-device-token"
         )
         let authorization = try #require(omeAPNS.request.headerFields[.authorization])
         let token = try #require(
@@ -731,7 +739,7 @@ struct TangledWebhookInboxTests {
         expectNoDifference(fcm.request.headerFields[.contentType], "application/json")
         expectNoDifference(
             String(decoding: try #require(fcm.body), as: UTF8.self),
-            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-wicked-woods-fcm-token"}}"#
+            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-wicked-woods-fcm-installation-id"}}"#
         )
 
         let oauthRequests = await tokenRequests.requests
@@ -779,7 +787,7 @@ struct TangledWebhookInboxTests {
         let destination = Push.Destination.fcm(
             Push.FCM(
                 applicationID: fcmApplicationID,
-                registrationToken: .init(rawValue: "fixture-fcm-registration-token")
+                installationID: .init(rawValue: "fixture-fcm-installation-id")
             )
         )
         let subscriptions = NotificationSubscriptionsPayload(
@@ -834,7 +842,8 @@ struct TangledWebhookInboxTests {
                     tangledWebhook: Self.webhookConfiguration()
                 ),
                 store: store,
-                notificationProvider: provider
+                notificationProvider: provider,
+                tangledSourceUpdateProcessor: Self.notificationOutbox(store: store)
             )
 
             try await app.test(.live) { client in
@@ -884,7 +893,7 @@ struct TangledWebhookInboxTests {
                 ) { response in
                     #expect(response.status == .accepted)
                 }
-                await firstRequests.waitForRequestCount(1)
+                try await firstRequests.waitForRequestCount(1)
                 try await Self.waitForFailedOutboxCount(1, in: store.database)
             }
         }
@@ -930,7 +939,7 @@ struct TangledWebhookInboxTests {
             )
 
             try await app.test(.live) { _ in
-                await retryRequests.waitForRequestCount(1)
+                try await retryRequests.waitForRequestCount(1)
                 try await Self.waitForDeliveredOutboxCount(1, in: reopenedStore.database)
             }
         }
@@ -943,7 +952,7 @@ struct TangledWebhookInboxTests {
         expectNoDifference(failedRequest.body, retryRequest.body)
         expectNoDifference(
             String(decoding: try #require(retryRequest.body), as: UTF8.self),
-            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-fcm-registration-token"}}"#
+            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-fcm-installation-id"}}"#
         )
         let ledger = try reopenedStore.database.read { database in
             try Row.fetchOne(
@@ -1201,6 +1210,16 @@ private extension TangledWebhookInboxTests {
         try WebhookSecretProtection(keyData: protectionKey)
     }
 
+    static func notificationOutbox(
+        store: OpenMusicEventAppViewStore
+    ) -> TangledSourceUpdateProcessor {
+        withDependencies {
+            $0.defaultDatabase = store.database
+        } operation: {
+            .notificationOutbox()
+        }
+    }
+
     static func watch() throws -> TangledWebhookWatch {
         TangledWebhookWatch(
             id: watchID,
@@ -1295,36 +1314,58 @@ private extension TangledWebhookInboxTests {
         _ expectedCount: Int,
         in database: any DatabaseWriter
     ) async throws {
-        let observation = ValueObservation.tracking { database in
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            let count = try await database.read { database in
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM pushOutbox WHERE deliveredAt IS NOT NULL"
+                ) ?? 0
+            }
+            if count == expectedCount { return }
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        let actualCount = try await database.read { database in
             try Int.fetchOne(
                 database,
                 sql: "SELECT COUNT(*) FROM pushOutbox WHERE deliveredAt IS NOT NULL"
             ) ?? 0
         }
-        for try await count in observation.values(
-            in: database,
-            bufferingPolicy: .bufferingNewest(1)
-        ) {
-            if count == expectedCount { return }
-        }
+        throw ProviderHarnessTimeout(
+            condition: "delivered outbox rows",
+            expectedCount: expectedCount,
+            actualCount: actualCount
+        )
     }
 
     static func waitForFailedOutboxCount(
         _ expectedCount: Int,
         in database: any DatabaseWriter
     ) async throws {
-        let observation = ValueObservation.tracking { database in
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            let count = try await database.read { database in
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM pushOutbox WHERE failedAttempts > 0"
+                ) ?? 0
+            }
+            if count == expectedCount { return }
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        let actualCount = try await database.read { database in
             try Int.fetchOne(
                 database,
                 sql: "SELECT COUNT(*) FROM pushOutbox WHERE failedAttempts > 0"
             ) ?? 0
         }
-        for try await count in observation.values(
-            in: database,
-            bufferingPolicy: .bufferingNewest(1)
-        ) {
-            if count == expectedCount { return }
-        }
+        throw ProviderHarnessTimeout(
+            condition: "failed outbox rows",
+            expectedCount: expectedCount,
+            actualCount: actualCount
+        )
     }
 }
 
@@ -1390,17 +1431,12 @@ private actor ProviderHTTPRequestRecorder {
         var request: HTTPRequest
     }
 
-    var requestCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     var requests: [Request] = []
     var responsesReleased = false
     var responseWaiters: [CheckedContinuation<Void, Never>] = []
 
     func record(_ request: HTTPRequest, body: Data?) {
         requests.append(Request(body: body, request: request))
-        let readyCounts = requestCountWaiters.keys.filter { requests.count >= $0 }
-        for count in readyCounts {
-            requestCountWaiters.removeValue(forKey: count)?.forEach { $0.resume() }
-        }
     }
 
     func recordAndWaitForRelease(_ request: HTTPRequest, body: Data?) async {
@@ -1418,10 +1454,24 @@ private actor ProviderHTTPRequestRecorder {
         waiters.forEach { $0.resume() }
     }
 
-    func waitForRequestCount(_ count: Int) async {
-        guard requests.count < count else { return }
-        await withCheckedContinuation { continuation in
-            requestCountWaiters[count, default: []].append(continuation)
+    func waitForRequestCount(_ count: Int) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while requests.count < count, clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        guard requests.count >= count else {
+            throw ProviderHarnessTimeout(
+                condition: "provider requests",
+                expectedCount: count,
+                actualCount: requests.count
+            )
         }
     }
+}
+
+private struct ProviderHarnessTimeout: Error, Equatable {
+    let condition: String
+    let expectedCount: Int
+    let actualCount: Int
 }

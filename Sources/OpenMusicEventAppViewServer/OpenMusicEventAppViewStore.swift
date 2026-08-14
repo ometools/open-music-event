@@ -8,6 +8,7 @@ import Foundation
 import GRDB
 import IssueReporting
 import OpenMusicEventLexicon
+import OpenMusicEventRouting
 import SQLiteData
 
 public actor OpenMusicEventAppViewReadiness {
@@ -246,11 +247,173 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         }
     }
 
+    func tangledSourceCheckpoint(
+        watchID: WebhookInboxDelivery.WatchID
+    ) async throws -> TangledSourceCheckpoint? {
+        try await database.read { database in
+            try TangledSourceRevisionRow
+                .find(watchID.rawValue)
+                .fetchOne(database)
+                .map(TangledSourceCheckpoint.init)
+        }
+    }
+
+    @discardableResult
+    func apply(
+        _ after: TangledSourceSnapshot,
+        replacing before: TangledSourceSnapshot?,
+        for update: TangledSourceUpdate
+    ) async throws -> Int {
+        try await database.write { database in
+            let current = try TangledSourceRevisionRow
+                .find(update.watchID.rawValue)
+                .fetchOne(database)
+
+            if let current {
+                try current.validateWatch(for: update)
+                if current.revision == update.after {
+                    return 0
+                }
+                guard current.revision == update.before else {
+                    throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                        watchID: update.watchID.rawValue,
+                        expected: update.before,
+                        actual: current.revision
+                    )
+                }
+            } else {
+                guard before?.revision == update.before else {
+                    throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                        watchID: update.watchID.rawValue,
+                        expected: update.before,
+                        actual: nil
+                    )
+                }
+            }
+
+            guard after.revision == update.after else {
+                throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                    watchID: update.watchID.rawValue,
+                    expected: update.after,
+                    actual: after.revision
+                )
+            }
+
+            let previousPostKeys: Set<TangledSourceCommunicationPostKey>
+            if current != nil {
+                previousPostKeys = try Set(
+                    TangledSourceCommunicationPostRow
+                        .where { $0.watchID.eq(update.watchID.rawValue) }
+                        .fetchAll(database)
+                        .map(\.key)
+                )
+            } else {
+                previousPostKeys = Set(
+                    before?.posts.map { TangledSourceCommunicationPostKey($0.id) } ?? []
+                )
+            }
+            let addedPosts = after.posts.filter {
+                !previousPostKeys.contains(TangledSourceCommunicationPostKey($0.id))
+            }
+
+            try TangledSourceRevisionRow.upsert {
+                TangledSourceRevisionRow(update: update)
+            }
+            .execute(database)
+            try TangledSourceCommunicationPostRow
+                .where { $0.watchID.eq(update.watchID.rawValue) }
+                .delete()
+                .execute(database)
+            if !after.posts.isEmpty {
+                try TangledSourceCommunicationPostRow.insert {
+                    after.posts.map {
+                        TangledSourceCommunicationPostRow(
+                            watchID: update.watchID.rawValue,
+                            postID: $0.id
+                        )
+                    }
+                }
+                .execute(database)
+            }
+
+            let channelSources = Dictionary(grouping: addedPosts) { post in
+                TangledSourceChannelKey(
+                    organizerID: post.id.organizerID,
+                    eventID: post.id.eventID,
+                    channelID: post.id.channelID
+                )
+            }
+            .keys
+            .map { channel in
+                NotificationSource(
+                    id: .init(
+                        rawValue: openMusicEventEventPathRouter.communicationChannelPath(
+                            eventID: OME.Event.ID(
+                                organizerID: channel.organizerID,
+                                eventID: channel.eventID
+                            ),
+                            channelID: channel.channelID
+                        )
+                    ),
+                    version: .init(rawValue: update.after)
+                )
+            }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+
+            var enqueuedCount = try channelSources.reduce(into: 0) { count, source in
+                count += try NotificationDatabase.enqueue(
+                    source: source,
+                    at: update.receivedAt,
+                    in: database
+                )
+            }
+
+            for post in addedPosts.sorted(by: {
+                $0.id.postID.rawValue.rawValue < $1.id.postID.rawValue.rawValue
+            }) {
+                let eventID = OME.Event.ID(
+                    organizerID: post.id.organizerID,
+                    eventID: post.id.eventID
+                )
+                let source = NotificationSource(
+                    id: .init(
+                        rawValue: openMusicEventEventPathRouter.communicationChannelPath(
+                            eventID: eventID,
+                            channelID: post.id.channelID
+                        )
+                    ),
+                    version: .init(rawValue: update.after)
+                )
+                let route = TangledCommunicationPostNotificationRoute(
+                    notificationRoute: openMusicEventEventPathRouter.communicationPostPath(
+                        eventID: eventID,
+                        channelID: post.id.channelID,
+                        postID: post.id.postID.rawValue.rawValue
+                    )
+                )
+                enqueuedCount += try NotificationDatabase.enqueue(
+                    content: NotificationContent(
+                        source: source,
+                        route: route,
+                        presentation: NotificationPresentation(
+                            title: post.title,
+                            body: post.contents
+                        )
+                    ),
+                    at: update.receivedAt,
+                    in: database
+                )
+            }
+            return enqueuedCount
+        }
+    }
+
     private static func migrate(_ database: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
         NotificationDatabase.registerMigrations(into: &migrator)
+        TangledSourceProjectionSchema.registerMigration(into: &migrator)
         WebhookInboxSchema.registerMigration(into: &migrator)
         WebhookSecretSchema.registerMigration(into: &migrator)
         try migrator.migrate(database)
@@ -264,6 +427,8 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
 
 public enum OpenMusicEventAppViewStoreError: Error, Equatable, Sendable {
     case invalidCursor(String)
+    case tangledSourceWatchMismatch(watchID: String)
+    case tangledSourceRevisionMismatch(watchID: String, expected: String, actual: String?)
 }
 
 public enum WebhookSecretPersistenceError: Error, Equatable, Sendable {
@@ -288,6 +453,159 @@ private struct WebhookSecretRow: Equatable, Sendable {
     var watchID: String
     var secret: Data
     var secretKeyVersion: Int
+}
+
+struct TangledSourceCheckpoint: Equatable, Sendable {
+    fileprivate init(_ row: TangledSourceRevisionRow) {
+        watchID = .init(rawValue: row.watchID)
+        repositoryDID = row.repositoryDID
+        repositoryKey = row.repositoryKey
+        ref = row.ref
+        sourceID = row.sourceID
+        revision = row.revision
+    }
+
+    let watchID: WebhookInboxDelivery.WatchID
+    let repositoryDID: String
+    let repositoryKey: String
+    let ref: String
+    let sourceID: String
+    let revision: String
+
+    func validateWatch(for update: TangledSourceUpdate) throws {
+        guard repositoryDID == update.repositoryDID.description,
+              repositoryKey == update.repositoryKey.rawValue,
+              ref == update.ref,
+              sourceID == update.source.id.rawValue
+        else {
+            throw OpenMusicEventAppViewStoreError.tangledSourceWatchMismatch(
+                watchID: update.watchID.rawValue
+            )
+        }
+    }
+}
+
+@Table("tangledSourceRevisions")
+private struct TangledSourceRevisionRow: Equatable, Sendable {
+    @Column(primaryKey: true) var watchID: String
+    var repositoryDID: String
+    var repositoryKey: String
+    var ref: String
+    var sourceID: String
+    var revision: String
+
+    init(update: TangledSourceUpdate) {
+        watchID = update.watchID.rawValue
+        repositoryDID = update.repositoryDID.description
+        repositoryKey = update.repositoryKey.rawValue
+        ref = update.ref
+        sourceID = update.source.id.rawValue
+        revision = update.after
+    }
+
+    func validateWatch(for update: TangledSourceUpdate) throws {
+        try TangledSourceCheckpoint(self).validateWatch(for: update)
+    }
+}
+
+private struct TangledSourceCommunicationPostKey: Hashable, Sendable {
+    init(organizerID: String, eventID: String, channelID: String, postID: String) {
+        self.organizerID = organizerID
+        self.eventID = eventID
+        self.channelID = channelID
+        self.postID = postID
+    }
+
+    init(_ postID: OME.SourceDatabaseInsertion.CommunicationPost.ID) {
+        organizerID = postID.organizerID.description
+        eventID = postID.eventID.rawValue.rawValue
+        channelID = postID.channelID.rawValue.rawValue
+        self.postID = postID.postID.rawValue.rawValue
+    }
+
+    let organizerID: String
+    let eventID: String
+    let channelID: String
+    let postID: String
+}
+
+private struct TangledSourceChannelKey: Hashable, Sendable {
+    let organizerID: OME.Organizer.ID
+    let eventID: OME.ID<OME.Event>
+    let channelID: OME.ID<OME.Channel>
+}
+
+private struct TangledCommunicationPostNotificationRoute: NotificationRoute {
+    let notificationRoute: String
+
+    init(notificationRoute: String) {
+        self.notificationRoute = notificationRoute
+    }
+}
+
+@Table("tangledSourceCommunicationPosts")
+private struct TangledSourceCommunicationPostRow: Equatable, Sendable {
+    var watchID: String
+    var organizerID: String
+    var eventID: String
+    var channelID: String
+    var postID: String
+
+    init(
+        watchID: String,
+        postID: OME.SourceDatabaseInsertion.CommunicationPost.ID
+    ) {
+        self.watchID = watchID
+        let key = TangledSourceCommunicationPostKey(postID)
+        organizerID = key.organizerID
+        eventID = key.eventID
+        channelID = key.channelID
+        self.postID = key.postID
+    }
+
+    var key: TangledSourceCommunicationPostKey {
+        TangledSourceCommunicationPostKey(
+            organizerID: organizerID,
+            eventID: eventID,
+            channelID: channelID,
+            postID: postID
+        )
+    }
+}
+
+private enum TangledSourceProjectionSchema {
+    static func registerMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Create Tangled source notification projections") { database in
+            let revisionTable = TangledSourceRevisionRow.tableName
+            let postTable = TangledSourceCommunicationPostRow.tableName
+            try #sql(
+                """
+                CREATE TABLE \(quote: revisionTable) (
+                  "watchID" TEXT PRIMARY KEY NOT NULL,
+                  "repositoryDID" TEXT NOT NULL,
+                  "repositoryKey" TEXT NOT NULL,
+                  "ref" TEXT NOT NULL,
+                  "sourceID" TEXT NOT NULL,
+                  "revision" TEXT NOT NULL
+                ) STRICT
+                """
+            )
+            .execute(database)
+            try #sql(
+                """
+                CREATE TABLE \(quote: postTable) (
+                  "watchID" TEXT NOT NULL REFERENCES \(quote: revisionTable)("watchID") ON DELETE CASCADE,
+                  "organizerID" TEXT NOT NULL,
+                  "eventID" TEXT NOT NULL,
+                  "channelID" TEXT NOT NULL,
+                  "postID" TEXT NOT NULL,
+                  PRIMARY KEY ("watchID", "organizerID", "eventID", "channelID", "postID")
+                ) STRICT
+                """
+            )
+            .execute(database)
+        }
+    }
 }
 
 private enum WebhookInboxSchema {

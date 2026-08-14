@@ -140,6 +140,22 @@ struct OpenMusicEventRoutingTests {
         )
     }
 
+    @Test func `prints the canonical channel notification path`() {
+        let eventID = OME.Event.ID(
+            organizerID: OME.Organizer.ID("did:plc:example")!,
+            eventID: OME.ID<OME.Event>(.init("summer event"))
+        )
+        let channelID = OME.ID<OME.Channel>(.init("announcements/general"))
+
+        expectNoDifference(
+            openMusicEventEventPathRouter.communicationChannelPath(
+                eventID: eventID,
+                channelID: channelID
+            ),
+            "/orgs/did%3Aplc%3Aexample/events/summer%20event/communications/announcements%2Fgeneral"
+        )
+    }
+
     @Test func `routes an exact branded event claim by host`() {
         let claim = BrandedEventRouteClaim(
             host: "wickedwoods.openmusicevent.app",

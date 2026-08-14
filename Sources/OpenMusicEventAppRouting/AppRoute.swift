@@ -129,9 +129,7 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
     public var path: String {
         switch self {
         case let .event(eventID, target):
-            let organizerID = eventID.organizerID.description.encodedPathSegment
-            let localEventID = eventID.eventID.rawValue.rawValue.encodedPathSegment
-            let base = "/orgs/\(organizerID)/events/\(localEventID)"
+            let base = openMusicEventEventPathRouter.path(for: eventID)
             guard let target else { return base }
 
             switch target {
@@ -150,9 +148,16 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
             case .communications:
                 return "\(base)/communications"
             case let .channel(channelID):
-                return "\(base)/communications/\(channelID.rawValue.rawValue.encodedPathSegment)"
+                return openMusicEventEventPathRouter.communicationChannelPath(
+                    eventID: eventID,
+                    channelID: channelID
+                )
             case let .post(channelID, postID):
-                return "\(base)/communications/\(channelID.rawValue.rawValue.encodedPathSegment)/posts/\(postID.rawValue.encodedPathSegment)"
+                return openMusicEventEventPathRouter.communicationPostPath(
+                    eventID: eventID,
+                    channelID: channelID,
+                    postID: postID.rawValue
+                )
             case .contactInfo:
                 return "\(base)/contact-info"
             case .location:

@@ -193,7 +193,7 @@ struct PersistedNotificationDestination: Equatable, Sendable {
             .fcm(
                 Push.FCM(
                     applicationID: applicationID,
-                    registrationToken: .init(rawValue: value)
+                    installationID: .init(rawValue: value)
                 )
             )
         }

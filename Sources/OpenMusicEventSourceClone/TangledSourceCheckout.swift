@@ -4,9 +4,11 @@ import Foundation
 #if canImport(OSLog)
 import OSLog
 #endif
+#if !OME_SOURCE_ARCHIVE_ONLY
 import SourceControlClient
 import TangledLexicon
 import XRPCClient
+#endif
 
 public struct TangledSourceCheckoutRequest: Equatable, Sendable {
     public var repository: TangledRepositoryReference
@@ -75,6 +77,7 @@ public extension TangledSourceCheckoutClient {
         }
     }
 
+    #if !OME_SOURCE_ARCHIVE_ONLY
     static var git: Self {
         Self { request in
             TangledSourceCheckoutDiagnostics.logCheckoutStarted(request)
@@ -224,8 +227,10 @@ public extension TangledSourceCheckoutClient {
                 .path(percentEncoded: false)
         )
     }
+    #endif
 }
 
+#if !OME_SOURCE_ARCHIVE_ONLY
 public extension TangledRepositoryReference {
     func sourceControlRemote(repoDID: String) -> Remote {
         Remote(url: RemoteURL(rawValue: sourceControlRemoteURL(repoDID: repoDID)))
@@ -530,6 +535,7 @@ private enum TangledSourceCheckoutDiagnostics {
         print(message)
     }
 }
+#endif
 
 public extension DependencyValues {
     var tangledSourceCheckout: TangledSourceCheckoutClient {
