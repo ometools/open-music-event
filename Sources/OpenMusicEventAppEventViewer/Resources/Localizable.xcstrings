@@ -591,6 +591,15 @@
     "Manage Notifications" : {
 
     },
+    "Map Style" : {
+      "comment" : "Accessibility label for the site map style menu"
+    },
+    "Mark as Read" : {
+
+    },
+    "Mark as Unread" : {
+
+    },
     "Markdown is saved as entered. Use Preview to see the published post." : {
 
     },
@@ -904,6 +913,9 @@
 
     },
     "Reactions" : {
+
+    },
+    "Read" : {
 
     },
     "Read-only access" : {
@@ -1322,6 +1334,9 @@
 
     },
     "Unknown" : {
+
+    },
+    "Unread" : {
 
     },
     "Update Proposal" : {
