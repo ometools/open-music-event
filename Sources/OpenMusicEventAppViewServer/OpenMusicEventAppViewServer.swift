@@ -166,6 +166,12 @@ public enum OpenMusicEventAppViewServer {
             throw OpenMusicEventAppViewServerError
                 .notificationRegistrationRequiresDestinationProtection
         }
+        let providerApplications = configuration.notificationProviders.map { providers in
+            NotificationRegistrationPolicy.ProviderApplications(
+                apns: providers.apns.map { Set($0.applications.keys) } ?? [],
+                fcm: providers.fcm.map { Set($0.applications.keys) } ?? []
+            )
+        }
 
         switch notificationConfiguration.authorization {
         case .anonymous:
@@ -174,7 +180,8 @@ public enum OpenMusicEventAppViewServer {
                 database: notificationDatabase,
                 installationAuthorizer: .anonymous(database: notificationDatabase),
                 policy: NotificationRegistrationPolicy(
-                    allowedApplicationIDs: notificationConfiguration.allowedApplicationIDs
+                    allowedApplicationIDs: notificationConfiguration.allowedApplicationIDs,
+                    providerApplications: providerApplications
                 )
             )
         }

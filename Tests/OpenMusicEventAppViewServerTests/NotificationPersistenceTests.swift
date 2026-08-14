@@ -535,6 +535,83 @@ struct NotificationPersistenceTests {
     }
 
     @Test
+    func `registration rejects a provider with no application delivery route`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let applicationID = Push.ApplicationID(rawValue: "app.openmusicevent")
+        let app = try OpenMusicEventAppViewServer.application(
+            configuration: AppViewConfiguration(
+                port: 0,
+                databaseURL: databaseURL,
+                notificationProviders: AppViewNotificationProviderConfiguration(
+                    apns: .init(
+                        applications: [
+                            applicationID: .init(
+                                environment: .development,
+                                topic: applicationID.rawValue
+                            )
+                        ],
+                        teamID: "YJRWV8Z7KT",
+                        keyID: "ABCDEFGHIJ",
+                        privateKeyURL: directory.appending(path: "unused-apns-key.p8")
+                    )
+                ),
+                notificationDestinationProtection: try NotificationDestinationProtection(
+                    keyData: Data(repeating: 0x2A, count: 32)
+                ),
+                notificationRegistration: AppViewNotificationRegistrationConfiguration(
+                    authorization: .anonymous,
+                    allowedApplicationIDs: [applicationID]
+                )
+            )
+        )
+
+        try await app.test(.router) { client in
+            let credential = try await client.execute(
+                uri: NotificationRegistrationEndpoint.installationsPath,
+                method: .post
+            ) { response in
+                try JSONDecoder().decode(
+                    NotificationInstallationCredentialPayload.self,
+                    from: Data(response.body.readableBytesView)
+                ).credential
+            }
+            try await client.execute(
+                uri: NotificationRegistrationEndpoint.destinationPath,
+                method: .put,
+                headers: [
+                    .authorization: "Notification \(credential.rawValue)",
+                    .contentType: "application/json",
+                ],
+                body: ByteBuffer(
+                    data: try JSONEncoder().encode(
+                        NotificationDestinationPayload(
+                            .fcm(
+                                Push.FCM(
+                                    applicationID: applicationID,
+                                    registrationToken: .init(rawValue: "registration-token")
+                                )
+                            )
+                        )
+                    )
+                )
+            ) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+
+        let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        let registrationCount = try await rawDatabase.read { database in
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushRegistrations")
+        }
+        expectNoDifference(registrationCount, 0)
+    }
+
+    @Test
     func `anonymous registration rejects an oversized provider destination`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -600,40 +677,181 @@ struct NotificationPersistenceTests {
     }
 
     @Test
-    func `environment names the deployment APNs credential without embedding it`() throws {
+    func `environment combines deployment credentials with per-application provider routing`() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let providerConfigurationURL = directory.appending(path: "notification-providers.json")
+        try Data(
+            """
+            {
+              "apns": [
+                {
+                  "applicationID": "app.openmusicevent",
+                  "environment": "development",
+                  "topic": "app.openmusicevent"
+                },
+                {
+                  "applicationID": "com.Festivl.WickedWoods",
+                  "environment": "production",
+                  "topic": "com.Festivl.WickedWoods"
+                }
+              ],
+              "fcm": [
+                {
+                  "applicationID": "com.Festivl.WickedWoods",
+                  "projectID": "ome-push-notifications"
+                }
+              ]
+            }
+            """.utf8
+        ).write(to: providerConfigurationURL)
         let privateKeyPath = "/run/credentials/open-music-event-appview/apns-private-key"
+        let serviceAccountPath = "/run/credentials/open-music-event-appview/fcm-service-account"
         let configuration = try AppViewConfiguration.fromEnvironment(
             environment: [
-                "OME_APNS_APPLICATION_ID": "app.openmusicevent",
-                "OME_APNS_ENVIRONMENT": "development",
                 "OME_APNS_KEY_ID": "ABCDEFGHIJ",
                 "OME_APNS_PRIVATE_KEY_PATH": privateKeyPath,
                 "OME_APNS_TEAM_ID": "YJRWV8Z7KT",
+                "OME_FCM_SERVICE_ACCOUNT_PATH": serviceAccountPath,
+                "OME_NOTIFICATION_PROVIDER_CONFIGURATION_PATH": providerConfigurationURL.path,
             ]
         )
 
         expectNoDifference(
-            configuration.apnsNotificationProvider,
-            AppViewAPNSNotificationProviderConfiguration(
-                applicationID: .init(rawValue: "app.openmusicevent"),
-                environment: .development,
-                topic: "app.openmusicevent",
-                teamID: "YJRWV8Z7KT",
-                keyID: "ABCDEFGHIJ",
-                privateKeyURL: URL(fileURLWithPath: privateKeyPath)
+            configuration.notificationProviders,
+            AppViewNotificationProviderConfiguration(
+                apns: .init(
+                    applications: [
+                        .init(rawValue: "app.openmusicevent"): .init(
+                            environment: .development,
+                            topic: "app.openmusicevent"
+                        ),
+                        .init(rawValue: "com.Festivl.WickedWoods"): .init(
+                            environment: .production,
+                            topic: "com.Festivl.WickedWoods"
+                        ),
+                    ],
+                    teamID: "YJRWV8Z7KT",
+                    keyID: "ABCDEFGHIJ",
+                    privateKeyURL: URL(fileURLWithPath: privateKeyPath)
+                ),
+                fcm: .init(
+                    applications: [
+                        .init(rawValue: "com.Festivl.WickedWoods"): .init(
+                            projectID: "ome-push-notifications"
+                        )
+                    ],
+                    serviceAccountURL: URL(fileURLWithPath: serviceAccountPath)
+                )
             )
         )
     }
 
     @Test
-    func `partial APNs environment fails before the server starts`() {
+    func `partial APNs credentials fail before the server starts`() throws {
+        let configurationURL = FileManager.default.temporaryDirectory
+            .appending(path: "notification-providers-\(UUID().uuidString).json")
+        try Data(
+            """
+            {
+              "apns": [
+                {
+                  "applicationID": "app.openmusicevent",
+                  "environment": "development",
+                  "topic": "app.openmusicevent"
+                }
+              ],
+              "fcm": []
+            }
+            """.utf8
+        ).write(to: configurationURL)
+        defer { try? FileManager.default.removeItem(at: configurationURL) }
+
         #expect(
-            throws: AppViewConfigurationError.apnsConfigurationValueMissing(
-                "OME_APNS_ENVIRONMENT"
+            throws: AppViewConfigurationError.notificationProviderConfigurationValueMissing(
+                "OME_APNS_TEAM_ID"
             )
         ) {
             try AppViewConfiguration.fromEnvironment(
-                environment: ["OME_APNS_APPLICATION_ID": "app.openmusicevent"]
+                environment: [
+                    "OME_APNS_KEY_ID": "ABCDEFGHIJ",
+                    "OME_APNS_PRIVATE_KEY_PATH": "/run/credentials/apns-private-key",
+                    "OME_NOTIFICATION_PROVIDER_CONFIGURATION_PATH": configurationURL.path,
+                ]
+            )
+        }
+    }
+
+    @Test
+    func `blank notification provider routing fails before the server starts`() throws {
+        let configurationURL = FileManager.default.temporaryDirectory
+            .appending(path: "notification-providers-\(UUID().uuidString).json")
+        try Data(
+            """
+            {
+              "apns": [],
+              "fcm": [
+                {
+                  "applicationID": "com.Festivl.WickedWoods",
+                  "projectID": "   "
+                }
+              ]
+            }
+            """.utf8
+        ).write(to: configurationURL)
+        defer { try? FileManager.default.removeItem(at: configurationURL) }
+
+        #expect(
+            throws: AppViewConfigurationError.notificationProviderConfigurationInvalid(
+                configurationURL.path
+            )
+        ) {
+            try AppViewConfiguration.fromEnvironment(
+                environment: [
+                    "OME_FCM_SERVICE_ACCOUNT_PATH": "/run/credentials/fcm-service-account",
+                    "OME_NOTIFICATION_PROVIDER_CONFIGURATION_PATH": configurationURL.path,
+                ]
+            )
+        }
+    }
+
+    @Test
+    func `registration allowlist cannot name an application with no provider route`() throws {
+        let configurationURL = FileManager.default.temporaryDirectory
+            .appending(path: "notification-providers-\(UUID().uuidString).json")
+        try Data(
+            """
+            {
+              "apns": [],
+              "fcm": [
+                {
+                  "applicationID": "com.Festivl.WickedWoods",
+                  "projectID": "ome-push-notifications"
+                }
+              ]
+            }
+            """.utf8
+        ).write(to: configurationURL)
+        defer { try? FileManager.default.removeItem(at: configurationURL) }
+
+        #expect(
+            throws: AppViewConfigurationError.notificationProviderApplicationMissing(
+                .init(rawValue: "app.openmusicevent")
+            )
+        ) {
+            try AppViewConfiguration.fromEnvironment(
+                environment: [
+                    "OME_FCM_SERVICE_ACCOUNT_PATH": "/run/credentials/fcm-service-account",
+                    "OME_NOTIFICATION_APPLICATION_IDS":
+                        "app.openmusicevent,com.Festivl.WickedWoods",
+                    "OME_NOTIFICATION_DESTINATION_KEY": Data(repeating: 0x2A, count: 32)
+                        .base64EncodedString(),
+                    "OME_NOTIFICATION_PROVIDER_CONFIGURATION_PATH": configurationURL.path,
+                    "OME_NOTIFICATION_REGISTRATION_AUTHORIZATION": "anonymous",
+                ]
             )
         }
     }

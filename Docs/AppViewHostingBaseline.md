@@ -43,18 +43,51 @@ OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH=/absolute/path/to/branded-event-route
 OME_NOTIFICATION_DESTINATION_KEY=<base64-encoded-32-byte-key>
 OME_NOTIFICATION_DESTINATION_KEY_VERSION=1
 OME_NOTIFICATION_REGISTRATION_AUTHORIZATION=anonymous
-OME_NOTIFICATION_APPLICATION_IDS=app.openmusicevent,fm.woody.openmusicevent
-OME_APNS_APPLICATION_ID=app.openmusicevent
-OME_APNS_ENVIRONMENT=development
+OME_NOTIFICATION_APPLICATION_IDS=app.openmusicevent,com.Festivl.WickedWoods
+OME_NOTIFICATION_PROVIDER_CONFIGURATION_PATH=/absolute/path/to/notification-providers.json
 OME_APNS_TEAM_ID=YJRWV8Z7KT
 OME_APNS_KEY_ID=<Apple-key-ID>
 OME_APNS_PRIVATE_KEY_PATH=/run/credentials/ome-appview.service/apns-private-key
-# Optional; defaults to OME_APNS_APPLICATION_ID.
-OME_APNS_TOPIC=app.openmusicevent
+OME_FCM_SERVICE_ACCOUNT_PATH=/run/credentials/ome-appview.service/fcm-service-account.json
 OME_TANGLED_WEBHOOK_CONFIGURATION_PATH=/absolute/path/to/tangled-webhooks.json
 OME_WEBHOOK_SECRET_KEY_PATH=/absolute/path/to/webhook-secret-key
 OME_WEBHOOK_SECRET_KEY_VERSION=1
 ```
+
+`OME_TCA26_PATH` and `OME_COMPOSABLE_NOTIFICATIONS_PATH` are build-time package overrides, not
+runtime service configuration. During active deployment iteration, point them at reviewed sibling
+checkouts on the build host. The current Swift 6.3 toolchain requires the TCA26 sibling containing
+the `Store.deinit` optimizer workaround for release builds; an ordinary remote `main` resolution
+does not currently produce a release binary on this toolchain.
+
+Provider routing is non-secret deployment configuration. Each registered application ID must have
+at least one matching provider route:
+
+```json
+{
+  "apns": [
+    {
+      "applicationID": "app.openmusicevent",
+      "environment": "development",
+      "topic": "app.openmusicevent"
+    },
+    {
+      "applicationID": "com.Festivl.WickedWoods",
+      "environment": "development",
+      "topic": "com.Festivl.WickedWoods"
+    }
+  ],
+  "fcm": [
+    {
+      "applicationID": "com.Festivl.WickedWoods",
+      "projectID": "ome-push-notifications"
+    }
+  ]
+}
+```
+
+Use `development` for tokens from Xcode development builds and `production` for distributed iOS
+builds. The routing file contains no private key or service-account JSON.
 
 Branded route configuration keeps the public claim separate from the durable event identity. The
 Wicked Woods production entry is:
@@ -82,6 +115,8 @@ replace the key while registrations still use the current single-key implementat
 absent, notification registration remains unavailable and the routes return `503` rather than
 storing provider tokens in plaintext. A key alone does not enable the public installation route;
 the deployment must explicitly select `anonymous` authorization and allow each application ID.
+When provider routes are installed, registration additionally rejects an application/provider
+pair that has no matching route, so an undeliverable token cannot enter the outbox.
 
 ## Notification Registration Observation
 
@@ -125,16 +160,13 @@ delivery failure. A short idle poll currently wakes the worker; replacing that p
 observation wakeup remains a refinement. Permanent invalid-token classification and cleanup also
 remain before broader production rollout.
 
-AppView installs an APNs provider only when the APNs environment is complete. Supplying any APNs
-variable without the other required values fails server startup. The `.p8` private key remains a
-deployment-owned credential file; only its path is stored in the environment. Use `development`
-for device tokens issued to an Xcode development build and `production` for distributed builds.
-The provider signs ES256 authentication tokens on first use and reuses each token for twenty
-minutes.
-
-FCM request encoding and whole-stack fanout are covered by the black-box test, but production FCM
-OAuth credentials and the Android Firebase Messaging token bridge are not installed yet. APNs is
-the only live provider in this slice.
+AppView creates one provider-neutral delivery client from the routing file and host-owned
+credentials. It routes APNs by application ID so OME and Wicked Woods receive the correct topic,
+signs ES256 provider tokens on first use, and reuses each token for twenty minutes. It routes FCM
+by application ID and exchanges the configured Google service-account key for a short-lived OAuth
+access token with the Firebase Messaging scope. The access token is cached until one minute before
+expiry. Supplying provider routes without all required credential paths fails server startup; FCM
+also rejects a routing project ID that differs from the service account's project.
 
 ## Tangled Webhook Intake
 
@@ -191,6 +223,9 @@ inbox.
 - Keep the APNs `.p8` key in the Lightsail/systemd credential mechanism, mount it read-only for the
   AppView service, and point `OME_APNS_PRIVATE_KEY_PATH` at that mounted file. Do not put the key
   contents in an environment variable or source-controlled configuration.
+- Keep the Firebase service-account JSON under the same deployment credential controls, point
+  `OME_FCM_SERVICE_ACCOUNT_PATH` at the mounted file, and never copy its private key into the
+  provider routing JSON or environment.
 - Keep the Tangled webhook master encryption key in the Lightsail deployment secret mechanism,
   and store each hook secret only through `set-tangled-webhook-secret` so AppView persists its
   ciphertext in SQLite. Do not commit either secret to the watch file, log request signatures, or

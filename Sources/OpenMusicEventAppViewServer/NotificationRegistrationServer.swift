@@ -29,26 +29,59 @@ public struct NotificationRegistrationServer: Sendable {
 }
 
 public struct NotificationRegistrationPolicy: Sendable {
+    public struct ProviderApplications: Sendable {
+        public init(
+            apns: Set<Push.ApplicationID> = [],
+            fcm: Set<Push.ApplicationID> = []
+        ) {
+            self.apns = apns
+            self.fcm = fcm
+        }
+
+        public var apns: Set<Push.ApplicationID>
+        public var fcm: Set<Push.ApplicationID>
+
+        fileprivate func contains(
+            _ applicationID: Push.ApplicationID,
+            for provider: NotificationDestinationPayload.Provider
+        ) -> Bool {
+            switch provider {
+            case .apns:
+                apns.contains(applicationID)
+            case .fcm:
+                fcm.contains(applicationID)
+            }
+        }
+    }
+
     public init(
         allowedApplicationIDs: Set<Push.ApplicationID>,
+        providerApplications: ProviderApplications? = nil,
         maximumDestinationBytes: Int = 4_096,
         maximumSourceIDBytes: Int = 512,
         maximumSubscriptions: Int = 256
     ) {
         self.allowedApplicationIDs = allowedApplicationIDs
+        self.providerApplications = providerApplications
         self.maximumDestinationBytes = maximumDestinationBytes
         self.maximumSourceIDBytes = maximumSourceIDBytes
         self.maximumSubscriptions = maximumSubscriptions
     }
 
     public var allowedApplicationIDs: Set<Push.ApplicationID>
+    public var providerApplications: ProviderApplications?
     public var maximumDestinationBytes: Int
     public var maximumSourceIDBytes: Int
     public var maximumSubscriptions: Int
 
     func validate(_ payload: NotificationDestinationPayload) throws {
-        guard allowedApplicationIDs.contains(Push.ApplicationID(rawValue: payload.applicationID))
-        else {
+        let applicationID = Push.ApplicationID(rawValue: payload.applicationID)
+        guard allowedApplicationIDs.contains(applicationID) else {
+            throw HTTPError(.forbidden)
+        }
+        if let providerApplications,
+           !providerApplications.contains(applicationID, for: payload.provider)
+        {
             throw HTTPError(.forbidden)
         }
         guard

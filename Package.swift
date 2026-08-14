@@ -72,12 +72,34 @@ func workspacePackagePath(_ name: String) -> String {
     return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
         ?? candidates[0].path
 }
-let composableNotificationsPath = [
-    workspacePackagePath("swift-composable-notifications"),
-    packagePath("../../swift-packages/swift-composable-notifications"),
-]
-.first { FileManager.default.fileExists(atPath: $0) }
+let composableNotificationsPath = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"]
+    ?? [
+        workspacePackagePath("swift-composable-notifications"),
+        packagePath("../../swift-packages/swift-composable-notifications"),
+    ]
+    .first { FileManager.default.fileExists(atPath: $0) }
     ?? packagePath("../../swift-packages/swift-composable-notifications")
+let tca26Dependency: Package.Dependency = {
+    if let path = environment["OME_TCA26_PATH"] {
+        return .package(
+            name: "TCA26",
+            path: packagePath(path),
+            traits: ["Dependencies"]
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "TCA26",
+            path: workspacePackagePath("TCA26"),
+            traits: tcaTraits
+        )
+    }
+    return .package(
+        url: "https://github.com/pointfreeco/TCA26",
+        branch: "main",
+        traits: ["Dependencies"]
+    )
+}()
 let composableAtmosphereConstellationPath = workspacePackagePath("composable-atmosphere-constellation")
 let composableAtmosphereTangledPath = workspacePackagePath("composable-atmosphere-tangled")
 let composableAtmosphereUserInputPath = [
@@ -274,17 +296,7 @@ var applicationDependencies: [Package.Dependency] = [
     isAndroidAppBuild
         ? .package(name: "swift-structured-queries", path: workspacePackagePath("swift-structured-queries"), traits: ["StructuredQueriesTagged"])
         : .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged"]),
-    isAndroidAppBuild
-        ? .package(
-            name: "TCA26",
-            path: workspacePackagePath("TCA26"),
-            traits: tcaTraits
-        )
-        : .package(
-            url: "https://github.com/pointfreeco/TCA26",
-            branch: "main",
-            traits: ["Dependencies"]
-        ),
+    tca26Dependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     isAndroidAppBuild
         ? .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"])
@@ -318,6 +330,7 @@ let appViewDependencies: [Package.Dependency] = [
 ] + (packageBuild == .appView ? [
     appViewComposableCalendarEventsDependency,
     appViewComposableAtmosphereDependency,
+    tca26Dependency,
     .package(
         name: "swift-composable-notifications",
         path: composableNotificationsPath
@@ -1033,6 +1046,7 @@ let appViewTargets: [Target] = [
             .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
+            .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(
                 name: "ComposableNotificationsServer",
