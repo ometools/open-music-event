@@ -1,5 +1,5 @@
 {
-  "originHash" : "bba75a8491ef730e6dba29651eb87049a791ea09e8685766693da2aeccea3a0d",
+  "originHash" : "b2d45d4e96e389d48f4dc1be87602887399324496178bef923fce6af5d8389a8",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -121,10 +121,10 @@
     {
       "identity" : "jwsetkit",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/amosavian/JWSETKit",
+      "location" : "https://github.com/woodymelling/JWSETKit",
       "state" : {
-        "revision" : "376cead0aef9c3df74af38e236d7d149ed5c792c",
-        "version" : "2.2.1"
+        "branch" : "fix/apple-commoncrypto-rsa-selection",
+        "revision" : "c4492fcd45c03cba9e6d152b9fa5b20617a61c81"
       }
     },
     {
@@ -827,15 +827,6 @@
       "state" : {
         "revision" : "126df9655565068bd97838c072c1db11f9fd42ee",
         "version" : "1.6.1"
-      }
-    },
-    {
-      "identity" : "tca26",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/TCA26",
-      "state" : {
-        "branch" : "main",
-        "revision" : "cf2f6b58c7be7736a9705dc194c7ff81513bd28d"
       }
     },
     {

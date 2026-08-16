@@ -221,6 +221,10 @@ let routingDependency: Package.Dependency = .package(
     url: "https://github.com/pointfreeco/swift-tagged",
     from: "0.10.0"
 )
+let jwsetKitDependency: Package.Dependency = .package(
+    url: "https://github.com/woodymelling/JWSETKit",
+    branch: "fix/apple-commoncrypto-rsa-selection"
+)
 
 var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/composable-atmosphere-userinput", branch: "main"),
@@ -1098,17 +1102,17 @@ let targets: [Target]
 switch packageBuild {
 case .app:
     products = applicationProducts + appViewProducts
-    dependencies = applicationDependencies + appViewDependencies
+    dependencies = applicationDependencies + appViewDependencies + [jwsetKitDependency]
     targets = applicationTargets + [routingTarget, routingTestTarget] + appViewTargets
 
 case .androidApp:
     products = applicationProducts
-    dependencies = applicationDependencies
+    dependencies = applicationDependencies + [jwsetKitDependency]
     targets = applicationTargets + [routingTarget, routingTestTarget]
 
 case .appView:
     products = appViewProducts
-    dependencies = [routingDependency] + appViewDependencies
+    dependencies = [routingDependency, jwsetKitDependency] + appViewDependencies
     targets = [
         routingTarget,
         openMusicEventTimeZonesTarget,
