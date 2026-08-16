@@ -355,9 +355,13 @@ public struct UserSchedulesList {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
-        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
-            guard let persistedState, persistedState != state.eventViewerState else { return }
-            state.eventViewerState = persistedState
+        .onChange(of: store.persistedEventViewerState) {
+            oldPersistedState, persistedState, state in
+            guard let persistedState else { return }
+            state.eventViewerState.mergePersistedChanges(
+                from: oldPersistedState,
+                to: persistedState
+            )
         }
         .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
             guard state.persistedEventViewerState != viewerState else { return }

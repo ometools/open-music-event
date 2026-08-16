@@ -783,10 +783,12 @@ struct NavigationTests {
         }
         """#
 
-        let notificationTask = try store.state.root.notificationEvent(
-            NotificationEvent(
-                json: json,
-                delivery: .userInteraction(actionIdentifier: "open")
+        let notificationTask = store.send(
+            .notification(
+                NotificationEvent(
+                    json: json,
+                    delivery: .userInteraction(actionIdentifier: "open")
+                )
             )
         )
         await notificationTask?.value
@@ -848,11 +850,13 @@ struct NavigationTests {
                 .authoring.content.content.selectedFeature == .schedule(.schedule)
         )
 
-        let notificationTask = try store.state.root.notificationEvent(
-            NotificationEvent(
-                json: json,
-                delivery: .userInteraction(
-                    actionIdentifier: "com.apple.UNNotificationDefaultActionIdentifier"
+        let notificationTask = store.send(
+            .notification(
+                NotificationEvent(
+                    json: json,
+                    delivery: .userInteraction(
+                        actionIdentifier: "com.apple.UNNotificationDefaultActionIdentifier"
+                    )
                 )
             )
         )
@@ -4321,6 +4325,33 @@ struct NavigationTests {
         #expect(mergedState.selectedScheduleID == scheduleLocalID("thursday"))
         #expect(mergedState.selectedUserScheduleID == userScheduleID)
         #expect(mergedState.didInitializeUserSchedules)
+    }
+
+    @Test
+    func eventViewerStateObservationPreservesNewerLocalChanges() throws {
+        let eventID = eventID("event-1")
+        let userScheduleID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
+        )
+        var localState = EventViewerState(
+            id: eventID,
+            selectedUserScheduleID: userScheduleID,
+            didInitializeUserSchedules: true
+        )
+        let stalePersistedState = EventViewerState(
+            id: eventID,
+            selectedScheduleID: scheduleLocalID("thursday"),
+            didInitializeUserSchedules: true
+        )
+
+        localState.mergePersistedChanges(
+            from: nil,
+            to: stalePersistedState
+        )
+
+        #expect(localState.selectedScheduleID == scheduleLocalID("thursday"))
+        #expect(localState.selectedUserScheduleID == userScheduleID)
+        #expect(localState.didInitializeUserSchedules)
     }
 
     @Test
@@ -8003,9 +8034,6 @@ struct NavigationTests {
         brandedEventRouteClaims: [BrandedEventRouteClaim] = []
     ) -> TestStore<RootHarness> {
         withDependencies {
-            $0.appDelegateClient = AppDelegateClient(
-                events: { AsyncStream { $0.finish() } }
-            )
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
@@ -8064,12 +8092,27 @@ private struct RootHarness {
     }
 
     enum Action {
+        case notification(NotificationEvent)
         case root(OpenMusicEventAppRoot.Action)
     }
 
     var body: some Feature {
-        Scope(\.root, action: \.root) {
-            OpenMusicEventAppRoot()
+        Features {
+            Update { _, action in
+                switch action {
+                case let .notification(event):
+                    store.addTask {
+                        let reaction = try store.state.root.notificationEvent(event)
+                        await reaction?.value
+                    }
+
+                case .root:
+                    break
+                }
+            }
+            Scope(\.root, action: \.root) {
+                OpenMusicEventAppRoot()
+            }
         }
     }
 }

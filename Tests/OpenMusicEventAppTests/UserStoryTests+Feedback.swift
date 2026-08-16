@@ -38,7 +38,10 @@ extension UserStoryTests {
             UserInputFeedbackBoardConfiguration
         >.makeStream()
         var boardLoadsIterator = boardLoads.makeAsyncIterator()
+        let database = try UserStory.makePreparedStoryDatabase()
         let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
             $0.openMusicEventAppConfiguration = OpenMusicEventAppConfiguration(
                 productFeedbackBoard: boardConfiguration
             )

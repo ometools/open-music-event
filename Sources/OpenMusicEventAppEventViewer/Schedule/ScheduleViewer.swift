@@ -924,10 +924,13 @@ public struct ScheduleViewer {
                 reportIssue(error)
             }
         }
-        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
+        .onChange(of: store.persistedEventViewerState) {
+            oldPersistedState, persistedState, state in
             guard let persistedState else { return }
-            guard persistedState != state.eventViewerState else { return }
-            state.eventViewerState = persistedState
+            state.eventViewerState.mergePersistedChanges(
+                from: oldPersistedState,
+                to: persistedState
+            )
         }
         .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
             guard state.persistedEventViewerState != viewerState else { return }

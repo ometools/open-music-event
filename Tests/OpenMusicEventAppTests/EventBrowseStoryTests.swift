@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoOAuth
 import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableCalendarEvents
@@ -24,9 +25,11 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import OpenMusicEventWhiteLabel
+import Sharing
 import SourceControlClient
 import SQLiteData
 import Synchronization
+import TCATProtoAuthentication
 import Testing
 import XRPCClient
 
@@ -55,9 +58,6 @@ struct EventBrowseStoryTests {
                 $0.context = .test
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
                 OME.prepareDependencies(&$0, database: database)
-                $0.notificationTokenClient = NotificationTokenClient(
-                    tokens: { AsyncStream { $0.finish() } }
-                )
                 $0.notificationsClient = NotificationsClient(
                     registerDestination: { _ in },
                     replaceSubscriptions: { _ in },
@@ -221,9 +221,6 @@ struct EventBrowseStoryTests {
             $0.uuid = .incrementing
             OME.prepareDependencies(&$0, database: database)
             $0.defaultEventID = eventID
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
-            )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { replacementContinuation.yield($0) },
@@ -304,9 +301,6 @@ struct EventBrowseStoryTests {
                 browse: { _ in CalendarEvent.Page(events: []) },
                 event: { _ in throw CalendarEventsClientError.unimplemented },
                 organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
             )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
@@ -567,6 +561,10 @@ struct EventBrowseStoryTests {
                 )
             }
             .execute(database)
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(id: eventID)
+            }
+            .execute(database)
             try SourceWorkspaceInstallationRecord.insert {
                 SourceWorkspaceInstallationRecord(
                     id: workspaceID,
@@ -593,9 +591,6 @@ struct EventBrowseStoryTests {
                 event: { _ in throw CalendarEventsClientError.unimplemented },
                 organizer: { _ in throw CalendarEventsClientError.unimplemented }
             )
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
-            )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { _ in },
@@ -616,16 +611,41 @@ struct EventBrowseStoryTests {
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
         } operation: {
-            let store = Store(
-                initialState: OpenMusicEventAppRoot.State(
-                    variant: .whiteLabel(
-                        WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
-                    ),
-                    selectedEventIDAtLaunch: eventID
+            let storage = OAuthSessionStorage(
+                sessionStore: Shared(value: OAuth.SessionStore()),
+                authFailureMessage: Shared(value: nil),
+                selectedSessionID: Shared(value: nil)
+            )
+            let appStore = Store(
+                initialState: OpenMusicEventApp.State(
+                    content: OpenMusicEventApplication.State(storage: storage) {
+                        OpenMusicEventAppRoot.State(
+                            variant: .whiteLabel(
+                                WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
+                            ),
+                            selectedEventIDAtLaunch: eventID
+                        )
+                    }
                 )
             ) {
-                OpenMusicEventAppRoot()
+                OpenMusicEventApp(
+                    eventTrigger:
+                        \OpenMusicEventApplication.State.content.appDelegateEvent,
+                    notificationDestinationTrigger:
+                        \OpenMusicEventApplication.State.content.notificationDestination,
+                    notificationEventTrigger:
+                        \OpenMusicEventApplication.State.content.notificationEvent
+                ) {
+                    OpenMusicEventApplication(storage: storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                }
             }
+            let store = appStore
+                .scope(\.content, action: \.content)
+                .scope(\.content, action: \.content)
+            let mountTask = appStore.send(.content(.content(.task)))
+            await mountTask?.value
             let mountedWorkspaceID = store.destination?.eventViewer?.authoring.context.id
             #expect(store.destination?.eventViewer?.authoring.grant == nil)
 
@@ -642,10 +662,12 @@ struct EventBrowseStoryTests {
             }
             """
             try await expectReportedIssue(containing: "preparedWorkspace") {
-                let notificationTask = try store.state.notificationEvent(
-                    NotificationEvent(
-                        json: notificationJSON,
-                        delivery: .contentAvailable
+                let notificationTask = appStore.send(
+                    .notification(
+                        NotificationEvent(
+                            json: notificationJSON,
+                            delivery: .contentAvailable
+                        )
                     )
                 )
                 await notificationTask?.value
@@ -686,7 +708,7 @@ struct EventBrowseStoryTests {
                 store.destination?.eventViewer?.authoring.content.content.event?.name,
                 "Wicked Woods 2026"
             )
-            withExtendedLifetime(store) {}
+            withExtendedLifetime(appStore) {}
         }
     }
 

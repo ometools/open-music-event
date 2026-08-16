@@ -20,6 +20,23 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
     public var selectedUserScheduleID: UUID?
     public var didInitializeUserSchedules = false
 
+    mutating func mergePersistedChanges(
+        from oldValue: Self?,
+        to newValue: Self
+    ) {
+        let baseline = oldValue ?? Self(id: newValue.id)
+
+        if selectedScheduleID == baseline.selectedScheduleID {
+            selectedScheduleID = newValue.selectedScheduleID
+        }
+        if selectedUserScheduleID == baseline.selectedUserScheduleID {
+            selectedUserScheduleID = newValue.selectedUserScheduleID
+        }
+        if didInitializeUserSchedules == baseline.didInitializeUserSchedules {
+            didInitializeUserSchedules = newValue.didInitializeUserSchedules
+        }
+    }
+
     static func persistChanges(
         from oldValue: Self,
         to newValue: Self,

@@ -80,15 +80,6 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
-        dependencies.appDelegateClient = AppDelegateClient(
-            events: { await OpenMusicEventAppDelegate.shared.appDelegateEvents() }
-        )
-        dependencies.notificationEventClient = NotificationEventClient(
-            events: { await OpenMusicEventAppDelegate.shared.notificationEvents() }
-        )
-        dependencies.notificationTokenClient = NotificationTokenClient(
-            tokens: { OpenMusicEventAppDelegate.shared.notificationTokens() }
-        )
         dependencies.notificationsClient = .http(
             baseURL: OpenMusicEventNotificationAuthorization.serverURL
         )
@@ -126,7 +117,37 @@ public typealias OpenMusicEventApplicationContent = OpenMusicEventAppRoot
 
 /// The application's single authentication boundary. Its entire root receives the authenticated
 /// OAuth session, authorization requests, and authorization broker from `OAuthAuthorization`.
-public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventApplicationContent>
+public struct OpenMusicEventApplication: FeatureProtocol {
+    public typealias State = OAuthAuthorization<OpenMusicEventApplicationContent>.State
+    public typealias Action = OAuthAuthorization<OpenMusicEventApplicationContent>.Action
+
+    private let makeContent: @Sendable () -> OpenMusicEventApplicationContent
+    private let requestCenter: AuthorizationRequestCenter
+    private let storage: OAuthSessionStorage
+
+    public init(
+        storage: OAuthSessionStorage,
+        requestCenter: AuthorizationRequestCenter = AuthorizationRequestCenter(),
+        makeContent: @escaping @Sendable () -> OpenMusicEventApplicationContent
+    ) {
+        self.makeContent = makeContent
+        self.requestCenter = requestCenter
+        self.storage = storage
+    }
+
+    public var body: some FeatureProtocol<State, Action> {
+        OAuthAuthorization(
+            storage: storage,
+            requestCenter: requestCenter,
+            makeContent: makeContent
+        )
+        .presentAuthorizationFailures()
+        .deliverAuthoringAuthorizationChanges()
+    }
+}
+
+/// The application-delegate boundary around the authenticated application tree.
+public typealias OpenMusicEventApp = AppDelegateFeature<OpenMusicEventApplication>
 
 struct SelectedEventRestoration {
     var eventID: OMERecord.Event.ID?
@@ -142,16 +163,17 @@ struct SelectedEventRestoration {
 }
 
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
-    let store: StoreOf<OpenMusicEventApplication>
+    let store: StoreOf<OpenMusicEventApp>
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
     @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
 
+    @MainActor
     /* SKIP @bridge */public init() {
-        self.store = OpenMusicEventAppDelegate.store
+        self.store = OpenMusicEventAppDelegate.shared.store
     }
 
     @MainActor
-    public init(store: StoreOf<OpenMusicEventApplication>) {
+    public init(store: StoreOf<OpenMusicEventApp>) {
         self.store = store
     }
 
@@ -161,12 +183,13 @@ struct SelectedEventRestoration {
     }
 
     public var body: some View {
+        let applicationStore = store.scope(\.content, action: \.content)
 #if os(Android)
-        @Bindable var authenticationStore = store.scope(
+        @Bindable var authenticationStore = applicationStore.scope(
             \.authentication,
             action: \.authentication
         )
-        let applicationContentStore = store.scope(
+        let applicationContentStore = applicationStore.scope(
             \.content,
             action: \.content
         )
@@ -183,7 +206,7 @@ struct SelectedEventRestoration {
                 OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
             }
             .onOpenURL { url in
-                store.send(.authentication(.handleOpenURL(.init(url))))
+                applicationStore.send(.authentication(.handleOpenURL(.init(url))))
             }
             .environment(
                 \.showsTechnicalDetails,
@@ -199,7 +222,7 @@ struct SelectedEventRestoration {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }
 #else
-        OpenMusicEventAuthorizationView(store: store) { rootStore in
+        OpenMusicEventAuthorizationView(store: applicationStore) { rootStore in
             OpenMusicEventAppRootView(
                 store: rootStore
             )
@@ -223,25 +246,35 @@ struct SelectedEventRestoration {
     @MainActor
     public static func makeStore(
         variant: OpenMusicEventAppVariant
-    ) -> StoreOf<OpenMusicEventApplication> {
+    ) -> StoreOf<OpenMusicEventApp> {
         let selectedEventRestoration = selectedEventRestoration(for: variant)
         return withDependencies {
             $0.openMusicEventAppConfiguration = variant.appConfiguration
         } operation: {
-            StoreOf<OpenMusicEventApplication>(
-                initialState: .init(storage: OpenMusicEventOAuth.storage) {
-                    OpenMusicEventAppRoot.State(
-                        variant: variant,
-                        selectedEventIDAtLaunch: selectedEventRestoration.eventID,
-                        workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
-                    )
-                }
+            StoreOf<OpenMusicEventApp>(
+                initialState: .init(
+                    content: OpenMusicEventApplication.State(
+                        storage: OpenMusicEventOAuth.storage
+                    ) {
+                        OpenMusicEventAppRoot.State(
+                            variant: variant,
+                            selectedEventIDAtLaunch: selectedEventRestoration.eventID,
+                            workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
+                        )
+                    }
+                )
             ) {
-                OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
-                    OpenMusicEventAppRoot()
+                OpenMusicEventApp(
+                    eventTrigger: \OpenMusicEventApplication.State.content.appDelegateEvent,
+                    notificationDestinationTrigger:
+                        \OpenMusicEventApplication.State.content.notificationDestination,
+                    notificationEventTrigger:
+                        \OpenMusicEventApplication.State.content.notificationEvent
+                ) {
+                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                        OpenMusicEventAppRoot()
+                    }
                 }
-                .presentAuthorizationFailures()
-                .deliverAuthoringAuthorizationChanges()
             }
         }
     }
@@ -266,35 +299,14 @@ struct SelectedEventRestoration {
 /// Global application delegate functions.
 ///
 /// These functions can update a shared observable object to communicate app state changes to interested views.
+@MainActor
 /* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
-    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate()
+    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate(variant: .generic)
 
-    @MainActor
-    static let store = OpenMusicEventApplicationRootView.makeStore(variant: .generic)
+    public let store: StoreOf<OpenMusicEventApp>
 
-    private let notificationTokenContinuation: AsyncStream<Push.Destination>.Continuation
-    private let notificationTokenStream: AsyncStream<Push.Destination>
-    private let appDelegateEventBroadcast = EventBroadcast<AppDelegateEvent>()
-    private let notificationEventBroadcast = EventBroadcast<NotificationEvent>()
-
-    private init() {
-        let (tokenStream, tokenContinuation) = AsyncStream<Push.Destination>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        self.notificationTokenContinuation = tokenContinuation
-        self.notificationTokenStream = tokenStream
-    }
-
-    public func notificationTokens() -> AsyncStream<Push.Destination> {
-        notificationTokenStream
-    }
-
-    func appDelegateEvents() async -> AsyncStream<AppDelegateEvent> {
-        await appDelegateEventBroadcast.stream()
-    }
-
-    func notificationEvents() async -> AsyncStream<NotificationEvent> {
-        await notificationEventBroadcast.stream()
+    public init(variant: OpenMusicEventAppVariant) {
+        self.store = OpenMusicEventApplicationRootView.makeStore(variant: variant)
     }
 
     /* SKIP @bridge */public func onInit() {
@@ -307,17 +319,15 @@ struct SelectedEventRestoration {
         send(.launched)
         logger.debug("onLaunch")
 #if canImport(UIKit)
-        Task { @MainActor in
-            let wasRegistered = UIApplication.shared.isRegisteredForRemoteNotifications
-            logger.info(
-                "Requesting remote notification registration; already registered: \(wasRegistered, privacy: .public)"
-            )
-            UIApplication.shared.registerForRemoteNotifications()
-            let isRegisteredAfterRequest = UIApplication.shared.isRegisteredForRemoteNotifications
-            logger.info(
-                "Submitted remote notification registration request; registered after submission: \(isRegisteredAfterRequest, privacy: .public)"
-            )
-        }
+        let wasRegistered = UIApplication.shared.isRegisteredForRemoteNotifications
+        logger.info(
+            "Requesting remote notification registration; already registered: \(wasRegistered, privacy: .public)"
+        )
+        UIApplication.shared.registerForRemoteNotifications()
+        let isRegisteredAfterRequest = UIApplication.shared.isRegisteredForRemoteNotifications
+        logger.info(
+            "Submitted remote notification registration request; registered after submission: \(isRegisteredAfterRequest, privacy: .public)"
+        )
 #endif
         enforceStoredAuthenticationFreshness()
     }
@@ -335,11 +345,13 @@ struct SelectedEventRestoration {
         )
 #endif
         let value = deviceToken.map { String(format: "%02x", $0) }.joined()
-        notificationTokenContinuation.yield(
-            .apns(
-                Push.APNS(
-                    applicationID: .init(rawValue: bundleIdentifier),
-                    deviceToken: .init(rawValue: value)
+        store.send(
+            .notificationDestination(
+                .apns(
+                    Push.APNS(
+                        applicationID: .init(rawValue: bundleIdentifier),
+                        deviceToken: .init(rawValue: value)
+                    )
                 )
             )
         )
@@ -433,34 +445,21 @@ struct SelectedEventRestoration {
     }
 
     private func send(_ event: AppDelegateEvent) {
-        Task {
-            await appDelegateEventBroadcast.send(event)
-        }
+        store.send(.lifecycle(event))
     }
 
     private func sendNotification(_ event: NotificationEvent) {
         Task {
-            await notificationEventBroadcast.send(event)
+            await handleNotification(event)
         }
     }
 
     @MainActor
     @discardableResult
     private func handleNotification(_ event: NotificationEvent) async -> Bool {
-        do {
-            let reaction = try Self.store.state.content.notificationEvent(event)
-            await reaction?.value
-            return true
-        } catch {
-#if SKIP
-            logger.error("Could not deliver notification to the application feature tree: \(error)")
-#else
-            logger.error(
-                "Could not deliver notification to the application feature tree: \(String(describing: error), privacy: .public)"
-            )
-#endif
-            return false
-        }
+        let reaction = store.send(.notification(event))
+        await reaction?.value
+        return true
     }
 
     private func enforceStoredAuthenticationFreshness() {
@@ -471,40 +470,5 @@ struct SelectedEventRestoration {
         Task {
             try? await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
         }
-    }
-}
-
-private actor EventBroadcast<Event: Sendable> {
-    private var continuations: [UUID: AsyncStream<Event>.Continuation] = [:]
-    private var pendingEvent: Event?
-
-    func stream() -> AsyncStream<Event> {
-        let id = UUID()
-        let (stream, continuation) = AsyncStream<Event>.makeStream()
-        continuations[id] = continuation
-        continuation.onTermination = { [weak self] _ in
-            Task {
-                await self?.removeContinuation(id: id)
-            }
-        }
-        if let pendingEvent {
-            continuation.yield(pendingEvent)
-            self.pendingEvent = nil
-        }
-        return stream
-    }
-
-    func send(_ event: Event) {
-        guard !continuations.isEmpty else {
-            pendingEvent = event
-            return
-        }
-        for continuation in continuations.values {
-            continuation.yield(event)
-        }
-    }
-
-    private func removeContinuation(id: UUID) {
-        continuations[id] = nil
     }
 }

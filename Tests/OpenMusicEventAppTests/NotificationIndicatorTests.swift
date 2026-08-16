@@ -250,9 +250,6 @@ struct NotificationIndicatorTests {
         let store = withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
-            )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { subscriptions in
@@ -545,9 +542,6 @@ struct NotificationIndicatorTests {
                 setCount: { count in
                     badgeCounts.withLock { $0.append(count) }
                 }
-            )
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
             )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },

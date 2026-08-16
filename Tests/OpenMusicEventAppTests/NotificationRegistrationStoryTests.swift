@@ -126,6 +126,10 @@ struct NotificationRegistrationStoryTests {
                 )
             }
             .execute(database)
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(id: eventID)
+            }
+            .execute(database)
             try EventSourceProvenanceRecord.insert {
                 EventSourceProvenanceRecord(
                     id: eventID,
@@ -195,12 +199,6 @@ struct NotificationRegistrationStoryTests {
                 )
             )
         )
-        let tokenClient = NotificationTokenClient {
-            AsyncStream { continuation in
-                continuation.yield(destination)
-                continuation.finish()
-            }
-        }
         let requestRecorder = NotificationRequestRecorder()
         let eventRefreshRecorder = EventRefreshRecorder()
         let keychainStorage = KeychainStorageClient.inMemory()
@@ -259,7 +257,6 @@ struct NotificationRegistrationStoryTests {
                                 await eventRefreshRecorder.record(eventID)
                             }
                         )
-                        $0.notificationTokenClient = tokenClient
                         $0[XRPC.Client.self] = .liveValue
                         $0.requestInterceptors = []
                         $0.dataForURL = { request, body in
@@ -303,21 +300,50 @@ struct NotificationRegistrationStoryTests {
                         )
                         let appStore = await MainActor.run {
                             Store(
-                                initialState: OpenMusicEventApplication.State(storage: storage) {
-                                    OpenMusicEventAppRoot.State(
-                                        selectedEventIDAtLaunch: eventID
-                                    )
-                                }
+                                initialState: OpenMusicEventApp.State(
+                                    content: OpenMusicEventApplication.State(storage: storage) {
+                                        OpenMusicEventAppRoot.State(
+                                            selectedEventIDAtLaunch: eventID
+                                        )
+                                    }
+                                )
                             ) {
-                                OpenMusicEventApplication(storage: storage) {
-                                    OpenMusicEventAppRoot()
+                                OpenMusicEventApp(
+                                    eventTrigger:
+                                        \OpenMusicEventApplication.State.content.appDelegateEvent,
+                                    notificationDestinationTrigger:
+                                        \OpenMusicEventApplication.State.content.notificationDestination,
+                                    notificationEventTrigger:
+                                        \OpenMusicEventApplication.State.content.notificationEvent
+                                ) {
+                                    OpenMusicEventApplication(storage: storage) {
+                                        OpenMusicEventAppRoot()
+                                    }
                                 }
                             }
                         }
+                        await fakeFCM.deliverNotifications { json in
+                            let reaction = await MainActor.run {
+                                appStore.send(
+                                    .notification(
+                                        NotificationEvent(
+                                            json: json,
+                                            delivery: .contentAvailable
+                                        )
+                                    )
+                                )
+                            }
+                            await reaction?.value
+                        }
+                        let destinationTask = await MainActor.run {
+                            appStore.send(.notificationDestination(destination))
+                        }
+                        await destinationTask?.value
 
                         try await requestRecorder.waitForRequestCount(3)
                         let browse = await MainActor.run {
                             appStore
+                                .scope(\.content, action: \.content)
                                 .scope(\.content, action: \.content)
                                 .scope(\.browser, action: \.browser)
                                 .spawn(\.browse)
@@ -372,7 +398,7 @@ struct NotificationRegistrationStoryTests {
                         )
                         expectNoDifference(
                             String(decoding: providerRequest.body, as: UTF8.self),
-                            #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"token":"fcm-registration-token-that-must-not-be-rewritten"}}"#
+                            #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#
                         )
                         withExtendedLifetime(appStore) {}
                     }
@@ -420,7 +446,6 @@ struct NotificationRegistrationStoryTests {
                         await eventRefreshRecorder.record(eventID)
                     }
                 )
-                $0.notificationTokenClient = tokenClient
                 $0[XRPC.Client.self] = .liveValue
                 $0.requestInterceptors = []
                 $0.dataForURL = { request, body in
@@ -455,17 +480,32 @@ struct NotificationRegistrationStoryTests {
                 )
                 let relaunchedStore = await MainActor.run {
                     Store(
-                        initialState: OpenMusicEventApplication.State(storage: storage) {
-                            OpenMusicEventAppRoot.State(
-                                selectedEventIDAtLaunch: eventID
-                            )
-                        }
+                        initialState: OpenMusicEventApp.State(
+                            content: OpenMusicEventApplication.State(storage: storage) {
+                                OpenMusicEventAppRoot.State(
+                                    selectedEventIDAtLaunch: eventID
+                                )
+                            }
+                        )
                     ) {
-                        OpenMusicEventApplication(storage: storage) {
-                            OpenMusicEventAppRoot()
+                        OpenMusicEventApp(
+                            eventTrigger:
+                                \OpenMusicEventApplication.State.content.appDelegateEvent,
+                            notificationDestinationTrigger:
+                                \OpenMusicEventApplication.State.content.notificationDestination,
+                            notificationEventTrigger:
+                                \OpenMusicEventApplication.State.content.notificationEvent
+                        ) {
+                            OpenMusicEventApplication(storage: storage) {
+                                OpenMusicEventAppRoot()
+                            }
                         }
                     }
                 }
+                let destinationTask = await MainActor.run {
+                    relaunchedStore.send(.notificationDestination(destination))
+                }
+                await destinationTask?.value
 
                 try await requestRecorder.waitForRequestCount(7)
                 withExtendedLifetime(relaunchedStore) {}
@@ -611,9 +651,16 @@ private func tangledWebhookHeaders(
 }
 
 private actor FakeFCMTransport {
+    typealias Delivery = @Sendable (String) async -> Void
+
+    private var delivery: Delivery?
     private var recordedRequests: [NotificationProviderHTTPRequest] = []
 
-    func send(_ request: NotificationProviderHTTPRequest) throws {
+    func deliverNotifications(_ delivery: @escaping Delivery) {
+        self.delivery = delivery
+    }
+
+    func send(_ request: NotificationProviderHTTPRequest) async throws {
         let payload = try JSONSerialization.jsonObject(with: request.body)
         guard
             let payload = payload as? [String: Any],
@@ -627,9 +674,7 @@ private actor FakeFCMTransport {
             withJSONObject: data,
             options: [.sortedKeys, .withoutEscapingSlashes]
         )
-        OpenMusicEventAppDelegate.shared.onRemoteNotification(
-            json: String(decoding: appPayload, as: UTF8.self)
-        )
+        await delivery?(String(decoding: appPayload, as: UTF8.self))
     }
 
     func requests() -> [NotificationProviderHTTPRequest] {

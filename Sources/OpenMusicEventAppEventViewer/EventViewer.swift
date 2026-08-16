@@ -972,11 +972,12 @@ public struct EventViewer {
                     state.reloadFeaturesForAuthoringAccess()
                 }
                 .onChange(of: store.persistedEventViewerState) {
-                    _, persistedState, state in
-                    guard let persistedState,
-                          persistedState != state.eventViewerState
-                    else { return }
-                    state.eventViewerState = persistedState
+                    oldPersistedState, persistedState, state in
+                    guard let persistedState else { return }
+                    state.eventViewerState.mergePersistedChanges(
+                        from: oldPersistedState,
+                        to: persistedState
+                    )
                 }
                 .onChange(of: store.eventViewerState) {
                     oldViewerState, viewerState, state in

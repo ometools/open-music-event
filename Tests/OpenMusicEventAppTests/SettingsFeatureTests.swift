@@ -247,8 +247,11 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func missingFeedbackBoardDoesNotCreateDestination() {
+    func missingFeedbackBoardDoesNotCreateDestination() throws {
+        let database = try makePreparedDatabase()
         let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
             $0.openMusicEventAppConfiguration = OpenMusicEventAppConfiguration(
                 productFeedbackBoard: nil
             )
@@ -458,9 +461,6 @@ struct SettingsFeatureTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.devicePermissions = client
-            $0.notificationTokenClient = NotificationTokenClient(
-                tokens: { AsyncStream { $0.finish() } }
-            )
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { _ in },

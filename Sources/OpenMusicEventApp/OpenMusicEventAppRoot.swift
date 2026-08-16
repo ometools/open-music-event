@@ -77,6 +77,7 @@ public struct OpenMusicEventAppRoot {
         public var errorNotifications = Spawn(ErrorNotifications.State())
         @Trigger<AppDelegateEvent> public var appDelegateEvent
         @Trigger<NotificationContent<AppRoute>> public var notificationContent
+        @Trigger<Push.Destination> public var notificationDestination
         @Trigger<NotificationEvent> public var notificationEvent
         @Trigger<NotificationSignal> public var notificationSignal
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
@@ -99,7 +100,6 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
-        case appDelegateEvent(AppDelegateEvent)
         case browser(OpenMusicEventBrowser.Action)
         case destination(Destination.Action)
         case eventEntryDismissed
@@ -169,11 +169,6 @@ public struct OpenMusicEventAppRoot {
         Features {
             Update { state, action in
                 switch action {
-                case let .appDelegateEvent(event):
-                    store.addTask {
-                        try await store.appDelegateEvent(event)?.value
-                    }
-
                 case .browser:
                     break
 
@@ -184,7 +179,8 @@ public struct OpenMusicEventAppRoot {
                     switch request {
                     case let .event(eventID, target):
                         store.addTask {
-                            try store.send(.openRoute(.event(eventID, target)))
+                            let task = try store.send(.openRoute(.event(eventID, target)))
+                            await task?.value
                         }
 
                     case let .externalURL(url):
@@ -286,7 +282,8 @@ public struct OpenMusicEventAppRoot {
                 case .eventEntryRetryTapped:
                     guard let route = state.eventEntry?.route else { return }
                     store.addTask {
-                        try store.send(.openRoute(route))
+                        let task = try store.send(.openRoute(route))
+                        await task?.value
                     }
 
                 case .openURL(let url):
@@ -296,7 +293,8 @@ public struct OpenMusicEventAppRoot {
                     ) {
                         store.addTask {
                             await Task.yield()
-                            try store.send(.openRoute(route))
+                            let task = try store.send(.openRoute(route))
+                            await task?.value
                         }
                     } else {
                         state.openExternalURL(url)
@@ -334,7 +332,8 @@ public struct OpenMusicEventAppRoot {
         }
         .onEvent(NavigationRequested.self) { request, state in
             store.addTask {
-                try store.send(.handleNavigationRequest(request))
+                let task = try store.send(.handleNavigationRequest(request))
+                await task?.value
             }
         }
         .onEvent(EventViewerDismissalRequested.self) { eventID, state in
@@ -437,10 +436,10 @@ public struct OpenMusicEventAppRoot {
         .notifications(
             appDelegateEventTrigger: \.appDelegateEvent,
             contentTrigger: \.notificationContent,
+            destinationTrigger: \.notificationDestination,
             notificationEventTrigger: \.notificationEvent,
             signalTrigger: \.notificationSignal
         )
-        .appDelegate(eventTrigger: \.appDelegateEvent)
     }
 }
 

@@ -35,7 +35,8 @@ extension UserStoryTests {
             // On the attendee's first visit, the app offers one personal schedule without
             // hiding the full published schedule behind it.
             await waitUntil {
-                firstVisit.state.userSchedules.map(\.title) == ["My Schedule"]
+                firstVisit.state.eventViewerState.didInitializeUserSchedules
+                    && firstVisit.state.userSchedules.map(\.title) == ["My Schedule"]
             }
             let schedule = try #require(firstVisit.state.userSchedules.first)
             #expect(schedule.userDID == userDID)
