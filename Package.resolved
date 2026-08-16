@@ -1,5 +1,5 @@
 {
-  "originHash" : "b2dfd7c81cb96d563a53ee420a6a535cc9a7089a39feae7a19fda00ef3a692c0",
+  "originHash" : "bba75a8491ef730e6dba29651eb87049a791ea09e8685766693da2aeccea3a0d",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -137,12 +137,39 @@
       }
     },
     {
+      "identity" : "skip-fuse-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-fuse-ui.git",
+      "state" : {
+        "revision" : "d27fc109268b21feb98a48bc1a3f4558e162d9ca",
+        "version" : "1.18.1"
+      }
+    },
+    {
       "identity" : "skip-lib",
       "kind" : "remoteSourceControl",
       "location" : "https://source.skip.tools/skip-lib.git",
       "state" : {
         "revision" : "76e7da8a870b5b66ea0c3264f648b58b73bcdc0d",
         "version" : "1.4.0"
+      }
+    },
+    {
+      "identity" : "skip-model",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-model.git",
+      "state" : {
+        "revision" : "54c7914e985e5ae07b1a8fe29e7aac7156b88874",
+        "version" : "1.7.6"
+      }
+    },
+    {
+      "identity" : "skip-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.skip.tools/skip-ui.git",
+      "state" : {
+        "revision" : "ef7bbdd541cdf2efd3ce6ecde72337e1beb92366",
+        "version" : "1.59.1"
       }
     },
     {
@@ -286,7 +313,16 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "49ca17d3cb9c091df1b8803737dde9d335a358ec"
+        "revision" : "cae07c0b1e45f37306f68ccbe84322104bbfe7d0"
+      }
+    },
+    {
+      "identity" : "swift-composable-notifications",
+      "kind" : "remoteSourceControl",
+      "location" : "https://source.woody.fm/swift-composable-notifications",
+      "state" : {
+        "branch" : "main",
+        "revision" : "009d49b2207357f709bba4137d6786103513c947"
       }
     },
     {
@@ -346,7 +382,7 @@
     {
       "identity" : "swift-dependencies-http-client",
       "kind" : "remoteSourceControl",
-      "location" : "https://tangled.org/woody.fm/swift-dependencies-http-client",
+      "location" : "https://source.woody.fm/swift-dependencies-http-client",
       "state" : {
         "branch" : "main",
         "revision" : "ee8d199837ba0528b44a0ba0e7246335aa438c29"
@@ -573,8 +609,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system",
       "state" : {
-        "revision" : "704705c5c51156ede21172a38654d522ce487074",
-        "version" : "1.8.0"
+        "revision" : "869129b7bf4ecc57b97d0193ad29690ca2134750",
+        "version" : "1.8.1"
       }
     },
     {

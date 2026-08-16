@@ -731,7 +731,7 @@ struct TangledWebhookInboxTests {
         expectNoDifference(fcm.request.headerFields[.contentType], "application/json")
         expectNoDifference(
             String(decoding: try #require(fcm.body), as: UTF8.self),
-            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"token":"fixture-wicked-woods-fcm-token"}}"#
+            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-wicked-woods-fcm-token"}}"#
         )
 
         let oauthRequests = await tokenRequests.requests
@@ -943,7 +943,7 @@ struct TangledWebhookInboxTests {
         expectNoDifference(failedRequest.body, retryRequest.body)
         expectNoDifference(
             String(decoding: try #require(retryRequest.body), as: UTF8.self),
-            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"token":"fixture-fcm-registration-token"}}"#
+            #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-fcm-registration-token"}}"#
         )
         let ledger = try reopenedStore.database.read { database in
             try Row.fetchOne(
