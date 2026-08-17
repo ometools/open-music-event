@@ -223,6 +223,9 @@
     "Entering…" : {
 
     },
+    "Environment" : {
+      "comment" : "label for the OME service environment picker"
+    },
     "Error Handling" : {
 
     },
@@ -463,6 +466,12 @@
     "Now" : {
 
     },
+    "OK" : {
+      "comment" : "dismiss button for an environment switch failure alert"
+    },
+    "OpenMusicEvent Services" : {
+      "comment" : "header for advanced OME service environment settings"
+    },
     "Organizer" : {
 
     },
@@ -500,6 +509,9 @@
     },
     "Previous" : {
 
+    },
+    "Production" : {
+      "comment" : "production OME service environment name"
     },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
@@ -541,7 +553,7 @@
 
     },
     "Settings" : {
-      "comment" : "Tab bar item title for the Settings tab",
+      "comment" : "button that opens white-label application settings",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -574,6 +586,12 @@
     },
     "Source import output can only be used with Tangled repositories." : {
 
+    },
+    "Staging" : {
+      "comment" : "staging OME service environment name"
+    },
+    "Switching returns to the app root, uses a separate database, and registers notifications with the selected service." : {
+      "comment" : "explanation below the OME service environment picker"
     },
     "System" : {
       "comment" : "Menu item indicating that the appearance should be in the default system mode",
@@ -707,6 +725,9 @@
     },
     "Unable to store the imported source because a file already exists." : {
 
+    },
+    "Unable to Switch Environment" : {
+      "comment" : "title for an alert shown when changing the OME service environment fails"
     },
     "Unable to upload source to Tangled." : {
 
