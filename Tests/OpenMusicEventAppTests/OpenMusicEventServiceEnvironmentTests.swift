@@ -18,6 +18,30 @@ import XRPCClient
 
 struct OpenMusicEventServiceEnvironmentTests {
     @Test @MainActor
+    func `persisted app delegate restores the selected environment`() throws {
+        let suiteName = "OpenMusicEventServiceEnvironmentTests.persistedDelegate"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        userDefaults.removePersistentDomain(forName: suiteName)
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        userDefaults.set(
+            OpenMusicEventServiceEnvironment.staging.rawValue,
+            forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
+        )
+
+        let appDelegate = try withDependencies {
+            $0.context = .test
+            try $0.bootstrapDatabase()
+        } operation: {
+            OpenMusicEventAppDelegate.persisted(
+                variant: .generic,
+                userDefaults: userDefaults
+            )
+        }
+
+        expectNoDifference(appDelegate.serviceEnvironment, .staging)
+    }
+
+    @Test @MainActor
     func `delegate-backed application root uses the delegate runtime`() throws {
         var dependencies = DependencyValues()
         dependencies.context = .test

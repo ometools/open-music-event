@@ -236,12 +236,7 @@ struct OpenMusicEventApplicationRuntime {
 
     @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        self.init(
-            appDelegate: OpenMusicEventAppDelegate(
-                variant: variant,
-                environment: OpenMusicEventServiceEnvironment.persisted()
-            )
-        )
+        self.init(appDelegate: .persisted(variant: variant))
     }
 
     public var body: some View {
@@ -464,9 +459,8 @@ struct OpenMusicEventApplicationRuntime {
 /// These functions can update a shared observable object to communicate app state changes to interested views.
 @MainActor
 /* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
-    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate(
-        variant: .generic,
-        environment: OpenMusicEventServiceEnvironment.persisted()
+    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate.persisted(
+        variant: .generic
     )
 
     var latestNotificationDestination: Push.Destination?
@@ -489,6 +483,18 @@ struct OpenMusicEventApplicationRuntime {
             environment: environment,
             bootstrapsDatabase: false,
             restoresSelectedEvent: true
+        )
+    }
+
+    public static func persisted(
+        variant: OpenMusicEventAppVariant,
+        userDefaults: UserDefaults = .standard
+    ) -> OpenMusicEventAppDelegate {
+        OpenMusicEventAppDelegate(
+            variant: variant,
+            environment: OpenMusicEventServiceEnvironment.persisted(
+                userDefaults: userDefaults
+            )
         )
     }
 
