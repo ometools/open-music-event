@@ -156,49 +156,51 @@ public struct WhiteLabelRootView: View {
 
     public var body: some View {
         NavigationStack {
-            if let organizationStore = store.spawn(\.organizationDetail) {
-                OrganizationDetailView(store: organizationStore)
-            } else {
-                VStack(spacing: 16) {
-                    if let loadingImage = store.configuration.brand.loadingImage {
-                        Image(loadingImage.name, bundle: Bundle(url: loadingImage.bundleURL))
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 320, maxHeight: 240)
-                            .accessibilityHidden(true)
-                    } else {
-                        Image(systemName: store.configuration.brand.systemImage)
-                            .font(.largeTitle)
+            Group {
+                if let organizationStore = store.spawn(\.organizationDetail) {
+                    OrganizationDetailView(store: organizationStore)
+                } else {
+                    VStack(spacing: 16) {
+                        if let loadingImage = store.configuration.brand.loadingImage {
+                            Image(loadingImage.name, bundle: Bundle(url: loadingImage.bundleURL))
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 320, maxHeight: 240)
+                                .accessibilityHidden(true)
+                        } else {
+                            Image(systemName: store.configuration.brand.systemImage)
+                                .font(.largeTitle)
+                        }
+                        Text(store.configuration.brand.displayName)
+                            .font(.title)
+                        if store.isLoading {
+                            ProgressView()
+                        }
+                        if let errorMessage = store.errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            Button("Try Again") { store.send(.retryButtonTapped) }
+                        }
                     }
-                    Text(store.configuration.brand.displayName)
-                        .font(.title)
-                    if store.isLoading {
-                        ProgressView()
-                    }
-                    if let errorMessage = store.errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button("Try Again") { store.send(.retryButtonTapped) }
-                    }
+                    .padding()
                 }
-                .padding()
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    store.send(.settingsButtonTapped)
-                } label: {
-                    MappedSystemImage(systemName: "gearshape")
-                }
-                .accessibilityLabel(
-                    Text(
-                        "Settings",
-                        bundle: .module,
-                        comment: "button that opens white-label application settings"
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.settingsButtonTapped)
+                    } label: {
+                        MappedSystemImage(systemName: "gearshape")
+                    }
+                    .accessibilityLabel(
+                        Text(
+                            "Settings",
+                            bundle: .module,
+                            comment: "button that opens white-label application settings"
+                        )
                     )
-                )
+                }
             }
         }
         .sheet(item: $store.scope(\.settings, action: \.settings)) { settingsStore in
