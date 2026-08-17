@@ -17,6 +17,34 @@ import XRPCClient
 @testable import OpenMusicEventApp
 
 struct OpenMusicEventServiceEnvironmentTests {
+    @Test @MainActor
+    func `delegate-backed application root uses the delegate runtime`() throws {
+        var dependencies = DependencyValues()
+        dependencies.context = .test
+        try dependencies.bootstrapDatabase()
+        let notificationsClient = NotificationsClient(
+            registerDestination: { _ in },
+            replaceSubscriptions: { _ in },
+            synchronize: {},
+            signals: { AsyncStream { $0.finish() } }
+        )
+        let runtime = makeServiceEnvironmentRuntime(
+            database: dependencies.defaultDatabase,
+            environment: .staging,
+            notificationsClient: notificationsClient
+        )
+        let appDelegate = OpenMusicEventAppDelegate(
+            variant: .generic,
+            environment: .staging,
+            runtime: runtime
+        )
+
+        let root = OpenMusicEventApplicationRootView(appDelegate: appDelegate)
+
+        #expect(root.appDelegate === appDelegate)
+        expectNoDifference(root.activeServiceEnvironment, .staging)
+    }
+
     @Test
     func `production and staging preserve separate application databases`() {
         let applicationSupportURL = URL(

@@ -215,7 +215,11 @@ struct OpenMusicEventApplicationRuntime {
 
     @MainActor
     /* SKIP @bridge */public init() {
-        let appDelegate = OpenMusicEventAppDelegate.shared
+        self.init(appDelegate: OpenMusicEventAppDelegate.shared)
+    }
+
+    @MainActor
+    public init(appDelegate: OpenMusicEventAppDelegate) {
         self.appDelegate = appDelegate
         self._activeServiceEnvironment = State(initialValue: appDelegate.serviceEnvironment)
         self._store = State(initialValue: appDelegate.store)
@@ -232,13 +236,12 @@ struct OpenMusicEventApplicationRuntime {
 
     @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        let appDelegate = OpenMusicEventAppDelegate(
-            variant: variant,
-            environment: OpenMusicEventServiceEnvironment.persisted()
+        self.init(
+            appDelegate: OpenMusicEventAppDelegate(
+                variant: variant,
+                environment: OpenMusicEventServiceEnvironment.persisted()
+            )
         )
-        self.appDelegate = appDelegate
-        self._activeServiceEnvironment = State(initialValue: appDelegate.serviceEnvironment)
-        self._store = State(initialValue: appDelegate.store)
     }
 
     public var body: some View {
