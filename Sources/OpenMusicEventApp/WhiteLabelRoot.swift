@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventWhiteLabel
 #if os(Android)
@@ -189,7 +190,7 @@ public struct WhiteLabelRootView: View {
                 Button {
                     store.send(.settingsButtonTapped)
                 } label: {
-                    Image(systemName: "settings")
+                    MappedSystemImage(systemName: "gearshape")
                 }
                 .accessibilityLabel(
                     Text(
