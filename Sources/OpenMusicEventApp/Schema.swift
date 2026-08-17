@@ -1,6 +1,7 @@
 import BlueskyActorCache
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -14,9 +15,25 @@ public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 extension ExternalPlatform: SQLiteType {}
 let dbLogger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "database")
 
+public extension OpenMusicEventServiceEnvironment {
+    var databaseFileName: String {
+        switch self {
+        case .production:
+            "open-music-event.sqlite"
+        case .staging:
+            "open-music-event-staging.sqlite"
+        }
+    }
+
+    func databaseURL(in applicationSupportURL: URL) -> URL {
+        applicationSupportURL.appendingPathComponent(databaseFileName)
+    }
+}
 
 extension DependencyValues {
-    mutating func bootstrapDatabase() throws {
+    mutating func bootstrapDatabase(
+        environment: OpenMusicEventServiceEnvironment = .production
+    ) throws {
         @Dependency(\.context) var context
 
         var configuration = Configuration()
@@ -47,7 +64,7 @@ extension DependencyValues {
                 at: applicationSupportURL,
                 withIntermediateDirectories: true
             )
-            let databaseURL = applicationSupportURL.appendingPathComponent("open-music-event.sqlite")
+            let databaseURL = environment.databaseURL(in: applicationSupportURL)
             #if DEBUG
             let openDatabaseCommand = "open \(databaseURL.path.shellQuotedForTerminal)"
             logger.debug("\(openDatabaseCommand)")
@@ -120,8 +137,11 @@ private extension String {
 }
 
 public enum OpenMusicEventAppDependencies {
-    public static func prepareDatabase(_ dependencies: inout DependencyValues) throws {
-        try dependencies.bootstrapDatabase()
+    public static func prepareDatabase(
+        _ dependencies: inout DependencyValues,
+        environment: OpenMusicEventServiceEnvironment = .production
+    ) throws {
+        try dependencies.bootstrapDatabase(environment: environment)
     }
 }
 

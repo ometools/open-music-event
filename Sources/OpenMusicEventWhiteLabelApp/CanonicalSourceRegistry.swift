@@ -9,7 +9,7 @@ public enum OpenMusicEvent {
         public static func prepareDependencies(
             _ dependencies: inout DependencyValues
         ) throws {
-            try OME.prepareDependencies(&dependencies)
+            try OME.preparePersistedServiceEnvironmentDependencies(&dependencies)
         }
 
         /// Installs the ordinary OME application dependencies around an existing application

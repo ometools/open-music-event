@@ -101,9 +101,11 @@ extension CalendarEventsClient {
 
     static func openMusicEventPage(
         _ request: CalendarEvent.PageRequest,
-        appViewHost: ATProto.PDSHost = "openmusicevent.app"
+        appViewHost: ATProto.PDSHost? = nil
     ) async throws -> OME.CalendarEvent.Page {
+        @Dependency(\.openMusicEventServiceEnvironment) var serviceEnvironment
         @Dependency(XRPC.Client.self) var xrpcClient
+        let appViewHost = appViewHost ?? serviceEnvironment.appViewHost
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try await withDependencies {
@@ -122,9 +124,11 @@ extension CalendarEventsClient {
 
     static func openMusicEvent(
         _ uri: ATProto.URI,
-        appViewHost: ATProto.PDSHost = "openmusicevent.app"
+        appViewHost: ATProto.PDSHost? = nil
     ) async throws -> OME.CalendarEvent {
+        @Dependency(\.openMusicEventServiceEnvironment) var serviceEnvironment
         @Dependency(XRPC.Client.self) var xrpcClient
+        let appViewHost = appViewHost ?? serviceEnvironment.appViewHost
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try await withDependencies {

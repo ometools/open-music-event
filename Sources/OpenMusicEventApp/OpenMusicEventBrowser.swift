@@ -99,12 +99,26 @@ public struct OpenMusicEventBrowser {
 }
 
 public struct OpenMusicEventBrowserView: View {
-    public init(store: StoreOf<OpenMusicEventBrowser>) {
+    public init(
+        store: StoreOf<OpenMusicEventBrowser>,
+        serviceEnvironment: OpenMusicEventServiceEnvironment,
+        isServiceEnvironmentSelectionEnabled: Bool,
+        isServiceEnvironmentSwitching: Bool,
+        serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
+    ) {
         self.store = store
+        self.serviceEnvironment = serviceEnvironment
+        self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
+        self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
+        self.serviceEnvironmentSelected = serviceEnvironmentSelected
     }
 
     @Bindable var store: StoreOf<OpenMusicEventBrowser>
     @State var tabLayout = TabFeatureLayout()
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isServiceEnvironmentSelectionEnabled: Bool
+    let isServiceEnvironmentSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
     public var body: some View {
         #if os(iOS)
@@ -165,7 +179,11 @@ public struct OpenMusicEventBrowserView: View {
                 navigation: .stack
             ) {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings)
+                    store: store.scope(\.settings, action: \.settings),
+                    serviceEnvironment: serviceEnvironment,
+                    isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
                 )
             }
 
@@ -207,7 +225,11 @@ public struct OpenMusicEventBrowserView: View {
 
             NavigationStack {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings)
+                    store: store.scope(\.settings, action: \.settings),
+                    serviceEnvironment: serviceEnvironment,
+                    isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
                 )
             }
             .tabItem {
@@ -255,7 +277,11 @@ public struct OpenMusicEventBrowserView: View {
 
             NavigationStack {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings)
+                    store: store.scope(\.settings, action: \.settings),
+                    serviceEnvironment: serviceEnvironment,
+                    isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
                 )
             }
             .tabItem {

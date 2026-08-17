@@ -1,6 +1,7 @@
 import Foundation
 import SkipFuse
 import SwiftUI
+import ATProto
 import ATProtoOAuth
 import BlueskyActorCache
 import ComposableCalendarEvents
@@ -63,25 +64,58 @@ public enum OpenMusicEventAppDependencyProfile: Sendable {
     case whiteLabel
 }
 
+extension OpenMusicEventServiceEnvironment {
+    var appViewHost: ATProto.PDSHost {
+        switch self {
+        case .production:
+            "openmusicevent.app"
+        case .staging:
+            "stg.openmusicevent.app"
+        }
+    }
+}
+
 extension OME {
-    public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
-        try dependencies.bootstrapDatabase()
+    public static func prepareDependencies(
+        _ dependencies: inout DependencyValues,
+        environment: OpenMusicEventServiceEnvironment = .production
+    ) throws {
+        try dependencies.bootstrapDatabase(environment: environment)
 
         prepareDependencies(
             &dependencies,
-            database: dependencies.defaultDatabase
+            database: dependencies.defaultDatabase,
+            environment: environment
+        )
+    }
+
+    public static func preparePersistedServiceEnvironmentDependencies(
+        _ dependencies: inout DependencyValues
+    ) throws {
+        try prepareDependencies(
+            &dependencies,
+            environment: OpenMusicEventServiceEnvironment.persisted()
         )
     }
 
     public static func prepareDependencies(
         _ dependencies: inout DependencyValues,
-        database: any DatabaseWriter
+        database: any DatabaseWriter,
+        environment: OpenMusicEventServiceEnvironment = .production
     ) {
         dependencies.defaultDatabase = database
-        dependencies.calendarEvents = .openMusicEventAndAtmo(database: database)
+        dependencies.openMusicEventServiceEnvironment = environment
+        dependencies.calendarEvents = .openMusicEventAndAtmo(
+            database: database,
+            appViewHost: environment.appViewHost
+        )
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        OpenMusicEventNotificationAuthorization.prepareDependencies(
+            &dependencies,
+            environment: environment
+        )
         dependencies.notificationsClient = .http(
-            baseURL: OpenMusicEventNotificationAuthorization.serverURL
+            baseURL: environment.serverURL
         )
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
@@ -162,24 +196,49 @@ struct SelectedEventRestoration {
     }
 }
 
-/* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
+struct OpenMusicEventApplicationRuntime {
+    let notificationsClient: NotificationsClient
     let store: StoreOf<OpenMusicEventApp>
+}
+
+/* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
+    let appDelegate: OpenMusicEventAppDelegate?
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
+    @AppStorage(OpenMusicEventServiceEnvironment.userDefaultsKey)
+    var serviceEnvironmentRawValue = OpenMusicEventServiceEnvironment.production.rawValue
     @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
+    @State var activeServiceEnvironment: OpenMusicEventServiceEnvironment
+    @State var isServiceEnvironmentSwitchErrorPresented = false
+    @State var isServiceEnvironmentSwitching = false
+    @State var serviceEnvironmentSwitchErrorMessage = ""
+    @State var store: StoreOf<OpenMusicEventApp>
 
     @MainActor
     /* SKIP @bridge */public init() {
-        self.store = OpenMusicEventAppDelegate.shared.store
+        let appDelegate = OpenMusicEventAppDelegate.shared
+        self.appDelegate = appDelegate
+        self._activeServiceEnvironment = State(initialValue: appDelegate.serviceEnvironment)
+        self._store = State(initialValue: appDelegate.store)
     }
 
     @MainActor
     public init(store: StoreOf<OpenMusicEventApp>) {
-        self.store = store
+        self.appDelegate = nil
+        self._activeServiceEnvironment = State(
+            initialValue: OpenMusicEventServiceEnvironment.persisted()
+        )
+        self._store = State(initialValue: store)
     }
 
     @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        self.store = Self.makeStore(variant: variant)
+        let appDelegate = OpenMusicEventAppDelegate(
+            variant: variant,
+            environment: OpenMusicEventServiceEnvironment.persisted()
+        )
+        self.appDelegate = appDelegate
+        self._activeServiceEnvironment = State(initialValue: appDelegate.serviceEnvironment)
+        self._store = State(initialValue: appDelegate.store)
     }
 
     public var body: some View {
@@ -195,7 +254,11 @@ struct SelectedEventRestoration {
         )
 
         OpenMusicEventAppRootView(
-            store: applicationContentStore
+            store: applicationContentStore,
+            serviceEnvironment: activeServiceEnvironment,
+            isServiceEnvironmentSelectionEnabled: appDelegate != nil,
+            isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+            serviceEnvironmentSelected: serviceEnvironmentSelected
         )
             .sheet(
                 item: $authenticationStore.scope(
@@ -221,10 +284,33 @@ struct SelectedEventRestoration {
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }
+            .id(activeServiceEnvironment)
+            .alert(
+                String(
+                    localized: "Unable to Switch Environment",
+                    bundle: .module,
+                    comment: "title for an alert shown when changing the OME service environment fails"
+                ),
+                isPresented: $isServiceEnvironmentSwitchErrorPresented
+            ) {
+                Button(
+                    String(
+                        localized: "OK",
+                        bundle: .module,
+                        comment: "dismiss button for an environment switch failure alert"
+                    )
+                ) {}
+            } message: {
+                Text(serviceEnvironmentSwitchErrorMessage)
+            }
 #else
         OpenMusicEventAuthorizationView(store: applicationStore) { rootStore in
             OpenMusicEventAppRootView(
-                store: rootStore
+                store: rootStore,
+                serviceEnvironment: activeServiceEnvironment,
+                isServiceEnvironmentSelectionEnabled: appDelegate != nil,
+                isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                serviceEnvironmentSelected: serviceEnvironmentSelected
             )
         }
             .environment(
@@ -240,42 +326,116 @@ struct SelectedEventRestoration {
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }
+            .id(activeServiceEnvironment)
+            .alert(
+                String(
+                    localized: "Unable to Switch Environment",
+                    bundle: .module,
+                    comment: "title for an alert shown when changing the OME service environment fails"
+                ),
+                isPresented: $isServiceEnvironmentSwitchErrorPresented
+            ) {
+                Button(
+                    String(
+                        localized: "OK",
+                        bundle: .module,
+                        comment: "dismiss button for an environment switch failure alert"
+                    )
+                ) {}
+            } message: {
+                Text(serviceEnvironmentSwitchErrorMessage)
+            }
 #endif
+    }
+
+    func serviceEnvironmentSelected(_ environment: OpenMusicEventServiceEnvironment) {
+        guard environment != activeServiceEnvironment,
+              !isServiceEnvironmentSwitching,
+              let appDelegate
+        else { return }
+
+        isServiceEnvironmentSwitching = true
+        Task {
+            defer { isServiceEnvironmentSwitching = false }
+            do {
+                let replacementStore = try await appDelegate.switchServiceEnvironment(
+                    to: environment
+                )
+                store = replacementStore
+                activeServiceEnvironment = environment
+                serviceEnvironmentRawValue = environment.rawValue
+            } catch {
+                serviceEnvironmentSwitchErrorMessage = String(describing: error)
+                isServiceEnvironmentSwitchErrorPresented = true
+            }
+        }
     }
 
     @MainActor
     public static func makeStore(
-        variant: OpenMusicEventAppVariant
+        variant: OpenMusicEventAppVariant,
+        environment: OpenMusicEventServiceEnvironment = .production
     ) -> StoreOf<OpenMusicEventApp> {
-        let selectedEventRestoration = selectedEventRestoration(for: variant)
-        return withDependencies {
+        try! makeRuntime(
+            variant: variant,
+            environment: environment,
+            bootstrapsDatabase: false,
+            restoresSelectedEvent: true
+        ).store
+    }
+
+    @MainActor
+    static func makeRuntime(
+        variant: OpenMusicEventAppVariant,
+        environment: OpenMusicEventServiceEnvironment,
+        bootstrapsDatabase: Bool,
+        restoresSelectedEvent: Bool
+    ) throws -> OpenMusicEventApplicationRuntime {
+        return try withDependencies {
+            if bootstrapsDatabase {
+                try OME.prepareDependencies(&$0, environment: environment)
+            } else {
+                let database = $0.defaultDatabase
+                OME.prepareDependencies(
+                    &$0,
+                    database: database,
+                    environment: environment
+                )
+            }
             $0.openMusicEventAppConfiguration = variant.appConfiguration
         } operation: {
-            StoreOf<OpenMusicEventApp>(
-                initialState: .init(
-                    content: OpenMusicEventApplication.State(
-                        storage: OpenMusicEventOAuth.storage
-                    ) {
-                        OpenMusicEventAppRoot.State(
-                            variant: variant,
-                            selectedEventIDAtLaunch: selectedEventRestoration.eventID,
-                            workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
-                        )
-                    }
-                )
-            ) {
-                OpenMusicEventApp(
-                    eventTrigger: \OpenMusicEventApplication.State.content.appDelegateEvent,
-                    notificationDestinationTrigger:
-                        \OpenMusicEventApplication.State.content.notificationDestination,
-                    notificationEventTrigger:
-                        \OpenMusicEventApplication.State.content.notificationEvent
+            @Dependency(\.notificationsClient) var notificationsClient
+            let selectedEventRestoration = restoresSelectedEvent
+                ? selectedEventRestoration(for: variant)
+                : SelectedEventRestoration()
+            return OpenMusicEventApplicationRuntime(
+                notificationsClient: notificationsClient,
+                store: StoreOf<OpenMusicEventApp>(
+                    initialState: .init(
+                        content: OpenMusicEventApplication.State(
+                            storage: OpenMusicEventOAuth.storage
+                        ) {
+                            OpenMusicEventAppRoot.State(
+                                variant: variant,
+                                selectedEventIDAtLaunch: selectedEventRestoration.eventID,
+                                workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
+                            )
+                        }
+                    )
                 ) {
-                    OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
-                        OpenMusicEventAppRoot()
+                    OpenMusicEventApp(
+                        eventTrigger: \OpenMusicEventApplication.State.content.appDelegateEvent,
+                        notificationDestinationTrigger:
+                            \OpenMusicEventApplication.State.content.notificationDestination,
+                        notificationEventTrigger:
+                            \OpenMusicEventApplication.State.content.notificationEvent
+                    ) {
+                        OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                            OpenMusicEventAppRoot()
+                        }
                     }
                 }
-            }
+            )
         }
     }
 
@@ -301,12 +461,89 @@ struct SelectedEventRestoration {
 /// These functions can update a shared observable object to communicate app state changes to interested views.
 @MainActor
 /* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
-    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate(variant: .generic)
+    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate(
+        variant: .generic,
+        environment: OpenMusicEventServiceEnvironment.persisted()
+    )
 
-    public let store: StoreOf<OpenMusicEventApp>
+    var latestNotificationDestination: Push.Destination?
+    var runtime: OpenMusicEventApplicationRuntime
+    let variant: OpenMusicEventAppVariant
+    public private(set) var serviceEnvironment: OpenMusicEventServiceEnvironment
 
-    public init(variant: OpenMusicEventAppVariant) {
-        self.store = OpenMusicEventApplicationRootView.makeStore(variant: variant)
+    public var store: StoreOf<OpenMusicEventApp> {
+        runtime.store
+    }
+
+    public init(
+        variant: OpenMusicEventAppVariant,
+        environment: OpenMusicEventServiceEnvironment = .production
+    ) {
+        self.variant = variant
+        self.serviceEnvironment = environment
+        self.runtime = try! OpenMusicEventApplicationRootView.makeRuntime(
+            variant: variant,
+            environment: environment,
+            bootstrapsDatabase: false,
+            restoresSelectedEvent: true
+        )
+    }
+
+    init(
+        variant: OpenMusicEventAppVariant,
+        environment: OpenMusicEventServiceEnvironment,
+        runtime: OpenMusicEventApplicationRuntime
+    ) {
+        self.variant = variant
+        self.serviceEnvironment = environment
+        self.runtime = runtime
+    }
+
+    public func switchServiceEnvironment(
+        to environment: OpenMusicEventServiceEnvironment
+    ) async throws -> StoreOf<OpenMusicEventApp> {
+        guard environment != serviceEnvironment else { return store }
+
+        let replacementRuntime = try OpenMusicEventApplicationRootView.makeRuntime(
+            variant: variant,
+            environment: environment,
+            bootstrapsDatabase: true,
+            restoresSelectedEvent: false
+        )
+        return try await activateServiceEnvironment(
+            environment,
+            replacementRuntime: replacementRuntime
+        )
+    }
+
+    func activateServiceEnvironment(
+        _ environment: OpenMusicEventServiceEnvironment,
+        replacementRuntime: OpenMusicEventApplicationRuntime
+    ) async throws -> StoreOf<OpenMusicEventApp> {
+        try await withDependencies {
+            $0.openMusicEventServiceEnvironment = serviceEnvironment
+            OpenMusicEventNotificationAuthorization.prepareDependencies(
+                &$0,
+                environment: serviceEnvironment
+            )
+        } operation: {
+            try await runtime.notificationsClient.replaceSubscriptions(
+                Set<NotificationSubscription>()
+            )
+        }
+        runtime = replacementRuntime
+        serviceEnvironment = environment
+
+        send(.initialized)
+        send(.launched)
+        send(.resumed)
+        if let latestNotificationDestination {
+            let registration = store.send(
+                .notificationDestination(latestNotificationDestination)
+            )
+            await registration?.value
+        }
+        return store
     }
 
     /* SKIP @bridge */public func onInit() {
@@ -345,15 +582,15 @@ struct SelectedEventRestoration {
         )
 #endif
         let value = deviceToken.map { String(format: "%02x", $0) }.joined()
-        store.send(
-            .notificationDestination(
-                .apns(
-                    Push.APNS(
-                        applicationID: .init(rawValue: bundleIdentifier),
-                        deviceToken: .init(rawValue: value)
-                    )
-                )
+        let destination = Push.Destination.apns(
+            Push.APNS(
+                applicationID: .init(rawValue: bundleIdentifier),
+                deviceToken: .init(rawValue: value)
             )
+        )
+        latestNotificationDestination = destination
+        store.send(
+            .notificationDestination(destination)
         )
     }
 

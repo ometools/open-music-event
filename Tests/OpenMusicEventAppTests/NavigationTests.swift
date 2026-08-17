@@ -7374,7 +7374,13 @@ struct NavigationTests {
 
         // Evaluate the production root view so its presentation must scope through the child
         // installed by OpenMusicEventAppRoot.Destination.body.
-        _ = OpenMusicEventAppRootView(store: store).body
+        _ = OpenMusicEventAppRootView(
+            store: store,
+            serviceEnvironment: .production,
+            isServiceEnvironmentSelectionEnabled: false,
+            isServiceEnvironmentSwitching: false,
+            serviceEnvironmentSelected: { _ in }
+        ).body
 
         let presentation = $store
             .scope(\.destination, action: \.destination)

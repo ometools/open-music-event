@@ -202,6 +202,35 @@ struct WhiteLabelRootTests {
         #expect(store.errorMessage == nil)
     }
 
+    @Test
+    func `white label exposes the shared application settings`() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.openMusicEventAppConfiguration = .wickedWoods
+            $0.whiteLabelOrganizerIdentityResolver = .init { _ in organizerID }
+        } operation: {
+            Store(
+                initialState: WhiteLabelRoot.State(
+                    configuration: WickedWoodsWhiteLabel.configuration(
+                        organizerID: organizerID
+                    )
+                )
+            ) {
+                WhiteLabelRoot()
+            }
+        }
+
+        store.send(.settingsButtonTapped)
+
+        #expect(store.settings != nil)
+        withExtendedLifetime(store) {}
+    }
+
 }
 
 @MainActor

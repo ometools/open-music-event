@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
+import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import OpenMusicEventWhiteLabel
 #if os(Android)
@@ -23,10 +24,13 @@ public struct WhiteLabelRoot {
         public var errorMessage: String?
         public var isLoading = false
         public var organizationDetail: Spawn<OrganizationDetail>?
+        public var settings: Settings.State?
     }
 
     public enum Action {
         case retryButtonTapped
+        case settings(Settings.Action)
+        case settingsButtonTapped
         case task
     }
 
@@ -65,6 +69,12 @@ public struct WhiteLabelRoot {
                         )
                     }
                 }
+
+            case .settings:
+                break
+
+            case .settingsButtonTapped:
+                state.settings = Settings.State()
             }
         }
         .onMount { state in
@@ -100,6 +110,9 @@ public struct WhiteLabelRoot {
         .ifLet(\.organizationDetail) {
             OrganizationDetail()
         }
+        .ifLet(\.settings, action: \.settings) {
+            Settings()
+        }
     }
 
     private static func organizerID(
@@ -120,11 +133,25 @@ public struct WhiteLabelRoot {
 }
 
 public struct WhiteLabelRootView: View {
-    public init(store: StoreOf<WhiteLabelRoot>) {
+    public init(
+        store: StoreOf<WhiteLabelRoot>,
+        serviceEnvironment: OpenMusicEventServiceEnvironment,
+        isServiceEnvironmentSelectionEnabled: Bool,
+        isServiceEnvironmentSwitching: Bool,
+        serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
+    ) {
         self.store = store
+        self.serviceEnvironment = serviceEnvironment
+        self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
+        self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
+        self.serviceEnvironmentSelected = serviceEnvironmentSelected
     }
 
     @Bindable var store: StoreOf<WhiteLabelRoot>
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isServiceEnvironmentSelectionEnabled: Bool
+    let isServiceEnvironmentSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
     public var body: some View {
         NavigationStack {
@@ -155,6 +182,33 @@ public struct WhiteLabelRootView: View {
                     }
                 }
                 .padding()
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    store.send(.settingsButtonTapped)
+                } label: {
+                    Image(systemName: "settings")
+                }
+                .accessibilityLabel(
+                    Text(
+                        "Settings",
+                        bundle: .module,
+                        comment: "button that opens white-label application settings"
+                    )
+                )
+            }
+        }
+        .sheet(item: $store.scope(\.settings, action: \.settings)) { settingsStore in
+            NavigationStack {
+                SettingsFeatureView(
+                    store: settingsStore,
+                    serviceEnvironment: serviceEnvironment,
+                    isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
+                )
             }
         }
     }

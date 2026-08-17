@@ -446,14 +446,34 @@ public struct OpenMusicEventAppRoot {
 extension OpenMusicEventAppRoot.State: ErrorNotificationRootState {}
 
 public struct OpenMusicEventAppRootView: View {
-    public init(store: StoreOf<OpenMusicEventAppRoot>) {
+    public init(
+        store: StoreOf<OpenMusicEventAppRoot>,
+        serviceEnvironment: OpenMusicEventServiceEnvironment,
+        isServiceEnvironmentSelectionEnabled: Bool,
+        isServiceEnvironmentSwitching: Bool,
+        serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
+    ) {
         self.store = store
+        self.serviceEnvironment = serviceEnvironment
+        self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
+        self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
+        self.serviceEnvironmentSelected = serviceEnvironmentSelected
     }
 
     @Bindable var store: StoreOf<OpenMusicEventAppRoot>
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isServiceEnvironmentSelectionEnabled: Bool
+    let isServiceEnvironmentSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
     public var body: some View {
-        OpenMusicEventAppSurfaceView(store: store)
+        OpenMusicEventAppSurfaceView(
+            store: store,
+            serviceEnvironment: serviceEnvironment,
+            isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+            isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+            serviceEnvironmentSelected: serviceEnvironmentSelected
+        )
         .overlay {
             if let eventEntry = store.eventEntry {
                 EventEntryView(
@@ -503,23 +523,47 @@ public struct OpenMusicEventAppRootView: View {
 }
 
 struct OpenMusicEventAppSurfaceView: View {
-    init(store: StoreOf<OpenMusicEventAppRoot>) {
+    init(
+        store: StoreOf<OpenMusicEventAppRoot>,
+        serviceEnvironment: OpenMusicEventServiceEnvironment,
+        isServiceEnvironmentSelectionEnabled: Bool,
+        isServiceEnvironmentSwitching: Bool,
+        serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
+    ) {
         self.store = store
+        self.serviceEnvironment = serviceEnvironment
+        self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
+        self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
+        self.serviceEnvironmentSelected = serviceEnvironmentSelected
     }
 
     @Bindable var store: StoreOf<OpenMusicEventAppRoot>
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isServiceEnvironmentSelectionEnabled: Bool
+    let isServiceEnvironmentSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
     var body: some View {
         Group {
             switch store.variant {
             case .generic:
                 OpenMusicEventBrowserView(
-                    store: store.scope(\.browser, action: \.browser)
+                    store: store.scope(\.browser, action: \.browser),
+                    serviceEnvironment: serviceEnvironment,
+                    isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
                 )
 
             case .whiteLabel:
                 if let whiteLabelStore = store.spawn(\.whiteLabelRoot) {
-                    WhiteLabelRootView(store: whiteLabelStore)
+                    WhiteLabelRootView(
+                        store: whiteLabelStore,
+                        serviceEnvironment: serviceEnvironment,
+                        isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                        isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
+                        serviceEnvironmentSelected: serviceEnvironmentSelected
+                    )
                 } else {
                     EmptyView()
                 }

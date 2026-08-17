@@ -117,10 +117,25 @@ public struct Settings {
 public struct SettingsFeatureView: View {
     @Bindable var store: StoreOf<Settings>
     @Bindable var accountStore: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isServiceEnvironmentSelectionEnabled: Bool
+    let isServiceEnvironmentSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
-    public init(store: StoreOf<Settings>) {
+    public init(
+        store: StoreOf<Settings>,
+        serviceEnvironment: OpenMusicEventServiceEnvironment,
+        isServiceEnvironmentSelectionEnabled: Bool,
+        isServiceEnvironmentSwitching: Bool,
+        serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
+    ) {
         self.store = store
         self.accountStore = store.spawn(\.account)
+        self.serviceEnvironment = serviceEnvironment
+        self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
+        self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
+        self.serviceEnvironmentSelected = serviceEnvironmentSelected
     }
 
     public var body: some View {
@@ -146,6 +161,15 @@ public struct SettingsFeatureView: View {
             }
 
             TechnicalDetailsSettingsSection()
+
+            if showsTechnicalDetails {
+                OpenMusicEventServiceEnvironmentSettingsSection(
+                    serviceEnvironment: serviceEnvironment,
+                    isSelectionEnabled: isServiceEnvironmentSelectionEnabled,
+                    isSwitching: isServiceEnvironmentSwitching,
+                    serviceEnvironmentSelected: serviceEnvironmentSelected
+                )
+            }
 
             Section("Error Handling") {
                 Button {
@@ -176,6 +200,91 @@ public struct SettingsFeatureView: View {
             UserInputFeedbackBoardView(store: feedbackBoardStore)
         }
         .navigationTitle("Settings")
+    }
+}
+
+struct OpenMusicEventServiceEnvironmentSettingsSection: View {
+    let serviceEnvironment: OpenMusicEventServiceEnvironment
+    let isSelectionEnabled: Bool
+    let isSwitching: Bool
+    let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
+
+    var body: some View {
+        Section {
+            Menu {
+                Button {
+                    serviceEnvironmentSelected(.production)
+                } label: {
+                    HStack {
+                        OpenMusicEventServiceEnvironmentName(environment: .production)
+                        if serviceEnvironment == .production {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+
+                Button {
+                    serviceEnvironmentSelected(.staging)
+                } label: {
+                    HStack {
+                        OpenMusicEventServiceEnvironmentName(environment: .staging)
+                        if serviceEnvironment == .staging {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            } label: {
+                Label {
+                    HStack {
+                        Text(
+                            "Environment",
+                            bundle: .module,
+                            comment: "label for the OME service environment picker"
+                        )
+                        Spacer()
+                        OpenMusicEventServiceEnvironmentName(
+                            environment: serviceEnvironment
+                        )
+                    }
+                } icon: {
+                    Image(systemName: "server")
+                }
+            }
+            .disabled(!isSelectionEnabled || isSwitching)
+        } header: {
+            Text(
+                "OpenMusicEvent Services",
+                bundle: .module,
+                comment: "header for advanced OME service environment settings"
+            )
+        } footer: {
+            Text(
+                "Switching returns to the app root, uses a separate database, and registers notifications with the selected service.",
+                bundle: .module,
+                comment: "explanation below the OME service environment picker"
+            )
+        }
+    }
+}
+
+struct OpenMusicEventServiceEnvironmentName: View {
+    let environment: OpenMusicEventServiceEnvironment
+
+    var body: some View {
+        switch environment {
+        case .production:
+            Text(
+                "Production",
+                bundle: .module,
+                comment: "production OME service environment name"
+            )
+        case .staging:
+            Text(
+                "Staging",
+                bundle: .module,
+                comment: "staging OME service environment name"
+            )
+        }
     }
 }
 
