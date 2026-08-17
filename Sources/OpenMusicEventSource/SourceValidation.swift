@@ -7,17 +7,20 @@ import OpenMusicEventSourceClone
 public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
     public var source: String
     public var organizerID: OME.Organizer.ID?
+    public var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance?
     public var ref: String
     public var outputURL: URL?
 
     public init(
         source: String,
         organizerID: OME.Organizer.ID? = nil,
+        sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance? = nil,
         ref: String = "HEAD",
         outputURL: URL? = nil
     ) {
         self.source = source
         self.organizerID = organizerID
+        self.sourceProvenance = sourceProvenance
         self.ref = ref
         self.outputURL = outputURL
     }
@@ -28,6 +31,9 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
     }
 
     public func tangledSourceProvenance() throws -> OME.SourceDatabaseInsertion.SourceProvenance? {
+        if let sourceProvenance {
+            return sourceProvenance
+        }
         switch try SourceRepositoryLocation(parsing: source) {
         case .local:
             return nil
@@ -94,10 +100,11 @@ public struct OpenMusicEventSourceValidator: Sendable {
         let location = try SourceRepositoryLocation(parsing: request.source)
         let organizerID = try await resolvedOrganizerID(for: location)
         let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL(for: location)
-        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
-            location: location,
-            ref: request.resolvedRef
-        )
+        let sourceProvenance = request.sourceProvenance
+            ?? OME.SourceDatabaseInsertion.SourceProvenance(
+                location: location,
+                ref: request.resolvedRef
+            )
         defer {
             if let cleanupURL {
                 try? FileManager.default.removeItem(at: cleanupURL)

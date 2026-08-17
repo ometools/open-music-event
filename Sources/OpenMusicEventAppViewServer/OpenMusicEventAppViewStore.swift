@@ -458,25 +458,25 @@ private struct WebhookSecretRow: Equatable, Sendable {
 struct TangledSourceCheckpoint: Equatable, Sendable {
     fileprivate init(_ row: TangledSourceRevisionRow) {
         watchID = .init(rawValue: row.watchID)
-        repositoryDID = row.repositoryDID
+        repositoryOwnerDID = row.repositoryOwnerDID
         repositoryKey = row.repositoryKey
         ref = row.ref
-        sourceID = row.sourceID
+        canonicalSourceReference = row.canonicalSourceReference
         revision = row.revision
     }
 
     let watchID: WebhookInboxDelivery.WatchID
-    let repositoryDID: String
+    let repositoryOwnerDID: String
     let repositoryKey: String
     let ref: String
-    let sourceID: String
+    let canonicalSourceReference: String
     let revision: String
 
     func validateWatch(for update: TangledSourceUpdate) throws {
-        guard repositoryDID == update.repositoryDID.description,
+        guard repositoryOwnerDID == update.repositoryOwnerDID.description,
               repositoryKey == update.repositoryKey.rawValue,
               ref == update.ref,
-              sourceID == update.source.id.rawValue
+              canonicalSourceReference == update.canonicalSource.reference
         else {
             throw OpenMusicEventAppViewStoreError.tangledSourceWatchMismatch(
                 watchID: update.watchID.rawValue
@@ -488,18 +488,18 @@ struct TangledSourceCheckpoint: Equatable, Sendable {
 @Table("tangledSourceRevisions")
 private struct TangledSourceRevisionRow: Equatable, Sendable {
     @Column(primaryKey: true) var watchID: String
-    var repositoryDID: String
+    @Column("repositoryDID") var repositoryOwnerDID: String
     var repositoryKey: String
     var ref: String
-    var sourceID: String
+    @Column("sourceID") var canonicalSourceReference: String
     var revision: String
 
     init(update: TangledSourceUpdate) {
         watchID = update.watchID.rawValue
-        repositoryDID = update.repositoryDID.description
+        repositoryOwnerDID = update.repositoryOwnerDID.description
         repositoryKey = update.repositoryKey.rawValue
         ref = update.ref
-        sourceID = update.source.id.rawValue
+        canonicalSourceReference = update.canonicalSource.reference
         revision = update.after
     }
 

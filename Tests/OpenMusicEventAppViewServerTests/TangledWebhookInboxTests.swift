@@ -1,6 +1,7 @@
 import ATProto
 import ComposableNotifications
 import ComposableNotificationsHTTP
+import ComposableNotificationsServer
 import CustomDump
 import Dependencies
 import Foundation
@@ -9,11 +10,110 @@ import Hummingbird
 import HummingbirdTesting
 import HTTPClient
 import HTTPTypes
+import OpenMusicEventLexicon
 @testable import OpenMusicEventAppViewServer
 import Testing
 
 @Suite(.serialized)
 struct TangledWebhookInboxTests {
+    @Test
+    func `configuration supports independent repository owners and canonical sources`() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let configurationURL = directory.appending(path: "tangled-webhooks.json")
+        try Data(
+            """
+            {
+              "watches": [
+                {
+                  "id": "staging-owner/wicked-woods#refs/heads/main",
+                  "hookID": 42,
+                  "repositoryOwnerDID": "did:plc:staging-owner",
+                  "repositoryKey": "wicked-woods-staging",
+                  "ref": "refs/heads/main",
+                  "canonicalSource": {
+                    "organizerID": "did:plc:wickedwoods",
+                    "repositoryRecordKey": "ome-workspace"
+                  }
+                },
+                {
+                  "id": "other-owner/other-event#refs/heads/release",
+                  "hookID": 43,
+                  "repositoryOwnerDID": "did:plc:other-owner",
+                  "repositoryKey": "other-event-release",
+                  "ref": "refs/heads/release",
+                  "canonicalSource": {
+                    "organizerID": "did:plc:other-organizer",
+                    "repositoryRecordKey": "other-event"
+                  }
+                }
+              ]
+            }
+            """.utf8
+        )
+        .write(to: configurationURL)
+        let keyURL = directory.appending(path: "webhook-secret-key")
+        try Data(Self.protectionKey.base64EncodedString().utf8).write(to: keyURL)
+
+        let configuration = try AppViewConfiguration.fromEnvironment(
+            environment: [
+                "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL.path(percentEncoded: false),
+                "OME_WEBHOOK_SECRET_KEY_PATH": keyURL.path(percentEncoded: false),
+            ]
+        )
+
+        let watches = try #require(configuration.tangledWebhook).watches
+        expectNoDifference(
+            watches,
+            [
+                TangledWebhookWatch(
+                    id: .init(rawValue: "staging-owner/wicked-woods#refs/heads/main"),
+                    hookID: 42,
+                    repositoryOwnerDID: try #require(DID("did:plc:staging-owner")),
+                    repositoryKey: .init(rawValue: "wicked-woods-staging"),
+                    ref: "refs/heads/main",
+                    canonicalSource: CanonicalTangledSource(
+                        organizerID: try #require(OME.Organizer.ID("did:plc:wickedwoods")),
+                        repositoryRecordKey: .init(rawValue: "ome-workspace")
+                    )
+                ),
+                TangledWebhookWatch(
+                    id: .init(rawValue: "other-owner/other-event#refs/heads/release"),
+                    hookID: 43,
+                    repositoryOwnerDID: try #require(DID("did:plc:other-owner")),
+                    repositoryKey: .init(rawValue: "other-event-release"),
+                    ref: "refs/heads/release",
+                    canonicalSource: CanonicalTangledSource(
+                        organizerID: try #require(OME.Organizer.ID("did:plc:other-organizer")),
+                        repositoryRecordKey: .init(rawValue: "other-event")
+                    )
+                ),
+            ]
+        )
+
+        let duplicateCanonicalSource = TangledWebhookWatch(
+            id: .init(rawValue: "third-owner/wicked-woods#refs/heads/main"),
+            hookID: 44,
+            repositoryOwnerDID: try #require(DID("did:plc:third-owner")),
+            repositoryKey: .init(rawValue: "another-wicked-woods-fork"),
+            ref: "refs/heads/main",
+            canonicalSource: watches[0].canonicalSource
+        )
+        expectNoDifference(
+            #expect(throws: TangledWebhookConfigurationError.self) {
+                try TangledWebhookConfiguration(
+                    watches: watches + [duplicateCanonicalSource]
+                )
+            },
+            .duplicateCanonicalSource(
+                "at://did:plc:wickedwoods/sh.tangled.repo/ome-workspace"
+            )
+        )
+    }
+
     @Test
     func `configured webhook intake requires AppView persistence`() throws {
         #expect(throws: OpenMusicEventAppViewServerError.tangledWebhookRequiresDatabase) {
@@ -40,10 +140,13 @@ struct TangledWebhookInboxTests {
               "watches": [{
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
-                "repositoryDID": "\(Self.repositoryDID)",
+                "repositoryOwnerDID": "\(Self.repositoryDID)",
                 "repositoryKey": "\(Self.repositoryKey)",
                 "ref": "refs/heads/main",
-                "sourceID": "\(Self.sourceID.rawValue)"
+                "canonicalSource": {
+                  "organizerID": "\(Self.canonicalOrganizerID)",
+                  "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
+                }
               }]
             }
             """.utf8
@@ -101,15 +204,15 @@ struct TangledWebhookInboxTests {
             TangledSourceUpdate(
                 watchID: Self.watchID,
                 deliveryID: .init(rawValue: Self.deliveryID),
-                repositoryDID: try #require(DID(Self.repositoryDID)),
+                repositoryOwnerDID: try #require(DID(Self.repositoryDID)),
                 repositoryKey: ATProto.Record.Key(rawValue: Self.repositoryKey),
                 ref: "refs/heads/main",
                 before: "1111111111111111111111111111111111111111",
                 after: "2222222222222222222222222222222222222222",
                 receivedAt: Self.receivedAt,
-                source: NotificationSource(
-                    id: Self.sourceID,
-                    version: .init(rawValue: "2222222222222222222222222222222222222222")
+                canonicalSource: CanonicalTangledSource(
+                    organizerID: try #require(OME.Organizer.ID(Self.canonicalOrganizerID)),
+                    repositoryRecordKey: .init(rawValue: Self.canonicalRepositoryRecordKey)
                 )
             )
         )
@@ -141,10 +244,13 @@ struct TangledWebhookInboxTests {
               "watches": [{
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
-                "repositoryDID": "\(Self.repositoryDID)",
+                "repositoryOwnerDID": "\(Self.repositoryDID)",
                 "repositoryKey": "\(Self.repositoryKey)",
                 "ref": "refs/heads/main",
-                "sourceID": "\(Self.sourceID.rawValue)"
+                "canonicalSource": {
+                  "organizerID": "\(Self.canonicalOrganizerID)",
+                  "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
+                }
               }]
             }
             """.utf8
@@ -1100,6 +1206,8 @@ private extension TangledWebhookInboxTests {
     static let repositoryDID = "did:plc:5df2u7ief6m6tn77jznicxob"
     static let repositoryKey = "ome-workspace"
     static let repositoryFullName = "\(repositoryDID)/\(repositoryKey)"
+    static let canonicalOrganizerID = "did:plc:wickedwoods"
+    static let canonicalRepositoryRecordKey = "wicked-woods-source"
     static let watchID = WebhookInboxDelivery.WatchID(
         rawValue: "wickedwoods.ca/ome-workspace#refs/heads/main"
     )
@@ -1216,7 +1324,16 @@ private extension TangledWebhookInboxTests {
         withDependencies {
             $0.defaultDatabase = store.database
         } operation: {
-            .notificationOutbox()
+            let database = NotificationDatabase()
+            return TangledSourceUpdateProcessor { update in
+                try await database.enqueue(
+                    source: NotificationSource(
+                        id: sourceID,
+                        version: .init(rawValue: update.after)
+                    ),
+                    at: update.receivedAt
+                )
+            }
         }
     }
 
@@ -1224,10 +1341,13 @@ private extension TangledWebhookInboxTests {
         TangledWebhookWatch(
             id: watchID,
             hookID: hookID,
-            repositoryDID: try #require(DID(repositoryDID)),
+            repositoryOwnerDID: try #require(DID(repositoryDID)),
             repositoryKey: ATProto.Record.Key(rawValue: repositoryKey),
             ref: "refs/heads/main",
-            sourceID: sourceID
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
+                repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
+            )
         )
     }
 

@@ -8,40 +8,40 @@ import OpenMusicEventSource
 /// One verified Tangled repository revision that may advance an application source.
 ///
 /// This value is the boundary between Tangled webhook intake and source projection. The AppView
-/// processor checks out the exact revisions, validates the configured event, and advances its
-/// durable communication-post projection before announcing changed channels.
+/// processor checks out the exact revisions, validates every event in the canonical source, and
+/// advances its durable communication-post projection before announcing changed channels.
 public struct TangledSourceUpdate: Equatable, Sendable {
     public init(
         watchID: WebhookInboxDelivery.WatchID,
         deliveryID: WebhookInboxDelivery.DeliveryID,
-        repositoryDID: DID,
+        repositoryOwnerDID: DID,
         repositoryKey: ATProto.Record.Key,
         ref: String,
         before: String,
         after: String,
         receivedAt: Date,
-        source: NotificationSource
+        canonicalSource: CanonicalTangledSource
     ) {
         self.watchID = watchID
         self.deliveryID = deliveryID
-        self.repositoryDID = repositoryDID
+        self.repositoryOwnerDID = repositoryOwnerDID
         self.repositoryKey = repositoryKey
         self.ref = ref
         self.before = before
         self.after = after
         self.receivedAt = receivedAt
-        self.source = source
+        self.canonicalSource = canonicalSource
     }
 
     public let watchID: WebhookInboxDelivery.WatchID
     public let deliveryID: WebhookInboxDelivery.DeliveryID
-    public let repositoryDID: DID
+    public let repositoryOwnerDID: DID
     public let repositoryKey: ATProto.Record.Key
     public let ref: String
     public let before: String
     public let after: String
     public let receivedAt: Date
-    public let source: NotificationSource
+    public let canonicalSource: CanonicalTangledSource
 }
 
 /// Host-installed processing for a verified Tangled source update.
@@ -56,14 +56,6 @@ public struct TangledSourceUpdateProcessor: Sendable {
         process: @escaping @Sendable (TangledSourceUpdate) async throws -> Void
     ) {
         self.process = process
-    }
-
-    public static func notificationOutbox(
-        database: NotificationDatabase = NotificationDatabase()
-    ) -> Self {
-        Self { update in
-            try await database.enqueue(source: update.source, at: update.receivedAt)
-        }
     }
 
     /// Projects communication post identities from exact Tangled revisions and only announces
@@ -118,38 +110,19 @@ struct TangledSourceSnapshot: Equatable, Sendable {
         update: TangledSourceUpdate,
         revision: String
     ) async throws -> Self {
-        guard let organizerID = OME.Organizer.ID(update.repositoryDID.description) else {
-            throw TangledSourceProjectionError.invalidOrganizer(update.repositoryDID.description)
-        }
-        let repository = "at://\(update.repositoryDID)/sh.tangled.repo/\(update.repositoryKey.rawValue)"
+        let repository =
+            "at://\(update.repositoryOwnerDID)/sh.tangled.repo/\(update.repositoryKey.rawValue)"
         let result = try await OpenMusicEventSourceValidator(
             OpenMusicEventSourceValidationRequest(
                 source: repository,
-                organizerID: organizerID,
+                organizerID: update.canonicalSource.organizerID,
+                sourceProvenance: update.canonicalSource.provenance(ref: revision),
                 ref: revision
             )
         )
         .validate()
-        guard let eventID = result.insertedEventIDs.first(where: {
-            OME.Event.reference(id: $0).uri.description == update.source.id.rawValue
-        }) else {
-            throw TangledSourceProjectionError.eventNotFound(
-                sourceID: update.source.id.rawValue,
-                revision: revision
-            )
-        }
-        let posts: [OME.SourceDatabaseInsertion.CommunicationPost] =
-            result.insertion.communicationPosts.filter {
-                $0.id.organizerID == eventID.organizerID
-                    && $0.id.eventID == eventID.eventID
-            }
-        return Self(revision: revision, posts: posts)
+        return Self(revision: revision, posts: result.insertion.communicationPosts)
     }
-}
-
-enum TangledSourceProjectionError: Error, Equatable, Sendable {
-    case eventNotFound(sourceID: String, revision: String)
-    case invalidOrganizer(String)
 }
 
 private extension String {

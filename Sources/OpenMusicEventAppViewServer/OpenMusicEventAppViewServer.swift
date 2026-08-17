@@ -432,11 +432,15 @@ public enum OpenMusicEventAppViewServer {
                         context.logger.info(
                             "Tangled source update processed",
                             metadata: [
-                                "notification.source.id": .string(
-                                    reception.sourceUpdate.source.id.rawValue
+                                "notification.source.reference": .string(
+                                    reception.sourceUpdate.canonicalSource.reference
                                 ),
-                                "notification.source.version": .string(
-                                    reception.sourceUpdate.source.version.rawValue
+                                "notification.source.revision": .string(
+                                    reception.sourceUpdate.after
+                                ),
+                                "tangled.repository": .string(
+                                    "\(reception.sourceUpdate.repositoryOwnerDID)/"
+                                        + reception.sourceUpdate.repositoryKey.rawValue
                                 ),
                                 "webhook.delivery.id": .string(
                                     reception.sourceUpdate.deliveryID.rawValue

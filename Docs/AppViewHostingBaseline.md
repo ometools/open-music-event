@@ -180,21 +180,32 @@ metadata in the public server-configuration repository, for example:
 ```json
 {
   "watches": [{
-    "id": "wickedwoods.ca/ome-workspace#refs/heads/main",
+    "id": "woody.fm/wicked-woods-ome-stg#refs/heads/main",
     "hookID": 123,
-    "repositoryDID": "did:plc:5df2u7ief6m6tn77jznicxob",
-    "repositoryKey": "ome-workspace",
+    "repositoryOwnerDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+    "repositoryKey": "wicked-woods-ome-stg",
     "ref": "refs/heads/main",
-    "sourceID": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026"
+    "canonicalSource": {
+      "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
+      "repositoryRecordKey": "ome-workspace"
+    }
   }]
 }
 ```
 
-The numeric `hookID` is assigned by Tangled; replace `123` with the created hook's ID. The public
-`sourceID` must exactly match the source ID published by the app's mounted event feature, normally
-the event's canonical AT URI. AppView checks out and validates the exact Tangled revisions, stores
-the current revision plus communication-post identities in its primary SQLite database, and
-transactionally enqueues a source-available signal for each channel that gained a post. Only
+The numeric `hookID` is assigned by Tangled; replace `123` with the created hook's ID. `id` is the
+AppView's stable local key for this physical watch and its checkpoint; conventionally use the
+Tangled repository path plus ref. It is not an organizer or source identity. The public watch
+separates the remaining two identities. `repositoryOwnerDID`, `repositoryKey`, and `ref` identify
+the physical Tangled repository that signs the webhook and supplies bytes. `canonicalSource`
+identifies the organizer and `sh.tangled.repo` record whose stable namespace those bytes represent.
+This lets staging watch a fork without changing the organizer, event, channel, or post IDs seen by
+clients. One source repository can contain multiple events; AppView projects all of them. Configure
+at most one authoritative physical watch for the same canonical source in an environment.
+
+AppView checks out and validates the exact Tangled revisions, stores the current revision plus
+communication-post identities in its primary SQLite database, and transactionally enqueues a
+source-available signal for each channel that gained a post. Only
 installations subscribed to that canonical channel route receive the signal. The first processed
 push compares `before` and `after`, so posts that already existed before AppView was deployed do not
 produce a historical notification burst; a replay of the same `after` revision performs no source
@@ -253,7 +264,12 @@ credential fingerprints:
 
 ```sh
 sqlite3 /srv/ome-appview/data/canary/open-music-event-appview.sqlite \
-  'SELECT watchID, repositoryDID, repositoryKey, ref, sourceID, revision
+  'SELECT watchID,
+          repositoryDID AS repositoryOwnerDID,
+          repositoryKey,
+          ref,
+          sourceID AS canonicalSourceReference,
+          revision
    FROM tangledSourceRevisions;
    SELECT sourceID, sourceVersion, reason, failedAttempts,
           lastAttemptAt, nextAttemptAt, deliveredAt

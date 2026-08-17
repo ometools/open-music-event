@@ -2,37 +2,66 @@ import ATProto
 import ComposableNotifications
 import Crypto
 import Foundation
+import OpenMusicEventLexicon
+import OpenMusicEventSource
 
 public enum TangledWebhookEndpoint {
     public static let path = "/webhooks/tangled"
+}
+
+/// The stable OME identity assigned to source bytes, independent of which Tangled repository
+/// physically supplies those bytes in a particular environment.
+public struct CanonicalTangledSource: Equatable, Hashable, Sendable {
+    public init(
+        organizerID: OME.Organizer.ID,
+        repositoryRecordKey: ATProto.Record.Key
+    ) {
+        self.organizerID = organizerID
+        self.repositoryRecordKey = repositoryRecordKey
+    }
+
+    public let organizerID: OME.Organizer.ID
+    public let repositoryRecordKey: ATProto.Record.Key
+
+    public var reference: String {
+        "at://\(organizerID)/sh.tangled.repo/\(repositoryRecordKey.rawValue)"
+    }
+
+    func provenance(ref: String) -> OME.SourceDatabaseInsertion.SourceProvenance {
+        OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: reference,
+            ref: ref
+        )
+    }
 }
 
 public struct TangledWebhookWatch: Equatable, Sendable {
     public init(
         id: WebhookInboxDelivery.WatchID,
         hookID: Int64,
-        repositoryDID: DID,
+        repositoryOwnerDID: DID,
         repositoryKey: ATProto.Record.Key,
         ref: String,
-        sourceID: NotificationSource.ID
+        canonicalSource: CanonicalTangledSource
     ) {
         self.id = id
         self.hookID = hookID
-        self.repositoryDID = repositoryDID
+        self.repositoryOwnerDID = repositoryOwnerDID
         self.repositoryKey = repositoryKey
         self.ref = ref
-        self.sourceID = sourceID
+        self.canonicalSource = canonicalSource
     }
 
     public let id: WebhookInboxDelivery.WatchID
     public let hookID: Int64
-    public let repositoryDID: DID
+    public let repositoryOwnerDID: DID
     public let repositoryKey: ATProto.Record.Key
     public let ref: String
-    public let sourceID: NotificationSource.ID
+    public let canonicalSource: CanonicalTangledSource
 
     var repositoryFullName: String {
-        "\(repositoryDID.description)/\(repositoryKey.rawValue)"
+        "\(repositoryOwnerDID.description)/\(repositoryKey.rawValue)"
     }
 }
 
@@ -40,12 +69,25 @@ public struct TangledWebhookConfiguration: Sendable {
     public init(watches: [TangledWebhookWatch]) throws {
         var watchesByHookID: [Int64: TangledWebhookWatch] = [:]
         var watchIDs: Set<WebhookInboxDelivery.WatchID> = []
+        var repositoryReferences: Set<String> = []
+        var canonicalSourceReferences: Set<String> = []
         for watch in watches {
             guard watchesByHookID.updateValue(watch, forKey: watch.hookID) == nil else {
                 throw TangledWebhookConfigurationError.duplicateHookID(watch.hookID)
             }
             guard watchIDs.insert(watch.id).inserted else {
                 throw TangledWebhookConfigurationError.duplicateWatchID(watch.id)
+            }
+            let repositoryReference = "\(watch.repositoryFullName)#\(watch.ref)"
+            guard repositoryReferences.insert(repositoryReference).inserted else {
+                throw TangledWebhookConfigurationError.duplicateRepositoryReference(
+                    repositoryReference
+                )
+            }
+            guard canonicalSourceReferences.insert(watch.canonicalSource.reference).inserted else {
+                throw TangledWebhookConfigurationError.duplicateCanonicalSource(
+                    watch.canonicalSource.reference
+                )
             }
         }
 
@@ -126,7 +168,7 @@ struct TangledWebhookServer: Sendable {
             throw TangledWebhookReceiveError.refMismatch
         }
         guard payload.repository.fullName == watch.repositoryFullName,
-              payload.repository.owner.did == watch.repositoryDID
+              payload.repository.owner.did == watch.repositoryOwnerDID
         else {
             throw TangledWebhookReceiveError.repositoryMismatch
         }
@@ -151,16 +193,13 @@ struct TangledWebhookServer: Sendable {
             sourceUpdate: TangledSourceUpdate(
                 watchID: watch.id,
                 deliveryID: deliveryID,
-                repositoryDID: watch.repositoryDID,
+                repositoryOwnerDID: watch.repositoryOwnerDID,
                 repositoryKey: watch.repositoryKey,
                 ref: payload.ref,
                 before: payload.before,
                 after: payload.after,
                 receivedAt: receivedAt,
-                source: NotificationSource(
-                    id: watch.sourceID,
-                    version: .init(rawValue: payload.after)
-                )
+                canonicalSource: watch.canonicalSource
             )
         )
     }
@@ -172,7 +211,9 @@ struct TangledWebhookReception: Equatable, Sendable {
 }
 
 public enum TangledWebhookConfigurationError: Error, Equatable, Sendable {
+    case duplicateCanonicalSource(String)
     case duplicateHookID(Int64)
+    case duplicateRepositoryReference(String)
     case duplicateWatchID(WebhookInboxDelivery.WatchID)
 }
 

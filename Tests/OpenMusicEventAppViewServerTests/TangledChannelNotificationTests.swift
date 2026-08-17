@@ -16,6 +16,66 @@ import Testing
 @Suite(.serialized)
 struct TangledChannelNotificationTests {
     @Test
+    func `a staging fork keeps canonical identities for every event in the source`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = directory.appending(path: "source", directoryHint: .isDirectory)
+        try Self.writeEvent(
+            to: repository,
+            eventDirectory: "2026",
+            posts: ["gates-open": "The gates are now open."]
+        )
+        try Self.writeEvent(
+            to: repository,
+            eventDirectory: "2027",
+            posts: ["save-the-date": "See you next year."]
+        )
+
+        let checkouts = RequestedCheckouts()
+        let checkout = TangledSourceCheckoutClient { request in
+            await checkouts.record(request)
+            try FileManager.default.copyItem(at: repository, to: request.outputURL)
+            return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
+
+        let snapshot = try await withDependencies {
+            $0.tangledSourceCheckout = checkout
+            $0.uuid = .incrementing
+        } operation: {
+            try await TangledSourceSnapshot.load(
+                update: Self.update(
+                    before: String(repeating: "0", count: 40),
+                    after: Self.afterRevision
+                ),
+                revision: Self.afterRevision
+            )
+        }
+
+        expectNoDifference(
+            snapshot.posts.map {
+                "\($0.id.organizerID)|\($0.id.eventID.rawValue.rawValue)|\($0.id.postID.rawValue.rawValue)"
+            },
+            [
+                "did:plc:festival|ome-2026|gates-open",
+                "did:plc:festival|ome-2027|save-the-date",
+            ]
+        )
+        let requestedCheckouts = await checkouts.snapshot()
+        expectNoDifference(
+            requestedCheckouts,
+            [
+                RequestedCheckout(
+                    repository: "tangled.org/did:plc:staging-owner/festival-staging",
+                    ref: Self.afterRevision
+                )
+            ]
+        )
+    }
+
+    @Test
     func `a new Tangled post refreshes and alerts only installations subscribed to its channel`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -547,7 +607,11 @@ private extension TangledChannelNotificationTests {
     static let beforeRevision = "1111111111111111111111111111111111111111"
     static let afterRevision = "2222222222222222222222222222222222222222"
     static let nextRevision = "3333333333333333333333333333333333333333"
-    static let watchID = "festival/ome#refs/heads/main"
+    static let watchID = "staging-owner/festival-staging#refs/heads/main"
+    static let repositoryOwnerDID = "did:plc:staging-owner"
+    static let repositoryKey = "festival-staging"
+    static let canonicalOrganizerID = "did:plc:festival"
+    static let canonicalRepositoryRecordKey = "ome"
     static let channelRoute = "/orgs/did%3Aplc%3Afestival/events/ome-2026/communications/announcements"
     static let receivedAt = Date(timeIntervalSince1970: 1_786_291_200)
     static let webhookSecret = Data("fixture-tangled-secret".utf8)
@@ -557,22 +621,22 @@ private extension TangledChannelNotificationTests {
 
     static func update(
         deliveryID: String = "d8c7e4a5-48ad-4698-9a95-daee25f36701",
-        repositoryKey: String = "ome",
+        repositoryKey: String = "festival-staging",
         before: String = beforeRevision,
         after: String = afterRevision
     ) throws -> TangledSourceUpdate {
         TangledSourceUpdate(
             watchID: .init(rawValue: watchID),
             deliveryID: .init(rawValue: deliveryID),
-            repositoryDID: try #require(DID("did:plc:festival")),
+            repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
             repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
             before: before,
             after: after,
             receivedAt: receivedAt,
-            source: NotificationSource(
-                id: eventSourceID,
-                version: .init(rawValue: after)
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
+                repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
             )
         )
     }
@@ -581,10 +645,13 @@ private extension TangledChannelNotificationTests {
         TangledWebhookWatch(
             id: .init(rawValue: watchID),
             hookID: 42,
-            repositoryDID: try #require(DID("did:plc:festival")),
-            repositoryKey: .init(rawValue: "ome"),
+            repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
+            repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
-            sourceID: eventSourceID
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
+                repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
+            )
         )
     }
 
@@ -596,18 +663,18 @@ private extension TangledChannelNotificationTests {
               "before": "\(beforeRevision)",
               "after": "\(afterRevision)",
               "repository": {
-                "name": "ome",
-                "full_name": "did:plc:festival/ome",
+                "name": "\(repositoryKey)",
+                "full_name": "\(repositoryOwnerDID)/\(repositoryKey)",
                 "description": "Festival Open Music Event source",
                 "fork": false,
-                "html_url": "https://tangled.org/did:plc:festival/ome",
-                "clone_url": "https://tangled.org/did:plc:festival/ome",
-                "ssh_url": "git@tangled.org:did:plc:festival/ome",
+                "html_url": "https://tangled.org/\(repositoryOwnerDID)/\(repositoryKey)",
+                "clone_url": "https://tangled.org/\(repositoryOwnerDID)/\(repositoryKey)",
+                "ssh_url": "git@tangled.org:\(repositoryOwnerDID)/\(repositoryKey)",
                 "created_at": "2026-08-01T00:00:00Z",
                 "updated_at": "2026-08-16T00:00:00Z",
-                "owner": { "did": "did:plc:festival" }
+                "owner": { "did": "\(repositoryOwnerDID)" }
               },
-              "pusher": { "did": "did:plc:festival" }
+              "pusher": { "did": "\(repositoryOwnerDID)" }
             }
             """.utf8
         )
@@ -619,7 +686,7 @@ private extension TangledChannelNotificationTests {
             .init("X-Tangled-Event")!: "push",
             .init("X-Tangled-Hook-ID")!: "42",
             .init("X-Tangled-Delivery")!: "d8c7e4a5-48ad-4698-9a95-daee25f36701",
-            .init("X-Tangled-Repo")!: "did:plc:festival/ome",
+            .init("X-Tangled-Repo")!: "\(repositoryOwnerDID)/\(repositoryKey)",
             .init("X-Tangled-Signature-256")!: TangledWebhookSignature.value(
                 authenticating: payload,
                 secret: webhookSecret
@@ -646,9 +713,17 @@ private extension TangledChannelNotificationTests {
     }
 
     static func writeRepository(to root: URL, posts: [String: String]) throws {
+        try writeEvent(to: root, eventDirectory: "2026", posts: posts)
+    }
+
+    static func writeEvent(
+        to root: URL,
+        eventDirectory: String,
+        posts: [String: String]
+    ) throws {
         let communications = root
             .appending(path: "events", directoryHint: .isDirectory)
-            .appending(path: "2026", directoryHint: .isDirectory)
+            .appending(path: eventDirectory, directoryHint: .isDirectory)
             .appending(path: "communications", directoryHint: .isDirectory)
             .appending(path: "announcements", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: communications, withIntermediateDirectories: true)
@@ -660,7 +735,7 @@ private extension TangledChannelNotificationTests {
         ).write(
             to: root
                 .appending(path: "events", directoryHint: .isDirectory)
-                .appending(path: "2026", directoryHint: .isDirectory)
+                .appending(path: eventDirectory, directoryHint: .isDirectory)
                 .appending(path: "event.yml")
         )
         try Data(
@@ -754,5 +829,27 @@ private actor RequestedRevisions {
 
     func snapshot() -> [String] {
         revisions
+    }
+}
+
+private struct RequestedCheckout: Equatable, Sendable {
+    let repository: String
+    let ref: String
+}
+
+private actor RequestedCheckouts {
+    private var requests: [RequestedCheckout] = []
+
+    func record(_ request: TangledSourceCheckoutRequest) {
+        requests.append(
+            RequestedCheckout(
+                repository: request.repository.normalizedReference,
+                ref: request.ref
+            )
+        )
+    }
+
+    func snapshot() -> [RequestedCheckout] {
+        requests
     }
 }

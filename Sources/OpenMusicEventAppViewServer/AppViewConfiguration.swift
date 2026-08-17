@@ -303,19 +303,31 @@ public extension AppViewConfiguration {
         }
 
         let watches = try file.watches.map { configuredWatch in
-            guard let repositoryDID = DID(configuredWatch.repositoryDID) else {
-                throw AppViewConfigurationError.invalidTangledWebhookRepositoryDID(
-                    configuredWatch.repositoryDID
+            guard let repositoryOwnerDID = DID(configuredWatch.repositoryOwnerDID) else {
+                throw AppViewConfigurationError.invalidTangledWebhookRepositoryOwnerDID(
+                    configuredWatch.repositoryOwnerDID
+                )
+            }
+            guard let organizerID = OME.Organizer.ID(
+                configuredWatch.canonicalSource.organizerID
+            ) else {
+                throw AppViewConfigurationError.invalidTangledCanonicalSourceOrganizerID(
+                    configuredWatch.canonicalSource.organizerID
                 )
             }
             let watchID = WebhookInboxDelivery.WatchID(rawValue: configuredWatch.id)
             return TangledWebhookWatch(
                 id: watchID,
                 hookID: configuredWatch.hookID,
-                repositoryDID: repositoryDID,
+                repositoryOwnerDID: repositoryOwnerDID,
                 repositoryKey: ATProto.Record.Key(rawValue: configuredWatch.repositoryKey),
                 ref: configuredWatch.ref,
-                sourceID: .init(rawValue: configuredWatch.sourceID)
+                canonicalSource: CanonicalTangledSource(
+                    organizerID: organizerID,
+                    repositoryRecordKey: ATProto.Record.Key(
+                        rawValue: configuredWatch.canonicalSource.repositoryRecordKey
+                    )
+                )
             )
         }
         return try TangledWebhookConfiguration(watches: watches)
@@ -561,7 +573,8 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case notificationProviderConfigurationInvalid(String)
     case notificationProviderConfigurationUnreadable(String)
     case notificationProviderConfigurationValueMissing(String)
-    case invalidTangledWebhookRepositoryDID(String)
+    case invalidTangledCanonicalSourceOrganizerID(String)
+    case invalidTangledWebhookRepositoryOwnerDID(String)
     case tangledWebhookConfigurationInvalid(String)
     case tangledWebhookConfigurationUnreadable(String)
     case unsupportedNotificationAuthorization(String)
@@ -575,10 +588,15 @@ private struct TangledWebhookConfigurationFile: Decodable {
     struct Watch: Decodable {
         var id: String
         var hookID: Int64
-        var repositoryDID: String
+        var repositoryOwnerDID: String
         var repositoryKey: String
         var ref: String
-        var sourceID: String
+        var canonicalSource: CanonicalSource
+    }
+
+    struct CanonicalSource: Decodable {
+        var organizerID: String
+        var repositoryRecordKey: String
     }
 }
 

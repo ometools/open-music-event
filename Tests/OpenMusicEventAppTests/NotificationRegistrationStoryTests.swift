@@ -228,10 +228,15 @@ struct NotificationRegistrationStoryTests {
                     TangledWebhookWatch(
                         id: webhookWatchID,
                         hookID: webhookHookID,
-                        repositoryDID: organizerID,
+                        repositoryOwnerDID: organizerID,
                         repositoryKey: repositoryKey,
                         ref: "refs/heads/main",
-                        sourceID: eventSubscription.sourceID
+                        canonicalSource: CanonicalTangledSource(
+                            organizerID: try #require(
+                                OME.Organizer.ID(organizerID.description)
+                            ),
+                            repositoryRecordKey: repositoryKey
+                        )
                     )
                 ]
             )
