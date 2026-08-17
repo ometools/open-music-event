@@ -60,12 +60,10 @@ public enum OpenMusicEventNotificationAuthorization {
         environment: OpenMusicEventServiceEnvironment = .production
     ) {
         let storage = credentialStorage(dependencies, environment: environment)
-        dependencies.notificationRequestInterceptors = [
-            .anonymousNotificationInstallation(
-                baseURL: environment.serverURL,
-                storage: storage
-            )
-        ]
+        dependencies.notificationHTTPAuthorization = .anonymousNotificationInstallation(
+            baseURL: environment.serverURL,
+            storage: storage
+        )
     }
 
     static func credentialStorage(

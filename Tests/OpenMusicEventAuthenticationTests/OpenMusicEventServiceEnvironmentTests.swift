@@ -1,8 +1,11 @@
 import ATProtoOAuth
 import ComposableNotifications
+import ComposableNotificationsHTTP
 import CustomDump
 import Dependencies
 import Foundation
+import HTTPClient
+import HTTPTypes
 import Testing
 
 @testable import OpenMusicEventAuthentication
@@ -74,5 +77,101 @@ struct OpenMusicEventServiceEnvironmentTests {
         let storedStagingCredential = try await stagingStorage.credential()
         expectNoDifference(preservedProductionCredential, productionCredential)
         expectNoDifference(storedStagingCredential, stagingCredential)
+    }
+
+    @Test
+    func `staging registration replaces an installation rejected by the staging AppView`() async throws {
+        let staleCredential = NotificationInstallation.Credential(rawValue: "stale-credential")
+        let replacementCredential = NotificationInstallation.Credential(
+            rawValue: "replacement-credential"
+        )
+        var dependencies = DependencyValues()
+        dependencies.keychainStorage = .inMemory()
+        let credentialStorage = OpenMusicEventNotificationAuthorization.credentialStorage(
+            dependencies,
+            environment: .staging
+        )
+        try await credentialStorage.setCredential(staleCredential)
+        let requests = NotificationRegistrationRequestRecorder()
+
+        try await withDependencies {
+            $0.keychainStorage = dependencies.keychainStorage
+            $0.httpClient = .liveValue
+            $0.dataForURL = { request, _ in
+                await requests.record(request)
+                expectNoDifference(request.url?.host(), "stg.openmusicevent.app")
+
+                switch request.url?.path {
+                case NotificationRegistrationEndpoint.installationsPath:
+                    #expect(request.headerFields[.authorization] == nil)
+                    return (
+                        try JSONEncoder().encode(
+                            NotificationInstallationCredentialPayload(
+                                credential: replacementCredential
+                            )
+                        ),
+                        HTTPResponse(status: .created)
+                    )
+
+                case NotificationRegistrationEndpoint.destinationPath,
+                    NotificationRegistrationEndpoint.subscriptionsPath:
+                    let status: HTTPResponse.Status =
+                        request.headerFields[.authorization] == "Notification stale-credential"
+                        ? .unauthorized
+                        : .noContent
+                    return (Data(), HTTPResponse(status: status))
+
+                default:
+                    Issue.record("Unexpected notification request: \(String(describing: request.url))")
+                    return (Data(), HTTPResponse(status: .notFound))
+                }
+            }
+            OpenMusicEventNotificationAuthorization.prepareDependencies(
+                &$0,
+                environment: .staging
+            )
+        } operation: {
+            let notifications = NotificationsClient.http(
+                baseURL: OpenMusicEventServiceEnvironment.staging.serverURL
+            )
+            try await notifications.registerDestination(
+                .apns(
+                    Push.APNS(
+                        applicationID: .init(rawValue: "fm.woody.wickedwoods"),
+                        deviceToken: .init(rawValue: "fixture-device-token")
+                    )
+                )
+            )
+        }
+
+        let recordedRequests = await requests.requests
+        expectNoDifference(
+            recordedRequests.map { $0.url?.path },
+            [
+                NotificationRegistrationEndpoint.destinationPath,
+                NotificationRegistrationEndpoint.installationsPath,
+                NotificationRegistrationEndpoint.destinationPath,
+                NotificationRegistrationEndpoint.subscriptionsPath,
+            ]
+        )
+        expectNoDifference(
+            recordedRequests.map { $0.headerFields[.authorization] },
+            [
+                "Notification stale-credential",
+                nil,
+                "Notification replacement-credential",
+                "Notification replacement-credential",
+            ]
+        )
+        let storedCredential = try await credentialStorage.credential()
+        expectNoDifference(storedCredential, replacementCredential)
+    }
+}
+
+actor NotificationRegistrationRequestRecorder {
+    var requests: [HTTPRequest] = []
+
+    func record(_ request: HTTPRequest) {
+        requests.append(request)
     }
 }

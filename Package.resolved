@@ -1,5 +1,5 @@
 {
-  "originHash" : "b2d45d4e96e389d48f4dc1be87602887399324496178bef923fce6af5d8389a8",
+  "originHash" : "652ac439b9e91ddd55cfc02f4e6fd6d08aab3952aa3b453f965172834dc64a6d",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -439,7 +439,7 @@
       "location" : "https://source.woody.fm/swift-composable-notifications",
       "state" : {
         "branch" : "main",
-        "revision" : "009d49b2207357f709bba4137d6786103513c947"
+        "revision" : "9a9f5f0aca01f3de9c98e559efbf7272b67e8958"
       }
     },
     {
