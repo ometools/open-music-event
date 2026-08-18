@@ -37,6 +37,7 @@ Optional environment:
 ```sh
 OME_APPVIEW_HOST=0.0.0.0
 OME_APPVIEW_PORT=8080
+OME_APPVIEW_PUBLIC_HOST=openmusicevent.app
 OME_APPVIEW_WELL_KNOWN_ROOT=/absolute/path/to/WellKnown
 OME_APPVIEW_DATABASE_PATH=/absolute/path/to/open-music-event-appview.sqlite
 OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH=/absolute/path/to/branded-event-routes.json
@@ -53,6 +54,13 @@ OME_TANGLED_WEBHOOK_CONFIGURATION_PATH=/absolute/path/to/tangled-webhooks.json
 OME_WEBHOOK_SECRET_KEY_PATH=/absolute/path/to/webhook-secret-key
 OME_WEBHOOK_SECRET_KEY_VERSION=1
 ```
+
+`OME_APPVIEW_HOST` is the local bind address. `OME_APPVIEW_PUBLIC_HOST` is the AppView hostname
+advertised by XRPC catalog records; staging must set it to `stg.openmusicevent.app`. Bundled catalog
+entries identify their canonical Tangled repository record key. When a configured webhook watch has
+the same organizer ID and repository record key, the catalog advertises that environment's watched
+physical repository while preserving the organizer, event, channel, and post IDs. This is what lets
+staging serve a fork without changing production catalog records.
 
 `OME_TCA26_PATH` and `OME_COMPOSABLE_NOTIFICATIONS_PATH` are build-time package overrides, not
 runtime service configuration. During active deployment iteration, point them at reviewed sibling

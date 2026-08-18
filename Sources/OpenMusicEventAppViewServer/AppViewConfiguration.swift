@@ -92,6 +92,7 @@ public struct AppViewConfiguration: Sendable {
     public init(
         host: String = "127.0.0.1",
         port: Int = 8080,
+        publicAppViewHost: ATProto.PDSHost = "openmusicevent.app",
         siteRoot: URL? = nil,
         wellKnownRoot: URL? = nil,
         brandedEventRouteClaims: [BrandedEventRouteClaim] = [],
@@ -105,6 +106,7 @@ public struct AppViewConfiguration: Sendable {
     ) {
         self.host = host
         self.port = port
+        self.publicAppViewHost = publicAppViewHost
         self.siteRoot = siteRoot ?? Bundle.module.resourceURL!.appendingPathComponent("Site")
         self.wellKnownRoot = wellKnownRoot ?? Bundle.module.resourceURL!.appendingPathComponent("WellKnown")
         self.brandedEventRouteClaims = brandedEventRouteClaims
@@ -119,6 +121,7 @@ public struct AppViewConfiguration: Sendable {
 
     public var host: String
     public var port: Int
+    public var publicAppViewHost: ATProto.PDSHost
     public var siteRoot: URL
     public var wellKnownRoot: URL
     public var brandedEventRouteClaims: [BrandedEventRouteClaim]
@@ -234,6 +237,9 @@ public extension AppViewConfiguration {
         return Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
+            publicAppViewHost: ATProto.PDSHost(
+                environment["OME_APPVIEW_PUBLIC_HOST"] ?? "openmusicevent.app"
+            ),
             siteRoot: environment["OME_APPVIEW_SITE_ROOT"].map(URL.init(fileURLWithPath:)),
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
             brandedEventRouteClaims: brandedEventRouteClaims,
@@ -253,6 +259,9 @@ public extension AppViewConfiguration {
         Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
+            publicAppViewHost: ATProto.PDSHost(
+                environment["OME_APPVIEW_PUBLIC_HOST"] ?? "openmusicevent.app"
+            ),
             siteRoot: lambdaSiteRoot(environment: environment),
             wellKnownRoot: lambdaWellKnownRoot(environment: environment),
             brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment)

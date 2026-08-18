@@ -3,13 +3,51 @@ import Foundation
 import OpenMusicEventLexicon
 
 enum BundledCalendarEventCatalog {
+    struct Configuration: Sendable {
+        init(
+            appViewHost: ATProto.PDSHost,
+            tangledWebhook: TangledWebhookConfiguration?
+        ) {
+            self.appViewHost = appViewHost
+            self.sourceRecords = Dictionary(
+                uniqueKeysWithValues: (tangledWebhook?.watches ?? []).map { watch in
+                    (
+                        watch.canonicalSource,
+                        OME.SourceRecord(
+                            kind: .tangled,
+                            reference: "at://\(watch.repositoryOwnerDID)/sh.tangled.repo/\(watch.repositoryKey.rawValue)",
+                            ref: BundledCalendarEventCatalog.normalizedBranch(watch.ref)
+                        )
+                    )
+                }
+            )
+        }
+
+        let appViewHost: ATProto.PDSHost
+        let sourceRecords: [CanonicalTangledSource: OME.SourceRecord]
+    }
+
+    static func event(
+        uri: ATProto.URI,
+        configuration: Configuration
+    ) throws -> OME.CalendarEvent? {
+        try events(configuration: configuration).first { $0.uri == uri }
+    }
+
     static func event(uri: ATProto.URI) throws -> OME.CalendarEvent? {
-        try events().first { $0.uri == uri }
+        try event(
+            uri: uri,
+            configuration: Configuration(
+                appViewHost: "openmusicevent.app",
+                tangledWebhook: nil
+            )
+        )
     }
 
     static func page(
         cursor: String?,
-        limit: Int
+        limit: Int,
+        configuration: Configuration
     ) throws -> OME.CalendarEvent.Page {
         let offset: Int
         if let cursor {
@@ -21,7 +59,7 @@ enum BundledCalendarEventCatalog {
             offset = 0
         }
 
-        let events = try events()
+        let events = try events(configuration: configuration)
         guard offset <= events.count else {
             throw BundledCalendarEventCatalogError.invalidCursor(String(offset))
         }
@@ -34,7 +72,7 @@ enum BundledCalendarEventCatalog {
         )
     }
 
-    static func events() throws -> [OME.CalendarEvent] {
+    static func events(configuration: Configuration) throws -> [OME.CalendarEvent] {
         guard let resourceURL = Bundle.module.url(
             forResource: "TemporaryOMEBrowseCatalog",
             withExtension: "json"
@@ -44,7 +82,12 @@ enum BundledCalendarEventCatalog {
 
         return try JSONDecoder()
             .decode([BundledCalendarEvent].self, from: Data(contentsOf: resourceURL))
-            .map { try $0.calendarEvent }
+            .map { try $0.calendarEvent(configuration: configuration) }
+    }
+
+    private static func normalizedBranch(_ ref: String) -> String {
+        let prefix = "refs/heads/"
+        return ref.hasPrefix(prefix) ? String(ref.dropFirst(prefix.count)) : ref
     }
 }
 
@@ -67,6 +110,7 @@ private struct BundledCalendarEvent: Decodable {
     var organizerID: String
     var organizerName: String
     var source: OME.SourceRecord?
+    var sourceRecordKey: String?
     var startDate: LocalDate
     var status: OME.Event.Status?
     var timeZone: String
@@ -131,6 +175,24 @@ private struct BundledCalendarEvent: Decodable {
                 event: event
             )
         }
+    }
+
+    func calendarEvent(
+        configuration: BundledCalendarEventCatalog.Configuration
+    ) throws -> OME.CalendarEvent {
+        var event = try calendarEvent
+        event.source.appViewHost = configuration.appViewHost
+        if let sourceRecordKey,
+           let organizerID = DID(organizerID)
+        {
+            let canonicalSource = CanonicalTangledSource(
+                organizerID: organizerID,
+                repositoryRecordKey: ATProto.Record.Key(rawValue: sourceRecordKey)
+            )
+            event.source.sourceRecord = configuration.sourceRecords[canonicalSource]
+                ?? event.source.sourceRecord
+        }
+        return event
     }
 
     struct Media: Decodable {

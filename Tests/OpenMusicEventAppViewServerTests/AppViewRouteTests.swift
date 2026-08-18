@@ -285,6 +285,79 @@ struct AppViewRouteTests {
     }
 
     @Test
+    func `staging catalog keeps canonical IDs while serving the watched source fork`() async throws {
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        let store = try OpenMusicEventAppViewStore(
+            database: SQLiteData.defaultDatabase()
+        )
+        let organizerID = try #require(OME.Organizer.ID(
+            "did:plc:5df2u7ief6m6tn77jznicxob"
+        ))
+        let eventURI = try #require(ATProto.URI(
+            "at://\(organizerID)/app.openmusicevent.event/ome-workspace-2026"
+        ))
+        var configuration = roots.configuration
+        configuration.publicAppViewHost = "stg.openmusicevent.app"
+        configuration.tangledWebhook = try TangledWebhookConfiguration(
+            watches: [
+                TangledWebhookWatch(
+                    id: .init(
+                        rawValue: "woody.fm/wicked-woods-ome-stg#refs/heads/main"
+                    ),
+                    hookID: 42,
+                    repositoryOwnerDID: try #require(DID(
+                        "did:plc:cqqtuv75m7e5s4uj6nw4czyu"
+                    )),
+                    repositoryKey: .init(rawValue: "wicked-woods-ome-stg"),
+                    ref: "refs/heads/main",
+                    canonicalSource: CanonicalTangledSource(
+                        organizerID: organizerID,
+                        repositoryRecordKey: .init(rawValue: "ome-workspace")
+                    )
+                )
+            ]
+        )
+        let app = try OpenMusicEventAppViewServer.application(
+            configuration: configuration,
+            store: store
+        )
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3A5df2u7ief6m6tn77jznicxob%2Fapp.openmusicevent.event%2Fome-workspace-2026",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                let event = try decodeCalendarEvent(response.body)
+                expectNoDifference(event.uri, eventURI)
+                expectNoDifference(event.organizer.id, organizerID)
+                expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
+                expectNoDifference(
+                    event.source.sourceRecord,
+                    OME.SourceRecord(
+                        kind: .tangled,
+                        reference: "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
+                        ref: "main"
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
+    func `loads the public AppView host from deployment configuration`() throws {
+        let configuration = try AppViewConfiguration.fromEnvironment(
+            environment: ["OME_APPVIEW_PUBLIC_HOST": "stg.openmusicevent.app"]
+        )
+
+        expectNoDifference(
+            configuration.publicAppViewHost,
+            ATProto.PDSHost("stg.openmusicevent.app")
+        )
+    }
+
+    @Test
     func `serves a branded attendee URL from its durable event`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }

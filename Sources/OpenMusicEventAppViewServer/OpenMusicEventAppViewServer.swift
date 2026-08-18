@@ -1,3 +1,4 @@
+import ATProto
 import ComposableCalendarEvents
 import ComposableNotifications
 import ComposableNotificationsServer
@@ -55,6 +56,7 @@ public enum OpenMusicEventAppViewServer {
             store: store,
             commsPostSubmission: commsPostSubmission,
             notificationRegistration: notificationRegistration,
+            publicAppViewHost: configuration.publicAppViewHost,
             tangledWebhookConfiguration: configuration.tangledWebhook,
             tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
         )
@@ -212,6 +214,7 @@ public enum OpenMusicEventAppViewServer {
         store: OpenMusicEventAppViewStore?,
         commsPostSubmission: CommsPostSubmission?,
         notificationRegistration: NotificationRegistrationServer?,
+        publicAppViewHost: ATProto.PDSHost,
         tangledWebhookConfiguration: TangledWebhookConfiguration?,
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
     ) {
@@ -244,7 +247,13 @@ public enum OpenMusicEventAppViewServer {
         hummingbirdRouter.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
             let event: OME.CalendarEvent?
             if parameters.uri.collection == OME.Event.nsid {
-                event = try BundledCalendarEventCatalog.event(uri: parameters.uri)
+                event = try BundledCalendarEventCatalog.event(
+                    uri: parameters.uri,
+                    configuration: BundledCalendarEventCatalog.Configuration(
+                        appViewHost: publicAppViewHost,
+                        tangledWebhook: tangledWebhookConfiguration
+                    )
+                )
             } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
                 event = try store.communityCalendarEvent(uri: parameters.uri)
             } else {
@@ -266,7 +275,11 @@ public enum OpenMusicEventAppViewServer {
                 if parameters.catalog == OME.Event.nsid {
                     return try BundledCalendarEventCatalog.page(
                         cursor: parameters.cursor,
-                        limit: parameters.limit
+                        limit: parameters.limit,
+                        configuration: BundledCalendarEventCatalog.Configuration(
+                            appViewHost: publicAppViewHost,
+                            tangledWebhook: tangledWebhookConfiguration
+                        )
                     )
                 }
                 if parameters.catalog == Community.CalendarEvent.nsid, let store {
