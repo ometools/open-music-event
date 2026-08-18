@@ -9,12 +9,11 @@ enum BundledCalendarEventCatalog {
             tangledWebhook: TangledWebhookConfiguration?
         ) {
             self.appViewHost = appViewHost
-            self.sourceRecords = Dictionary(
+            self.resolvedRepositories = Dictionary(
                 uniqueKeysWithValues: (tangledWebhook?.watches ?? []).map { watch in
                     (
                         watch.canonicalSource,
-                        OME.SourceRecord(
-                            kind: .tangled,
+                        OME.CalendarEvent.Source.Repository(
                             reference: "at://\(watch.repositoryOwnerDID)/sh.tangled.repo/\(watch.repositoryKey.rawValue)",
                             ref: BundledCalendarEventCatalog.normalizedBranch(watch.ref)
                         )
@@ -24,7 +23,7 @@ enum BundledCalendarEventCatalog {
         }
 
         let appViewHost: ATProto.PDSHost
-        let sourceRecords: [CanonicalTangledSource: OME.SourceRecord]
+        let resolvedRepositories: [CanonicalTangledSource: OME.CalendarEvent.Source.Repository]
     }
 
     static func event(
@@ -189,8 +188,7 @@ private struct BundledCalendarEvent: Decodable {
                 organizerID: organizerID,
                 repositoryRecordKey: ATProto.Record.Key(rawValue: sourceRecordKey)
             )
-            event.source.sourceRecord = configuration.sourceRecords[canonicalSource]
-                ?? event.source.sourceRecord
+            event.source.resolvedRepository = configuration.resolvedRepositories[canonicalSource]
         }
         return event
     }

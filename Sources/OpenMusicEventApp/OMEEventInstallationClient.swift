@@ -324,7 +324,7 @@ private func publishedEventInstallation(
     } else {
         catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
     }
-    guard let installationRequest = catalogEvent.source.installationRequest(
+    guard let installationRequest = try catalogEvent.source.installationRequest(
         organizerID: eventID.organizerID
     ) else {
         throw OMEEventInstallationError.installationSourceUnavailable(eventURI)

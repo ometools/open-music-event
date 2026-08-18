@@ -337,6 +337,13 @@ struct AppViewRouteTests {
                     event.source.sourceRecord,
                     OME.SourceRecord(
                         kind: .tangled,
+                        reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
+                        ref: "main"
+                    )
+                )
+                expectNoDifference(
+                    event.source.resolvedRepository,
+                    OME.CalendarEvent.Source.Repository(
                         reference: "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
                         ref: "main"
                     )

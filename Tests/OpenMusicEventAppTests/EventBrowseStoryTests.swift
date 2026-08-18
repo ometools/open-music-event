@@ -1257,7 +1257,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `entering Wicked Woods downloads and installs only that event before opening it`() async throws {
+    func `entering Wicked Woods from staging downloads the fork under its canonical identity`() async throws {
         struct UnexpectedGitOperation: Error {}
 
         let database = try SQLiteData.defaultDatabase()
@@ -1322,8 +1322,9 @@ struct EventBrowseStoryTests {
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 expectNoDifference(
                     request.repository.normalizedReference,
-                    "tangled.org/wickedwoods.ca/ome-workspace"
+                    "tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome-stg"
                 )
+                expectNoDifference(request.ref, "main")
                 try FileManager.default.createDirectory(
                     at: request.outputURL,
                     withIntermediateDirectories: true
@@ -1533,6 +1534,10 @@ extension EventBrowseStoryTests {
               "$type": "app.openmusicevent.source",
               "kind": "tangled",
               "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
+              "ref": "main"
+            },
+            "resolvedRepository": {
+              "reference": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
               "ref": "main"
             }
           }

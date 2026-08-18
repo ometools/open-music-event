@@ -143,12 +143,21 @@ extension CalendarEventsClient {
 extension OME.CalendarEvent.Source {
     func installationRequest(
         organizerID: OME.Organizer.ID
-    ) -> OpenMusicEventSourceValidationRequest? {
+    ) throws -> OpenMusicEventSourceValidationRequest? {
         guard let sourceRecord, sourceRecord.kind == .tangled else { return nil }
-        return OpenMusicEventSourceValidationRequest(
+        let canonicalRef = sourceRecord.ref ?? "main"
+        guard let sourceProvenance = try OpenMusicEventSourceValidationRequest(
             source: sourceRecord.reference,
             organizerID: organizerID,
-            ref: sourceRecord.ref ?? "main"
+            ref: canonicalRef
+        )
+        .tangledSourceProvenance()
+        else { return nil }
+        return OpenMusicEventSourceValidationRequest(
+            source: resolvedRepository?.reference ?? sourceRecord.reference,
+            organizerID: organizerID,
+            sourceProvenance: sourceProvenance,
+            ref: resolvedRepository?.ref ?? canonicalRef
         )
     }
 }

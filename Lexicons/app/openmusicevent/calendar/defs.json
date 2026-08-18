@@ -133,7 +133,8 @@
       "properties": {
         "collection": { "type": "string", "format": "nsid" },
         "appViewHost": { "type": "string" },
-        "sourceRecord": { "type": "ref", "ref": "#sourceRecord" }
+        "sourceRecord": { "type": "ref", "ref": "#sourceRecord" },
+        "resolvedRepository": { "type": "ref", "ref": "#sourceRepository" }
       }
     },
     "sourceRecord": {
@@ -148,6 +149,15 @@
         "reference": { "type": "string" },
         "ref": { "type": "string" },
         "createdAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "sourceRepository": {
+      "type": "object",
+      "description": "The environment-specific repository from which clients fetch source bytes. Canonical source identity remains in sourceRecord.",
+      "required": ["reference"],
+      "properties": {
+        "reference": { "type": "string" },
+        "ref": { "type": "string" }
       }
     }
   }

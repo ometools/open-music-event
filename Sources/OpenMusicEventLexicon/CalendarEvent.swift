@@ -198,19 +198,35 @@ public extension OpenMusicEvent.CalendarEvent {
     }
 
     struct Source: Codable, Equatable, Sendable {
+        public struct Repository: Codable, Equatable, Sendable {
+            public init(
+                reference: String,
+                ref: String? = nil
+            ) {
+                self.reference = reference
+                self.ref = ref
+            }
+
+            public var reference: String
+            public var ref: String?
+        }
+
         public init(
             collection: ATProto.NSID,
             appViewHost: ATProto.PDSHost? = nil,
-            sourceRecord: OpenMusicEvent.SourceRecord? = nil
+            sourceRecord: OpenMusicEvent.SourceRecord? = nil,
+            resolvedRepository: Repository? = nil
         ) {
             self.collection = collection
             self.appViewHost = appViewHost
             self.sourceRecord = sourceRecord
+            self.resolvedRepository = resolvedRepository
         }
 
         public var collection: ATProto.NSID
         public var appViewHost: ATProto.PDSHost?
         public var sourceRecord: OpenMusicEvent.SourceRecord?
+        public var resolvedRepository: Repository?
     }
 
     enum Status: Equatable, Hashable, Sendable {
