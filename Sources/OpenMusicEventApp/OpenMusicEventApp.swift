@@ -27,6 +27,20 @@ import SourceEditing
 import TCATProtoAuthentication
 #if canImport(Security) && !SKIP
 import Security
+
+// Xcode's iOS Security module does not currently surface the documented
+// SecTask declarations, even though Security.framework exports them.
+@_silgen_name("SecTaskCreateFromSelf")
+private func omeSecTaskCreateFromSelf(
+    _ allocator: CFAllocator?
+) -> Unmanaged<AnyObject>?
+
+@_silgen_name("SecTaskCopyValueForEntitlement")
+private func omeSecTaskCopyValueForEntitlement(
+    _ task: AnyObject,
+    _ entitlement: CFString,
+    _ error: UnsafeMutablePointer<Unmanaged<CFError>?>?
+) -> Unmanaged<AnyObject>?
 #endif
 #if canImport(UIKit)
 import UIKit
@@ -53,14 +67,14 @@ enum APNSEnvironmentEntitlement {
 
     static func current() throws -> Push.APNS.Environment {
 #if canImport(Security) && !SKIP
-        guard let task = SecTaskCreateFromSelf(nil) else {
+        guard let task = omeSecTaskCreateFromSelf(nil)?.takeRetainedValue() else {
             throw APNSEnvironmentEntitlementError.missing
         }
-        let rawValue = SecTaskCopyValueForEntitlement(
+        let rawValue = omeSecTaskCopyValueForEntitlement(
             task,
             "aps-environment" as CFString,
             nil
-        ) as? String
+        )?.takeRetainedValue() as? String
         return try resolve(rawValue)
 #else
         throw APNSEnvironmentEntitlementError.missing
