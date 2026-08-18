@@ -27,14 +27,39 @@ import XRPCClient
 @Suite(.serialized)
 struct NotificationRegistrationStoryTests {
     @Test
-    func `signed APNS environment accepts only Apple's two values`() throws {
-        #expect(try APNSEnvironmentEntitlement.resolve("development") == .development)
-        #expect(try APNSEnvironmentEntitlement.resolve("production") == .production)
-        #expect(throws: APNSEnvironmentEntitlementError.missing) {
-            try APNSEnvironmentEntitlement.resolve(nil)
+    func `configured APNS environment accepts only Apple's two values`() throws {
+        expectNoDifference(
+            try APNSEnvironmentConfiguration.resolve("development"),
+            .development
+        )
+        expectNoDifference(
+            try APNSEnvironmentConfiguration.resolve("production"),
+            .production
+        )
+        #expect(throws: APNSEnvironmentConfigurationError.missing) {
+            try APNSEnvironmentConfiguration.resolve(nil)
         }
-        #expect(throws: APNSEnvironmentEntitlementError.invalid("staging")) {
-            try APNSEnvironmentEntitlement.resolve("staging")
+        #expect(throws: APNSEnvironmentConfigurationError.invalid("staging")) {
+            try APNSEnvironmentConfiguration.resolve("staging")
+        }
+    }
+
+    @Test
+    func `App Store configuration resolves the production APNS environment`() throws {
+        expectNoDifference(
+            try APNSEnvironmentConfiguration.current(
+                infoDictionary: [
+                    APNSEnvironmentConfiguration.infoDictionaryKey: "production"
+                ]
+            ),
+            .production
+        )
+    }
+
+    @Test
+    func `missing APNS environment configuration fails closed`() {
+        #expect(throws: APNSEnvironmentConfigurationError.missing) {
+            try APNSEnvironmentConfiguration.current(infoDictionary: nil)
         }
     }
 

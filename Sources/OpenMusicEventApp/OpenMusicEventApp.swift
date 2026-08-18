@@ -25,23 +25,6 @@ import SourceControlClientGit
 #endif
 import SourceEditing
 import TCATProtoAuthentication
-#if canImport(Security) && !SKIP
-import Security
-
-// Xcode's iOS Security module does not currently surface the documented
-// SecTask declarations, even though Security.framework exports them.
-@_silgen_name("SecTaskCreateFromSelf")
-private func omeSecTaskCreateFromSelf(
-    _ allocator: CFAllocator?
-) -> Unmanaged<AnyObject>?
-
-@_silgen_name("SecTaskCopyValueForEntitlement")
-private func omeSecTaskCopyValueForEntitlement(
-    _ task: AnyObject,
-    _ entitlement: CFString,
-    _ error: UnsafeMutablePointer<Unmanaged<CFError>?>?
-) -> Unmanaged<AnyObject>?
-#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -49,36 +32,28 @@ import UIKit
 /// A logger for the OpenMusicEventApp module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
 
-enum APNSEnvironmentEntitlementError: Error, Equatable {
+enum APNSEnvironmentConfigurationError: Error, Equatable {
     case missing
     case invalid(String)
 }
 
-enum APNSEnvironmentEntitlement {
+enum APNSEnvironmentConfiguration {
+    static let infoDictionaryKey = "OMEAPNSEnvironment"
+
     static func resolve(_ rawValue: String?) throws -> Push.APNS.Environment {
         guard let rawValue else {
-            throw APNSEnvironmentEntitlementError.missing
+            throw APNSEnvironmentConfigurationError.missing
         }
         guard let environment = Push.APNS.Environment(rawValue: rawValue) else {
-            throw APNSEnvironmentEntitlementError.invalid(rawValue)
+            throw APNSEnvironmentConfigurationError.invalid(rawValue)
         }
         return environment
     }
 
-    static func current() throws -> Push.APNS.Environment {
-#if canImport(Security) && !SKIP
-        guard let task = omeSecTaskCreateFromSelf(nil)?.takeRetainedValue() else {
-            throw APNSEnvironmentEntitlementError.missing
-        }
-        let rawValue = omeSecTaskCopyValueForEntitlement(
-            task,
-            "aps-environment" as CFString,
-            nil
-        )?.takeRetainedValue() as? String
-        return try resolve(rawValue)
-#else
-        throw APNSEnvironmentEntitlementError.missing
-#endif
+    static func current(
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
+    ) throws -> Push.APNS.Environment {
+        try resolve(infoDictionary?[infoDictionaryKey] as? String)
     }
 }
 
@@ -635,19 +610,19 @@ struct OpenMusicEventApplicationRuntime {
         }
         let environment: Push.APNS.Environment
         do {
-            environment = try APNSEnvironmentEntitlement.current()
-        } catch APNSEnvironmentEntitlementError.missing {
+            environment = try APNSEnvironmentConfiguration.current()
+        } catch APNSEnvironmentConfigurationError.missing {
             logger.error(
-                "Remote notification registration has no signed aps-environment entitlement"
+                "Remote notification registration has no APNs environment configuration"
             )
             return
-        } catch APNSEnvironmentEntitlementError.invalid {
+        } catch APNSEnvironmentConfigurationError.invalid {
             logger.error(
-                "Remote notification registration has an invalid signed aps-environment entitlement"
+                "Remote notification registration has an invalid APNs environment configuration"
             )
             return
         } catch {
-            logger.error("Remote notification registration could not read aps-environment")
+            logger.error("Remote notification registration could not read its APNs environment")
             return
         }
 #if SKIP
