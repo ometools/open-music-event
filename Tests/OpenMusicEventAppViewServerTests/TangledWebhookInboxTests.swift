@@ -527,12 +527,14 @@ struct TangledWebhookInboxTests {
         let omeAPNSDestination = Push.Destination.apns(
             Push.APNS(
                 applicationID: omeApplicationID,
+                environment: .development,
                 deviceToken: .init(rawValue: "fixture-ome-apns-device-token")
             )
         )
         let wickedWoodsAPNSDestination = Push.Destination.apns(
             Push.APNS(
                 applicationID: wickedWoodsApplicationID,
+                environment: .production,
                 deviceToken: .init(rawValue: "fixture-wicked-woods-apns-device-token")
             )
         )

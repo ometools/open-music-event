@@ -25,12 +25,48 @@ import SourceControlClientGit
 #endif
 import SourceEditing
 import TCATProtoAuthentication
+#if canImport(Security) && !SKIP
+import Security
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
 
 /// A logger for the OpenMusicEventApp module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
+
+enum APNSEnvironmentEntitlementError: Error, Equatable {
+    case missing
+    case invalid(String)
+}
+
+enum APNSEnvironmentEntitlement {
+    static func resolve(_ rawValue: String?) throws -> Push.APNS.Environment {
+        guard let rawValue else {
+            throw APNSEnvironmentEntitlementError.missing
+        }
+        guard let environment = Push.APNS.Environment(rawValue: rawValue) else {
+            throw APNSEnvironmentEntitlementError.invalid(rawValue)
+        }
+        return environment
+    }
+
+    static func current() throws -> Push.APNS.Environment {
+#if canImport(Security) && !SKIP
+        guard let task = SecTaskCreateFromSelf(nil) else {
+            throw APNSEnvironmentEntitlementError.missing
+        }
+        let rawValue = SecTaskCopyValueForEntitlement(
+            task,
+            "aps-environment" as CFString,
+            nil
+        ) as? String
+        return try resolve(rawValue)
+#else
+        throw APNSEnvironmentEntitlementError.missing
+#endif
+    }
+}
 
 public enum OpenMusicEventAppVariant: Equatable, Sendable {
     case generic
@@ -583,17 +619,37 @@ struct OpenMusicEventApplicationRuntime {
             logger.error("Remote notification registration has no application bundle identifier")
             return
         }
+        let environment: Push.APNS.Environment
+        do {
+            environment = try APNSEnvironmentEntitlement.current()
+        } catch APNSEnvironmentEntitlementError.missing {
+            logger.error(
+                "Remote notification registration has no signed aps-environment entitlement"
+            )
+            return
+        } catch APNSEnvironmentEntitlementError.invalid {
+            logger.error(
+                "Remote notification registration has an invalid signed aps-environment entitlement"
+            )
+            return
+        } catch {
+            logger.error("Remote notification registration could not read aps-environment")
+            return
+        }
 #if SKIP
-        logger.info("Remote notification destination available for \(bundleIdentifier)")
+        logger.info(
+            "Remote notification destination available for \(bundleIdentifier) in \(environment.rawValue)"
+        )
 #else
         logger.info(
-            "Remote notification destination available for \(bundleIdentifier, privacy: .public)"
+            "Remote notification destination available for \(bundleIdentifier, privacy: .public) in \(environment.rawValue, privacy: .public)"
         )
 #endif
         let value = deviceToken.map { String(format: "%02x", $0) }.joined()
         let destination = Push.Destination.apns(
             Push.APNS(
                 applicationID: .init(rawValue: bundleIdentifier),
+                environment: environment,
                 deviceToken: .init(rawValue: value)
             )
         )

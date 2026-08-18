@@ -26,17 +26,20 @@ public struct AppViewNotificationRegistrationConfiguration: Equatable, Sendable 
 public struct AppViewNotificationProviderConfiguration: Equatable, Sendable {
     public struct APNS: Equatable, Sendable {
         public struct Application: Equatable, Sendable {
-            public enum Environment: String, Decodable, Equatable, Sendable {
-                case development
-                case production
-            }
-
-            public init(environment: Environment, topic: String) {
+            public init(
+                environment: Push.APNS.Environment,
+                allowedEnvironments: Set<Push.APNS.Environment>? = nil,
+                topic: String
+            ) {
                 self.environment = environment
+                self.allowedEnvironments = allowedEnvironments ?? [environment]
                 self.topic = topic
             }
 
-            public var environment: Environment
+            /// The trusted fallback used to open registrations written before environments
+            /// became part of the destination contract.
+            public var environment: Push.APNS.Environment
+            public var allowedEnvironments: Set<Push.APNS.Environment>
             public var topic: String
         }
 
@@ -462,8 +465,20 @@ public extension AppViewConfiguration {
                     applicationID: applicationID
                 )
             }
+            let allowedEnvironments = Set(
+                application.allowedEnvironments ?? [application.environment]
+            )
+            guard
+                !allowedEnvironments.isEmpty,
+                allowedEnvironments.contains(application.environment),
+                allowedEnvironments.count
+                    == (application.allowedEnvironments ?? [application.environment]).count
+            else {
+                throw AppViewConfigurationError.notificationProviderConfigurationInvalid(path)
+            }
             apnsApplications[applicationID] = .init(
                 environment: application.environment,
+                allowedEnvironments: allowedEnvironments,
                 topic: application.topic
             )
         }
@@ -615,7 +630,8 @@ private struct NotificationProviderConfigurationFile: Decodable {
 
     struct APNSApplication: Decodable {
         var applicationID: String
-        var environment: AppViewNotificationProviderConfiguration.APNS.Application.Environment
+        var environment: Push.APNS.Environment
+        var allowedEnvironments: [Push.APNS.Environment]?
         var topic: String
     }
 

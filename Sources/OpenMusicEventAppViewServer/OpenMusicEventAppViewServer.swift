@@ -135,6 +135,7 @@ public enum OpenMusicEventAppViewServer {
                 NotificationOutboxService(
                     database: store.database,
                     destinationProtection: destinationProtection,
+                    legacyAPNSEnvironments: configuration.legacyAPNSEnvironments,
                     provider: notificationProvider
                 )
             )
@@ -170,7 +171,12 @@ public enum OpenMusicEventAppViewServer {
         }
         let providerApplications = configuration.notificationProviders.map { providers in
             NotificationRegistrationPolicy.ProviderApplications(
-                apns: providers.apns.map { Set($0.applications.keys) } ?? [],
+                apns: providers.apns?.applications.mapValues {
+                    .init(
+                        environment: $0.environment,
+                        allowedEnvironments: $0.allowedEnvironments
+                    )
+                } ?? [:],
                 fcm: providers.fcm.map { Set($0.applications.keys) } ?? []
             )
         }
@@ -199,7 +205,9 @@ public enum OpenMusicEventAppViewServer {
                 $0.defaultDatabase = store.database
             }
             if let protection = configuration.notificationDestinationProtection {
-                $0.notificationDestinationProtectionClient = protection.client
+                $0.notificationDestinationProtectionClient = protection.client(
+                    legacyAPNSEnvironments: configuration.legacyAPNSEnvironments
+                )
             }
         } operation: {
             try operation()
@@ -325,19 +333,34 @@ public enum OpenMusicEventAppViewServer {
                     as: NotificationDestinationPayload.self,
                     context: context
                 )
-                try notificationRegistration.policy.validate(payload)
+                let destination = try notificationRegistration.policy.validate(payload)
                 try await notificationRegistration.database.replaceDestination(
-                    payload.destination,
+                    destination,
                     for: installationID
                 )
-                context.logger.info(
-                    "Notification destination registered",
-                    metadata: [
-                        "notification.application.id": .string(payload.applicationID),
-                        "notification.destination.provider": .string(payload.provider.rawValue),
-                        "notification.installation.id": .string(installationID.rawValue),
-                    ]
-                )
+                switch destination {
+                case .apns(let registration):
+                    context.logger.info(
+                        "Notification destination registered",
+                        metadata: [
+                            "notification.application.id": .string(payload.applicationID),
+                            "notification.apns.environment": .string(
+                                registration.environment.rawValue
+                            ),
+                            "notification.destination.provider": .string(payload.provider.rawValue),
+                            "notification.installation.id": .string(installationID.rawValue),
+                        ]
+                    )
+                case .fcm:
+                    context.logger.info(
+                        "Notification destination registered",
+                        metadata: [
+                            "notification.application.id": .string(payload.applicationID),
+                            "notification.destination.provider": .string(payload.provider.rawValue),
+                            "notification.installation.id": .string(installationID.rawValue),
+                        ]
+                    )
+                }
                 return Response(status: .noContent)
             }
         }
@@ -768,6 +791,12 @@ public enum OpenMusicEventAppViewServer {
             )
             throw error
         }
+    }
+}
+
+private extension AppViewConfiguration {
+    var legacyAPNSEnvironments: [Push.ApplicationID: Push.APNS.Environment] {
+        notificationProviders?.apns?.applications.mapValues(\.environment) ?? [:]
     }
 }
 

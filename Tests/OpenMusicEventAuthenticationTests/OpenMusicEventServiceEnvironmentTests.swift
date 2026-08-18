@@ -138,6 +138,7 @@ struct OpenMusicEventServiceEnvironmentTests {
                 .apns(
                     Push.APNS(
                         applicationID: .init(rawValue: "fm.woody.wickedwoods"),
+                        environment: .development,
                         deviceToken: .init(rawValue: "fixture-device-token")
                     )
                 )

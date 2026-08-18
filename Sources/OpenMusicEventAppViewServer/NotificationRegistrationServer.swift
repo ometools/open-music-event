@@ -30,28 +30,29 @@ public struct NotificationRegistrationServer: Sendable {
 
 public struct NotificationRegistrationPolicy: Sendable {
     public struct ProviderApplications: Sendable {
+        public struct APNSApplication: Sendable {
+            public init(
+                environment: Push.APNS.Environment,
+                allowedEnvironments: Set<Push.APNS.Environment>
+            ) {
+                self.environment = environment
+                self.allowedEnvironments = allowedEnvironments
+            }
+
+            public var environment: Push.APNS.Environment
+            public var allowedEnvironments: Set<Push.APNS.Environment>
+        }
+
         public init(
-            apns: Set<Push.ApplicationID> = [],
+            apns: [Push.ApplicationID: APNSApplication] = [:],
             fcm: Set<Push.ApplicationID> = []
         ) {
             self.apns = apns
             self.fcm = fcm
         }
 
-        public var apns: Set<Push.ApplicationID>
+        public var apns: [Push.ApplicationID: APNSApplication]
         public var fcm: Set<Push.ApplicationID>
-
-        fileprivate func contains(
-            _ applicationID: Push.ApplicationID,
-            for provider: NotificationDestinationPayload.Provider
-        ) -> Bool {
-            switch provider {
-            case .apns:
-                apns.contains(applicationID)
-            case .fcm:
-                fcm.contains(applicationID)
-            }
-        }
     }
 
     public init(
@@ -74,20 +75,44 @@ public struct NotificationRegistrationPolicy: Sendable {
     public var maximumSourceIDBytes: Int
     public var maximumSubscriptions: Int
 
-    func validate(_ payload: NotificationDestinationPayload) throws {
+    func validate(_ payload: NotificationDestinationPayload) throws -> Push.Destination {
         let applicationID = Push.ApplicationID(rawValue: payload.applicationID)
         guard allowedApplicationIDs.contains(applicationID) else {
-            throw HTTPError(.forbidden)
-        }
-        if let providerApplications,
-           !providerApplications.contains(applicationID, for: payload.provider)
-        {
             throw HTTPError(.forbidden)
         }
         guard
             !payload.value.isEmpty,
             payload.value.utf8.count <= maximumDestinationBytes
         else {
+            throw HTTPError(.badRequest)
+        }
+
+        do {
+            switch payload.provider {
+            case .apns:
+                if let providerApplications {
+                    guard let application = providerApplications.apns[applicationID] else {
+                        throw HTTPError(.forbidden)
+                    }
+                    let environment = payload.apnsEnvironment ?? application.environment
+                    guard application.allowedEnvironments.contains(environment) else {
+                        throw HTTPError(.forbidden)
+                    }
+                    return try payload.destination(
+                        defaultAPNSEnvironment: application.environment
+                    )
+                }
+                return try payload.destination()
+
+            case .fcm:
+                if let providerApplications,
+                   !providerApplications.fcm.contains(applicationID)
+                {
+                    throw HTTPError(.forbidden)
+                }
+                return try payload.destination()
+            }
+        } catch is NotificationDestinationPayloadError {
             throw HTTPError(.badRequest)
         }
     }

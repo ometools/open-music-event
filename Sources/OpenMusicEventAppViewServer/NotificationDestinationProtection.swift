@@ -2,6 +2,7 @@ import ComposableNotifications
 import ComposableNotificationsServer
 import Crypto
 import Foundation
+import Tagged
 
 /// Authenticated encryption for provider-issued notification destinations stored by the AppView.
 ///
@@ -14,6 +15,7 @@ public struct NotificationDestinationProtection: Sendable {
         case invalidKeyVersion(Int)
         case invalidDestinationEncoding
         case missingCombinedCiphertext
+        case missingAPNSEnvironment(Push.ApplicationID)
         case unsupportedKeyVersion(Int)
     }
 
@@ -46,6 +48,7 @@ public struct NotificationDestinationProtection: Sendable {
             installationID: installationID,
             applicationID: destination.applicationID,
             provider: destination.provider,
+            apnsEnvironment: destination.apnsEnvironment,
             keyVersion: keyVersion
         )
         let sealedBox = try AES.GCM.seal(
@@ -63,6 +66,7 @@ public struct NotificationDestinationProtection: Sendable {
         _ ciphertext: Data,
         applicationID: Push.ApplicationID,
         provider: PersistedNotificationDestination.Provider,
+        apnsEnvironment: Push.APNS.Environment?,
         installationID: NotificationInstallation.ID,
         keyVersion storedKeyVersion: Int
     ) throws -> String {
@@ -73,6 +77,7 @@ public struct NotificationDestinationProtection: Sendable {
             installationID: installationID,
             applicationID: applicationID,
             provider: provider,
+            apnsEnvironment: apnsEnvironment,
             keyVersion: storedKeyVersion
         )
         let sealedBox = try AES.GCM.SealedBox(combined: ciphertext)
@@ -90,11 +95,18 @@ public struct NotificationDestinationProtection: Sendable {
 
 extension NotificationDestinationProtection {
     public var client: NotificationDestinationProtectionClient {
+        client(legacyAPNSEnvironments: [:])
+    }
+
+    public func client(
+        legacyAPNSEnvironments: [Push.ApplicationID: Push.APNS.Environment]
+    ) -> NotificationDestinationProtectionClient {
         NotificationDestinationProtectionClient(
             protect: { destination, installationID in
                 let persisted = PersistedNotificationDestination(destination)
                 return ProtectedNotificationDestination(
                     applicationID: persisted.applicationID,
+                    apnsEnvironment: persisted.apnsEnvironment,
                     provider: persisted.provider.protectedProvider,
                     ciphertext: try seal(persisted, for: installationID),
                     fingerprint: Data(
@@ -110,15 +122,30 @@ extension NotificationDestinationProtection {
                     protected.ciphertext,
                     applicationID: protected.applicationID,
                     provider: provider,
+                    apnsEnvironment: protected.apnsEnvironment,
                     installationID: installationID,
                     keyVersion: protected.keyVersion
                 )
-                return PersistedNotificationDestination(
+                let resolvedAPNSEnvironment: Push.APNS.Environment?
+                switch provider {
+                case .apns:
+                    guard
+                        let environment = protected.apnsEnvironment
+                            ?? legacyAPNSEnvironments[protected.applicationID]
+                    else {
+                        throw Error.missingAPNSEnvironment(protected.applicationID)
+                    }
+                    resolvedAPNSEnvironment = environment
+                case .fcm:
+                    resolvedAPNSEnvironment = nil
+                }
+                return try PersistedNotificationDestination(
                     applicationID: protected.applicationID,
                     provider: provider,
+                    apnsEnvironment: resolvedAPNSEnvironment,
                     value: value
                 )
-                .destination
+                .destination()
             }
         )
     }
@@ -155,6 +182,7 @@ struct PersistedNotificationDestination: Equatable, Sendable {
 
     var applicationID: Push.ApplicationID
     var provider: Provider
+    var apnsEnvironment: Push.APNS.Environment?
     var value: String
 
     init(_ destination: Push.Destination) {
@@ -163,34 +191,48 @@ struct PersistedNotificationDestination: Equatable, Sendable {
             self.init(
                 applicationID: registration.applicationID,
                 provider: .apns,
+                apnsEnvironment: registration.environment,
                 value: registration.deviceToken.rawValue
             )
         case .fcm(let registration):
             self.init(
                 applicationID: registration.applicationID,
                 provider: .fcm,
+                apnsEnvironment: nil,
                 value: registration.registrationToken.rawValue
             )
         }
     }
 
-    init(applicationID: Push.ApplicationID, provider: Provider, value: String) {
+    init(
+        applicationID: Push.ApplicationID,
+        provider: Provider,
+        apnsEnvironment: Push.APNS.Environment?,
+        value: String
+    ) {
         self.applicationID = applicationID
         self.provider = provider
+        self.apnsEnvironment = apnsEnvironment
         self.value = value
     }
 
-    var destination: Push.Destination {
+    func destination() throws -> Push.Destination {
         switch provider {
         case .apns:
-            .apns(
+            guard let apnsEnvironment else {
+                throw NotificationDestinationProtection.Error.missingAPNSEnvironment(
+                    applicationID
+                )
+            }
+            return .apns(
                 Push.APNS(
                     applicationID: applicationID,
+                    environment: apnsEnvironment,
                     deviceToken: .init(rawValue: value)
                 )
             )
         case .fcm:
-            .fcm(
+            return .fcm(
                 Push.FCM(
                     applicationID: applicationID,
                     installationID: .init(rawValue: value)
@@ -200,11 +242,15 @@ struct PersistedNotificationDestination: Equatable, Sendable {
     }
 
     var fingerprintData: Data {
-        canonicalNotificationData([
+        var values = [
             applicationID.rawValue,
             provider.rawValue,
-            value,
-        ])
+        ]
+        if let apnsEnvironment {
+            values.append(apnsEnvironment.rawValue)
+        }
+        values.append(value)
+        return canonicalNotificationData(values)
     }
 }
 
@@ -228,15 +274,20 @@ private struct NotificationDestinationEncryptionContext {
     var installationID: NotificationInstallation.ID
     var applicationID: Push.ApplicationID
     var provider: PersistedNotificationDestination.Provider
+    var apnsEnvironment: Push.APNS.Environment?
     var keyVersion: Int
 
     var authenticatedData: Data {
-        canonicalNotificationData([
+        var values = [
             installationID.rawValue,
             applicationID.rawValue,
             provider.rawValue,
             String(keyVersion),
-        ])
+        ]
+        if let apnsEnvironment {
+            values.append(apnsEnvironment.rawValue)
+        }
+        return canonicalNotificationData(values)
     }
 }
 

@@ -6,17 +6,21 @@ import Foundation
 import GRDB
 import Hummingbird
 import HummingbirdTesting
+import HTTPTypes
 @testable import OpenMusicEventAppViewServer
 import SQLiteData
 import Testing
 
 private func notificationDatabase(
     store: OpenMusicEventAppViewStore,
-    protection: NotificationDestinationProtection
+    protection: NotificationDestinationProtection,
+    legacyAPNSEnvironments: [Push.ApplicationID: Push.APNS.Environment] = [:]
 ) -> NotificationDatabase {
     withDependencies {
         $0.defaultDatabase = store.database
-        $0.notificationDestinationProtectionClient = protection.client
+        $0.notificationDestinationProtectionClient = protection.client(
+            legacyAPNSEnvironments: legacyAPNSEnvironments
+        )
     } operation: {
         NotificationDatabase()
     }
@@ -24,6 +28,44 @@ private func notificationDatabase(
 
 @Suite(.serialized)
 struct NotificationPersistenceTests {
+    @Test
+    func `legacy APNS ciphertext opens with the configured development fallback`() async throws {
+        let applicationID = Push.ApplicationID(rawValue: "com.Festivl.WickedWoods")
+        let installationID = NotificationInstallation.ID(rawValue: "legacy-installation")
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let legacy = PersistedNotificationDestination(
+            applicationID: applicationID,
+            provider: .apns,
+            apnsEnvironment: nil,
+            value: "legacy-device-token"
+        )
+        let protected = ProtectedNotificationDestination(
+            applicationID: applicationID,
+            apnsEnvironment: nil,
+            provider: .apns,
+            ciphertext: try protection.seal(legacy, for: installationID),
+            fingerprint: "legacy-fingerprint",
+            keyVersion: protection.keyVersion
+        )
+
+        let destination: Push.Destination = try protection.client(
+            legacyAPNSEnvironments: [applicationID: .development]
+        ).reveal(protected, installationID)
+
+        expectNoDifference(
+            destination,
+            .apns(
+                Push.APNS(
+                    applicationID: applicationID,
+                    environment: .development,
+                    deviceToken: .init(rawValue: "legacy-device-token")
+                )
+            )
+        )
+    }
+
     @Test
     func `destination encryption key does not implicitly expose registration`() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -77,6 +119,7 @@ struct NotificationPersistenceTests {
         let pushDestination = Push.Destination.apns(
             Push.APNS(
                 applicationID: .init(rawValue: "app.openmusicevent"),
+                environment: .development,
                 deviceToken: .init(rawValue: destination)
             ),
         )
@@ -161,6 +204,7 @@ struct NotificationPersistenceTests {
         let originalDestination = Push.Destination.apns(
             Push.APNS(
                 applicationID: .init(rawValue: "app.openmusicevent"),
+                environment: .development,
                 deviceToken: .init(rawValue: "old-device-token")
             )
         )
@@ -288,6 +332,7 @@ struct NotificationPersistenceTests {
         let destination = Push.Destination.apns(
             Push.APNS(
                 applicationID: .init(rawValue: "app.openmusicevent"),
+                environment: .development,
                 deviceToken: .init(rawValue: "provider-issued-device-token")
             )
         )
@@ -459,6 +504,7 @@ struct NotificationPersistenceTests {
             .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "app.openmusicevent"),
+                    environment: .development,
                     deviceToken: .init(rawValue: "provider-issued-device-token")
                 )
             ),
@@ -612,6 +658,145 @@ struct NotificationPersistenceTests {
     }
 
     @Test
+    func `legacy and production APNS registrations coexist with trusted environment routing`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appending(path: "appview.sqlite")
+        let applicationID = Push.ApplicationID(rawValue: "com.Festivl.WickedWoods")
+        let app = try OpenMusicEventAppViewServer.application(
+            configuration: AppViewConfiguration(
+                port: 0,
+                databaseURL: databaseURL,
+                notificationProviders: AppViewNotificationProviderConfiguration(
+                    apns: .init(
+                        applications: [
+                            applicationID: .init(
+                                environment: .development,
+                                allowedEnvironments: [.development, .production],
+                                topic: applicationID.rawValue
+                            )
+                        ],
+                        teamID: "YJRWV8Z7KT",
+                        keyID: "ABCDEFGHIJ",
+                        privateKeyURL: directory.appending(path: "unused-apns-key.p8")
+                    ),
+                    fcm: .init(
+                        applications: [applicationID: .init(projectID: "ome-push-notifications")],
+                        serviceAccountURL: directory.appending(path: "unused-fcm-account.json")
+                    )
+                ),
+                notificationDestinationProtection: try NotificationDestinationProtection(
+                    keyData: Data(repeating: 0x2A, count: 32)
+                ),
+                notificationRegistration: AppViewNotificationRegistrationConfiguration(
+                    authorization: .anonymous,
+                    allowedApplicationIDs: [applicationID]
+                )
+            )
+        )
+
+        try await app.test(.router) { client in
+            let credential = try await client.execute(
+                uri: NotificationRegistrationEndpoint.installationsPath,
+                method: .post
+            ) { response in
+                try JSONDecoder().decode(
+                    NotificationInstallationCredentialPayload.self,
+                    from: Data(response.body.readableBytesView)
+                ).credential
+            }
+            let headers: HTTPFields = [
+                .authorization: "Notification \(credential.rawValue)",
+                .contentType: "application/json",
+            ]
+
+            try await client.execute(
+                uri: NotificationRegistrationEndpoint.destinationPath,
+                method: .put,
+                headers: headers,
+                body: ByteBuffer(
+                    data: try JSONEncoder().encode(
+                        NotificationDestinationPayload(
+                            applicationID: applicationID.rawValue,
+                            provider: .apns,
+                            value: "legacy-development-token"
+                        )
+                    )
+                )
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+            try await client.execute(
+                uri: NotificationRegistrationEndpoint.subscriptionsPath,
+                method: .put,
+                headers: headers,
+                body: ByteBuffer(
+                    data: try JSONEncoder().encode(
+                        NotificationSubscriptionsPayload(sourceIDs: ["/events/2025/channels/news"])
+                    )
+                )
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+            try await client.execute(
+                uri: NotificationRegistrationEndpoint.destinationPath,
+                method: .put,
+                headers: headers,
+                body: ByteBuffer(
+                    data: try JSONEncoder().encode(
+                        NotificationDestinationPayload(
+                            .apns(
+                                Push.APNS(
+                                    applicationID: applicationID,
+                                    environment: .production,
+                                    deviceToken: .init(rawValue: "testflight-token")
+                                )
+                            )
+                        )
+                    )
+                )
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+            try await client.execute(
+                uri: NotificationRegistrationEndpoint.destinationPath,
+                method: .put,
+                headers: headers,
+                body: ByteBuffer(
+                    data: try JSONEncoder().encode(
+                        NotificationDestinationPayload(
+                            applicationID: applicationID.rawValue,
+                            apnsEnvironment: .production,
+                            provider: .fcm,
+                            value: "fcm-token"
+                        )
+                    )
+                )
+            ) { response in
+                #expect(response.status == .badRequest)
+            }
+        }
+
+        let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        let persisted = try await rawDatabase.read { database in
+            let environment = try String.fetchOne(
+                database,
+                sql: "SELECT apnsEnvironment FROM pushRegistrations"
+            )
+            let subscriptionCount = try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM pushSubscriptions"
+            )
+            return (environment, subscriptionCount)
+        }
+        expectNoDifference(persisted.0, "production")
+        expectNoDifference(persisted.1, 1)
+    }
+
+    @Test
     func `anonymous registration rejects an oversized provider destination`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -656,6 +841,7 @@ struct NotificationPersistenceTests {
                             .apns(
                                 Push.APNS(
                                     applicationID: .init(rawValue: "app.openmusicevent"),
+                                    environment: .development,
                                     deviceToken: .init(
                                         rawValue: String(repeating: "x", count: 4_097)
                                     )
@@ -695,7 +881,8 @@ struct NotificationPersistenceTests {
                 },
                 {
                   "applicationID": "com.Festivl.WickedWoods",
-                  "environment": "production",
+                  "environment": "development",
+                  "allowedEnvironments": ["development", "production"],
                   "topic": "com.Festivl.WickedWoods"
                 }
               ],
@@ -730,7 +917,8 @@ struct NotificationPersistenceTests {
                             topic: "app.openmusicevent"
                         ),
                         .init(rawValue: "com.Festivl.WickedWoods"): .init(
-                            environment: .production,
+                            environment: .development,
+                            allowedEnvironments: [.development, .production],
                             topic: "com.Festivl.WickedWoods"
                         ),
                     ],

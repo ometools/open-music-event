@@ -119,6 +119,18 @@ if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] 
         traits: []
     )
 }
+let composableNotificationsDependency: Package.Dependency = {
+    if let path = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"] {
+        return .package(
+            name: "swift-composable-notifications",
+            path: packagePath(path)
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-composable-notifications",
+        branch: "main"
+    )
+}()
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
@@ -232,7 +244,7 @@ var applicationDependencies: [Package.Dependency] = [
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
     ),
-    .package(url: "https://source.woody.fm/swift-composable-notifications", branch: "main"),
+    composableNotificationsDependency,
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
@@ -307,7 +319,7 @@ let appViewDependencies: [Package.Dependency] = [
     appViewComposableCalendarEventsDependency,
     appViewComposableAtmosphereDependency,
     tca26Dependency,
-    .package(url: "https://source.woody.fm/swift-composable-notifications", branch: "main"),
+    composableNotificationsDependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),

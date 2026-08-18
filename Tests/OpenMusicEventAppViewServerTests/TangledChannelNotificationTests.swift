@@ -112,7 +112,8 @@ struct TangledChannelNotificationTests {
             id: "development-ios",
             destination: .apns(
                 Push.APNS(
-                    applicationID: .init(rawValue: "app.openmusicevent"),
+                    applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .development,
                     deviceToken: .init(rawValue: "development-device-token")
                 )
             ),
@@ -124,6 +125,7 @@ struct TangledChannelNotificationTests {
             destination: .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .production,
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),
@@ -171,7 +173,7 @@ struct TangledChannelNotificationTests {
             firstProjection.deliveries,
             [
                 PersistedChannelDelivery(
-                    applicationID: "app.openmusicevent",
+                    applicationID: "com.Festivl.WickedWoods",
                     body: "The gates are now open.",
                     kind: "content",
                     route: "\(Self.channelRoute)/posts/gates-open",
@@ -189,7 +191,7 @@ struct TangledChannelNotificationTests {
                     title: "gates-open"
                 ),
                 PersistedChannelDelivery(
-                    applicationID: "app.openmusicevent",
+                    applicationID: "com.Festivl.WickedWoods",
                     body: "Use the north parking entrance.",
                     kind: "content",
                     route: "\(Self.channelRoute)/posts/parking",
@@ -207,7 +209,7 @@ struct TangledChannelNotificationTests {
                     title: "parking"
                 ),
                 PersistedChannelDelivery(
-                    applicationID: "app.openmusicevent",
+                    applicationID: "com.Festivl.WickedWoods",
                     body: nil,
                     kind: "source_available",
                     route: nil,
@@ -290,6 +292,7 @@ struct TangledChannelNotificationTests {
             destination: .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .production,
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),
@@ -417,6 +420,7 @@ struct TangledChannelNotificationTests {
             destination: .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .production,
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),

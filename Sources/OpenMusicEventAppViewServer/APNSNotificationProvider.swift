@@ -78,7 +78,7 @@ public extension AppViewConfiguration {
             configuration: NotificationProviderHTTPConfiguration(
                 apns: configuration.apns?.applications.mapValues {
                     .init(
-                        environment: $0.environment.providerEnvironment,
+                        allowedEnvironments: $0.allowedEnvironments,
                         topic: $0.topic
                     )
                 } ?? [:],
@@ -105,16 +105,5 @@ public extension AppViewConfiguration {
                 }
             )
         )
-    }
-}
-
-private extension AppViewNotificationProviderConfiguration.APNS.Application.Environment {
-    var providerEnvironment: NotificationProviderHTTPConfiguration.APNS.Environment {
-        switch self {
-        case .development:
-            .development
-        case .production:
-            .production
-        }
     }
 }

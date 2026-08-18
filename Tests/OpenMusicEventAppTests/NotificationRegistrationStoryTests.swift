@@ -26,6 +26,18 @@ import XRPCClient
 
 @Suite(.serialized)
 struct NotificationRegistrationStoryTests {
+    @Test
+    func `signed APNS environment accepts only Apple's two values`() throws {
+        #expect(try APNSEnvironmentEntitlement.resolve("development") == .development)
+        #expect(try APNSEnvironmentEntitlement.resolve("production") == .production)
+        #expect(throws: APNSEnvironmentEntitlementError.missing) {
+            try APNSEnvironmentEntitlement.resolve(nil)
+        }
+        #expect(throws: APNSEnvironmentEntitlementError.invalid("staging")) {
+            try APNSEnvironmentEntitlement.resolve("staging")
+        }
+    }
+
     @Test @MainActor
     func `registration routes fail closed until runtime services are installed`() async throws {
         let app = try OpenMusicEventAppViewServer.application(
@@ -72,6 +84,7 @@ struct NotificationRegistrationStoryTests {
             .apns(
                 Push.APNS(
                     applicationID: .init(rawValue: "app.openmusicevent"),
+                    environment: .development,
                     deviceToken: .init(rawValue: "device-token")
                 ),
             )

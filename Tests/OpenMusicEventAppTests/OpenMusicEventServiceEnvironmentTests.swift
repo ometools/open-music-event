@@ -213,6 +213,7 @@ struct OpenMusicEventServiceEnvironmentTests {
         let destination = Push.Destination.apns(
             Push.APNS(
                 applicationID: .init(rawValue: "app.openmusicevent"),
+                environment: .development,
                 deviceToken: .init(rawValue: "staging-device-token")
             )
         )
