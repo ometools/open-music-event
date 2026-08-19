@@ -119,6 +119,7 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.applicationIconBadgeClient) var applicationIconBadgeClient
     @Dependency(\.brandedEventRouteClaims) var brandedEventRouteClaims
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+    @Dependency(\.notificationsClient) var notificationsClient
     @Dependency(\.omeEventInstallation) var eventInstallation
     @Dependency(\.uuid) var uuid
     public var body: some Feature {
@@ -334,6 +335,14 @@ public struct OpenMusicEventAppRoot {
             store.addTask {
                 let task = try store.send(.handleNavigationRequest(request))
                 await task?.value
+            }
+        }
+        .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
+            store.addTask {
+                let subscriptions = try await database.read {
+                    try ApplicationNotificationSubscriptionsRequest().fetch($0)
+                }
+                try await notificationsClient.replaceSubscriptions(subscriptions)
             }
         }
         .onEvent(EventViewerDismissalRequested.self) { eventID, state in

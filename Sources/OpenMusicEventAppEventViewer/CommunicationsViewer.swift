@@ -10,6 +10,10 @@ import SQLiteData
 import SwiftUI
 import Tagged
 
+public struct NotificationSubscriptionsRefreshRequested: FeatureEventKey {
+    public init() {}
+}
+
 struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
     let channel: OMERecord.Channel
     let preference: ChannelPreferences?
@@ -263,6 +267,10 @@ public struct CommunicationsViewer {
                         try await database.write { db in
                             try ChannelPreferences.upsert { channelPreference }.execute(db)
                         }
+                        let refreshTask = try store.post(
+                            NotificationSubscriptionsRefreshRequested()
+                        )
+                        await refreshTask?.value
                         try store.modify {
                             $0.errorMessage = nil
                         }
@@ -777,9 +785,13 @@ public struct CommunicationChannelDetail {
         )
         store.addTask {
             do {
-                try database.write { db in
+                try await database.write { db in
                     try ChannelPreferences.upsert { channelPreference }.execute(db)
                 }
+                let refreshTask = try store.post(
+                    NotificationSubscriptionsRefreshRequested()
+                )
+                await refreshTask?.value
                 try store.modify {
                     $0.errorMessage = nil
                 }

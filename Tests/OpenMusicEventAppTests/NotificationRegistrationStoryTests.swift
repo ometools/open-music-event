@@ -23,6 +23,7 @@ import Testing
 import XRPCClient
 
 @testable import OpenMusicEventApp
+@testable import OpenMusicEventAppEventViewer
 @testable import OpenMusicEventAppViewServer
 
 @Suite(.serialized)
@@ -251,7 +252,7 @@ struct NotificationRegistrationStoryTests {
                     iconImageURL: nil,
                     headerImageURL: nil,
                     sortIndex: nil,
-                    defaultNotificationState: .subscribed,
+                    defaultNotificationState: .unsubscribed,
                     notificationsRequired: false
                 )
             }
@@ -509,6 +510,34 @@ struct NotificationRegistrationStoryTests {
                         await destinationTask?.value
 
                         try await requestRecorder.waitForRequestCount(3)
+                        let communications = try await MainActor.run {
+                            let root = appStore
+                                .scope(\.content, action: \.content)
+                                .scope(\.content, action: \.content)
+                            let destination = try #require(
+                                root.scope(\.destination, action: \.destination)
+                            )
+                            let workspace = try #require(
+                                destination.scope(\.eventViewer, action: \.eventViewer)
+                            )
+                            let authoring = workspace.scope(\.authoring, action: \.authoring)
+                            let workspaceContent = authoring.scope(\.content, action: \.content)
+                            let eventViewer = workspaceContent.scope(\.content, action: \.content)
+                            return try #require(
+                                eventViewer.scope(
+                                    \.communicationsViewer,
+                                    action: \.communicationsViewer
+                                )
+                            )
+                        }
+                        let subscriptionTask = await MainActor.run {
+                            communications.send(
+                                .notificationStateButtonTapped(channelID, .subscribed)
+                            )
+                        }
+                        await subscriptionTask?.value
+                        try await requestRecorder.waitForRequestCount(4)
+
                         let browse = await MainActor.run {
                             appStore
                                 .scope(\.content, action: \.content)
@@ -520,7 +549,7 @@ struct NotificationRegistrationStoryTests {
                             browse.send(.task)
                         }
                         await browseTask?.value
-                        try await requestRecorder.waitForRequestCount(4)
+                        try await requestRecorder.waitForRequestCount(5)
 
                         // Tangled reports the organizer's new source revision to the real webhook.
                         let webhookPayload = tangledPushPayload(
@@ -542,7 +571,7 @@ struct NotificationRegistrationStoryTests {
                         )
                         #expect(webhookResponse.head.status == .accepted)
                         try await fakeFCM.waitForRequestCount(2)
-                        try await requestRecorder.waitForRequestCount(6)
+                        try await requestRecorder.waitForRequestCount(7)
                         let refreshedEventIDs = await eventRefreshRecorder.eventIDs()
                         expectNoDifference(
                             refreshedEventIDs,
@@ -739,6 +768,10 @@ struct NotificationRegistrationStoryTests {
                 ),
                 NotificationRequestSummary(
                     method: .put,
+                    path: NotificationRegistrationEndpoint.subscriptionsPath
+                ),
+                NotificationRequestSummary(
+                    method: .put,
                     path: NotificationRegistrationEndpoint.destinationPath
                 ),
                 NotificationRequestSummary(
@@ -749,7 +782,7 @@ struct NotificationRegistrationStoryTests {
         )
         expectNoDifference(
             registrationExchanges.map { $0.response.status },
-            [.created, .noContent, .noContent, .noContent, .noContent]
+            [.created, .noContent, .noContent, .noContent, .noContent, .noContent]
         )
         expectNoDifference(
             try registrationExchanges.map { exchange in
@@ -758,6 +791,7 @@ struct NotificationRegistrationStoryTests {
             [
                 nil,
                 #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
+                #"{"sourceIDs":["at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
                 #"{"sourceIDs":["/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
                 #"{"applicationID":"app.openmusicevent","provider":"fcm","value":"fcm-registration-token-that-must-not-be-rewritten"}"#,
                 #"{"sourceIDs":["/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,

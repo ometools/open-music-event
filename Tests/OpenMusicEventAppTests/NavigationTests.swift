@@ -6810,6 +6810,7 @@ struct NavigationTests {
             )
         }
 
+        let refreshCount = Mutex(0)
         let store = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
@@ -6817,6 +6818,9 @@ struct NavigationTests {
         } operation: {
             TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
                 CommunicationsViewer()
+                    .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
+                        refreshCount.withLock { $0 += 1 }
+                    }
             }
         }
 
@@ -6824,6 +6828,7 @@ struct NavigationTests {
             .notificationStateButtonTapped(channelID, .subscribed)
         )
         await preferenceTask?.value
+        expectNoDifference(refreshCount.withLock { $0 }, 1)
 
         let preference = try await database.read { db in
             try ChannelPreferences
@@ -6969,6 +6974,7 @@ struct NavigationTests {
             )
         }
 
+        let refreshCount = Mutex(0)
         let store = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
@@ -6981,11 +6987,15 @@ struct NavigationTests {
                 )
             ) {
                 CommunicationChannelDetail()
+                    .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
+                        refreshCount.withLock { $0 += 1 }
+                    }
             }
         }
 
         let notifyTask = store.send(.notificationStateButtonTapped(.subscribed))
         await notifyTask?.value
+        expectNoDifference(refreshCount.withLock { $0 }, 1)
 
         let preference = try await database.read { db in
             try ChannelPreferences
