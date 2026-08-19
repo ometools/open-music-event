@@ -11,7 +11,7 @@ virtualisation:
   docker: true
 
 steps:
-  - name: "Build and test"
+  - name: "Build and test AppView"
     command: |
       set -eu
 
