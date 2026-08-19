@@ -1016,6 +1016,12 @@ public struct CommsPostDetail {
     public init() {}
 
     public struct State: Identifiable {
+        enum LoadState: Equatable, Sendable {
+            case failed
+            case loaded(CommsPost)
+            case loading
+        }
+
         public init(postID: CommsPost.ID) {
             self.postID = postID
             _post = FetchOne(CommsPost.where { $0.id.eq(postID) })
@@ -1025,6 +1031,16 @@ public struct CommsPostDetail {
         @FetchOne public var post: CommsPost?
         public var errorMessage: String?
         public var id: CommsPost.ID { postID }
+
+        var loadState: LoadState {
+            if let post {
+                return .loaded(post)
+            } else if $post.loadError != nil {
+                return .failed
+            } else {
+                return .loading
+            }
+        }
     }
 
     public enum Action {
@@ -1067,7 +1083,8 @@ public struct CommsPostDetailView: View {
 
     public var body: some View {
         Group {
-            if let post = store.post {
+            switch store.loadState {
+            case let .loaded(post):
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let headerImageURL = post.headerImageURL {
@@ -1130,7 +1147,11 @@ public struct CommsPostDetailView: View {
                 .task(id: post.id) {
                     await store.send(.postBecameVisible)?.value
                 }
-            } else {
+
+            case .loading:
+                ProgressView("Loading post")
+
+            case .failed:
                 ViewerPlaceholderView(
                     title: "Post",
                     systemImage: "doc.text",

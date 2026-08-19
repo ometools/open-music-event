@@ -804,6 +804,130 @@ struct NavigationTests {
     }
 
     @Test
+    func `tapping a notification loads its post while the source refreshes`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let postID = commsPostID("gates-open", channelID: "general", eventID: eventID)
+        let (refreshStarted, refreshStartedContinuation) = AsyncStream<Void>.makeStream()
+        var refreshStartedIterator = refreshStarted.makeAsyncIterator()
+        let (refreshGate, refreshGateContinuation) = AsyncStream<Void>.makeStream()
+
+        try await database.write { db in
+            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(
+                    id: eventID,
+                    sourceProvenance: EventSourceProvenanceRecord(
+                        id: eventID,
+                        sourceKind: .tangled,
+                        sourceReference: "tangled.org/example/event-1",
+                        ref: "main",
+                        eventIDOrigin: .explicit,
+                        sourceEventDirectory: "event-1"
+                    ).sourceProvenance
+                )
+            }
+            .execute(db)
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General"
+            )
+        }
+
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            variant: .whiteLabel(
+                WickedWoodsWhiteLabel.configuration(organizerID: eventID.organizerID)
+            ),
+            installationClient: OMEEventInstallationClient(
+                ensureInstalled: { _ in eventID },
+                synchronizeInstalledEvent: { synchronizedEventID in
+                    expectNoDifference(synchronizedEventID, eventID)
+                    refreshStartedContinuation.yield()
+                    refreshStartedContinuation.finish()
+                    for await _ in refreshGate {
+                        break
+                    }
+                    try await database.write { db in
+                        try Self.insertCommsPost(
+                            db,
+                            eventID: eventID,
+                            channelID: "general",
+                            postID: "gates-open",
+                            title: "Gates are open",
+                            contents: "Welcome to Wicked Woods.",
+                            sortIndex: 0
+                        )
+                    }
+                }
+            )
+        )
+        let json = #"""
+        {
+          "aps": {
+            "alert": {
+              "title": "Gates are open",
+              "body": "Welcome to Wicked Woods."
+            },
+            "sound": "default"
+          },
+          "kind": "content",
+          "source": "at://did:web:example.com/app.openmusicevent.event/event-1",
+          "version": "notification-post-1",
+          "route": "/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/gates-open"
+        }
+        """#
+
+        // The attendee taps a notification before its source revision is in the local database.
+        let notificationTask = store.send(
+            .notification(
+                NotificationEvent(
+                    json: json,
+                    delivery: .userInteraction(actionIdentifier: "open")
+                )
+            )
+        )
+        _ = await refreshStartedIterator.next()
+        await waitUntil {
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.destination?
+                .postDetail?.postID == postID
+        }
+
+        // The post detail remains mounted in its loading state while synchronization is pending.
+        expectNoDifference(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.destination?
+                .postDetail?.loadState,
+            .loading
+        )
+
+        // Synchronization inserts the post, and the mounted query replaces loading with content.
+        refreshGateContinuation.yield()
+        refreshGateContinuation.finish()
+        await notificationTask?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.destination?
+                .postDetail?.post?.title == "Gates are open"
+        }
+        let loadedPost = try #require(
+            store.state.root.destination?.eventViewer?
+                .authoring.content.content.communicationsViewer?
+                .destination?.channelDetail?.destination?
+                .postDetail?.post
+        )
+        expectNoDifference(loadedPost.id, postID)
+        expectNoDifference(loadedPost.contents, "Welcome to Wicked Woods.")
+    }
+
+    @Test
     func contentNotificationSelectsCommunicationsFromAnOpenSchedule() async throws {
         let database = try makePreparedDatabase()
         let organizerID = OMERecord.Organizer.ID(
