@@ -691,7 +691,7 @@ public struct CommunicationChannelDetail {
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
             .where { $0.id.channelID.eq(channelID) }
-            .order { ($0.sortIndex, $0.title.collate(.nocase)) }
+            .order { ($0.timestamp.desc(), $0.sortIndex, $0.title.collate(.nocase)) }
     }
 
     static func postReadsQuery(
@@ -1147,6 +1147,7 @@ struct CommsPostRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if !isRead {
                     Circle()
@@ -1162,11 +1163,13 @@ struct CommsPostRowView: View {
 
                 Spacer()
 
-                if let timestamp = post.timestamp {
-                    Text(timestamp, format: .relative(presentation: .named))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            }
+
+            if let timestamp = post.timestamp {
+                Text(timestamp, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             }
 
             CommsMarkdownText(post.contents)
