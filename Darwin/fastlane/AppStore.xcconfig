@@ -1,5 +1,4 @@
 // Additional properties included by the Fastfile build_app
-OME_APNS_ENVIRONMENT = production
 
 // This file can be used to override various properties from Skip.env
 //PRODUCT_BUNDLE_IDENTIFIER =

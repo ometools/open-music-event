@@ -35,13 +35,44 @@ let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "Ope
 enum APNSEnvironmentConfigurationError: Error, Equatable {
     case missing
     case invalid(String)
+    case invalidProfile
 }
 
 enum APNSEnvironmentConfiguration {
-    static let infoDictionaryKey = "OMEAPNSEnvironment"
-
-    static func resolve(_ rawValue: String?) throws -> Push.APNS.Environment {
-        guard let rawValue else {
+#if !SKIP
+    static func resolve(
+        isSimulator: Bool,
+        embeddedProfileData: Data?
+    ) throws -> Push.APNS.Environment {
+        if isSimulator {
+            return .development
+        }
+        guard let embeddedProfileData else {
+            return .production
+        }
+        guard
+            let openingTag = embeddedProfileData.range(of: Data("<plist".utf8))?.lowerBound,
+            let closingTag = embeddedProfileData.range(
+                of: Data("</plist>".utf8),
+                options: .backwards
+            )?.upperBound
+        else {
+            throw APNSEnvironmentConfigurationError.invalidProfile
+        }
+        let propertyListData = embeddedProfileData[openingTag..<closingTag]
+        guard
+            let profile = try? PropertyListSerialization.propertyList(
+                from: propertyListData,
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        else {
+            throw APNSEnvironmentConfigurationError.invalidProfile
+        }
+        guard
+            let entitlements = profile["Entitlements"] as? [String: Any],
+            let rawValue = entitlements["aps-environment"] as? String
+        else {
             throw APNSEnvironmentConfigurationError.missing
         }
         guard let environment = Push.APNS.Environment(rawValue: rawValue) else {
@@ -49,11 +80,25 @@ enum APNSEnvironmentConfiguration {
         }
         return environment
     }
+#endif
 
-    static func current(
-        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
-    ) throws -> Push.APNS.Environment {
-        try resolve(infoDictionary?[infoDictionaryKey] as? String)
+    static func current() throws -> Push.APNS.Environment {
+#if SKIP
+        throw APNSEnvironmentConfigurationError.missing
+#elseif targetEnvironment(simulator)
+        return .development
+#else
+        let profileURL = Bundle.main.bundleURL.appendingPathComponent(
+            "embedded.mobileprovision"
+        )
+        guard FileManager.default.fileExists(atPath: profileURL.path) else {
+            return .production
+        }
+        guard let profileData = try? Data(contentsOf: profileURL, options: .mappedIfSafe) else {
+            throw APNSEnvironmentConfigurationError.invalidProfile
+        }
+        return try resolve(isSimulator: false, embeddedProfileData: profileData)
+#endif
     }
 }
 
@@ -619,6 +664,11 @@ struct OpenMusicEventApplicationRuntime {
         } catch APNSEnvironmentConfigurationError.invalid {
             logger.error(
                 "Remote notification registration has an invalid APNs environment configuration"
+            )
+            return
+        } catch APNSEnvironmentConfigurationError.invalidProfile {
+            logger.error(
+                "Remote notification registration has an invalid embedded provisioning profile"
             )
             return
         } catch {

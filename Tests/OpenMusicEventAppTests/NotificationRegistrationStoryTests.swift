@@ -27,40 +27,97 @@ import XRPCClient
 @Suite(.serialized)
 struct NotificationRegistrationStoryTests {
     @Test
-    func `configured APNS environment accepts only Apple's two values`() throws {
+    func `simulator registrations use the development APNS environment`() throws {
         expectNoDifference(
-            try APNSEnvironmentConfiguration.resolve("development"),
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: true,
+                embeddedProfileData: nil
+            ),
             .development
         )
-        expectNoDifference(
-            try APNSEnvironmentConfiguration.resolve("production"),
-            .production
-        )
-        #expect(throws: APNSEnvironmentConfigurationError.missing) {
-            try APNSEnvironmentConfiguration.resolve(nil)
-        }
-        #expect(throws: APNSEnvironmentConfigurationError.invalid("staging")) {
-            try APNSEnvironmentConfiguration.resolve("staging")
-        }
     }
 
     @Test
-    func `App Store configuration resolves the production APNS environment`() throws {
+    func `development-signed registrations use the development APNS environment`() throws {
         expectNoDifference(
-            try APNSEnvironmentConfiguration.current(
-                infoDictionary: [
-                    APNSEnvironmentConfiguration.infoDictionaryKey: "production"
-                ]
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: try Self.embeddedProfile(
+                    apsEnvironment: "development"
+                )
+            ),
+            .development
+        )
+    }
+
+    @Test
+    func `distribution-signed registrations use the production APNS environment`() throws {
+        expectNoDifference(
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: try Self.embeddedProfile(
+                    apsEnvironment: "production"
+                )
             ),
             .production
         )
     }
 
     @Test
-    func `missing APNS environment configuration fails closed`() {
-        #expect(throws: APNSEnvironmentConfigurationError.missing) {
-            try APNSEnvironmentConfiguration.current(infoDictionary: nil)
+    func `Apple-distributed registrations without an embedded profile use production APNS`() throws {
+        expectNoDifference(
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: nil
+            ),
+            .production
+        )
+    }
+
+    @Test
+    func `malformed embedded provisioning profiles fail closed`() {
+        #expect(throws: APNSEnvironmentConfigurationError.invalidProfile) {
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: Data("not a provisioning profile".utf8)
+            )
         }
+    }
+
+    @Test
+    func `embedded profiles without an APNS environment fail closed`() throws {
+        #expect(throws: APNSEnvironmentConfigurationError.missing) {
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: try Self.embeddedProfile(apsEnvironment: nil)
+            )
+        }
+    }
+
+    @Test
+    func `embedded profiles accept only Apple's two APNS environment values`() throws {
+        #expect(throws: APNSEnvironmentConfigurationError.invalid("staging")) {
+            try APNSEnvironmentConfiguration.resolve(
+                isSimulator: false,
+                embeddedProfileData: try Self.embeddedProfile(
+                    apsEnvironment: "staging"
+                )
+            )
+        }
+    }
+
+    static func embeddedProfile(apsEnvironment: String?) throws -> Data {
+        var entitlements: [String: Any] = [:]
+        entitlements["aps-environment"] = apsEnvironment
+        let propertyList = try PropertyListSerialization.data(
+            fromPropertyList: ["Entitlements": entitlements],
+            format: .xml,
+            options: 0
+        )
+        var profile = Data([0x00, 0xFF])
+        profile.append(propertyList)
+        profile.append(contentsOf: [0xFF, 0x00])
+        return profile
     }
 
     @Test @MainActor
