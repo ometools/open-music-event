@@ -29,6 +29,7 @@ steps:
           set -euo pipefail
           export GIT_TERMINAL_PROMPT=0
           export DEBIAN_FRONTEND=noninteractive
+          export OME_APPVIEW=1
 
           apt-get update
           apt-get install -y --no-install-recommends libgit2-dev libsqlite3-dev pkg-config
@@ -42,6 +43,6 @@ steps:
           git config --global credential.helper store
           printf "https://x-access-token:%s@github.com\n" "$GITHUB_TOKEN" > ~/.git-credentials
 
-          git ls-remote https://github.com/pointfreeco/TCA26 HEAD >/dev/null
-          swift build && swift test
+          git clone --depth 1 https://github.com/pointfreeco/TCA26 .build/checkouts/TCA26
+          swift build && swift test --no-parallel
         '
