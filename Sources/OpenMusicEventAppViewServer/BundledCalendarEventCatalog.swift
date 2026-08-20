@@ -6,24 +6,19 @@ enum BundledCalendarEventCatalog {
     struct Configuration: Sendable {
         init(
             appViewHost: ATProto.PDSHost,
-            tangledWebhook: TangledWebhookConfiguration?
+            tangledWebhook: TangledWebhookConfiguration?,
+            publishedRepositories: [String: OME.CalendarEvent.Source.Repository] = [:]
         ) {
             self.appViewHost = appViewHost
-            self.resolvedRepositories = Dictionary(
-                uniqueKeysWithValues: (tangledWebhook?.watches ?? []).map { watch in
-                    (
-                        watch.canonicalSource,
-                        OME.CalendarEvent.Source.Repository(
-                            reference: "at://\(watch.repositoryOwnerDID)/sh.tangled.repo/\(watch.repositoryKey.rawValue)",
-                            ref: BundledCalendarEventCatalog.normalizedBranch(watch.ref)
-                        )
-                    )
-                }
+            configuredSourceReferences = Set(
+                (tangledWebhook?.watches ?? []).map(\.canonicalSource.reference)
             )
+            resolvedRepositories = publishedRepositories
         }
 
         let appViewHost: ATProto.PDSHost
-        let resolvedRepositories: [CanonicalTangledSource: OME.CalendarEvent.Source.Repository]
+        let configuredSourceReferences: Set<String>
+        let resolvedRepositories: [String: OME.CalendarEvent.Source.Repository]
     }
 
     static func event(
@@ -84,10 +79,6 @@ enum BundledCalendarEventCatalog {
             .map { try $0.calendarEvent(configuration: configuration) }
     }
 
-    private static func normalizedBranch(_ ref: String) -> String {
-        let prefix = "refs/heads/"
-        return ref.hasPrefix(prefix) ? String(ref.dropFirst(prefix.count)) : ref
-    }
 }
 
 enum BundledCalendarEventCatalogError: Error, Equatable {
@@ -95,6 +86,7 @@ enum BundledCalendarEventCatalogError: Error, Equatable {
     case invalidOrganizerID(String)
     case invalidTimeZone(String)
     case missingResource
+    case publishedArtifactMissing(String)
 }
 
 private struct BundledCalendarEvent: Decodable {
@@ -188,7 +180,16 @@ private struct BundledCalendarEvent: Decodable {
                 organizerID: organizerID,
                 repositoryRecordKey: ATProto.Record.Key(rawValue: sourceRecordKey)
             )
-            event.source.resolvedRepository = configuration.resolvedRepositories[canonicalSource]
+            if configuration.configuredSourceReferences.contains(canonicalSource.reference) {
+                guard let repository = configuration.resolvedRepositories[
+                    canonicalSource.reference
+                ] else {
+                    throw BundledCalendarEventCatalogError.publishedArtifactMissing(
+                        canonicalSource.reference
+                    )
+                }
+                event.source.resolvedRepository = repository
+            }
         }
         return event
     }

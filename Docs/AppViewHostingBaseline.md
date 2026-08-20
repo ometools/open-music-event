@@ -53,14 +53,21 @@ OME_FCM_SERVICE_ACCOUNT_PATH=/run/credentials/ome-appview.service/fcm-service-ac
 OME_TANGLED_WEBHOOK_CONFIGURATION_PATH=/absolute/path/to/tangled-webhooks.json
 OME_WEBHOOK_SECRET_KEY_PATH=/absolute/path/to/webhook-secret-key
 OME_WEBHOOK_SECRET_KEY_VERSION=1
+OME_SOURCE_ARTIFACT_S3_BUCKET=resources.openmusicevent.app
+OME_SOURCE_ARTIFACT_S3_REGION=us-east-1
+OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN=https://resources.openmusicevent.app
+AWS_ACCESS_KEY_ID=<source-artifact-writer-access-key>
+AWS_SECRET_ACCESS_KEY=<source-artifact-writer-secret-key>
+AWS_SESSION_TOKEN=<optional-session-token>
 ```
 
 `OME_APPVIEW_HOST` is the local bind address. `OME_APPVIEW_PUBLIC_HOST` is the AppView hostname
 advertised by XRPC catalog records; staging must set it to `stg.openmusicevent.app`. Bundled catalog
 entries identify their canonical Tangled repository record key. When a configured webhook watch has
-the same organizer ID and repository record key, the catalog advertises that environment's watched
-physical repository while preserving the organizer, event, channel, and post IDs. This is what lets
-staging serve a fork without changing production catalog records.
+the same organizer ID and repository record key, the catalog advertises the durable published
+artifact recorded for that watch's current revision while preserving the organizer, event, channel,
+and post IDs. The existing `resolvedRepository` response shape does not change, so clients require
+no S3-specific behavior.
 
 `OME_TCA26_PATH` and `OME_COMPOSABLE_NOTIFICATIONS_PATH` are build-time package overrides, not
 runtime service configuration. During active deployment iteration, point them at reviewed sibling
@@ -196,6 +203,10 @@ metadata in the public server-configuration repository, for example:
     "canonicalSource": {
       "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
       "repositoryRecordKey": "ome-workspace"
+    },
+    "artifactRepository": {
+      "owner": "wickedwoods.ca",
+      "repository": "ome-workspace"
     }
   }]
 }
@@ -207,17 +218,22 @@ Tangled repository path plus ref. It is not an organizer or source identity. The
 separates the remaining two identities. `repositoryOwnerDID`, `repositoryKey`, and `ref` identify
 the physical Tangled repository that signs the webhook and supplies bytes. `canonicalSource`
 identifies the organizer and `sh.tangled.repo` record whose stable namespace those bytes represent.
-This lets staging watch a fork without changing the organizer, event, channel, or post IDs seen by
-clients. One source repository can contain multiple events; AppView projects all of them. Configure
-at most one authoritative physical watch for the same canonical source in an environment.
+`artifactRepository` selects the stable public path beneath
+`OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN`. This lets staging watch a fork without changing the organizer,
+event, channel, post, or published repository identities seen by clients. One source repository can
+contain multiple events; AppView projects all of them. Configure at most one authoritative physical
+watch and artifact path for the same canonical source in an environment.
 
-AppView checks out and validates the exact Tangled revisions, stores the current revision plus
-communication-post identities in its primary SQLite database, and transactionally enqueues a
-source-available signal for each channel that gained a post. Only
+AppView downloads each exact Tangled revision once, validates those archive bytes, publishes those
+same bytes to the immutable S3 key
+`<artifact owner>/<artifact repository>/archive/<revision>.tar.gz`, and only then stores the
+revision, S3 reference, checksum, byte count, and communication-post identities in its primary
+SQLite database. The checkpoint update and notification outbox inserts share one transaction. An
+S3 upload failure therefore cannot advance the advertised revision or enqueue a refresh. Only
 installations subscribed to that canonical channel route receive the signal. The first processed
 push compares `before` and `after`, so posts that already existed before AppView was deployed do not
 produce a historical notification burst; a replay of the same `after` revision performs no source
-checkout and creates no duplicate outbox row.
+download or upload and creates no duplicate outbox row.
 
 This first projection treats a newly added communication-post identity as notification-worthy.
 Editing or deleting an existing post does not enqueue another notification. Each new post enqueues
@@ -243,6 +259,28 @@ systemd-ask-password "Tangled webhook secret" \
 
 An unsigned or unknown hook must receive an authentication failure and must not enter the durable
 inbox.
+
+### Artifact cutover and backfill
+
+Grant the AppView service identity `s3:PutObject` only for the configured artifact bucket/prefix.
+Keep its AWS secret out of the public watch file and service logs. The published objects are
+content-addressed by source revision, carry a SHA-256 checksum, and are served through
+`OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN`.
+
+The new catalog intentionally fails closed for a configured watch whose current checkpoint has no
+published-artifact metadata; it never falls back to Tangled. During deployment, stage the new
+executable and configuration, keep the new service process stopped, and run:
+
+```sh
+OpenMusicEventAppView backfill-source-artifacts
+```
+
+The command uses every configured watch's existing checkpoint, validates and uploads its exact
+revision, then repairs the checkpoint without producing notifications. It is idempotent: a watch
+that already has complete publication metadata is reported without another download or upload.
+Verify each reported S3 object, checksum, and database row before starting or restarting the new
+service. Then query the catalog and confirm that `resolvedRepository.reference` is beneath the
+configured public origin and `resolvedRepository.ref` is the checkpoint's exact revision.
 
 ## Non-Device Production Acceptance
 
@@ -277,7 +315,12 @@ sqlite3 /srv/ome-appview/data/canary/open-music-event-appview.sqlite \
           repositoryKey,
           ref,
           sourceID AS canonicalSourceReference,
-          revision
+          revision,
+          artifactReference,
+          artifactObjectKey,
+          artifactChecksumSHA256,
+          artifactByteCount,
+          artifactPublishedAt
    FROM tangledSourceRevisions;
    SELECT sourceID, sourceVersion, reason, failedAttempts,
           lastAttemptAt, nextAttemptAt, deliveredAt
@@ -318,6 +361,9 @@ that the server reached recipient lookup.
 - Keep the Firebase service-account JSON under the same deployment credential controls, point
   `OME_FCM_SERVICE_ACCOUNT_PATH` at the mounted file, and never copy its private key into the
   provider routing JSON or environment.
+- Scope the AWS source-artifact writer credentials to the configured S3 bucket/prefix. Keep
+  `AWS_SECRET_ACCESS_KEY` and any `AWS_SESSION_TOKEN` in the service credential injection mechanism;
+  do not put them in the Tangled watch JSON or logs.
 - Keep the Tangled webhook master encryption key in the Lightsail deployment secret mechanism,
   and store each hook secret only through `set-tangled-webhook-secret` so AppView persists its
   ciphertext in SQLite. Do not commit either secret to the watch file, log request signatures, or

@@ -269,40 +269,50 @@ public enum OpenMusicEventAppViewServer {
         }
 
         hummingbirdRouter.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
-            let event: OME.CalendarEvent?
-            if parameters.uri.collection == OME.Event.nsid {
-                event = try BundledCalendarEventCatalog.event(
-                    uri: parameters.uri,
-                    configuration: BundledCalendarEventCatalog.Configuration(
-                        appViewHost: publicAppViewHost,
-                        tangledWebhook: tangledWebhookConfiguration
+            do {
+                let event: OME.CalendarEvent?
+                if parameters.uri.collection == OME.Event.nsid {
+                    event = try await BundledCalendarEventCatalog.event(
+                        uri: parameters.uri,
+                        configuration: bundledCatalogConfiguration(
+                            appViewHost: publicAppViewHost,
+                            tangledWebhook: tangledWebhookConfiguration,
+                            store: store
+                        )
                     )
-                )
-            } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
-                event = try store.communityCalendarEvent(uri: parameters.uri)
-            } else {
-                event = nil
-            }
+                } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
+                    event = try store.communityCalendarEvent(uri: parameters.uri)
+                } else {
+                    event = nil
+                }
 
-            guard let event else {
+                guard let event else {
+                    throw XRPC.ResponseError(
+                        .notFound,
+                        error: "EventNotFound",
+                        message: "The requested calendar event is not available."
+                    )
+                }
+                return event
+            } catch BundledCalendarEventCatalogError.publishedArtifactMissing {
                 throw XRPC.ResponseError(
-                    .notFound,
-                    error: "EventNotFound",
-                    message: "The requested calendar event is not available."
+                    .serviceUnavailable,
+                    error: "SourceArtifactUnavailable",
+                    message: "The event source archive is not currently available."
                 )
             }
-            return event
         }
 
         hummingbirdRouter.register(OME.CalendarEvent.GetEvents.self) { parameters, _ in
             do {
                 if parameters.catalog == OME.Event.nsid {
-                    return try BundledCalendarEventCatalog.page(
+                    return try await BundledCalendarEventCatalog.page(
                         cursor: parameters.cursor,
                         limit: parameters.limit,
-                        configuration: BundledCalendarEventCatalog.Configuration(
+                        configuration: bundledCatalogConfiguration(
                             appViewHost: publicAppViewHost,
-                            tangledWebhook: tangledWebhookConfiguration
+                            tangledWebhook: tangledWebhookConfiguration,
+                            store: store
                         )
                     )
                 }
@@ -322,6 +332,12 @@ public enum OpenMusicEventAppViewServer {
                     .badRequest,
                     error: "InvalidCursor",
                     message: "The XRPC cursor is invalid."
+                )
+            } catch BundledCalendarEventCatalogError.publishedArtifactMissing {
+                throw XRPC.ResponseError(
+                    .serviceUnavailable,
+                    error: "SourceArtifactUnavailable",
+                    message: "An event source archive is not currently available."
                 )
             } catch OpenMusicEventAppViewStoreError.invalidCursor {
                 throw XRPC.ResponseError(
@@ -635,6 +651,24 @@ public enum OpenMusicEventAppViewServer {
                 wellKnownFiles: wellKnownFiles
             )
         }
+    }
+
+    private static func bundledCatalogConfiguration(
+        appViewHost: ATProto.PDSHost,
+        tangledWebhook: TangledWebhookConfiguration?,
+        store: OpenMusicEventAppViewStore?
+    ) async throws -> BundledCalendarEventCatalog.Configuration {
+        let publishedRepositories: [String: OME.CalendarEvent.Source.Repository]
+        if let store {
+            publishedRepositories = try await store.tangledPublishedSourceRepositories()
+        } else {
+            publishedRepositories = [:]
+        }
+        return BundledCalendarEventCatalog.Configuration(
+            appViewHost: appViewHost,
+            tangledWebhook: tangledWebhook,
+            publishedRepositories: publishedRepositories
+        )
     }
 
     private static func response(

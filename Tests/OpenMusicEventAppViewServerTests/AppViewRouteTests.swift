@@ -8,13 +8,14 @@ import HummingbirdLambdaTesting
 import HummingbirdTesting
 import HydrantClient
 import IssueReporting
-import OpenMusicEventAppViewServer
 import OpenMusicEventLexicon
 import OpenMusicEventRouting
 import ServiceLifecycle
 import SQLiteData
 import Testing
 import XRPCClient
+
+@testable import OpenMusicEventAppViewServer
 
 struct AppViewRouteTests {
     @Test
@@ -322,6 +323,48 @@ struct AppViewRouteTests {
                 )
             ]
         )
+        let revision = "2222222222222222222222222222222222222222"
+        let watch = try #require(configuration.tangledWebhook?.watches.first)
+        #expect(throws: BundledCalendarEventCatalogError.publishedArtifactMissing(
+            watch.canonicalSource.reference
+        )) {
+            try BundledCalendarEventCatalog.event(
+                uri: eventURI,
+                configuration: BundledCalendarEventCatalog.Configuration(
+                    appViewHost: configuration.publicAppViewHost,
+                    tangledWebhook: configuration.tangledWebhook
+                )
+            )
+        }
+        let update = TangledSourceUpdate(
+            watchID: watch.id,
+            deliveryID: .init(rawValue: "d8c7e4a5-48ad-4698-9a95-daee25f36701"),
+            repositoryOwnerDID: watch.repositoryOwnerDID,
+            repositoryKey: watch.repositoryKey,
+            ref: watch.ref,
+            before: String(repeating: "0", count: 40),
+            after: revision,
+            receivedAt: Date(timeIntervalSince1970: 1_786_291_200),
+            canonicalSource: watch.canonicalSource,
+            artifactRepository: watch.artifactRepository
+        )
+        _ = try await store.apply(
+            TangledSourceSnapshot(revision: revision, eventIDs: [], posts: []),
+            replacing: TangledSourceSnapshot(
+                revision: update.before,
+                eventIDs: [],
+                posts: []
+            ),
+            publishedArtifact: PublishedSourceArtifact(
+                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                objectKey: "wickedwoods.ca/ome-workspace/archive/\(revision).tar.gz",
+                revision: revision,
+                checksumSHA256: "fixture-sha256",
+                byteCount: 1,
+                publishedAt: update.receivedAt
+            ),
+            for: update
+        )
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
             store: store,
@@ -349,8 +392,8 @@ struct AppViewRouteTests {
                 expectNoDifference(
                     event.source.resolvedRepository,
                     OME.CalendarEvent.Source.Repository(
-                        reference: "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
-                        ref: "main"
+                        reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                        ref: revision
                     )
                 )
             }

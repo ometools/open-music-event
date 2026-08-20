@@ -338,6 +338,17 @@ struct NotificationRegistrationStoryTests {
                         )
                     )
                 ]
+            ),
+            sourceArtifacts: SourceArtifactS3Configuration(
+                bucket: "resources.openmusicevent.app",
+                region: "us-west-2",
+                publicOrigin: try #require(
+                    URL(string: "https://resources.openmusicevent.app")
+                ),
+                credentials: SourceArtifactAWSCredentials(
+                    accessKeyID: "fixture-access-key",
+                    secretAccessKey: "fixture-secret-key"
+                )
             )
         )
         let destination = Push.Destination.fcm(

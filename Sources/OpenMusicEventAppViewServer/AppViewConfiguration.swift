@@ -390,6 +390,8 @@ public extension AppViewConfiguration {
         else {
             throw AppViewConfigurationError.invalidSourceArtifactPublicOrigin(rawOrigin)
         }
+        let sessionToken = environment["AWS_SESSION_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return SourceArtifactS3Configuration(
             bucket: try required("OME_SOURCE_ARTIFACT_S3_BUCKET"),
             region: try required("OME_SOURCE_ARTIFACT_S3_REGION"),
@@ -397,7 +399,7 @@ public extension AppViewConfiguration {
             credentials: SourceArtifactAWSCredentials(
                 accessKeyID: try required("AWS_ACCESS_KEY_ID"),
                 secretAccessKey: try required("AWS_SECRET_ACCESS_KEY"),
-                sessionToken: environment["AWS_SESSION_TOKEN"]
+                sessionToken: sessionToken?.isEmpty == false ? sessionToken : nil
             )
         )
     }

@@ -304,6 +304,18 @@ struct TangledWebhookInboxTests {
                 ]
             )
         }
+
+        let keyURL = directory.appending(path: "webhook-secret-key")
+        try Data(Self.protectionKey.base64EncodedString().utf8).write(to: keyURL)
+        #expect(throws: AppViewConfigurationError.sourceArtifactConfigurationMissing) {
+            try AppViewConfiguration.fromEnvironment(
+                environment: [
+                    "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL
+                        .path(percentEncoded: false),
+                    "OME_WEBHOOK_SECRET_KEY_PATH": keyURL.path(percentEncoded: false),
+                ]
+            )
+        }
     }
 
     @Test
@@ -1139,7 +1151,8 @@ struct TangledWebhookInboxTests {
                     port: 0,
                     tangledWebhook: Self.webhookConfiguration()
                 ),
-                store: store
+                store: store,
+                tangledSourceUpdateProcessor: TangledSourceUpdateProcessor { _ in }
             )
         }
         let authenticPayload = Self.pushPayload()
@@ -1207,7 +1220,8 @@ struct TangledWebhookInboxTests {
                     port: 0,
                     tangledWebhook: Self.webhookConfiguration()
                 ),
-                store: store
+                store: store,
+                tangledSourceUpdateProcessor: TangledSourceUpdateProcessor { _ in }
             )
         }
         let payload = Self.pushPayload()

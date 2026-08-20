@@ -699,26 +699,66 @@ struct TangledChannelNotificationTests {
             )
         }
         let requestedRevisions = RequestedRevisions()
-        let processor = TangledSourceUpdateProcessor.channelNotifications(
-            store: store,
-            sourceArtifacts: Self.sourceArtifacts,
-            load: { _, revision in
-                await requestedRevisions.record(revision)
-                return ValidatedSourceArchive(
-                    data: Data(revision.utf8),
-                    snapshot: TangledSourceSnapshot(
-                        revision: revision,
-                        eventIDs: [],
-                        posts: []
+        let publicationRequests = ArtifactPublicationRequests()
+        let (results, replayedResults) = try await withDependencies {
+            $0.date = .constant(Self.receivedAt)
+            $0.uuid = .incrementing
+        } operation: {
+            let results = try await OpenMusicEventAppViewServer.backfillSourceArtifacts(
+                watches: [try Self.watch()],
+                store: store,
+                sourceArtifacts: SourceArtifactPublisher { request in
+                    await publicationRequests.record(request.revision)
+                    return Self.publishedArtifact(request: request)
+                },
+                load: { _, revision in
+                    await requestedRevisions.record(revision)
+                    return ValidatedSourceArchive(
+                        data: Data(revision.utf8),
+                        snapshot: TangledSourceSnapshot(
+                            revision: revision,
+                            eventIDs: [],
+                            posts: []
+                        )
                     )
+                }
+            )
+            let replayedResults = try await OpenMusicEventAppViewServer
+                .backfillSourceArtifacts(
+                    watches: [try Self.watch()],
+                    store: store,
+                    sourceArtifacts: SourceArtifactPublisher { request in
+                        await publicationRequests.record(request.revision)
+                        return Self.publishedArtifact(request: request)
+                    },
+                    load: { _, revision in
+                        await requestedRevisions.record(revision)
+                        return ValidatedSourceArchive(
+                            data: Data(revision.utf8),
+                            snapshot: TangledSourceSnapshot(
+                                revision: revision,
+                                eventIDs: [],
+                                posts: []
+                            )
+                        )
+                    }
                 )
-            }
-        )
-
-        try await processor.process(Self.update())
+            return (results, replayedResults)
+        }
 
         let revisions = await requestedRevisions.snapshot()
+        let publishedRevisions = await publicationRequests.snapshot()
         expectNoDifference(revisions, [Self.afterRevision])
+        expectNoDifference(publishedRevisions, [Self.afterRevision])
+        let expectedResult = SourceArtifactBackfillResult(
+            watchID: Self.watchID,
+            revision: Self.afterRevision,
+            reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+            objectKey: "wickedwoods.ca/ome-workspace/archive/\(Self.afterRevision).tar.gz",
+            checksumSHA256: "fixture-sha256"
+        )
+        expectNoDifference(results, [expectedResult])
+        expectNoDifference(replayedResults, [expectedResult])
         let resolvedCheckpoint = try await store.tangledSourceCheckpoint(
             watchID: .init(rawValue: Self.watchID)
         )
@@ -1074,6 +1114,18 @@ private actor ArtifactUploadRequests {
 
     func snapshot() -> [ArtifactUploadRequest] {
         requests
+    }
+}
+
+private actor ArtifactPublicationRequests {
+    private var revisions: [String] = []
+
+    func record(_ revision: String) {
+        revisions.append(revision)
+    }
+
+    func snapshot() -> [String] {
+        revisions
     }
 }
 

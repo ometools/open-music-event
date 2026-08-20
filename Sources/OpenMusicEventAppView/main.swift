@@ -46,6 +46,17 @@ case .setTangledWebhookSecret(let watchID, let secretFile):
     )
     print("Stored Tangled webhook secret for \(watchID).")
 
+case .backfillSourceArtifacts:
+    let configuration = try AppViewConfiguration.fromEnvironment()
+    let results = try await OpenMusicEventAppViewServer.backfillSourceArtifacts(
+        configuration: configuration
+    )
+    for result in results {
+        print(
+            "Published \(result.watchID) at \(result.revision) to \(result.reference) (\(result.objectKey), sha256 \(result.checksumSHA256))."
+        )
+    }
+
 case .help:
     print(AppViewCommand.usage)
 }
@@ -53,11 +64,13 @@ case .help:
 private enum AppViewCommand: Equatable {
     case serve
     case setTangledWebhookSecret(watchID: String, secretFile: String?)
+    case backfillSourceArtifacts
     case help
 
     static let usage = """
         USAGE: OpenMusicEventAppView [serve]
                OpenMusicEventAppView set-tangled-webhook-secret --watch-id <watch-id> [--secret-file <path>]
+               OpenMusicEventAppView backfill-source-artifacts
         """
 
     init(arguments: [String]) throws {
@@ -96,6 +109,12 @@ private enum AppViewCommand: Equatable {
                 throw AppViewCommandError.watchIDMissing
             }
             self = .setTangledWebhookSecret(watchID: watchID, secretFile: secretFile)
+
+        case "backfill-source-artifacts":
+            guard arguments.count == 1 else {
+                throw AppViewCommandError.unexpectedArguments(Array(arguments.dropFirst()))
+            }
+            self = .backfillSourceArtifacts
 
         case "help", "--help", "-h":
             self = .help
