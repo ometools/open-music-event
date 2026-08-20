@@ -568,7 +568,7 @@ struct NotificationRegistrationStoryTests {
                         expectNoDifference(
                             providerRequests.map { String(decoding: $0.body, as: UTF8.self) },
                             [
-                                #"{"message":{"data":{"kind":"source_available","source":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#,
+                                #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#,
                                 #"{"message":{"android":{"priority":"HIGH"},"data":{"body":"The gates are now open.","kind":"content","route":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements/posts/gates-open","source":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","title":"gates-open","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten","notification":{"body":"The gates are now open.","title":"gates-open"}}}"#,
                             ]
                         )
@@ -804,10 +804,9 @@ private func loadNotificationSourceArchive(
     .validate()
     return ValidatedSourceArchive(
         data: Data(revision.utf8),
-        snapshot: TangledSourceSnapshot(
-            revision: revision,
-            eventIDs: validation.insertion.events.compactMap(\.id),
-            posts: validation.insertion.communicationPosts
+        snapshot: try TangledSourceSnapshot(
+            validated: validation.insertion,
+            revision: revision
         )
     )
 }

@@ -56,6 +56,25 @@ struct TangledChannelNotificationTests {
         }
 
         expectNoDifference(
+            snapshot.events.map(\.uri.description),
+            [
+                "at://did:plc:festival/app.openmusicevent.event/ome-2026",
+                "at://did:plc:festival/app.openmusicevent.event/ome-2027",
+            ]
+        )
+        expectNoDifference(
+            snapshot.events.map(\.source.sourceRecord),
+            Array(
+                repeating: OME.SourceRecord(
+                    kind: .tangled,
+                    reference: Self.canonicalSourceReference,
+                    ref: Self.afterRevision
+                ),
+                count: 2
+            )
+        )
+        #expect(snapshot.events.allSatisfy { $0.event != nil })
+        expectNoDifference(
             snapshot.posts.map {
                 "\($0.id.organizerID)|\($0.id.eventID.rawValue.rawValue)|\($0.id.postID.rawValue.rawValue)"
             },
@@ -77,7 +96,7 @@ struct TangledChannelNotificationTests {
     }
 
     @Test
-    func `a new Tangled post refreshes and alerts only installations subscribed to its channel`() async throws {
+    func `a new Tangled post refreshes its event and alerts only channel subscribers`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -118,7 +137,7 @@ struct TangledChannelNotificationTests {
                     deviceToken: .init(rawValue: "development-device-token")
                 )
             ),
-            sourceID: .init(rawValue: Self.channelRoute),
+            sourceIDs: [Self.eventSourceID, .init(rawValue: Self.channelRoute)],
             in: notifications
         )
         try await Self.register(
@@ -130,7 +149,7 @@ struct TangledChannelNotificationTests {
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),
-            sourceID: .init(rawValue: Self.channelRoute),
+            sourceIDs: [Self.eventSourceID, .init(rawValue: Self.channelRoute)],
             in: notifications
         )
         try await Self.register(
@@ -141,7 +160,7 @@ struct TangledChannelNotificationTests {
                     installationID: .init(rawValue: "android-installation-id")
                 )
             ),
-            sourceID: Self.eventSourceID,
+            sourceIDs: [Self.eventSourceID],
             in: notifications
         )
 
@@ -218,7 +237,7 @@ struct TangledChannelNotificationTests {
                     body: nil,
                     kind: "source_available",
                     route: nil,
-                    sourceID: Self.channelRoute,
+                    sourceID: Self.eventSourceID.rawValue,
                     sourceVersion: Self.afterRevision,
                     title: nil
                 ),
@@ -227,7 +246,16 @@ struct TangledChannelNotificationTests {
                     body: nil,
                     kind: "source_available",
                     route: nil,
-                    sourceID: Self.channelRoute,
+                    sourceID: Self.eventSourceID.rawValue,
+                    sourceVersion: Self.afterRevision,
+                    title: nil
+                ),
+                PersistedChannelDelivery(
+                    applicationID: "fm.woody.openmusicevent",
+                    body: nil,
+                    kind: "source_available",
+                    route: nil,
+                    sourceID: Self.eventSourceID.rawValue,
                     sourceVersion: Self.afterRevision,
                     title: nil
                 ),
@@ -252,6 +280,91 @@ struct TangledChannelNotificationTests {
         }
         let replayedProjection = try await database.read(Self.persistedProjection)
         expectNoDifference(replayedProjection, firstProjection)
+    }
+
+    @Test
+    func `removing the last post refreshes its event without a visible alert`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let beforeRepository = directory.appending(path: "before", directoryHint: .isDirectory)
+        let afterRepository = directory.appending(path: "after", directoryHint: .isDirectory)
+        try Self.writeRepository(
+            to: beforeRepository,
+            posts: ["welcome": "Welcome to the festival."]
+        )
+        try Self.writeRepository(to: afterRepository, posts: [:])
+
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let notifications = withDependencies {
+            $0.defaultDatabase = database
+            $0.notificationDestinationProtectionClient = protection.client
+        } operation: {
+            NotificationDatabase()
+        }
+        try await Self.register(
+            id: "wicked-woods-ios",
+            destination: .apns(
+                Push.APNS(
+                    applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .production,
+                    deviceToken: .init(rawValue: "production-device-token")
+                )
+            ),
+            sourceIDs: [Self.eventSourceID, .init(rawValue: Self.channelRoute)],
+            in: notifications
+        )
+
+        let checkout = TangledSourceCheckoutClient { request in
+            let repository: URL
+            switch request.ref {
+            case Self.beforeRevision:
+                repository = beforeRepository
+            case Self.afterRevision:
+                repository = afterRepository
+            default:
+                throw FixtureError.unexpectedRevision(request.ref)
+            }
+            try FileManager.default.copyItem(at: repository, to: request.outputURL)
+            return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
+        let processor = TangledSourceUpdateProcessor.publishSourceAndNotifyChannels(
+            store: store,
+            artifactPublisher: Self.successfulArtifactPublisher,
+            downloadAndValidate: Self.loadFixtureArchive
+        )
+        try await withDependencies {
+            $0.tangledSourceCheckout = checkout
+            $0.uuid = .incrementing
+        } operation: {
+            try await processor.process(Self.update())
+        }
+
+        let projection = try await database.read(Self.persistedProjection)
+        expectNoDifference(
+            projection,
+            PersistedProjection(
+                revision: Self.afterRevision,
+                postCount: 0,
+                deliveries: [
+                    PersistedChannelDelivery(
+                        applicationID: "com.Festivl.WickedWoods",
+                        body: nil,
+                        kind: "source_available",
+                        route: nil,
+                        sourceID: Self.eventSourceID.rawValue,
+                        sourceVersion: Self.afterRevision,
+                        title: nil
+                    )
+                ]
+            )
+        )
     }
 
     @Test
@@ -305,7 +418,7 @@ struct TangledChannelNotificationTests {
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),
-            sourceID: .init(rawValue: Self.channelRoute),
+            sourceIDs: [Self.eventSourceID, .init(rawValue: Self.channelRoute)],
             in: notifications
         )
 
@@ -381,7 +494,7 @@ struct TangledChannelNotificationTests {
                         body: nil,
                         kind: "source_available",
                         route: nil,
-                        sourceID: Self.channelRoute,
+                        sourceID: Self.eventSourceID.rawValue,
                         sourceVersion: Self.afterRevision,
                         title: nil
                     ),
@@ -391,7 +504,7 @@ struct TangledChannelNotificationTests {
     }
 
     @Test
-    func `later revisions notify new posts while edits and deletions stay silent`() async throws {
+    func `later revisions refresh the event while only new posts create visible alerts`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -439,7 +552,7 @@ struct TangledChannelNotificationTests {
                     deviceToken: .init(rawValue: "production-device-token")
                 )
             ),
-            sourceID: .init(rawValue: Self.channelRoute),
+            sourceIDs: [Self.eventSourceID, .init(rawValue: Self.channelRoute)],
             in: notifications
         )
 
@@ -507,7 +620,7 @@ struct TangledChannelNotificationTests {
                         body: nil,
                         kind: "source_available",
                         route: nil,
-                        sourceID: Self.channelRoute,
+                        sourceID: Self.eventSourceID.rawValue,
                         sourceVersion: Self.afterRevision,
                         title: nil
                     ),
@@ -525,7 +638,7 @@ struct TangledChannelNotificationTests {
                         body: nil,
                         kind: "source_available",
                         route: nil,
-                        sourceID: Self.channelRoute,
+                        sourceID: Self.eventSourceID.rawValue,
                         sourceVersion: Self.nextRevision,
                         title: nil
                     ),
@@ -548,6 +661,7 @@ struct TangledChannelNotificationTests {
                         data: Data(revision.utf8),
                         snapshot: TangledSourceSnapshot(
                             revision: revision,
+                            events: [],
                             posts: []
                         )
                     )
@@ -614,6 +728,7 @@ struct TangledChannelNotificationTests {
                     data: Data(revision.utf8),
                     snapshot: TangledSourceSnapshot(
                         revision: revision,
+                        events: [],
                         posts: []
                     )
                 )
@@ -650,6 +765,8 @@ private extension TangledChannelNotificationTests {
     static let repositoryKey = "festival-staging"
     static let canonicalOrganizerID = "did:plc:festival"
     static let canonicalRepositoryRecordKey = "ome"
+    static let canonicalSourceReference =
+        "at://\(canonicalOrganizerID)/sh.tangled.repo/\(canonicalRepositoryRecordKey)"
     static let channelRoute = "/orgs/did%3Aplc%3Afestival/events/ome-2026/communications/announcements"
     static let receivedAt = Date(timeIntervalSince1970: 1_786_291_200)
     static let webhookSecret = Data("fixture-tangled-secret".utf8)
@@ -745,10 +862,9 @@ private extension TangledChannelNotificationTests {
             )
         )
         .validate()
-        return TangledSourceSnapshot(
-            revision: revision,
-            eventIDs: validation.insertion.events.compactMap(\.id),
-            posts: validation.insertion.communicationPosts
+        return try TangledSourceSnapshot(
+            validated: validation.insertion,
+            revision: revision
         )
     }
 
@@ -794,7 +910,7 @@ private extension TangledChannelNotificationTests {
     static func register(
         id: String,
         destination: Push.Destination,
-        sourceID: NotificationSource.ID,
+        sourceIDs: Set<NotificationSource.ID>,
         in notifications: NotificationDatabase
     ) async throws {
         let installation = NotificationInstallation(id: .init(rawValue: id))
@@ -804,7 +920,7 @@ private extension TangledChannelNotificationTests {
         )
         try await notifications.replaceDestination(destination, for: installation.id)
         try await notifications.replaceSubscriptions(
-            [NotificationSubscription(sourceID: sourceID)],
+            Set(sourceIDs.map { NotificationSubscription(sourceID: $0) }),
             for: installation.id
         )
     }

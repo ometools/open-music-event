@@ -101,10 +101,9 @@ struct ValidatedSourceArchive: Equatable, Sendable {
         .validate()
         return Self(
             data: archiveData,
-            snapshot: TangledSourceSnapshot(
-                revision: revision,
-                eventIDs: validation.insertion.events.compactMap(\.id),
-                posts: validation.insertion.communicationPosts
+            snapshot: try TangledSourceSnapshot(
+                validated: validation.insertion,
+                revision: revision
             )
         )
     }

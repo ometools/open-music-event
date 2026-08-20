@@ -114,7 +114,7 @@ struct SourceArtifactPublicationTests {
                 throw SourceArtifactFixtureError.uploadFailed
             },
             downloadAndValidate: { _, revision in
-                Self.validatedArchive(revision: revision)
+                try Self.validatedArchive(revision: revision)
             }
         )
 
@@ -126,6 +126,11 @@ struct SourceArtifactPublicationTests {
         // AppView never advertises a revision whose archive was not published.
         let checkpoint = try await store.tangledSourceCheckpoint(watchID: Self.watchID)
         expectNoDifference(checkpoint, nil)
+        let catalog = try store.tangledSourceCalendarEvents(
+            watchIDs: [Self.watchID],
+            appViewHost: "stg.openmusicevent.app"
+        )
+        expectNoDifference(catalog, [])
         let notificationCount = try await database.read { database in
             try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
         }
@@ -163,7 +168,7 @@ struct SourceArtifactPublicationTests {
         let downloadAndValidate: @Sendable (TangledSourceUpdate, String) async throws
             -> ValidatedSourceArchive = { _, revision in
                 await work.recordDownload(revision)
-                return Self.validatedArchive(revision: revision)
+                return try Self.validatedArchive(revision: revision)
             }
 
         // The first run publishes the checkpoint revision and repairs the durable row.
@@ -223,6 +228,22 @@ struct SourceArtifactPublicationTests {
                 )
             )
         )
+        let catalog = try store.tangledSourceCalendarEvents(
+            watchIDs: [Self.watchID],
+            appViewHost: "stg.openmusicevent.app"
+        )
+        let event = try #require(catalog.first)
+        expectNoDifference(catalog.count, 1)
+        expectNoDifference(event.name, "Festival 2026")
+        expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
+        expectNoDifference(
+            event.source.resolvedRepository,
+            OME.CalendarEvent.Source.Repository(
+                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                ref: Self.revision
+            )
+        )
+        #expect(event.event != nil)
         let notificationCount = try await database.read { database in
             try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
         }
@@ -280,10 +301,68 @@ private extension SourceArtifactPublicationTests {
         )
     }
 
-    static func validatedArchive(revision: String) -> ValidatedSourceArchive {
+    static func validatedArchive(revision: String) throws -> ValidatedSourceArchive {
         ValidatedSourceArchive(
             data: Data(revision.utf8),
-            snapshot: .empty(revision: revision)
+            snapshot: TangledSourceSnapshot(
+                revision: revision,
+                events: [try calendarEvent(revision: revision)],
+                posts: []
+            )
+        )
+    }
+
+    static func calendarEvent(revision: String) throws -> OME.CalendarEvent {
+        let organizerID = try #require(OME.Organizer.ID(canonicalOrganizerID))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(.init("festival-2026"))
+        )
+        let date = try #require(LocalDate("2026-08-14"))
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let draft = OME.Event.Draft(
+            id: eventID,
+            name: "Festival 2026",
+            description: "The event projected with its published source archive.",
+            startDate: date,
+            endDate: date,
+            status: .known(.scheduled),
+            mode: .known(.inPerson),
+            locations: [OME.Event.Location(address: "The festival grounds")],
+            uris: nil,
+            timeZone: timeZone,
+            imageURL: nil,
+            iconImageURL: nil,
+            siteMapImageURL: nil,
+            contactNumbers: nil,
+            categoryConfigs: nil,
+            reportingLinks: nil,
+            owner: nil
+        )
+        let event = try JSONDecoder().decode(
+            OME.Event.self,
+            from: JSONEncoder().encode(draft)
+        )
+        return OME.CalendarEvent(
+            uri: OME.Event.reference(id: eventID).uri,
+            name: event.name,
+            description: event.description,
+            startsAt: date.atStartOfDay(in: timeZone),
+            endsAt: date.at(hour: 23, minute: 59, second: 59, in: timeZone),
+            status: .scheduled,
+            mode: .inPerson,
+            locations: [OME.CalendarEvent.Location(name: "The festival grounds")],
+            organizer: OME.CalendarEvent.Organizer(id: organizerID),
+            source: OME.CalendarEvent.Source(
+                collection: OME.Event.nsid,
+                sourceRecord: OME.SourceRecord(
+                    kind: .tangled,
+                    reference: canonicalSourceReference,
+                    ref: revision
+                )
+            ),
+            timeZoneIdentifier: timeZone.identifier,
+            event: event
         )
     }
 

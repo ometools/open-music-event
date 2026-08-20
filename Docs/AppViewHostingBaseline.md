@@ -18,6 +18,8 @@ The AppView origin is intended to serve `openmusicevent.app`, `ome.social`,
 - `GET /apple-app-site-association`: Apple root-path fallback.
 - `GET /.well-known/assetlinks.json`: Android App Links association.
 - `GET /events/{claim}`: host-scoped branded attendee page for a configured durable event.
+- `GET /xrpc/app.openmusicevent.calendar.getEvent`: reads one community or OME calendar event.
+- `GET /xrpc/app.openmusicevent.calendar.getEvents`: pages one community or OME catalog.
 - `POST /notifications/v1/installations`: creates an anonymous installation credential.
 - `PUT /notifications/v1/destination`: replaces the authenticated installation's typed APNs or
   FCM destination.
@@ -62,12 +64,12 @@ AWS_SESSION_TOKEN=<optional-session-token>
 ```
 
 `OME_APPVIEW_HOST` is the local bind address. `OME_APPVIEW_PUBLIC_HOST` is the AppView hostname
-advertised by XRPC catalog records; staging must set it to `stg.openmusicevent.app`. Bundled catalog
-entries identify their canonical Tangled repository record key. When a configured webhook watch has
-the same organizer ID and repository record key, the catalog advertises the durable published
-artifact recorded for that watch's current revision while preserving the organizer, event, channel,
-and post IDs. The existing `resolvedRepository` response shape does not change, so clients require
-no S3-specific behavior.
+advertised by XRPC catalog records; staging must set it to `stg.openmusicevent.app`. A configured
+webhook watch makes its canonical organizer source-owned: XRPC and branded event pages read that
+organizer's events only from the durable source projection, while the temporary bundle continues
+to supply organizers that have not migrated yet. Each projected event keeps its canonical event
+URI and identifies the exact S3 publication through the existing `resolvedRepository` response
+shape, so clients require no S3-specific behavior.
 
 `OME_TCA26_PATH` and `OME_COMPOSABLE_NOTIFICATIONS_PATH` are build-time package overrides, not
 runtime service configuration. During active deployment iteration, point them at reviewed sibling
@@ -227,13 +229,15 @@ watch and artifact path for the same canonical source in an environment.
 AppView downloads each exact Tangled revision once, validates those archive bytes, publishes those
 same bytes to the immutable S3 key
 `<artifact owner>/<artifact repository>/archive/<revision>.tar.gz`, and only then stores the
-revision, S3 reference, checksum, byte count, and communication-post identities in its primary
-SQLite database. The checkpoint update and notification outbox inserts share one transaction. An
-S3 upload failure therefore cannot advance the advertised revision or enqueue a refresh. Only
-installations subscribed to that canonical channel route receive the signal. The first processed
-push compares `before` and `after`, so posts that already existed before AppView was deployed do not
-produce a historical notification burst; a replay of the same `after` revision performs no source
-download or upload and creates no duplicate outbox row.
+revision, S3 reference, checksum, byte count, complete calendar-event projections, and
+communication-post identities in its primary SQLite database. Every successful revision replaces
+all event rows owned by that watch, so source deletions disappear instead of surviving an upsert.
+The checkpoint, event replacement, and notification outbox inserts share one transaction. An S3
+upload or projection failure therefore cannot advance the advertised revision or enqueue a
+refresh. Only installations subscribed to that canonical channel route receive the signal. The
+first processed push compares `before` and `after`, so posts that already existed before AppView was
+deployed do not produce a historical notification burst; a replay of the same `after` revision
+performs no source download or upload and creates no duplicate event or outbox row.
 
 This first projection treats a newly added communication-post identity as notification-worthy.
 Editing or deleting an existing post does not enqueue another notification. Each new post enqueues
@@ -267,20 +271,22 @@ Keep its AWS secret out of the public watch file and service logs. The published
 content-addressed by source revision, carry a SHA-256 checksum, and are served through
 `OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN`.
 
-The new catalog intentionally fails closed for a configured watch whose current checkpoint has no
-published-artifact metadata; it never falls back to Tangled. During deployment, stage the new
-executable and configuration, keep the new service process stopped, and run:
+The catalog intentionally fails closed for a configured organizer whose current checkpoint has no
+published artifact and event projection; it never falls back to either Tangled or stale bundled
+rows for that organizer. During deployment, stage the new executable and configuration, keep the
+new service process stopped, and run:
 
 ```sh
 OpenMusicEventAppView backfill-source-artifacts
 ```
 
 The command uses every configured watch's existing checkpoint, validates and uploads its exact
-revision, then repairs the checkpoint without producing notifications. It is idempotent: a watch
-that already has complete publication metadata is reported without another download or upload.
-Verify each reported S3 object, checksum, and database row before starting or restarting the new
-service. Then query the catalog and confirm that `resolvedRepository.reference` is beneath the
-configured public origin and `resolvedRepository.ref` is the checkpoint's exact revision.
+revision, then repairs the artifact metadata and complete event projection without producing
+notifications. It is idempotent: a watch that already has complete publication metadata is
+reported without another download or upload. Verify each reported S3 object, checksum, checkpoint,
+and event row before starting or restarting the new service. Then query the catalog and confirm
+that `resolvedRepository.reference` is beneath the configured public origin and
+`resolvedRepository.ref` is the checkpoint's exact revision.
 
 ## Non-Device Production Acceptance
 

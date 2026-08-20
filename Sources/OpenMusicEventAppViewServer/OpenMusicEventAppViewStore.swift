@@ -247,6 +247,48 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         }
     }
 
+    func tangledSourceCalendarEvents(
+        watchIDs: [WebhookInboxDelivery.WatchID],
+        appViewHost: ATProto.PDSHost
+    ) throws -> [OME.CalendarEvent] {
+        let selectedWatchIDs = Set(watchIDs.map(\.rawValue))
+        guard !selectedWatchIDs.isEmpty else { return [] }
+
+        return try database.read { database in
+            let checkpointsByWatchID = Dictionary(
+                uniqueKeysWithValues: try TangledSourceRevisionRow
+                    .fetchAll(database)
+                    .map { ($0.watchID, $0) }
+            )
+            return try TangledSourceCalendarEventRow
+                .order { ($0.startsAt.desc(), $0.uri) }
+                .fetchAll(database)
+                .filter { selectedWatchIDs.contains($0.watchID) }
+                .map { row in
+                    guard let checkpoint = checkpointsByWatchID[row.watchID] else {
+                        throw OpenMusicEventAppViewStoreError
+                            .tangledSourceCheckpointMissing(watchID: row.watchID)
+                    }
+                    return try row.calendarEvent(
+                        checkpoint: checkpoint,
+                        appViewHost: appViewHost
+                    )
+                }
+        }
+    }
+
+    func tangledSourceCalendarEvent(
+        uri: ATProto.URI,
+        watchIDs: [WebhookInboxDelivery.WatchID],
+        appViewHost: ATProto.PDSHost
+    ) throws -> OME.CalendarEvent? {
+        try tangledSourceCalendarEvents(
+            watchIDs: watchIDs,
+            appViewHost: appViewHost
+        )
+        .first { $0.uri == uri }
+    }
+
     func tangledSourceCheckpoint(
         watchID: WebhookInboxDelivery.WatchID
     ) async throws -> TangledSourceCheckpoint? {
@@ -255,26 +297,6 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                 .find(watchID.rawValue)
                 .fetchOne(database)
                 .map(TangledSourceCheckpoint.init)
-        }
-    }
-
-    func tangledPublishedSourceRepositories() async throws -> [
-        String: OME.CalendarEvent.Source.Repository
-    ] {
-        try await database.read { database in
-            try TangledSourceRevisionRow.fetchAll(database)
-                .reduce(
-                    into: [String: OME.CalendarEvent.Source.Repository]()
-                ) { repositories, checkpoint in
-                    guard let publishedArtifact = checkpoint.publishedArtifact else {
-                        return
-                    }
-                    repositories[checkpoint.canonicalSourceReference] =
-                        OME.CalendarEvent.Source.Repository(
-                            reference: publishedArtifact.reference,
-                            ref: publishedArtifact.revision
-                        )
-                }
         }
     }
 
@@ -304,27 +326,22 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             let current = try TangledSourceRevisionRow
                 .find(update.watchID.rawValue)
                 .fetchOne(database)
+            let repairsCurrentRevision: Bool
 
             if let current {
                 try current.validateWatch(for: update)
                 if current.revision == update.after {
-                    if current.publishedArtifact != publishedArtifact {
-                        try TangledSourceRevisionRow.upsert {
-                            TangledSourceRevisionRow(
-                                update: update,
-                                publishedArtifact: publishedArtifact
-                            )
-                        }
-                        .execute(database)
+                    guard current.publishedArtifact != publishedArtifact else { return 0 }
+                    repairsCurrentRevision = true
+                } else {
+                    guard current.revision == update.before else {
+                        throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                            watchID: update.watchID.rawValue,
+                            expected: update.before,
+                            actual: current.revision
+                        )
                     }
-                    return 0
-                }
-                guard current.revision == update.before else {
-                    throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
-                        watchID: update.watchID.rawValue,
-                        expected: update.before,
-                        actual: current.revision
-                    )
+                    repairsCurrentRevision = false
                 }
             } else {
                 guard before?.revision == update.before else {
@@ -334,6 +351,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                         actual: nil
                     )
                 }
+                repairsCurrentRevision = false
             }
 
             let previousPostKeys: Set<TangledSourceCommunicationPostKey>
@@ -352,6 +370,12 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             let addedPosts = after.posts.filter {
                 !previousPostKeys.contains(TangledSourceCommunicationPostKey($0.id))
             }
+            let calendarEventRows = try after.events.map {
+                try TangledSourceCalendarEventRow(
+                    watchID: update.watchID.rawValue,
+                    event: $0
+                )
+            }
 
             try TangledSourceRevisionRow.upsert {
                 TangledSourceRevisionRow(
@@ -360,6 +384,16 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                 )
             }
             .execute(database)
+            try TangledSourceCalendarEventRow
+                .where { $0.watchID.eq(update.watchID.rawValue) }
+                .delete()
+                .execute(database)
+            if !calendarEventRows.isEmpty {
+                try TangledSourceCalendarEventRow.insert {
+                    calendarEventRows
+                }
+                .execute(database)
+            }
             try TangledSourceCommunicationPostRow
                 .where { $0.watchID.eq(update.watchID.rawValue) }
                 .delete()
@@ -376,31 +410,21 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                 .execute(database)
             }
 
-            let channelSources = Dictionary(grouping: addedPosts) { post in
-                TangledSourceChannelKey(
-                    organizerID: post.id.organizerID,
-                    eventID: post.id.eventID,
-                    channelID: post.id.channelID
-                )
-            }
-            .keys
-            .map { channel in
-                NotificationSource(
-                    id: .init(
-                        rawValue: openMusicEventEventPathRouter.communicationChannelPath(
-                            eventID: OME.Event.ID(
-                                organizerID: channel.organizerID,
-                                eventID: channel.eventID
-                            ),
-                            channelID: channel.channelID
-                        )
-                    ),
-                    version: .init(rawValue: update.after)
-                )
-            }
-            .sorted { $0.id.rawValue < $1.id.rawValue }
+            // Backfill repairs the durable catalog but never delivers historical notifications.
+            if repairsCurrentRevision { return 0 }
 
-            var enqueuedCount = try channelSources.reduce(into: 0) { count, source in
+            let eventSources = after.events
+                .map { event in
+                    NotificationSource(
+                        id: .init(
+                            rawValue: event.uri.description
+                        ),
+                        version: .init(rawValue: update.after)
+                    )
+                }
+                .sorted { $0.id.rawValue < $1.id.rawValue }
+
+            var enqueuedCount = try eventSources.reduce(into: 0) { count, source in
                 count += try NotificationDatabase.enqueue(
                     source: source,
                     at: update.receivedAt,
@@ -467,6 +491,8 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
 
 public enum OpenMusicEventAppViewStoreError: Error, Equatable, Sendable {
     case invalidCursor(String)
+    case tangledSourceCheckpointMissing(watchID: String)
+    case tangledSourcePublishedArtifactMissing(watchID: String)
     case tangledSourceWatchMismatch(watchID: String)
     case tangledSourceRevisionMismatch(watchID: String, expected: String, actual: String?)
 }
@@ -601,17 +627,44 @@ private struct TangledSourceCommunicationPostKey: Hashable, Sendable {
     let postID: String
 }
 
-private struct TangledSourceChannelKey: Hashable, Sendable {
-    let organizerID: OME.Organizer.ID
-    let eventID: OME.ID<OME.Event>
-    let channelID: OME.ID<OME.Channel>
-}
-
 private struct TangledCommunicationPostNotificationRoute: NotificationRoute {
     let notificationRoute: String
 
     init(notificationRoute: String) {
         self.notificationRoute = notificationRoute
+    }
+}
+
+@Table("tangledSourceCalendarEvents")
+private struct TangledSourceCalendarEventRow: Equatable, Sendable {
+    @Column(primaryKey: true) var uri: String
+    var watchID: String
+    var startsAt: Date?
+    var event: Data
+
+    init(watchID: String, event: OME.CalendarEvent) throws {
+        uri = event.uri.description
+        self.watchID = watchID
+        startsAt = event.startsAt
+        self.event = try JSONEncoder().encode(event)
+    }
+
+    func calendarEvent(
+        checkpoint: TangledSourceRevisionRow,
+        appViewHost: ATProto.PDSHost
+    ) throws -> OME.CalendarEvent {
+        guard let publishedArtifact = checkpoint.publishedArtifact else {
+            throw OpenMusicEventAppViewStoreError.tangledSourcePublishedArtifactMissing(
+                watchID: watchID
+            )
+        }
+        var calendarEvent = try JSONDecoder().decode(OME.CalendarEvent.self, from: event)
+        calendarEvent.source.appViewHost = appViewHost
+        calendarEvent.source.resolvedRepository = OME.CalendarEvent.Source.Repository(
+            reference: publishedArtifact.reference,
+            ref: publishedArtifact.revision
+        )
+        return calendarEvent
     }
 }
 
@@ -697,6 +750,29 @@ private enum TangledSourceProjectionSchema {
             .execute(database)
             try #sql(
                 "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactPublishedAt\" TEXT"
+            )
+            .execute(database)
+        }
+        migrator.registerMigration("Create Tangled source calendar event projections") { database in
+            let revisionTable = TangledSourceRevisionRow.tableName
+            let eventTable = TangledSourceCalendarEventRow.tableName
+            let browseIndex = "\(eventTable)_browse"
+            try #sql(
+                """
+                CREATE TABLE \(quote: eventTable) (
+                  "uri" TEXT PRIMARY KEY NOT NULL,
+                  "watchID" TEXT NOT NULL REFERENCES \(quote: revisionTable)("watchID") ON DELETE CASCADE,
+                  "startsAt" TEXT,
+                  "event" BLOB NOT NULL
+                ) STRICT
+                """
+            )
+            .execute(database)
+            try #sql(
+                """
+                CREATE INDEX \(quote: browseIndex)
+                ON \(quote: eventTable) ("watchID", "startsAt", "uri")
+                """
             )
             .execute(database)
         }

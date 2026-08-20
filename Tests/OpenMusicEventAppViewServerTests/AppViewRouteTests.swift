@@ -286,7 +286,7 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func `staging catalog fails closed then serves its published source archive`() async throws {
+    func `configured source replaces bundled Wicked Woods events everywhere`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         let store = try OpenMusicEventAppViewStore(
@@ -300,6 +300,16 @@ struct AppViewRouteTests {
         ))
         var configuration = roots.configuration
         configuration.publicAppViewHost = "stg.openmusicevent.app"
+        configuration.brandedEventRouteClaims = [
+            BrandedEventRouteClaim(
+                host: "localhost",
+                eventClaim: "2026",
+                eventID: OME.Event.ID(
+                    organizerID: organizerID,
+                    eventID: OME.ID<OME.Event>(.init("ome-workspace-2026"))
+                )
+            )
+        ]
         configuration.tangledWebhook = try TangledWebhookConfiguration(
             watches: [
                 TangledWebhookWatch(
@@ -323,19 +333,28 @@ struct AppViewRouteTests {
                 )
             ]
         )
-        let revision = "2222222222222222222222222222222222222222"
+        let firstRevision = "2222222222222222222222222222222222222222"
+        let secondRevision = "3333333333333333333333333333333333333333"
         let watch = try #require(configuration.tangledWebhook?.watches.first)
-        let update = TangledSourceUpdate(
+        let firstUpdate = TangledSourceUpdate(
             watchID: watch.id,
             deliveryID: .init(rawValue: "d8c7e4a5-48ad-4698-9a95-daee25f36701"),
             repositoryOwnerDID: watch.repositoryOwnerDID,
             repositoryKey: watch.repositoryKey,
             ref: watch.ref,
             before: String(repeating: "0", count: 40),
-            after: revision,
+            after: firstRevision,
             receivedAt: Date(timeIntervalSince1970: 1_786_291_200),
             canonicalSource: watch.canonicalSource,
             artifactRepository: watch.artifactRepository
+        )
+        let firstEvent = try sourceCalendarEvent(
+            organizerID: organizerID,
+            eventRKey: "ome-workspace-2026",
+            name: "Wicked Woods 2026 — Source",
+            startDate: "2026-08-14",
+            revision: firstRevision,
+            canonicalSource: watch.canonicalSource
         )
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
@@ -346,53 +365,129 @@ struct AppViewRouteTests {
             "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3A5df2u7ief6m6tn77jznicxob%2Fapp.openmusicevent.event%2Fome-workspace-2026"
 
         try await app.test(.router) { client in
-            // The configured source has no durable publication yet, so AppView never falls back
-            // to the watched Tangled repository.
+            // Once an organizer is source-owned, AppView does not fall back to stale bundled rows.
             try await client.execute(
                 uri: eventRequest,
                 method: .get
             ) { response in
-                #expect(response.status == .serviceUnavailable)
-                #expect(String(buffer: response.body).contains("SourceArtifactUnavailable"))
+                #expect(response.status == .notFound)
             }
 
-            // A successful webhook publication records the exact revision and public S3 path.
+            // The first successful publication becomes the one catalog row for Wicked Woods.
             _ = try await store.apply(
-                TangledSourceSnapshot.empty(revision: revision),
-                replacing: TangledSourceSnapshot.empty(revision: update.before),
+                TangledSourceSnapshot(
+                    revision: firstRevision,
+                    events: [firstEvent],
+                    posts: []
+                ),
+                replacing: TangledSourceSnapshot.empty(revision: firstUpdate.before),
                 publishedArtifact: PublishedSourceArtifact(
                     reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(revision).tar.gz",
-                    revision: revision,
+                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(firstRevision).tar.gz",
+                    revision: firstRevision,
                     checksumSHA256: "fixture-sha256",
                     byteCount: 1,
-                    publishedAt: update.receivedAt
+                    publishedAt: firstUpdate.receivedAt
                 ),
-                for: update
+                for: firstUpdate
             )
 
-            // The next catalog read keeps canonical identities but resolves bytes through S3.
+            // XRPC returns the projected event, with installation bytes resolved through S3.
             try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .ok)
                 let event = try decodeCalendarEvent(response.body)
                 expectNoDifference(event.uri, eventURI)
+                expectNoDifference(event.name, "Wicked Woods 2026 — Source")
                 expectNoDifference(event.organizer.id, organizerID)
                 expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
                 expectNoDifference(
                     event.source.sourceRecord,
                     OME.SourceRecord(
                         kind: .tangled,
-                        reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
-                        ref: "main"
+                        reference: watch.canonicalSource.reference,
+                        ref: firstRevision
                     )
                 )
                 expectNoDifference(
                     event.source.resolvedRepository,
                     OME.CalendarEvent.Source.Repository(
                         reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                        ref: revision
+                        ref: firstRevision
                     )
                 )
+                #expect(event.event != nil)
+            }
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event",
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try decodeCalendarEventPage(response.body)
+                expectNoDifference(page.events.first?.name, "Wicked Woods 2026 — Source")
+                #expect(!page.events.dropFirst().contains { $0.organizer.id == organizerID })
+                #expect(page.events.contains { $0.name == "Shambhala 2026" })
+            }
+
+            // The branded attendee page reads the same projection instead of its old fixture.
+            try await client.execute(uri: "/events/2026", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(String(buffer: response.body).contains("<h1>Wicked Woods 2026 — Source</h1>"))
+            }
+
+            // The next source revision removes 2026 and adds 2027 in one replacement.
+            let secondUpdate = TangledSourceUpdate(
+                watchID: watch.id,
+                deliveryID: .init(rawValue: "15f8f078-26dc-4ff3-9737-7af8e94ab624"),
+                repositoryOwnerDID: watch.repositoryOwnerDID,
+                repositoryKey: watch.repositoryKey,
+                ref: watch.ref,
+                before: firstRevision,
+                after: secondRevision,
+                receivedAt: firstUpdate.receivedAt.addingTimeInterval(60),
+                canonicalSource: watch.canonicalSource,
+                artifactRepository: watch.artifactRepository
+            )
+            let secondEvent = try sourceCalendarEvent(
+                organizerID: organizerID,
+                eventRKey: "ome-workspace-2027",
+                name: "Wicked Woods 2027",
+                startDate: "2027-08-13",
+                revision: secondRevision,
+                canonicalSource: watch.canonicalSource
+            )
+            _ = try await store.apply(
+                TangledSourceSnapshot(
+                    revision: secondRevision,
+                    events: [secondEvent],
+                    posts: []
+                ),
+                replacing: TangledSourceSnapshot(
+                    revision: firstRevision,
+                    events: [firstEvent],
+                    posts: []
+                ),
+                publishedArtifact: PublishedSourceArtifact(
+                    reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(secondRevision).tar.gz",
+                    revision: secondRevision,
+                    checksumSHA256: "fixture-sha256-2",
+                    byteCount: 2,
+                    publishedAt: secondUpdate.receivedAt
+                ),
+                for: secondUpdate
+            )
+
+            // Removed events stay removed; the source-owned catalog contains only current rows.
+            try await client.execute(uri: eventRequest, method: .get) { response in
+                #expect(response.status == .notFound)
+            }
+            try await client.execute(
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=app.openmusicevent.event",
+                method: .get
+            ) { response in
+                let page = try decodeCalendarEventPage(response.body)
+                let wickedWoodsEvents = page.events.filter { $0.organizer.id == organizerID }
+                expectNoDifference(wickedWoodsEvents.map(\.name), ["Wicked Woods 2027"])
             }
         }
     }
@@ -954,6 +1049,75 @@ private func decodeCalendarEvent(_ body: ByteBuffer) throws -> OME.CalendarEvent
 
 private func decodeXRPCError(_ body: ByteBuffer) throws -> XRPC.ErrorResponse {
     try JSONDecoder().decode(XRPC.ErrorResponse.self, from: Data(body.readableBytesView))
+}
+
+private func sourceCalendarEvent(
+    organizerID: OME.Organizer.ID,
+    eventRKey: String,
+    name: String,
+    startDate: String,
+    revision: String,
+    canonicalSource: CanonicalTangledSource
+) throws -> OME.CalendarEvent {
+    let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+    let localDate = try #require(LocalDate(startDate))
+    let eventID = OME.Event.ID(
+        organizerID: organizerID,
+        eventID: OME.ID<OME.Event>(.init(eventRKey))
+    )
+    let eventDraft = OME.Event.Draft(
+        id: eventID,
+        name: name,
+        description: "Projected from the validated source archive.",
+        startDate: localDate,
+        endDate: localDate,
+        status: .known(.scheduled),
+        mode: .known(.inPerson),
+        locations: [OME.Event.Location(address: "Fairmont Hot Springs, BC")],
+        uris: nil,
+        timeZone: timeZone,
+        imageURL: URL(string: "https://resources.openmusicevent.app/wickedwoods/2026_ww_hero.png"),
+        iconImageURL: nil,
+        siteMapImageURL: nil,
+        contactNumbers: nil,
+        categoryConfigs: nil,
+        reportingLinks: nil,
+        owner: nil
+    )
+    let event = try JSONDecoder().decode(
+        OME.Event.self,
+        from: JSONEncoder().encode(eventDraft)
+    )
+    return OME.CalendarEvent(
+        uri: OME.Event.reference(id: eventID).uri,
+        name: name,
+        description: event.description,
+        startsAt: localDate.atStartOfDay(in: timeZone),
+        endsAt: localDate.at(hour: 23, minute: 59, second: 59, in: timeZone),
+        status: .scheduled,
+        mode: .inPerson,
+        locations: [OME.CalendarEvent.Location(name: "Fairmont Hot Springs, BC")],
+        media: [
+            OME.CalendarEvent.Media(
+                url: try #require(URL(
+                    string: "https://resources.openmusicevent.app/wickedwoods/2026_ww_hero.png"
+                )),
+                alt: name,
+                role: OME.ImageAsset.Role.hero.rawValue
+            )
+        ],
+        organizer: OME.CalendarEvent.Organizer(id: organizerID),
+        source: OME.CalendarEvent.Source(
+            collection: OME.Event.nsid,
+            sourceRecord: OME.SourceRecord(
+                kind: .tangled,
+                reference: canonicalSource.reference,
+                ref: revision
+            )
+        ),
+        timeZoneIdentifier: timeZone.identifier,
+        event: event
+    )
 }
 
 private struct TestAppViewRoots {

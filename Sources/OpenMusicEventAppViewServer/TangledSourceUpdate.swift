@@ -50,7 +50,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
 /// Host-installed processing for a verified Tangled source update.
 ///
 /// Tangled can retry a delivery when it does not receive an acknowledgement, so processors must
-/// accept at-least-once invocation. Channel signals and the source checkpoint use the same durable
+/// accept at-least-once invocation. Event signals and the source checkpoint use the same durable
 /// database transaction, while provider delivery continues independently from the outbox.
 public struct TangledSourceUpdateProcessor: Sendable {
     public var process: @Sendable (TangledSourceUpdate) async throws -> Void
@@ -123,15 +123,6 @@ public struct TangledSourceUpdateProcessor: Sendable {
                 for: update
             )
         }
-    }
-}
-
-struct TangledSourceSnapshot: Equatable, Sendable {
-    let revision: String
-    let posts: [OME.SourceDatabaseInsertion.CommunicationPost]
-
-    static func empty(revision: String) -> Self {
-        Self(revision: revision, posts: [])
     }
 }
 

@@ -242,6 +242,12 @@ public enum OpenMusicEventAppViewServer {
         tangledWebhookConfiguration: TangledWebhookConfiguration?,
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
     ) {
+        let openMusicEventCatalog = OpenMusicEventCalendarCatalog(
+            appViewHost: publicAppViewHost,
+            tangledWebhook: tangledWebhookConfiguration,
+            store: store
+        )
+
         if let commsPostSubmission {
             hummingbirdRouter.register(
                 OME.Comms.SubmitPost.self,
@@ -269,51 +275,31 @@ public enum OpenMusicEventAppViewServer {
         }
 
         hummingbirdRouter.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
-            do {
-                let event: OME.CalendarEvent?
-                if parameters.uri.collection == OME.Event.nsid {
-                    event = try await BundledCalendarEventCatalog.event(
-                        uri: parameters.uri,
-                        configuration: bundledCatalogConfiguration(
-                            appViewHost: publicAppViewHost,
-                            tangledWebhook: tangledWebhookConfiguration,
-                            store: store
-                        )
-                    )
-                } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
-                    event = try store.communityCalendarEvent(uri: parameters.uri)
-                } else {
-                    event = nil
-                }
+            let event: OME.CalendarEvent?
+            if parameters.uri.collection == OME.Event.nsid {
+                event = try openMusicEventCatalog.event(uri: parameters.uri)
+            } else if parameters.uri.collection == Community.CalendarEvent.nsid, let store {
+                event = try store.communityCalendarEvent(uri: parameters.uri)
+            } else {
+                event = nil
+            }
 
-                guard let event else {
-                    throw XRPC.ResponseError(
-                        .notFound,
-                        error: "EventNotFound",
-                        message: "The requested calendar event is not available."
-                    )
-                }
-                return event
-            } catch BundledCalendarEventCatalogError.publishedArtifactMissing {
+            guard let event else {
                 throw XRPC.ResponseError(
-                    .serviceUnavailable,
-                    error: "SourceArtifactUnavailable",
-                    message: "The event source archive is not currently available."
+                    .notFound,
+                    error: "EventNotFound",
+                    message: "The requested calendar event is not available."
                 )
             }
+            return event
         }
 
         hummingbirdRouter.register(OME.CalendarEvent.GetEvents.self) { parameters, _ in
             do {
                 if parameters.catalog == OME.Event.nsid {
-                    return try await BundledCalendarEventCatalog.page(
+                    return try openMusicEventCatalog.page(
                         cursor: parameters.cursor,
-                        limit: parameters.limit,
-                        configuration: bundledCatalogConfiguration(
-                            appViewHost: publicAppViewHost,
-                            tangledWebhook: tangledWebhookConfiguration,
-                            store: store
-                        )
+                        limit: parameters.limit
                     )
                 }
                 if parameters.catalog == Community.CalendarEvent.nsid, let store {
@@ -327,17 +313,11 @@ public enum OpenMusicEventAppViewServer {
                     error: "UnknownCatalog",
                     message: "The requested calendar event catalog is not available."
                 )
-            } catch BundledCalendarEventCatalogError.invalidCursor {
+            } catch OpenMusicEventCalendarCatalogError.invalidCursor {
                 throw XRPC.ResponseError(
                     .badRequest,
                     error: "InvalidCursor",
                     message: "The XRPC cursor is invalid."
-                )
-            } catch BundledCalendarEventCatalogError.publishedArtifactMissing {
-                throw XRPC.ResponseError(
-                    .serviceUnavailable,
-                    error: "SourceArtifactUnavailable",
-                    message: "An event source archive is not currently available."
                 )
             } catch OpenMusicEventAppViewStoreError.invalidCursor {
                 throw XRPC.ResponseError(
@@ -545,7 +525,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/.well-known/\(context.parameters.get("file") ?? "")",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -555,7 +536,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/apple-app-site-association",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -565,7 +547,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/events/\(context.parameters.get("eventClaim") ?? "")",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -575,7 +558,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/healthz",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -588,7 +572,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/readyz",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -598,7 +583,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -608,7 +594,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/index.html",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -618,7 +605,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/styles.css",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -628,7 +616,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/favicon.png",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -638,7 +627,8 @@ public enum OpenMusicEventAppViewServer {
                 path: "/apple-touch-icon.png",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
 
@@ -648,27 +638,10 @@ public enum OpenMusicEventAppViewServer {
                 path: "/assets/\(context.parameters.get("file") ?? "")",
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles
+                wellKnownFiles: wellKnownFiles,
+                openMusicEventCatalog: openMusicEventCatalog
             )
         }
-    }
-
-    private static func bundledCatalogConfiguration(
-        appViewHost: ATProto.PDSHost,
-        tangledWebhook: TangledWebhookConfiguration?,
-        store: OpenMusicEventAppViewStore?
-    ) async throws -> BundledCalendarEventCatalog.Configuration {
-        let publishedRepositories: [String: OME.CalendarEvent.Source.Repository]
-        if let store {
-            publishedRepositories = try await store.tangledPublishedSourceRepositories()
-        } else {
-            publishedRepositories = [:]
-        }
-        return BundledCalendarEventCatalog.Configuration(
-            appViewHost: appViewHost,
-            tangledWebhook: tangledWebhook,
-            publishedRepositories: publishedRepositories
-        )
     }
 
     private static func response(
@@ -676,7 +649,8 @@ public enum OpenMusicEventAppViewServer {
         path: String,
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
-        wellKnownFiles: WellKnownFiles
+        wellKnownFiles: WellKnownFiles,
+        openMusicEventCatalog: OpenMusicEventCalendarCatalog
     ) throws -> Response {
         let route = try routeResolver.route(host: host, path: path)
 
@@ -685,7 +659,8 @@ public enum OpenMusicEventAppViewServer {
             host: host,
             routeResolver: routeResolver,
             staticSiteFiles: staticSiteFiles,
-            wellKnownFiles: wellKnownFiles
+            wellKnownFiles: wellKnownFiles,
+            openMusicEventCatalog: openMusicEventCatalog
         )
     }
 
@@ -694,7 +669,8 @@ public enum OpenMusicEventAppViewServer {
         host: String,
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
-        wellKnownFiles: WellKnownFiles
+        wellKnownFiles: WellKnownFiles,
+        openMusicEventCatalog: OpenMusicEventCalendarCatalog
     ) throws -> Response {
         switch route {
         case .appleAppSiteAssociation:
@@ -707,7 +683,7 @@ public enum OpenMusicEventAppViewServer {
             return file.response
 
         case let .brandedEvent(claim):
-            guard let event = try BundledCalendarEventCatalog.event(
+            guard let event = try openMusicEventCatalog.event(
                 uri: OME.Event.reference(id: claim.eventID).uri
             ) else {
                 return textResponse(

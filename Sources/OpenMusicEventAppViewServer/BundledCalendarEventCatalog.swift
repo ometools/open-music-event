@@ -3,70 +3,14 @@ import Foundation
 import OpenMusicEventLexicon
 
 enum BundledCalendarEventCatalog {
-    struct Configuration: Sendable {
-        init(
-            appViewHost: ATProto.PDSHost,
-            tangledWebhook: TangledWebhookConfiguration?,
-            publishedRepositories: [String: OME.CalendarEvent.Source.Repository] = [:]
-        ) {
-            self.appViewHost = appViewHost
-            configuredSourceReferences = Set(
-                (tangledWebhook?.watches ?? []).map(\.canonicalSource.reference)
-            )
-            self.publishedRepositories = publishedRepositories
-        }
-
-        let appViewHost: ATProto.PDSHost
-        let configuredSourceReferences: Set<String>
-        let publishedRepositories: [String: OME.CalendarEvent.Source.Repository]
-    }
-
     static func event(
         uri: ATProto.URI,
-        configuration: Configuration
+        appViewHost: ATProto.PDSHost
     ) throws -> OME.CalendarEvent? {
-        try events(configuration: configuration).first { $0.uri == uri }
+        try events(appViewHost: appViewHost).first { $0.uri == uri }
     }
 
-    static func event(uri: ATProto.URI) throws -> OME.CalendarEvent? {
-        try event(
-            uri: uri,
-            configuration: Configuration(
-                appViewHost: "openmusicevent.app",
-                tangledWebhook: nil
-            )
-        )
-    }
-
-    static func page(
-        cursor: String?,
-        limit: Int,
-        configuration: Configuration
-    ) throws -> OME.CalendarEvent.Page {
-        let offset: Int
-        if let cursor {
-            guard let parsedOffset = Int(cursor), parsedOffset >= 0 else {
-                throw BundledCalendarEventCatalogError.invalidCursor(cursor)
-            }
-            offset = parsedOffset
-        } else {
-            offset = 0
-        }
-
-        let events = try events(configuration: configuration)
-        guard offset <= events.count else {
-            throw BundledCalendarEventCatalogError.invalidCursor(String(offset))
-        }
-
-        let pageEvents = Array(events.dropFirst(offset).prefix(limit))
-        let nextOffset = offset + pageEvents.count
-        return OME.CalendarEvent.Page(
-            events: pageEvents,
-            cursor: nextOffset < events.count ? String(nextOffset) : nil
-        )
-    }
-
-    static func events(configuration: Configuration) throws -> [OME.CalendarEvent] {
+    static func events(appViewHost: ATProto.PDSHost) throws -> [OME.CalendarEvent] {
         guard let resourceURL = Bundle.module.url(
             forResource: "TemporaryOMEBrowseCatalog",
             withExtension: "json"
@@ -76,16 +20,14 @@ enum BundledCalendarEventCatalog {
 
         return try JSONDecoder()
             .decode([BundledCalendarEvent].self, from: Data(contentsOf: resourceURL))
-            .map { try $0.resolvedCalendarEvent(configuration: configuration) }
+            .map { try $0.baseCalendarEvent(appViewHost: appViewHost) }
     }
 }
 
 enum BundledCalendarEventCatalogError: Error, Equatable {
-    case invalidCursor(String)
     case invalidOrganizerID(String)
     case invalidTimeZone(String)
     case missingResource
-    case publishedArtifactMissing(String)
 }
 
 private struct BundledCalendarEvent: Decodable {
@@ -100,7 +42,6 @@ private struct BundledCalendarEvent: Decodable {
     var organizerID: String
     var organizerName: String
     var source: OME.SourceRecord?
-    var sourceRecordKey: String?
     var startDate: LocalDate
     var status: OME.Event.Status?
     var timeZone: String
@@ -165,29 +106,6 @@ private struct BundledCalendarEvent: Decodable {
             timeZoneIdentifier: timeZone.identifier,
             event: event
         )
-    }
-
-    func resolvedCalendarEvent(
-        configuration: BundledCalendarEventCatalog.Configuration
-    ) throws -> OME.CalendarEvent {
-        var event = try baseCalendarEvent(appViewHost: configuration.appViewHost)
-        if let sourceRecordKey {
-            let canonicalSource = CanonicalTangledSource(
-                organizerID: event.organizer.id,
-                repositoryRecordKey: ATProto.Record.Key(rawValue: sourceRecordKey)
-            )
-            if configuration.configuredSourceReferences.contains(canonicalSource.reference) {
-                guard let repository = configuration.publishedRepositories[
-                    canonicalSource.reference
-                ] else {
-                    throw BundledCalendarEventCatalogError.publishedArtifactMissing(
-                        canonicalSource.reference
-                    )
-                }
-                event.source.resolvedRepository = repository
-            }
-        }
-        return event
     }
 
     struct Media: Decodable {
