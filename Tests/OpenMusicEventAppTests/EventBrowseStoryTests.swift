@@ -165,6 +165,82 @@ struct EventBrowseStoryTests {
 
     }
 
+    @Test @MainActor
+    func `resuming the app synchronizes installed event data`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:wickedwoods"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "2026")
+        )
+        try await database.write { database in
+            try InstalledEventRecord.insert {
+                InstalledEventRecord(id: eventID)
+            }
+            .execute(database)
+        }
+
+        let synchronizedEventIDs = Mutex<[OME.Event.ID]>([])
+        let storage = OAuthSessionStorage(
+            sessionStore: Shared(value: OAuth.SessionStore()),
+            authFailureMessage: Shared(value: nil),
+            selectedSessionID: Shared(value: nil)
+        )
+        let store = withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            $0.notificationsClient = NotificationsClient(
+                registerDestination: { _ in },
+                replaceSubscriptions: { _ in },
+                synchronize: {},
+                signals: { AsyncStream { $0.finish() } }
+            )
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { _ in eventID },
+                synchronizeInstalledEvent: { eventID in
+                    synchronizedEventIDs.withLock { $0.append(eventID) }
+                }
+            )
+        } operation: {
+            TestStore(
+                initialState: OpenMusicEventApp.State(
+                    content: OpenMusicEventApplication.State(storage: storage) {
+                        OpenMusicEventAppRoot.State()
+                    }
+                )
+            ) {
+                OpenMusicEventApp(
+                    eventTrigger:
+                        \OpenMusicEventApplication.State.content.appDelegateEvent,
+                    notificationDestinationTrigger:
+                        \OpenMusicEventApplication.State.content.notificationDestination,
+                    notificationEventTrigger:
+                        \OpenMusicEventApplication.State.content.notificationEvent
+                ) {
+                    OpenMusicEventApplication(storage: storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                }
+            }
+        }
+
+        // Launching alone does not synchronize installed event data.
+        await store.send(.lifecycle(.launched))?.value
+        expectNoDifference(synchronizedEventIDs.withLock { $0 }, [])
+
+        // Returning to the foreground synchronizes every installed event through the app delegate.
+        await store.send(.lifecycle(.resumed))?.value
+        expectNoDifference(synchronizedEventIDs.withLock { $0 }, [eventID])
+
+        await store.dismount()
+    }
+
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     @Test(.tcaExhaustivity(.off)) @MainActor
     func `an installed event publishes its notification subscription before it is opened`() async throws {

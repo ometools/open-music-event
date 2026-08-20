@@ -428,6 +428,15 @@ public struct OpenMusicEventAppRoot {
                 store.addTask {
                     try await store.state.$permissions.load()
                 }
+                guard event == .resumed else { return }
+                store.addTask {
+                    let installedEventIDs = try await database.read { database in
+                        try InstalledEventRecord.all.fetchAll(database).map(\.id)
+                    }
+                    for eventID in installedEventIDs {
+                        try await eventInstallation.synchronizeInstalledEvent(eventID)
+                    }
+                }
             default:
                 break
             }
