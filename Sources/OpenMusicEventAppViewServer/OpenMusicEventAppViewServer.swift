@@ -131,9 +131,9 @@ public enum OpenMusicEventAppViewServer {
                 configuration: configuration,
                 store: store
             ) {
-                .channelNotifications(
+                .publishSourceAndNotifyChannels(
                     store: store,
-                    sourceArtifacts: sourceArtifactPublisher
+                    artifactPublisher: sourceArtifactPublisher
                 )
             }
         } else {

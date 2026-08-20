@@ -8,8 +8,8 @@ import OpenMusicEventSource
 /// One verified Tangled repository revision that may advance an application source.
 ///
 /// This value is the boundary between Tangled webhook intake and source projection. The AppView
-/// processor checks out the exact revisions, validates every event in the canonical source, and
-/// advances its durable communication-post projection before announcing changed channels.
+/// processor downloads and validates the exact revisions, publishes the current archive, and then
+/// advances its durable source projection and notification outbox together.
 public struct TangledSourceUpdate: Equatable, Sendable {
     public init(
         watchID: WebhookInboxDelivery.WatchID,
@@ -61,24 +61,24 @@ public struct TangledSourceUpdateProcessor: Sendable {
         self.process = process
     }
 
-    /// Projects communication post identities from exact Tangled revisions and only announces
-    /// channels that gained posts. The projection checkpoint and outbox inserts share one database
-    /// transaction, making webhook retries safe.
-    public static func channelNotifications(
+    /// Validates and publishes the exact Tangled revision before advancing the source projection.
+    /// The projection checkpoint and notification outbox then share one database transaction,
+    /// making webhook retries safe.
+    public static func publishSourceAndNotifyChannels(
         store: OpenMusicEventAppViewStore,
-        sourceArtifacts: SourceArtifactPublisher
+        artifactPublisher: SourceArtifactPublisher
     ) -> Self {
-        channelNotifications(
+        publishSourceAndNotifyChannels(
             store: store,
-            sourceArtifacts: sourceArtifacts,
-            load: ValidatedSourceArchive.load
+            artifactPublisher: artifactPublisher,
+            downloadAndValidate: ValidatedSourceArchive.downloadAndValidate
         )
     }
 
-    static func channelNotifications(
+    static func publishSourceAndNotifyChannels(
         store: OpenMusicEventAppViewStore,
-        sourceArtifacts: SourceArtifactPublisher,
-        load: @escaping @Sendable (TangledSourceUpdate, String) async throws
+        artifactPublisher: SourceArtifactPublisher,
+        downloadAndValidate: @escaping @Sendable (TangledSourceUpdate, String) async throws
             -> ValidatedSourceArchive
     ) -> Self {
         Self { update in
@@ -101,25 +101,24 @@ public struct TangledSourceUpdateProcessor: Sendable {
                 }
             }
 
-            let before: TangledSourceSnapshot
-            if checkpoint != nil {
-                before = TangledSourceSnapshot(revision: update.before, posts: [])
-            } else if update.before.isZeroRevision {
-                before = TangledSourceSnapshot(revision: update.before, posts: [])
+            let previousSource: TangledSourceSnapshot
+            if checkpoint != nil || update.before.isZeroRevision {
+                previousSource = .empty(revision: update.before)
             } else {
-                before = try await load(update, update.before).snapshot
+                previousSource = try await downloadAndValidate(update, update.before).snapshot
             }
-            let after = try await load(update, update.after)
-            let publishedArtifact = try await sourceArtifacts.publish(
+
+            let currentArchive = try await downloadAndValidate(update, update.after)
+            let publishedArtifact = try await artifactPublisher.publish(
                 SourceArtifactPublicationRequest(
-                    archiveData: after.data,
+                    archiveData: currentArchive.data,
                     repository: update.artifactRepository,
                     revision: update.after
                 )
             )
             _ = try await store.apply(
-                after.snapshot,
-                replacing: before,
+                currentArchive.snapshot,
+                replacing: previousSource,
                 publishedArtifact: publishedArtifact,
                 for: update
             )
@@ -131,22 +130,8 @@ struct TangledSourceSnapshot: Equatable, Sendable {
     let revision: String
     let posts: [OME.SourceDatabaseInsertion.CommunicationPost]
 
-    static func load(
-        update: TangledSourceUpdate,
-        revision: String
-    ) async throws -> Self {
-        let repository =
-            "at://\(update.repositoryOwnerDID)/sh.tangled.repo/\(update.repositoryKey.rawValue)"
-        let result = try await OpenMusicEventSourceValidator(
-            OpenMusicEventSourceValidationRequest(
-                source: repository,
-                organizerID: update.canonicalSource.organizerID,
-                sourceProvenance: update.canonicalSource.provenance(ref: revision),
-                ref: revision
-            )
-        )
-        .validate()
-        return Self(revision: revision, posts: result.insertion.communicationPosts)
+    static func empty(revision: String) -> Self {
+        Self(revision: revision, posts: [])
     }
 }
 

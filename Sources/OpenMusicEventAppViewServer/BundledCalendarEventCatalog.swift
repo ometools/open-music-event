@@ -13,12 +13,12 @@ enum BundledCalendarEventCatalog {
             configuredSourceReferences = Set(
                 (tangledWebhook?.watches ?? []).map(\.canonicalSource.reference)
             )
-            resolvedRepositories = publishedRepositories
+            self.publishedRepositories = publishedRepositories
         }
 
         let appViewHost: ATProto.PDSHost
         let configuredSourceReferences: Set<String>
-        let resolvedRepositories: [String: OME.CalendarEvent.Source.Repository]
+        let publishedRepositories: [String: OME.CalendarEvent.Source.Repository]
     }
 
     static func event(
@@ -76,9 +76,8 @@ enum BundledCalendarEventCatalog {
 
         return try JSONDecoder()
             .decode([BundledCalendarEvent].self, from: Data(contentsOf: resourceURL))
-            .map { try $0.calendarEvent(configuration: configuration) }
+            .map { try $0.resolvedCalendarEvent(configuration: configuration) }
     }
-
 }
 
 enum BundledCalendarEventCatalogError: Error, Equatable {
@@ -106,82 +105,79 @@ private struct BundledCalendarEvent: Decodable {
     var status: OME.Event.Status?
     var timeZone: String
 
-    var calendarEvent: OME.CalendarEvent {
-        get throws {
-            guard let organizerID = DID(organizerID) else {
-                throw BundledCalendarEventCatalogError.invalidOrganizerID(organizerID)
-            }
-            guard let timeZone = TimeZone(identifier: timeZone) else {
-                throw BundledCalendarEventCatalogError.invalidTimeZone(self.timeZone)
-            }
-
-            let id = OME.Event.ID(
-                organizerID: organizerID,
-                eventID: OME.ID<OME.Event>(.init(eventID))
-            )
-            let images = media.map(\.imageAsset)
-            let eventDraft = OME.Event.Draft(
-                id: id,
-                name: name,
-                description: description,
-                startDate: startDate,
-                endDate: endDate,
-                status: status.map { .known($0) },
-                mode: mode.map { .known($0.eventMode) },
-                locations: location.map { [OME.Event.Location(address: $0)] },
-                uris: nil,
-                timeZone: timeZone,
-                images: images,
-                contactNumbers: nil,
-                categoryConfigs: nil,
-                reportingLinks: nil,
-                owner: nil
-            )
-            let event = try JSONDecoder().decode(
-                OME.Event.self,
-                from: JSONEncoder().encode(eventDraft)
-            )
-
-            return OME.CalendarEvent(
-                uri: OME.Event.reference(id: id).uri,
-                name: name,
-                description: description,
-                startsAt: startDate.atStartOfDay(in: timeZone),
-                endsAt: endDate.at(hour: 23, minute: 59, second: 59, in: timeZone),
-                status: status.map(\.calendarEventStatus),
-                mode: mode.map(\.calendarEventMode),
-                locations: location.map { [OME.CalendarEvent.Location(name: $0)] } ?? [],
-                media: media.map(\.calendarEventMedia),
-                organizer: OME.CalendarEvent.Organizer(
-                    id: organizerID,
-                    displayName: organizerName,
-                    avatarURL: organizerAvatarURL
-                ),
-                source: OME.CalendarEvent.Source(
-                    collection: OME.Event.nsid,
-                    appViewHost: "openmusicevent.app",
-                    sourceRecord: source
-                ),
-                timeZoneIdentifier: timeZone.identifier,
-                event: event
-            )
+    func baseCalendarEvent(
+        appViewHost: ATProto.PDSHost
+    ) throws -> OME.CalendarEvent {
+        guard let organizerID = DID(organizerID) else {
+            throw BundledCalendarEventCatalogError.invalidOrganizerID(organizerID)
         }
+        guard let timeZone = TimeZone(identifier: timeZone) else {
+            throw BundledCalendarEventCatalogError.invalidTimeZone(self.timeZone)
+        }
+
+        let id = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(.init(eventID))
+        )
+        let images = media.map(\.imageAsset)
+        let eventDraft = OME.Event.Draft(
+            id: id,
+            name: name,
+            description: description,
+            startDate: startDate,
+            endDate: endDate,
+            status: status.map { .known($0) },
+            mode: mode.map { .known($0.eventMode) },
+            locations: location.map { [OME.Event.Location(address: $0)] },
+            uris: nil,
+            timeZone: timeZone,
+            images: images,
+            contactNumbers: nil,
+            categoryConfigs: nil,
+            reportingLinks: nil,
+            owner: nil
+        )
+        let event = try JSONDecoder().decode(
+            OME.Event.self,
+            from: JSONEncoder().encode(eventDraft)
+        )
+
+        return OME.CalendarEvent(
+            uri: OME.Event.reference(id: id).uri,
+            name: name,
+            description: description,
+            startsAt: startDate.atStartOfDay(in: timeZone),
+            endsAt: endDate.at(hour: 23, minute: 59, second: 59, in: timeZone),
+            status: status.map(\.calendarEventStatus),
+            mode: mode.map(\.calendarEventMode),
+            locations: location.map { [OME.CalendarEvent.Location(name: $0)] } ?? [],
+            media: media.map(\.calendarEventMedia),
+            organizer: OME.CalendarEvent.Organizer(
+                id: organizerID,
+                displayName: organizerName,
+                avatarURL: organizerAvatarURL
+            ),
+            source: OME.CalendarEvent.Source(
+                collection: OME.Event.nsid,
+                appViewHost: appViewHost,
+                sourceRecord: source
+            ),
+            timeZoneIdentifier: timeZone.identifier,
+            event: event
+        )
     }
 
-    func calendarEvent(
+    func resolvedCalendarEvent(
         configuration: BundledCalendarEventCatalog.Configuration
     ) throws -> OME.CalendarEvent {
-        var event = try calendarEvent
-        event.source.appViewHost = configuration.appViewHost
-        if let sourceRecordKey,
-           let organizerID = DID(organizerID)
-        {
+        var event = try baseCalendarEvent(appViewHost: configuration.appViewHost)
+        if let sourceRecordKey {
             let canonicalSource = CanonicalTangledSource(
-                organizerID: organizerID,
+                organizerID: event.organizer.id,
                 repositoryRecordKey: ATProto.Record.Key(rawValue: sourceRecordKey)
             )
             if configuration.configuredSourceReferences.contains(canonicalSource.reference) {
-                guard let repository = configuration.resolvedRepositories[
+                guard let repository = configuration.publishedRepositories[
                     canonicalSource.reference
                 ] else {
                     throw BundledCalendarEventCatalogError.publishedArtifactMissing(

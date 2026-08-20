@@ -262,25 +262,19 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         String: OME.CalendarEvent.Source.Repository
     ] {
         try await database.read { database in
-            try Row.fetchAll(
-                database,
-                sql: """
-                    SELECT sourceID, revision, artifactReference
-                    FROM tangledSourceRevisions
-                    WHERE artifactReference IS NOT NULL
-                      AND artifactObjectKey IS NOT NULL
-                      AND artifactChecksumSHA256 IS NOT NULL
-                      AND artifactByteCount IS NOT NULL
-                      AND artifactPublishedAt IS NOT NULL
-                    """
-            )
-            .reduce(into: [:]) { repositories, row in
-                let sourceID: String = row["sourceID"]
-                repositories[sourceID] = OME.CalendarEvent.Source.Repository(
-                    reference: row["artifactReference"],
-                    ref: row["revision"]
-                )
-            }
+            try TangledSourceRevisionRow.fetchAll(database)
+                .reduce(
+                    into: [String: OME.CalendarEvent.Source.Repository]()
+                ) { repositories, checkpoint in
+                    guard let publishedArtifact = checkpoint.publishedArtifact else {
+                        return
+                    }
+                    repositories[checkpoint.canonicalSourceReference] =
+                        OME.CalendarEvent.Source.Repository(
+                            reference: publishedArtifact.reference,
+                            ref: publishedArtifact.revision
+                        )
+                }
         }
     }
 

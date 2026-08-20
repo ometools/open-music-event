@@ -13,6 +13,7 @@ import Hummingbird
 import HummingbirdTesting
 import NIOCore
 import OpenMusicEventDatabase
+import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SQLiteData
@@ -403,27 +404,10 @@ struct NotificationRegistrationStoryTests {
                     configuration: configuration,
                     store: appViewStore,
                     notificationProvider: notificationProvider,
-                    tangledSourceUpdateProcessor: .channelNotifications(
+                    tangledSourceUpdateProcessor: .publishSourceAndNotifyChannels(
                         store: appViewStore,
-                        sourceArtifacts: SourceArtifactPublisher { request in
-                            PublishedSourceArtifact(
-                                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                                objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
-                                revision: request.revision,
-                                checksumSHA256: "fixture-sha256",
-                                byteCount: request.archiveData.count,
-                                publishedAt: Date(timeIntervalSince1970: 0)
-                            )
-                        },
-                        load: { update, revision in
-                            ValidatedSourceArchive(
-                                data: Data(revision.utf8),
-                                snapshot: try await TangledSourceSnapshot.load(
-                                    update: update,
-                                    revision: revision
-                                )
-                            )
-                        }
+                        artifactPublisher: notificationSourceArtifactPublisher,
+                        downloadAndValidate: loadNotificationSourceArchive
                     )
                 )
                 try await app.test(.live) { server in
@@ -790,6 +774,42 @@ struct NotificationRegistrationStoryTests {
             )
         }
     }
+}
+
+private let notificationSourceArtifactPublisher = SourceArtifactPublisher { request in
+    PublishedSourceArtifact(
+        reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+        objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
+        revision: request.revision,
+        checksumSHA256: "fixture-sha256",
+        byteCount: request.archiveData.count,
+        publishedAt: Date(timeIntervalSince1970: 0)
+    )
+}
+
+private func loadNotificationSourceArchive(
+    update: TangledSourceUpdate,
+    revision: String
+) async throws -> ValidatedSourceArchive {
+    let repository =
+        "at://\(update.repositoryOwnerDID)/sh.tangled.repo/\(update.repositoryKey.rawValue)"
+    let validation = try await OpenMusicEventSourceValidator(
+        OpenMusicEventSourceValidationRequest(
+            source: repository,
+            organizerID: update.canonicalSource.organizerID,
+            sourceProvenance: update.canonicalSource.provenance(ref: revision),
+            ref: revision
+        )
+    )
+    .validate()
+    return ValidatedSourceArchive(
+        data: Data(revision.utf8),
+        snapshot: TangledSourceSnapshot(
+            revision: revision,
+            eventIDs: validation.insertion.events.compactMap(\.id),
+            posts: validation.insertion.communicationPosts
+        )
+    )
 }
 
 private func tangledPushPayload(

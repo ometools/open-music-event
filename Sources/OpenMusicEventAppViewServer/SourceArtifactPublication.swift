@@ -65,7 +65,7 @@ struct ValidatedSourceArchive: Equatable, Sendable {
     let data: Data
     let snapshot: TangledSourceSnapshot
 
-    static func load(
+    static func downloadAndValidate(
         update: TangledSourceUpdate,
         revision: String
     ) async throws -> Self {
@@ -90,7 +90,7 @@ struct ValidatedSourceArchive: Equatable, Sendable {
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
         try TangledSourceArchiveExtractor().extract(archiveData, to: outputURL)
-        let result = try await OpenMusicEventSourceValidator(
+        let validation = try await OpenMusicEventSourceValidator(
             OpenMusicEventSourceValidationRequest(
                 source: outputURL.path(percentEncoded: false),
                 organizerID: update.canonicalSource.organizerID,
@@ -103,8 +103,8 @@ struct ValidatedSourceArchive: Equatable, Sendable {
             data: archiveData,
             snapshot: TangledSourceSnapshot(
                 revision: revision,
-                eventIDs: result.insertion.events.compactMap(\.id),
-                posts: result.insertion.communicationPosts
+                eventIDs: validation.insertion.events.compactMap(\.id),
+                posts: validation.insertion.communicationPosts
             )
         )
     }
@@ -137,7 +137,7 @@ public struct SourceArtifactPublisher: Sendable {
     }
 
     static func s3(configuration: SourceArtifactS3Configuration) -> Self {
-        return Self { request in
+        Self { request in
             @Dependency(\.date.now) var now
             @Dependency(\.httpClient) var httpClient
             let objectKey = configuration.objectKey(

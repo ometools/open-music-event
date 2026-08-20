@@ -17,7 +17,7 @@ import Testing
 @Suite(.serialized)
 struct TangledWebhookInboxTests {
     @Test
-    func `configuration supports independent repository owners and canonical sources`() throws {
+    func `configuration keeps physical canonical and published repositories independent`() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -136,6 +136,27 @@ struct TangledWebhookInboxTests {
             .duplicateCanonicalSource(
                 "at://did:plc:wickedwoods/sh.tangled.repo/ome-workspace"
             )
+        )
+
+        let duplicateArtifactRepository = TangledWebhookWatch(
+            id: .init(rawValue: "fourth-owner/fourth-event#refs/heads/main"),
+            hookID: 45,
+            repositoryOwnerDID: try #require(DID("did:plc:fourth-owner")),
+            repositoryKey: .init(rawValue: "fourth-event"),
+            ref: "refs/heads/main",
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID("did:plc:fourth-organizer")),
+                repositoryRecordKey: .init(rawValue: "fourth-event")
+            ),
+            artifactRepository: watches[0].artifactRepository
+        )
+        expectNoDifference(
+            #expect(throws: TangledWebhookConfigurationError.self) {
+                try TangledWebhookConfiguration(
+                    watches: watches + [duplicateArtifactRepository]
+                )
+            },
+            .duplicateArtifactRepository("wickedwoods.ca/ome-workspace")
         )
     }
 
@@ -266,7 +287,7 @@ struct TangledWebhookInboxTests {
     }
 
     @Test
-    func `configured watch requires its deployment encryption key file`() throws {
+    func `configured watch requires webhook protection and artifact storage`() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -296,6 +317,7 @@ struct TangledWebhookInboxTests {
         )
         .write(to: configurationURL)
 
+        // A public watch cannot receive authenticated webhooks without its encryption key.
         #expect(throws: AppViewConfigurationError.webhookSecretKeyMissing) {
             try AppViewConfiguration.fromEnvironment(
                 environment: [
@@ -305,6 +327,7 @@ struct TangledWebhookInboxTests {
             )
         }
 
+        // Supplying that key reveals the next deployment requirement: durable artifact storage.
         let keyURL = directory.appending(path: "webhook-secret-key")
         try Data(Self.protectionKey.base64EncodedString().utf8).write(to: keyURL)
         #expect(throws: AppViewConfigurationError.sourceArtifactConfigurationMissing) {

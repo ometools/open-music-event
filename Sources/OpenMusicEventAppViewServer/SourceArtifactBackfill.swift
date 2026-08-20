@@ -25,8 +25,8 @@ public struct SourceArtifactBackfillResult: Equatable, Sendable {
 
 public enum SourceArtifactBackfillError: Error, Equatable, Sendable {
     case databaseUnavailable
-    case sourceArtifactConfigurationUnavailable
     case tangledWebhookConfigurationUnavailable
+    case sourceArtifactConfigurationUnavailable
     case tangledSourceCheckpointMissing(String)
     case tangledSourcePublishedArtifactMissing(String)
 }
@@ -52,24 +52,24 @@ public extension OpenMusicEventAppViewServer {
         return try await backfillSourceArtifacts(
             watches: tangledWebhook.watches,
             store: store,
-            sourceArtifacts: .s3(configuration: sourceArtifactConfiguration),
-            load: ValidatedSourceArchive.load
+            artifactPublisher: .s3(configuration: sourceArtifactConfiguration),
+            downloadAndValidate: ValidatedSourceArchive.downloadAndValidate
         )
     }
 
     internal static func backfillSourceArtifacts(
         watches: [TangledWebhookWatch],
         store: OpenMusicEventAppViewStore,
-        sourceArtifacts: SourceArtifactPublisher,
-        load: @escaping @Sendable (TangledSourceUpdate, String) async throws
+        artifactPublisher: SourceArtifactPublisher,
+        downloadAndValidate: @escaping @Sendable (TangledSourceUpdate, String) async throws
             -> ValidatedSourceArchive
     ) async throws -> [SourceArtifactBackfillResult] {
         @Dependency(\.date.now) var now
         @Dependency(\.uuid) var uuid
-        let processor = TangledSourceUpdateProcessor.channelNotifications(
+        let processor = TangledSourceUpdateProcessor.publishSourceAndNotifyChannels(
             store: store,
-            sourceArtifacts: sourceArtifacts,
-            load: load
+            artifactPublisher: artifactPublisher,
+            downloadAndValidate: downloadAndValidate
         )
 
         var results: [SourceArtifactBackfillResult] = []
@@ -79,7 +79,7 @@ public extension OpenMusicEventAppViewServer {
                     watch.id.rawValue
                 )
             }
-            let update = TangledSourceUpdate(
+            let sameRevisionUpdate = TangledSourceUpdate(
                 watchID: watch.id,
                 deliveryID: .init(rawValue: uuid().uuidString.lowercased()),
                 repositoryOwnerDID: watch.repositoryOwnerDID,
@@ -91,11 +91,11 @@ public extension OpenMusicEventAppViewServer {
                 canonicalSource: watch.canonicalSource,
                 artifactRepository: watch.artifactRepository
             )
-            try checkpoint.validateWatch(for: update)
-            try await processor.process(update)
-            guard let publishedArtifact = try await store
-                .tangledSourceCheckpoint(watchID: watch.id)?
-                .publishedArtifact
+            try checkpoint.validateWatch(for: sameRevisionUpdate)
+            try await processor.process(sameRevisionUpdate)
+
+            let repairedCheckpoint = try await store.tangledSourceCheckpoint(watchID: watch.id)
+            guard let publishedArtifact = repairedCheckpoint?.publishedArtifact
             else {
                 throw SourceArtifactBackfillError.tangledSourcePublishedArtifactMissing(
                     watch.id.rawValue

@@ -286,7 +286,7 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func `staging catalog keeps canonical IDs while serving the watched source fork`() async throws {
+    func `staging catalog fails closed then serves its published source archive`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         let store = try OpenMusicEventAppViewStore(
@@ -325,17 +325,6 @@ struct AppViewRouteTests {
         )
         let revision = "2222222222222222222222222222222222222222"
         let watch = try #require(configuration.tangledWebhook?.watches.first)
-        #expect(throws: BundledCalendarEventCatalogError.publishedArtifactMissing(
-            watch.canonicalSource.reference
-        )) {
-            try BundledCalendarEventCatalog.event(
-                uri: eventURI,
-                configuration: BundledCalendarEventCatalog.Configuration(
-                    appViewHost: configuration.publicAppViewHost,
-                    tangledWebhook: configuration.tangledWebhook
-                )
-            )
-        }
         let update = TangledSourceUpdate(
             watchID: watch.id,
             deliveryID: .init(rawValue: "d8c7e4a5-48ad-4698-9a95-daee25f36701"),
@@ -348,34 +337,42 @@ struct AppViewRouteTests {
             canonicalSource: watch.canonicalSource,
             artifactRepository: watch.artifactRepository
         )
-        _ = try await store.apply(
-            TangledSourceSnapshot(revision: revision, eventIDs: [], posts: []),
-            replacing: TangledSourceSnapshot(
-                revision: update.before,
-                eventIDs: [],
-                posts: []
-            ),
-            publishedArtifact: PublishedSourceArtifact(
-                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                objectKey: "wickedwoods.ca/ome-workspace/archive/\(revision).tar.gz",
-                revision: revision,
-                checksumSHA256: "fixture-sha256",
-                byteCount: 1,
-                publishedAt: update.receivedAt
-            ),
-            for: update
-        )
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
             store: store,
             tangledSourceUpdateProcessor: TangledSourceUpdateProcessor { _ in }
         )
+        let eventRequest =
+            "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3A5df2u7ief6m6tn77jznicxob%2Fapp.openmusicevent.event%2Fome-workspace-2026"
 
         try await app.test(.router) { client in
+            // The configured source has no durable publication yet, so AppView never falls back
+            // to the watched Tangled repository.
             try await client.execute(
-                uri: "/xrpc/app.openmusicevent.calendar.getEvent?uri=at%3A%2F%2Fdid%3Aplc%3A5df2u7ief6m6tn77jznicxob%2Fapp.openmusicevent.event%2Fome-workspace-2026",
+                uri: eventRequest,
                 method: .get
             ) { response in
+                #expect(response.status == .serviceUnavailable)
+                #expect(String(buffer: response.body).contains("SourceArtifactUnavailable"))
+            }
+
+            // A successful webhook publication records the exact revision and public S3 path.
+            _ = try await store.apply(
+                TangledSourceSnapshot.empty(revision: revision),
+                replacing: TangledSourceSnapshot.empty(revision: update.before),
+                publishedArtifact: PublishedSourceArtifact(
+                    reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(revision).tar.gz",
+                    revision: revision,
+                    checksumSHA256: "fixture-sha256",
+                    byteCount: 1,
+                    publishedAt: update.receivedAt
+                ),
+                for: update
+            )
+
+            // The next catalog read keeps canonical identities but resolves bytes through S3.
+            try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .ok)
                 let event = try decodeCalendarEvent(response.body)
                 expectNoDifference(event.uri, eventURI)
