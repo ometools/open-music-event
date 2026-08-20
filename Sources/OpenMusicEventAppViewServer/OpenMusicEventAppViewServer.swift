@@ -71,6 +71,7 @@ public enum OpenMusicEventAppViewServer {
         commsPostSubmission: CommsPostSubmission? = nil,
         notificationRegistration: NotificationRegistrationServer? = nil,
         notificationProvider: NotificationProviderClient? = nil,
+        sourceArtifactPublisher providedSourceArtifactPublisher: SourceArtifactPublisher? = nil,
         tangledSourceUpdateProcessor providedTangledSourceUpdateProcessor:
             TangledSourceUpdateProcessor? = nil
     ) throws -> some ApplicationProtocol {
@@ -114,11 +115,26 @@ public enum OpenMusicEventAppViewServer {
         if let providedTangledSourceUpdateProcessor {
             tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
         } else if configuration.tangledWebhook != nil, let store {
+            let sourceArtifactPublisher: SourceArtifactPublisher
+            if let providedSourceArtifactPublisher {
+                sourceArtifactPublisher = providedSourceArtifactPublisher
+            } else {
+                guard let sourceArtifactConfiguration = configuration.sourceArtifacts else {
+                    throw OpenMusicEventAppViewServerError
+                        .tangledWebhookRequiresSourceArtifactConfiguration
+                }
+                sourceArtifactPublisher = .s3(
+                    configuration: sourceArtifactConfiguration
+                )
+            }
             tangledSourceUpdateProcessor = withNotificationDependencies(
                 configuration: configuration,
                 store: store
             ) {
-                .channelNotifications(store: store)
+                .channelNotifications(
+                    store: store,
+                    sourceArtifacts: sourceArtifactPublisher
+                )
             }
         } else {
             tangledSourceUpdateProcessor = nil
@@ -807,6 +823,7 @@ public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
     case notificationRegistrationRequiresDatabase
     case notificationRegistrationRequiresDestinationProtection
     case tangledWebhookRequiresDatabase
+    case tangledWebhookRequiresSourceArtifactConfiguration
 }
 
 private extension Request {

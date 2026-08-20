@@ -12,7 +12,6 @@ import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
 import NIOCore
-import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
@@ -23,6 +22,7 @@ import Testing
 import XRPCClient
 
 @testable import OpenMusicEventApp
+@testable import OpenMusicEventAppViewServer
 
 @Suite(.serialized)
 struct NotificationRegistrationStoryTests {
@@ -331,6 +331,10 @@ struct NotificationRegistrationStoryTests {
                                 OME.Organizer.ID(organizerID.description)
                             ),
                             repositoryRecordKey: repositoryKey
+                        ),
+                        artifactRepository: .init(
+                            owner: "wickedwoods.ca",
+                            repository: "ome-workspace"
                         )
                     )
                 ]
@@ -387,7 +391,29 @@ struct NotificationRegistrationStoryTests {
                 let app = try OpenMusicEventAppViewServer.application(
                     configuration: configuration,
                     store: appViewStore,
-                    notificationProvider: notificationProvider
+                    notificationProvider: notificationProvider,
+                    tangledSourceUpdateProcessor: .channelNotifications(
+                        store: appViewStore,
+                        sourceArtifacts: SourceArtifactPublisher { request in
+                            PublishedSourceArtifact(
+                                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                                objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
+                                revision: request.revision,
+                                checksumSHA256: "fixture-sha256",
+                                byteCount: request.archiveData.count,
+                                publishedAt: Date(timeIntervalSince1970: 0)
+                            )
+                        },
+                        load: { update, revision in
+                            ValidatedSourceArchive(
+                                data: Data(revision.utf8),
+                                snapshot: try await TangledSourceSnapshot.load(
+                                    update: update,
+                                    revision: revision
+                                )
+                            )
+                        }
+                    )
                 )
                 try await app.test(.live) { server in
                     try await withDependencies {

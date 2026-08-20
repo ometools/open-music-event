@@ -7,6 +7,7 @@ import Foundation
 import GRDB
 import Hummingbird
 import HummingbirdTesting
+import HTTPClient
 import HTTPTypes
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
@@ -158,7 +159,11 @@ struct TangledChannelNotificationTests {
             try FileManager.default.copyItem(at: repository, to: request.outputURL)
             return TangledSourceCheckout(repositoryURL: request.outputURL)
         }
-        let processor = TangledSourceUpdateProcessor.channelNotifications(store: store)
+        let processor = TangledSourceUpdateProcessor.channelNotifications(
+            store: store,
+            sourceArtifacts: Self.sourceArtifacts,
+            load: Self.loadFixtureArchive
+        )
         try await withDependencies {
             $0.tangledSourceCheckout = checkout
             $0.uuid = .incrementing
@@ -232,7 +237,11 @@ struct TangledChannelNotificationTests {
         // A process restart can acknowledge Tangled's replay from the durable checkpoint without
         // checking either revision out again or duplicating either provider job.
         let reopenedStore = try OpenMusicEventAppViewStore(database: database)
-        let replayProcessor = TangledSourceUpdateProcessor.channelNotifications(store: reopenedStore)
+        let replayProcessor = TangledSourceUpdateProcessor.channelNotifications(
+            store: reopenedStore,
+            sourceArtifacts: Self.sourceArtifacts,
+            load: Self.loadFixtureArchive
+        )
         try await withDependencies {
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 throw FixtureError.unexpectedRevision(request.ref)
@@ -320,6 +329,11 @@ struct TangledChannelNotificationTests {
             $0.tangledSourceCheckout = checkout
             $0.uuid = .incrementing
         } operation: {
+            let processor = TangledSourceUpdateProcessor.channelNotifications(
+                store: store,
+                sourceArtifacts: Self.sourceArtifacts,
+                load: Self.loadFixtureArchive
+            )
             let app = try OpenMusicEventAppViewServer.application(
                 configuration: AppViewConfiguration(
                     port: 0,
@@ -327,7 +341,8 @@ struct TangledChannelNotificationTests {
                         watches: [try Self.watch()]
                     )
                 ),
-                store: store
+                store: store,
+                tangledSourceUpdateProcessor: processor
             )
             try await app.test(.router) { client in
                 try await client.execute(
@@ -445,7 +460,11 @@ struct TangledChannelNotificationTests {
             try FileManager.default.copyItem(at: repository, to: request.outputURL)
             return TangledSourceCheckout(repositoryURL: request.outputURL)
         }
-        let processor = TangledSourceUpdateProcessor.channelNotifications(store: store)
+        let processor = TangledSourceUpdateProcessor.channelNotifications(
+            store: store,
+            sourceArtifacts: Self.sourceArtifacts,
+            load: Self.loadFixtureArchive
+        )
         try await withDependencies {
             $0.tangledSourceCheckout = checkout
             $0.uuid = .incrementing
@@ -521,10 +540,17 @@ struct TangledChannelNotificationTests {
         let store = try OpenMusicEventAppViewStore(database: database)
         let processor = TangledSourceUpdateProcessor.channelNotifications(
             store: store,
+            sourceArtifacts: Self.sourceArtifacts,
             load: { _, revision in
                 switch revision {
                 case Self.beforeRevision, Self.afterRevision:
-                    return TangledSourceSnapshot(revision: revision, posts: [])
+                    return ValidatedSourceArchive(
+                        data: Data(revision.utf8),
+                        snapshot: TangledSourceSnapshot(
+                            revision: revision,
+                            posts: []
+                        )
+                    )
                 default:
                     throw FixtureError.unexpectedRevision(revision)
                 }
@@ -578,12 +604,19 @@ struct TangledChannelNotificationTests {
         let requestedRevisions = RequestedRevisions()
         let processor = TangledSourceUpdateProcessor.channelNotifications(
             store: store,
+            sourceArtifacts: Self.sourceArtifacts,
             load: { _, revision in
                 await requestedRevisions.record(revision)
                 guard revision == Self.afterRevision else {
                     throw FixtureError.unexpectedRevision(revision)
                 }
-                return TangledSourceSnapshot(revision: revision, posts: [])
+                return ValidatedSourceArchive(
+                    data: Data(revision.utf8),
+                    snapshot: TangledSourceSnapshot(
+                        revision: revision,
+                        posts: []
+                    )
+                )
             }
         )
         try await processor.process(
@@ -604,6 +637,171 @@ struct TangledChannelNotificationTests {
                 deliveries: []
             )
         )
+    }
+
+    @Test
+    func `a failed artifact upload cannot advance the source checkpoint`() async throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let processor = TangledSourceUpdateProcessor.channelNotifications(
+            store: store,
+            sourceArtifacts: SourceArtifactPublisher { _ in
+                throw FixtureError.uploadFailed
+            },
+            load: { _, revision in
+                ValidatedSourceArchive(
+                    data: Data(revision.utf8),
+                    snapshot: TangledSourceSnapshot(
+                        revision: revision,
+                        eventIDs: [],
+                        posts: []
+                    )
+                )
+            }
+        )
+
+        await #expect(throws: FixtureError.uploadFailed) {
+            try await processor.process(Self.update())
+        }
+        let checkpoint = try await store.tangledSourceCheckpoint(
+            watchID: .init(rawValue: Self.watchID)
+        )
+        let projection = try await database.read(Self.persistedProjection)
+        expectNoDifference(
+            checkpoint,
+            nil
+        )
+        expectNoDifference(
+            projection,
+            PersistedProjection(revision: nil, postCount: 0, deliveries: [])
+        )
+    }
+
+    @Test
+    func `a legacy checkpoint is repaired without duplicating notifications`() async throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        try await database.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO tangledSourceRevisions
+                      (watchID, repositoryDID, repositoryKey, ref, sourceID, revision)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    Self.watchID,
+                    Self.repositoryOwnerDID,
+                    Self.repositoryKey,
+                    "refs/heads/main",
+                    "at://\(Self.canonicalOrganizerID)/sh.tangled.repo/\(Self.canonicalRepositoryRecordKey)",
+                    Self.afterRevision,
+                ]
+            )
+        }
+        let requestedRevisions = RequestedRevisions()
+        let processor = TangledSourceUpdateProcessor.channelNotifications(
+            store: store,
+            sourceArtifacts: Self.sourceArtifacts,
+            load: { _, revision in
+                await requestedRevisions.record(revision)
+                return ValidatedSourceArchive(
+                    data: Data(revision.utf8),
+                    snapshot: TangledSourceSnapshot(
+                        revision: revision,
+                        eventIDs: [],
+                        posts: []
+                    )
+                )
+            }
+        )
+
+        try await processor.process(Self.update())
+
+        let revisions = await requestedRevisions.snapshot()
+        expectNoDifference(revisions, [Self.afterRevision])
+        let resolvedCheckpoint = try await store.tangledSourceCheckpoint(
+            watchID: .init(rawValue: Self.watchID)
+        )
+        let checkpoint = try #require(resolvedCheckpoint)
+        expectNoDifference(checkpoint.publishedArtifact, Self.publishedArtifact())
+        let projection = try await database.read(Self.persistedProjection)
+        expectNoDifference(
+            projection,
+            PersistedProjection(revision: Self.afterRevision, postCount: 0, deliveries: [])
+        )
+    }
+
+    @Test
+    func `the S3 publisher signs and uploads the immutable archive object`() async throws {
+        let uploads = ArtifactUploadRequests()
+        let publisher = SourceArtifactPublisher.s3(
+            configuration: SourceArtifactS3Configuration(
+                bucket: "resources.openmusicevent.app",
+                region: "us-west-2",
+                publicOrigin: try #require(URL(string: "https://resources.openmusicevent.app")),
+                credentials: SourceArtifactAWSCredentials(
+                    accessKeyID: "AKIDEXAMPLE",
+                    secretAccessKey: "fixture-secret-access-key",
+                    sessionToken: "fixture-session-token"
+                )
+            )
+        )
+        let publishedAt = Date(timeIntervalSince1970: 1_369_353_600)
+        let artifact = try await withDependencies {
+            $0.date = .constant(publishedAt)
+            $0.httpClient = HTTPClient { request, body in
+                await uploads.record(request: request, body: body)
+                return nil
+            }
+        } operation: {
+            try await publisher.publish(
+                SourceArtifactPublicationRequest(
+                    archiveData: Data("archive".utf8),
+                    repository: Self.artifactRepository,
+                    revision: Self.afterRevision
+                )
+            )
+        }
+
+        expectNoDifference(
+            artifact,
+            PublishedSourceArtifact(
+                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                objectKey: "wickedwoods.ca/ome-workspace/archive/\(Self.afterRevision).tar.gz",
+                revision: Self.afterRevision,
+                checksumSHA256: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM=",
+                byteCount: 7,
+                publishedAt: publishedAt
+            )
+        )
+        let recordedUploads = await uploads.snapshot()
+        let upload = try #require(recordedUploads.only)
+        expectNoDifference(upload.request.method, .put)
+        expectNoDifference(
+            upload.request.url?.absoluteString,
+            "https://s3.us-west-2.amazonaws.com/resources.openmusicevent.app/wickedwoods.ca/ome-workspace/archive/\(Self.afterRevision).tar.gz"
+        )
+        expectNoDifference(upload.body, Data("archive".utf8))
+        expectNoDifference(
+            upload.request.headerFields[.init("x-amz-content-sha256")!],
+            "0eb3e36bfb24dcd9bb1d1bece1531216b59539a8fde17ee80224af0653c92aa3"
+        )
+        expectNoDifference(
+            upload.request.headerFields[.init("x-amz-checksum-sha256")!],
+            artifact.checksumSHA256
+        )
+        expectNoDifference(
+            upload.request.headerFields[.init("x-amz-meta-source-revision")!],
+            Self.afterRevision
+        )
+        expectNoDifference(
+            upload.request.headerFields[.init("x-amz-security-token")!],
+            "fixture-session-token"
+        )
+        let authorization = try #require(upload.request.headerFields[.authorization])
+        #expect(authorization.hasPrefix("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20130524/us-west-2/s3/aws4_request"))
+        #expect(authorization.contains("SignedHeaders=cache-control;content-type;host;x-amz-checksum-sha256;x-amz-content-sha256;x-amz-date;x-amz-meta-source-revision;x-amz-security-token"))
+        #expect(authorization.suffix(64).allSatisfy { $0.isHexDigit })
     }
 }
 
@@ -641,7 +839,8 @@ private extension TangledChannelNotificationTests {
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
-            )
+            ),
+            artifactRepository: Self.artifactRepository
         )
     }
 
@@ -655,6 +854,42 @@ private extension TangledChannelNotificationTests {
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
+            ),
+            artifactRepository: Self.artifactRepository
+        )
+    }
+
+    static let artifactRepository = SourceArtifactRepository(
+        owner: "wickedwoods.ca",
+        repository: "ome-workspace"
+    )
+
+    static let sourceArtifacts = SourceArtifactPublisher { request in
+        publishedArtifact(request: request)
+    }
+
+    static func publishedArtifact(
+        request: SourceArtifactPublicationRequest? = nil
+    ) -> PublishedSourceArtifact {
+        PublishedSourceArtifact(
+            reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+            objectKey: "wickedwoods.ca/ome-workspace/archive/\(request?.revision ?? afterRevision).tar.gz",
+            revision: request?.revision ?? afterRevision,
+            checksumSHA256: "fixture-sha256",
+            byteCount: request?.archiveData.count ?? afterRevision.utf8.count,
+            publishedAt: receivedAt
+        )
+    }
+
+    static func loadFixtureArchive(
+        update: TangledSourceUpdate,
+        revision: String
+    ) async throws -> ValidatedSourceArchive {
+        ValidatedSourceArchive(
+            data: Data(revision.utf8),
+            snapshot: try await TangledSourceSnapshot.load(
+                update: update,
+                revision: revision
             )
         )
     }
@@ -821,7 +1056,31 @@ private struct PersistedChannelDelivery: Equatable {
 }
 
 private enum FixtureError: Error, Equatable {
+    case uploadFailed
     case unexpectedRevision(String)
+}
+
+private struct ArtifactUploadRequest: Sendable {
+    let request: HTTPRequest
+    let body: Data?
+}
+
+private actor ArtifactUploadRequests {
+    private var requests: [ArtifactUploadRequest] = []
+
+    func record(request: HTTPRequest, body: Data?) {
+        requests.append(ArtifactUploadRequest(request: request, body: body))
+    }
+
+    func snapshot() -> [ArtifactUploadRequest] {
+        requests
+    }
+}
+
+private extension Collection {
+    var only: Element? {
+        count == 1 ? first : nil
+    }
 }
 
 private actor RequestedRevisions {

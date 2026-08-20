@@ -105,7 +105,8 @@ public struct AppViewConfiguration: Sendable {
         notificationDestinationProtection: NotificationDestinationProtection? = nil,
         notificationRegistration: AppViewNotificationRegistrationConfiguration? = nil,
         webhookSecretProtection: WebhookSecretProtection? = nil,
-        tangledWebhook: TangledWebhookConfiguration? = nil
+        tangledWebhook: TangledWebhookConfiguration? = nil,
+        sourceArtifacts: SourceArtifactS3Configuration? = nil
     ) {
         self.host = host
         self.port = port
@@ -120,6 +121,7 @@ public struct AppViewConfiguration: Sendable {
         self.notificationRegistration = notificationRegistration
         self.webhookSecretProtection = webhookSecretProtection
         self.tangledWebhook = tangledWebhook
+        self.sourceArtifacts = sourceArtifacts
     }
 
     public var host: String
@@ -135,6 +137,7 @@ public struct AppViewConfiguration: Sendable {
     public var notificationRegistration: AppViewNotificationRegistrationConfiguration?
     public var webhookSecretProtection: WebhookSecretProtection?
     public var tangledWebhook: TangledWebhookConfiguration?
+    public var sourceArtifacts: SourceArtifactS3Configuration?
 }
 
 public struct AppViewIngestionConfiguration: Equatable, Sendable {
@@ -236,6 +239,10 @@ public extension AppViewConfiguration {
         guard tangledWebhook == nil || webhookSecretProtection != nil else {
             throw AppViewConfigurationError.webhookSecretKeyMissing
         }
+        let sourceArtifacts = try sourceArtifactConfiguration(environment: environment)
+        guard tangledWebhook == nil || sourceArtifacts != nil else {
+            throw AppViewConfigurationError.sourceArtifactConfigurationMissing
+        }
         let brandedEventRouteClaims = try brandedEventRouteClaims(environment: environment)
         return Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
@@ -252,7 +259,8 @@ public extension AppViewConfiguration {
             notificationDestinationProtection: notificationDestinationProtection,
             notificationRegistration: notificationRegistration,
             webhookSecretProtection: webhookSecretProtection,
-            tangledWebhook: tangledWebhook
+            tangledWebhook: tangledWebhook,
+            sourceArtifacts: sourceArtifacts
         )
     }
 
@@ -339,10 +347,59 @@ public extension AppViewConfiguration {
                     repositoryRecordKey: ATProto.Record.Key(
                         rawValue: configuredWatch.canonicalSource.repositoryRecordKey
                     )
+                ),
+                artifactRepository: SourceArtifactRepository(
+                    owner: configuredWatch.artifactRepository.owner,
+                    repository: configuredWatch.artifactRepository.repository
                 )
             )
         }
         return try TangledWebhookConfiguration(watches: watches)
+    }
+
+    private static func sourceArtifactConfiguration(
+        environment: [String: String]
+    ) throws -> SourceArtifactS3Configuration? {
+        let keys = [
+            "OME_SOURCE_ARTIFACT_S3_BUCKET",
+            "OME_SOURCE_ARTIFACT_S3_REGION",
+            "OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN",
+        ]
+        guard keys.contains(where: { environment[$0] != nil }) else {
+            return nil
+        }
+
+        func required(_ key: String) throws -> String {
+            guard let value = environment[key]?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !value.isEmpty else {
+                throw AppViewConfigurationError.sourceArtifactConfigurationValueMissing(key)
+            }
+            return value
+        }
+
+        let rawOrigin = try required("OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN")
+        guard let publicOrigin = URL(string: rawOrigin),
+              publicOrigin.scheme == "https",
+              publicOrigin.host(percentEncoded: false) != nil,
+              publicOrigin.user == nil,
+              publicOrigin.password == nil,
+              publicOrigin.query == nil,
+              publicOrigin.fragment == nil,
+              publicOrigin.path.isEmpty || publicOrigin.path == "/"
+        else {
+            throw AppViewConfigurationError.invalidSourceArtifactPublicOrigin(rawOrigin)
+        }
+        return SourceArtifactS3Configuration(
+            bucket: try required("OME_SOURCE_ARTIFACT_S3_BUCKET"),
+            region: try required("OME_SOURCE_ARTIFACT_S3_REGION"),
+            publicOrigin: publicOrigin,
+            credentials: SourceArtifactAWSCredentials(
+                accessKeyID: try required("AWS_ACCESS_KEY_ID"),
+                secretAccessKey: try required("AWS_SECRET_ACCESS_KEY"),
+                sessionToken: environment["AWS_SESSION_TOKEN"]
+            )
+        )
     }
 
     private static func brandedEventRouteClaims(
@@ -599,6 +656,9 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case notificationProviderConfigurationValueMissing(String)
     case invalidTangledCanonicalSourceOrganizerID(String)
     case invalidTangledWebhookRepositoryOwnerDID(String)
+    case invalidSourceArtifactPublicOrigin(String)
+    case sourceArtifactConfigurationMissing
+    case sourceArtifactConfigurationValueMissing(String)
     case tangledWebhookConfigurationInvalid(String)
     case tangledWebhookConfigurationUnreadable(String)
     case unsupportedNotificationAuthorization(String)
@@ -616,11 +676,17 @@ private struct TangledWebhookConfigurationFile: Decodable {
         var repositoryKey: String
         var ref: String
         var canonicalSource: CanonicalSource
+        var artifactRepository: ArtifactRepository
     }
 
     struct CanonicalSource: Decodable {
         var organizerID: String
         var repositoryRecordKey: String
+    }
+
+    struct ArtifactRepository: Decodable {
+        var owner: String
+        var repository: String
     }
 }
 

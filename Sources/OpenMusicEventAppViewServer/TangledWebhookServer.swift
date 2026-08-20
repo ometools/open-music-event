@@ -36,6 +36,24 @@ public struct CanonicalTangledSource: Equatable, Hashable, Sendable {
     }
 }
 
+/// The public repository-shaped path where AppView publishes immutable source archives.
+///
+/// Clients already understand repository references shaped as `host/owner/repository` plus an
+/// exact ref. Keeping that shape lets AppView move the bytes without changing the client contract.
+public struct SourceArtifactRepository: Equatable, Hashable, Sendable {
+    public init(owner: String, repository: String) {
+        self.owner = owner
+        self.repository = repository
+    }
+
+    public let owner: String
+    public let repository: String
+
+    fileprivate var path: String {
+        "\(owner)/\(repository)"
+    }
+}
+
 public struct TangledWebhookWatch: Equatable, Sendable {
     public init(
         id: WebhookInboxDelivery.WatchID,
@@ -43,7 +61,8 @@ public struct TangledWebhookWatch: Equatable, Sendable {
         repositoryOwnerDID: DID,
         repositoryKey: ATProto.Record.Key,
         ref: String,
-        canonicalSource: CanonicalTangledSource
+        canonicalSource: CanonicalTangledSource,
+        artifactRepository: SourceArtifactRepository
     ) {
         self.id = id
         self.hookID = hookID
@@ -51,6 +70,7 @@ public struct TangledWebhookWatch: Equatable, Sendable {
         self.repositoryKey = repositoryKey
         self.ref = ref
         self.canonicalSource = canonicalSource
+        self.artifactRepository = artifactRepository
     }
 
     public let id: WebhookInboxDelivery.WatchID
@@ -59,6 +79,7 @@ public struct TangledWebhookWatch: Equatable, Sendable {
     public let repositoryKey: ATProto.Record.Key
     public let ref: String
     public let canonicalSource: CanonicalTangledSource
+    public let artifactRepository: SourceArtifactRepository
 
     var repositoryFullName: String {
         "\(repositoryOwnerDID.description)/\(repositoryKey.rawValue)"
@@ -71,6 +92,7 @@ public struct TangledWebhookConfiguration: Sendable {
         var watchIDs: Set<WebhookInboxDelivery.WatchID> = []
         var repositoryReferences: Set<String> = []
         var canonicalSourceReferences: Set<String> = []
+        var artifactRepositoryPaths: Set<String> = []
         for watch in watches {
             guard watchesByHookID.updateValue(watch, forKey: watch.hookID) == nil else {
                 throw TangledWebhookConfigurationError.duplicateHookID(watch.hookID)
@@ -87,6 +109,18 @@ public struct TangledWebhookConfiguration: Sendable {
             guard canonicalSourceReferences.insert(watch.canonicalSource.reference).inserted else {
                 throw TangledWebhookConfigurationError.duplicateCanonicalSource(
                     watch.canonicalSource.reference
+                )
+            }
+            guard watch.artifactRepository.owner.isSourceArtifactPathComponent,
+                  watch.artifactRepository.repository.isSourceArtifactPathComponent
+            else {
+                throw TangledWebhookConfigurationError.invalidArtifactRepository(
+                    watch.artifactRepository.path
+                )
+            }
+            guard artifactRepositoryPaths.insert(watch.artifactRepository.path).inserted else {
+                throw TangledWebhookConfigurationError.duplicateArtifactRepository(
+                    watch.artifactRepository.path
                 )
             }
         }
@@ -199,7 +233,8 @@ struct TangledWebhookServer: Sendable {
                 before: payload.before,
                 after: payload.after,
                 receivedAt: receivedAt,
-                canonicalSource: watch.canonicalSource
+                canonicalSource: watch.canonicalSource,
+                artifactRepository: watch.artifactRepository
             )
         )
     }
@@ -211,10 +246,28 @@ struct TangledWebhookReception: Equatable, Sendable {
 }
 
 public enum TangledWebhookConfigurationError: Error, Equatable, Sendable {
+    case duplicateArtifactRepository(String)
     case duplicateCanonicalSource(String)
     case duplicateHookID(Int64)
     case duplicateRepositoryReference(String)
     case duplicateWatchID(WebhookInboxDelivery.WatchID)
+    case invalidArtifactRepository(String)
+}
+
+private extension String {
+    var isSourceArtifactPathComponent: Bool {
+        !isEmpty
+            && self != "."
+            && self != ".."
+            && allSatisfy { character in
+                character.isASCII
+                    && (character.isLetter
+                        || character.isNumber
+                        || character == "."
+                        || character == "-"
+                        || character == "_")
+            }
+    }
 }
 
 struct TangledWebhookRequest: Sendable {

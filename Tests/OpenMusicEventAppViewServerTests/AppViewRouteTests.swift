@@ -314,13 +314,18 @@ struct AppViewRouteTests {
                     canonicalSource: CanonicalTangledSource(
                         organizerID: organizerID,
                         repositoryRecordKey: .init(rawValue: "ome-workspace")
+                    ),
+                    artifactRepository: .init(
+                        owner: "wickedwoods.ca",
+                        repository: "ome-workspace"
                     )
                 )
             ]
         )
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
-            store: store
+            store: store,
+            tangledSourceUpdateProcessor: TangledSourceUpdateProcessor { _ in }
         )
 
         try await app.test(.router) { client in

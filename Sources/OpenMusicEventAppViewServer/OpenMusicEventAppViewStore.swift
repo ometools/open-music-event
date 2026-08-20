@@ -262,9 +262,25 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     func apply(
         _ after: TangledSourceSnapshot,
         replacing before: TangledSourceSnapshot?,
+        publishedArtifact: PublishedSourceArtifact,
         for update: TangledSourceUpdate
     ) async throws -> Int {
         try await database.write { database in
+            guard after.revision == update.after else {
+                throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                    watchID: update.watchID.rawValue,
+                    expected: update.after,
+                    actual: after.revision
+                )
+            }
+            guard publishedArtifact.revision == update.after else {
+                throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                    watchID: update.watchID.rawValue,
+                    expected: update.after,
+                    actual: publishedArtifact.revision
+                )
+            }
+
             let current = try TangledSourceRevisionRow
                 .find(update.watchID.rawValue)
                 .fetchOne(database)
@@ -272,6 +288,15 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             if let current {
                 try current.validateWatch(for: update)
                 if current.revision == update.after {
+                    if current.publishedArtifact != publishedArtifact {
+                        try TangledSourceRevisionRow.upsert {
+                            TangledSourceRevisionRow(
+                                update: update,
+                                publishedArtifact: publishedArtifact
+                            )
+                        }
+                        .execute(database)
+                    }
                     return 0
                 }
                 guard current.revision == update.before else {
@@ -289,14 +314,6 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                         actual: nil
                     )
                 }
-            }
-
-            guard after.revision == update.after else {
-                throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
-                    watchID: update.watchID.rawValue,
-                    expected: update.after,
-                    actual: after.revision
-                )
             }
 
             let previousPostKeys: Set<TangledSourceCommunicationPostKey>
@@ -317,7 +334,10 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             }
 
             try TangledSourceRevisionRow.upsert {
-                TangledSourceRevisionRow(update: update)
+                TangledSourceRevisionRow(
+                    update: update,
+                    publishedArtifact: publishedArtifact
+                )
             }
             .execute(database)
             try TangledSourceCommunicationPostRow
@@ -463,6 +483,7 @@ struct TangledSourceCheckpoint: Equatable, Sendable {
         ref = row.ref
         canonicalSourceReference = row.canonicalSourceReference
         revision = row.revision
+        publishedArtifact = row.publishedArtifact
     }
 
     let watchID: WebhookInboxDelivery.WatchID
@@ -471,6 +492,7 @@ struct TangledSourceCheckpoint: Equatable, Sendable {
     let ref: String
     let canonicalSourceReference: String
     let revision: String
+    let publishedArtifact: PublishedSourceArtifact?
 
     func validateWatch(for update: TangledSourceUpdate) throws {
         guard repositoryOwnerDID == update.repositoryOwnerDID.description,
@@ -493,14 +515,44 @@ private struct TangledSourceRevisionRow: Equatable, Sendable {
     var ref: String
     @Column("sourceID") var canonicalSourceReference: String
     var revision: String
+    var artifactReference: String?
+    var artifactObjectKey: String?
+    var artifactChecksumSHA256: String?
+    var artifactByteCount: Int?
+    var artifactPublishedAt: Date?
 
-    init(update: TangledSourceUpdate) {
+    init(
+        update: TangledSourceUpdate,
+        publishedArtifact: PublishedSourceArtifact
+    ) {
         watchID = update.watchID.rawValue
         repositoryOwnerDID = update.repositoryOwnerDID.description
         repositoryKey = update.repositoryKey.rawValue
         ref = update.ref
         canonicalSourceReference = update.canonicalSource.reference
         revision = update.after
+        artifactReference = publishedArtifact.reference
+        artifactObjectKey = publishedArtifact.objectKey
+        artifactChecksumSHA256 = publishedArtifact.checksumSHA256
+        artifactByteCount = publishedArtifact.byteCount
+        artifactPublishedAt = publishedArtifact.publishedAt
+    }
+
+    var publishedArtifact: PublishedSourceArtifact? {
+        guard let artifactReference,
+              let artifactObjectKey,
+              let artifactChecksumSHA256,
+              let artifactByteCount,
+              let artifactPublishedAt
+        else { return nil }
+        return PublishedSourceArtifact(
+            reference: artifactReference,
+            objectKey: artifactObjectKey,
+            revision: revision,
+            checksumSHA256: artifactChecksumSHA256,
+            byteCount: artifactByteCount,
+            publishedAt: artifactPublishedAt
+        )
     }
 
     func validateWatch(for update: TangledSourceUpdate) throws {
@@ -602,6 +654,29 @@ private enum TangledSourceProjectionSchema {
                   PRIMARY KEY ("watchID", "organizerID", "eventID", "channelID", "postID")
                 ) STRICT
                 """
+            )
+            .execute(database)
+        }
+        migrator.registerMigration("Add Tangled source artifact publications") { database in
+            let revisionTable = TangledSourceRevisionRow.tableName
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactReference\" TEXT"
+            )
+            .execute(database)
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactObjectKey\" TEXT"
+            )
+            .execute(database)
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactChecksumSHA256\" TEXT"
+            )
+            .execute(database)
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactByteCount\" INTEGER"
+            )
+            .execute(database)
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactPublishedAt\" TEXT"
             )
             .execute(database)
         }

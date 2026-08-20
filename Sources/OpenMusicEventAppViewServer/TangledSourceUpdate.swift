@@ -20,7 +20,8 @@ public struct TangledSourceUpdate: Equatable, Sendable {
         before: String,
         after: String,
         receivedAt: Date,
-        canonicalSource: CanonicalTangledSource
+        canonicalSource: CanonicalTangledSource,
+        artifactRepository: SourceArtifactRepository
     ) {
         self.watchID = watchID
         self.deliveryID = deliveryID
@@ -31,6 +32,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
         self.after = after
         self.receivedAt = receivedAt
         self.canonicalSource = canonicalSource
+        self.artifactRepository = artifactRepository
     }
 
     public let watchID: WebhookInboxDelivery.WatchID
@@ -42,6 +44,7 @@ public struct TangledSourceUpdate: Equatable, Sendable {
     public let after: String
     public let receivedAt: Date
     public let canonicalSource: CanonicalTangledSource
+    public let artifactRepository: SourceArtifactRepository
 }
 
 /// Host-installed processing for a verified Tangled source update.
@@ -62,24 +65,34 @@ public struct TangledSourceUpdateProcessor: Sendable {
     /// channels that gained posts. The projection checkpoint and outbox inserts share one database
     /// transaction, making webhook retries safe.
     public static func channelNotifications(
-        store: OpenMusicEventAppViewStore
+        store: OpenMusicEventAppViewStore,
+        sourceArtifacts: SourceArtifactPublisher
     ) -> Self {
-        channelNotifications(store: store, load: TangledSourceSnapshot.load)
+        channelNotifications(
+            store: store,
+            sourceArtifacts: sourceArtifacts,
+            load: ValidatedSourceArchive.load
+        )
     }
 
     static func channelNotifications(
         store: OpenMusicEventAppViewStore,
+        sourceArtifacts: SourceArtifactPublisher,
         load: @escaping @Sendable (TangledSourceUpdate, String) async throws
-            -> TangledSourceSnapshot
+            -> ValidatedSourceArchive
     ) -> Self {
         Self { update in
             let checkpoint = try await store.tangledSourceCheckpoint(watchID: update.watchID)
             if let checkpoint {
                 try checkpoint.validateWatch(for: update)
-                if checkpoint.revision == update.after {
+                if checkpoint.revision == update.after,
+                   checkpoint.publishedArtifact != nil
+                {
                     return
                 }
-                guard checkpoint.revision == update.before else {
+                guard checkpoint.revision == update.before
+                    || checkpoint.revision == update.after
+                else {
                     throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
                         watchID: update.watchID.rawValue,
                         expected: update.before,
@@ -94,10 +107,22 @@ public struct TangledSourceUpdateProcessor: Sendable {
             } else if update.before.isZeroRevision {
                 before = TangledSourceSnapshot(revision: update.before, posts: [])
             } else {
-                before = try await load(update, update.before)
+                before = try await load(update, update.before).snapshot
             }
             let after = try await load(update, update.after)
-            _ = try await store.apply(after, replacing: before, for: update)
+            let publishedArtifact = try await sourceArtifacts.publish(
+                SourceArtifactPublicationRequest(
+                    archiveData: after.data,
+                    repository: update.artifactRepository,
+                    revision: update.after
+                )
+            )
+            _ = try await store.apply(
+                after.snapshot,
+                replacing: before,
+                publishedArtifact: publishedArtifact,
+                for: update
+            )
         }
     }
 }

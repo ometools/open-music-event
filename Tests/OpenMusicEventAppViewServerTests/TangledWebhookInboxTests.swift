@@ -37,6 +37,10 @@ struct TangledWebhookInboxTests {
                   "canonicalSource": {
                     "organizerID": "did:plc:wickedwoods",
                     "repositoryRecordKey": "ome-workspace"
+                  },
+                  "artifactRepository": {
+                    "owner": "wickedwoods.ca",
+                    "repository": "ome-workspace"
                   }
                 },
                 {
@@ -48,6 +52,10 @@ struct TangledWebhookInboxTests {
                   "canonicalSource": {
                     "organizerID": "did:plc:other-organizer",
                     "repositoryRecordKey": "other-event"
+                  },
+                  "artifactRepository": {
+                    "owner": "other.example",
+                    "repository": "other-event"
                   }
                 }
               ]
@@ -62,6 +70,11 @@ struct TangledWebhookInboxTests {
             environment: [
                 "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL.path(percentEncoded: false),
                 "OME_WEBHOOK_SECRET_KEY_PATH": keyURL.path(percentEncoded: false),
+                "OME_SOURCE_ARTIFACT_S3_BUCKET": "resources.openmusicevent.app",
+                "OME_SOURCE_ARTIFACT_S3_REGION": "us-west-2",
+                "OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN": "https://resources.openmusicevent.app",
+                "AWS_ACCESS_KEY_ID": "fixture-access-key",
+                "AWS_SECRET_ACCESS_KEY": "fixture-secret-key",
             ]
         )
 
@@ -78,6 +91,10 @@ struct TangledWebhookInboxTests {
                     canonicalSource: CanonicalTangledSource(
                         organizerID: try #require(OME.Organizer.ID("did:plc:wickedwoods")),
                         repositoryRecordKey: .init(rawValue: "ome-workspace")
+                    ),
+                    artifactRepository: .init(
+                        owner: "wickedwoods.ca",
+                        repository: "ome-workspace"
                     )
                 ),
                 TangledWebhookWatch(
@@ -89,6 +106,10 @@ struct TangledWebhookInboxTests {
                     canonicalSource: CanonicalTangledSource(
                         organizerID: try #require(OME.Organizer.ID("did:plc:other-organizer")),
                         repositoryRecordKey: .init(rawValue: "other-event")
+                    ),
+                    artifactRepository: .init(
+                        owner: "other.example",
+                        repository: "other-event"
                     )
                 ),
             ]
@@ -100,7 +121,11 @@ struct TangledWebhookInboxTests {
             repositoryOwnerDID: try #require(DID("did:plc:third-owner")),
             repositoryKey: .init(rawValue: "another-wicked-woods-fork"),
             ref: "refs/heads/main",
-            canonicalSource: watches[0].canonicalSource
+            canonicalSource: watches[0].canonicalSource,
+            artifactRepository: .init(
+                owner: "third.example",
+                repository: "wicked-woods"
+            )
         )
         expectNoDifference(
             #expect(throws: TangledWebhookConfigurationError.self) {
@@ -146,6 +171,10 @@ struct TangledWebhookInboxTests {
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
                   "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
+                },
+                "artifactRepository": {
+                  "owner": "wickedwoods.ca",
+                  "repository": "ome-workspace"
                 }
               }]
             }
@@ -163,6 +192,11 @@ struct TangledWebhookInboxTests {
                 "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL
                     .path(percentEncoded: false),
                 "OME_WEBHOOK_SECRET_KEY_PATH": keyURL.path(percentEncoded: false),
+                "OME_SOURCE_ARTIFACT_S3_BUCKET": "resources.openmusicevent.app",
+                "OME_SOURCE_ARTIFACT_S3_REGION": "us-west-2",
+                "OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN": "https://resources.openmusicevent.app",
+                "AWS_ACCESS_KEY_ID": "fixture-access-key",
+                "AWS_SECRET_ACCESS_KEY": "fixture-secret-key",
             ]
         )
         let store = try OpenMusicEventAppViewStore(
@@ -213,7 +247,8 @@ struct TangledWebhookInboxTests {
                 canonicalSource: CanonicalTangledSource(
                     organizerID: try #require(OME.Organizer.ID(Self.canonicalOrganizerID)),
                     repositoryRecordKey: .init(rawValue: Self.canonicalRepositoryRecordKey)
-                )
+                ),
+                artifactRepository: Self.artifactRepository
             )
         )
         let persisted = try await Self.persistedInbox(
@@ -250,6 +285,10 @@ struct TangledWebhookInboxTests {
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
                   "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
+                },
+                "artifactRepository": {
+                  "owner": "wickedwoods.ca",
+                  "repository": "ome-workspace"
                 }
               }]
             }
@@ -1349,9 +1388,15 @@ private extension TangledWebhookInboxTests {
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
-            )
+            ),
+            artifactRepository: artifactRepository
         )
     }
+
+    static let artifactRepository = SourceArtifactRepository(
+        owner: "wickedwoods.ca",
+        repository: "ome-workspace"
+    )
 
     static func webhookConfiguration() throws -> TangledWebhookConfiguration {
         try TangledWebhookConfiguration(watches: [try watch()])
