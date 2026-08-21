@@ -420,7 +420,7 @@ struct WorkspaceOverviewSection: View {
                         ProgressView()
                         Text(progressTitle)
                     }
-                    .accessibilityElement(children: .combine)
+                    .portableAccessibilityElement()
                     .accessibilityIdentifier("workspace.publication.progress")
                 } else if let stoppedMessage {
                     Text(stoppedMessage)
@@ -488,7 +488,7 @@ struct WorkspaceBranchNameView: View {
     var body: some View {
         Text(branch)
             .font(.body.monospaced())
-            .textSelection(.enabled)
+            .selectableText()
             .fixedSize(horizontal: false, vertical: true)
     }
 }

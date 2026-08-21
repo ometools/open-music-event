@@ -201,7 +201,7 @@ public struct WorkspaceProposalDraftView: View {
                             .foregroundStyle(.secondary)
                         Text(store.targetBranch)
                             .font(.body.monospaced())
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
 
@@ -211,7 +211,7 @@ public struct WorkspaceProposalDraftView: View {
                             ProgressView()
                             Text(publicationStage)
                         }
-                        .accessibilityElement(children: .combine)
+                        .portableAccessibilityElement()
                         .accessibilityIdentifier("workspace.proposal.progress")
                     }
                 }

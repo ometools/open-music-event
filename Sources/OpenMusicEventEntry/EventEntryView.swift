@@ -73,7 +73,7 @@ public struct EventEntryView: View {
                     }
                 }
                 .frame(width: 180, height: 180)
-                .accessibilityLabel(state.title ?? "Event")
+                .accessibilityLabel(Text(state.title ?? "Event"))
 
                 if let title = state.title {
                     Text(title)

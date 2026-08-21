@@ -557,7 +557,7 @@ public struct WorkspaceCollaboratorFormView: View {
             Section("Collaborator") {
                 if store.isEditing, let relationship = store.relationship {
                     Text(relationship.id.actorID.description)
-                        .textSelection(.enabled)
+                        .selectableText()
                 } else if let selected = store.form.value.selectedActorIdentity {
                     ContributorActorIdentityRow(identity: selected, isSelected: true)
                     Button("Choose a different profile") {

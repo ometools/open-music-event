@@ -488,7 +488,7 @@ public struct WorkspaceReviewsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .accessibilityElement(children: .combine)
+                    .portableAccessibilityElement()
                     .accessibilityIdentifier("workspace.proposals.pending")
                 }
 
