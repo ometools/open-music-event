@@ -18,6 +18,7 @@ public struct MoreNavigationFixture: View {
     @State var selection = "schedule"
     @State var morePath: [String] = []
     @State var layout = TabFeatureLayout()
+    @State var showsEventFeatures = true
 
     public init() {
     }
@@ -42,14 +43,36 @@ public struct MoreNavigationFixture: View {
                         .accessibilityIdentifier("schedule-root")
                 }
 
-                TabFeature(
-                    "stages",
-                    title: "Stages",
-                    systemImage: "list.bullet"
-                ) {
-                    Text("Stages destination")
-                        .accessibilityIdentifier("stages-destination")
-                        .navigationTitle("Stages")
+                if showsEventFeatures {
+                    Section("Event") {
+                        TabFeature(
+                            "contact",
+                            title: "Contact",
+                            systemImage: "phone"
+                        ) {
+                            Text("Contact destination")
+                                .accessibilityIdentifier("contact-destination")
+                                .navigationTitle("Contact")
+                        }
+
+                        TabFeature(
+                            "location",
+                            title: "Location",
+                            systemImage: "location"
+                        ) {
+                            Text("Location destination")
+                        }
+                    }
+
+                    Section("Resources") {
+                        TabFeature(
+                            "site-map",
+                            title: "Site Map",
+                            systemImage: "map"
+                        ) {
+                            Text("Site Map destination")
+                        }
+                    }
                 }
             }
         }

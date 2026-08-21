@@ -1134,7 +1134,13 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         let view = AnyView(
             List {
                 if !featureContent.isEmpty {
+                    #if os(Android)
+                    ForEach(flattenedFeatureMetadata.indices, id: \.self) { index in
+                        moreFeatureRow(flattenedFeatureMetadata[index])
+                    }
+                    #else
                     moreContentList(featureContent)
+                    #endif
                 }
 
                 if let moreContent {
@@ -1159,6 +1165,10 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
                 view
             }
         }
+    }
+
+    var flattenedFeatureMetadata: [TabFeatureMetadata<Value>] {
+        featureContent.flatMap(\.featureMetadata)
     }
 
     @ViewBuilder
@@ -1193,6 +1203,9 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         case .feature(let node):
             return AnyView(moreFeatureRow(node.metadata))
         case .section(let title, let content):
+            #if os(Android)
+            return moreContentList(content)
+            #else
             return AnyView(
                 SwiftUI.Section {
                     moreContentList(content)
@@ -1200,6 +1213,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
                     Text(title)
                 }
             )
+            #endif
         case .group(let content):
             return moreContentList(content)
         }

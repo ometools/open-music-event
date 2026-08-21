@@ -219,6 +219,11 @@ let applicationProducts: [Product] = [
     .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
     .library(name: "ScheduleComponents", targets: ["ScheduleComponents"]),
     .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
+    .library(
+        name: "SwiftUITabFeaturesFuseFixtures",
+        type: .dynamic,
+        targets: ["SwiftUITabFeaturesFuseFixtures"]
+    ),
 ]
 
 let appViewProducts: [Product] = [
@@ -943,6 +948,14 @@ applicationTargets.append(contentsOf: [
         ],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
+    .target(
+        name: "SwiftUITabFeaturesFuseFixtures",
+        dependencies: [
+            "SwiftUITabFeatures",
+            .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+        ],
+        plugins: [.plugin(name: "skipstone", package: "skip")]
+    ),
     .testTarget(
         name: "OpenMusicEventAuthenticationTests",
         dependencies: [
@@ -1066,6 +1079,16 @@ applicationTargets.append(contentsOf: [
         dependencies: [
             "SwiftUITabFeatures",
         ]
+    ),
+    .testTarget(
+        name: "SwiftUITabFeaturesFuseFixturesTests",
+        dependencies: [
+            "SwiftUITabFeaturesFuseFixtures",
+            .product(name: "SkipAndroidBridge", package: "skip-android-bridge"),
+            .product(name: "SkipTest", package: "skip"),
+        ],
+        path: "Tests/SwiftUITabFeaturesFuseTests",
+        plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
 ])
 

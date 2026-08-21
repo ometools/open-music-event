@@ -6,6 +6,7 @@ import SwiftUITabFeaturesFuseFixtures
 
 #if SKIP
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -39,7 +40,7 @@ final class MoreNavigationComposeTests: XCTestCase {
         #endif
     }
 
-    func testMoreDestinationBackPopsAndClearsOverflowSelection() throws {
+    func testFlattenedSectionRowsUseStableIdentitiesAndContactNavigates() throws {
         #if !SKIP
         throw XCTSkip("Compose UI testing is Android-only")
         #else
@@ -55,22 +56,28 @@ final class MoreNavigationComposeTests: XCTestCase {
         composeRule.onNodeWithTag("more-navigation-state")
             .assertTextEquals("selection: schedule; overflow: none")
 
-        // The attendee opens Stages from the More tab.
+        // Android flattens sectioned tab features into one More list until
+        // Compose can represent the shared section structure directly.
         composeRule.onNodeWithText("More").performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Stages").performClick()
+        composeRule.onNodeWithText("Event").assertDoesNotExist()
+        composeRule.onNodeWithText("Resources").assertDoesNotExist()
+        composeRule.onNodeWithText("Contact").assertIsDisplayed()
+        composeRule.onNodeWithText("Location").assertIsDisplayed()
+        composeRule.onNodeWithText("Site Map").assertIsDisplayed()
+        composeRule.onNodeWithText("Contact").performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("stages-destination").assertIsDisplayed()
+        composeRule.onNodeWithTag("contact-destination").assertIsDisplayed()
         composeRule.onNodeWithTag("more-navigation-state")
-            .assertTextEquals("selection: schedule; overflow: stages")
+            .assertTextEquals("selection: schedule; overflow: contact")
 
         // Android Back must pop the More path and clear its external selection.
         composeRule.onNodeWithContentDescription("Back").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("more-navigation-state")
             .assertTextEquals("selection: schedule; overflow: none")
-        composeRule.onAllNodesWithTag("stages-destination").assertCountEquals(0)
-        composeRule.onNodeWithText("Stages").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("contact-destination").assertCountEquals(0)
+        composeRule.onNodeWithText("Contact").assertIsDisplayed()
         #endif
     }
 }

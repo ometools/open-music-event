@@ -1378,7 +1378,7 @@ public struct EventViewerView: View {
                     if let featureStore = store.spawn(\.siteMapViewer) {
                         TabFeature(
                             .siteMap,
-                            title: EventViewer.EventFeature.siteMap.title,
+                            title: featureStore.featureTitle,
                             systemImage: EventViewer.EventFeature.siteMap.systemImage,
                             labelTint: EventViewer.EventFeature.siteMap.labelTint,
                             navigation: .stack
