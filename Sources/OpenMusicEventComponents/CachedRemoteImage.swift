@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 #endif
 #if os(Android)
+import SkipAndroidBridge
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -13,8 +14,10 @@ import SwiftUI
 
 #if os(Android)
 public typealias CachedRemoteImageSize = SkipSwiftUI.CGSize
+typealias CachedRemoteImageCGFloat = SkipSwiftUI.CGFloat
 #else
 public typealias CachedRemoteImageSize = CGSize
+typealias CachedRemoteImageCGFloat = CGFloat
 #endif
 
 public enum CachedRemoteImagePhase {
@@ -57,9 +60,12 @@ public struct CachedRemoteImage<Content: View>: View {
 
     var targetPixelSize: CachedRemoteImageSize? {
         #if os(iOS)
-        targetSize.map {
-            CGSize(width: $0.width * displayScale, height: $0.height * displayScale)
-        }
+        cachedRemotePixelSize(targetSize: targetSize, displayScale: displayScale)
+        #elseif os(Android)
+        cachedRemotePixelSize(
+            targetSize: targetSize,
+            displayScale: CachedRemoteImageAndroidDisplay.scale
+        )
         #else
         targetSize
         #endif
@@ -106,6 +112,16 @@ public struct CachedRemoteImage<Content: View>: View {
                 url: url,
                 key: requestID,
                 dataKey: sourceRequestID,
+                targetPixelSize: targetPixelSize
+            )
+            #elseif os(Android)
+            let data = try await CachedRemoteImageDataLoader.shared.data(
+                url: url,
+                key: sourceRequestID
+            )
+            let loadedImage = try await CachedRemoteAndroidImageStore.shared.image(
+                data: data,
+                key: requestID,
                 targetPixelSize: targetPixelSize
             )
             #else
@@ -223,17 +239,66 @@ func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
 
 #elseif os(Android)
 
-func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
-    guard let image = UIImage(data: data),
-          image.size.width > 0,
-          image.size.height > 0 else {
+actor CachedRemoteAndroidImageStore {
+    static let shared = CachedRemoteAndroidImageStore()
+
+    let images = NSCache<NSString, UIImage>()
+
+    init() {
+        images.countLimit = 256
+        images.totalCostLimit = 96 * 1_024 * 1_024
+    }
+
+    func image(
+        data: Data,
+        key: String,
+        targetPixelSize: CachedRemoteImageSize?
+    ) throws -> CachedRemoteLoadedImage {
+        let key = key as NSString
+        if let cachedImage = images.object(forKey: key) {
+            return loadedImage(cachedImage)
+        }
+
+        let preparedImage = try decodeCachedRemoteUIImage(
+            data,
+            targetPixelSize: targetPixelSize
+        )
+        let cost = Int(preparedImage.size.width)
+            * Int(preparedImage.size.height)
+            * 4
+        images.setObject(preparedImage, forKey: key, cost: cost)
+        return loadedImage(preparedImage)
+    }
+
+    func loadedImage(_ image: UIImage) -> CachedRemoteLoadedImage {
+        CachedRemoteLoadedImage(
+            image: Image(uiImage: image),
+            intrinsicSize: image.size
+        )
+    }
+}
+
+func decodeCachedRemoteUIImage(
+    _ data: Data,
+    targetPixelSize: CachedRemoteImageSize?
+) throws -> UIImage {
+    guard let decodedImage = UIImage(data: data),
+          decodedImage.size.width > 0,
+          decodedImage.size.height > 0 else {
         throw CachedRemoteImageError.invalidImageData
     }
-    return CachedRemoteLoadedImage(
-        image: Image(uiImage: image),
-        intrinsicSize: image.size
-    )
+
+    guard let targetPixelSize else { return decodedImage }
+    guard let thumbnailSize = cachedRemoteThumbnailSize(
+        intrinsicSize: decodedImage.size,
+        targetPixelSize: targetPixelSize
+    ), let thumbnail = decodedImage.preparingThumbnail(of: thumbnailSize) else {
+        throw CachedRemoteImageError.invalidImageData
+    }
+    return thumbnail
 }
+
+extension CachedRemoteLoadedImage: @unchecked Sendable {}
 #endif
 
 actor CachedRemoteImageDataLoader {
@@ -274,6 +339,62 @@ actor CachedRemoteImageDataLoader {
 enum CachedRemoteImageError: Error {
     case httpStatus(Int)
     case invalidImageData
+}
+
+func cachedRemotePixelSize(
+    targetSize: CachedRemoteImageSize?,
+    displayScale: CachedRemoteImageCGFloat
+) -> CachedRemoteImageSize? {
+    precondition(
+        displayScale.isFinite && displayScale > 0,
+        "Display scale must be finite and greater than zero"
+    )
+    return targetSize.map {
+        CachedRemoteImageSize(
+            width: $0.width * displayScale,
+            height: $0.height * displayScale
+        )
+    }
+}
+
+#if os(Android)
+enum CachedRemoteImageAndroidDisplay {
+    static let scale: CachedRemoteImageCGFloat = {
+        let context = ProcessInfo.processInfo.dynamicAndroidContext()
+        guard let resources: AnyDynamicObject = try? context.getResources(),
+              let displayMetrics: AnyDynamicObject = try? resources.getDisplayMetrics(),
+              let density: Float = displayMetrics.density,
+              density.isFinite,
+              density > 0 else {
+            preconditionFailure("Android display density is unavailable")
+        }
+        return CachedRemoteImageCGFloat(density)
+    }()
+}
+#endif
+
+func cachedRemoteThumbnailSize(
+    intrinsicSize: CachedRemoteImageSize,
+    targetPixelSize: CachedRemoteImageSize
+) -> CachedRemoteImageSize? {
+    guard intrinsicSize.width > 0,
+          intrinsicSize.height > 0,
+          targetPixelSize.width > 0,
+          targetPixelSize.height > 0 else {
+        return nil
+    }
+
+    let scale = min(
+        1,
+        min(
+            targetPixelSize.width / intrinsicSize.width,
+            targetPixelSize.height / intrinsicSize.height
+        )
+    )
+    return CachedRemoteImageSize(
+        width: max(1, (intrinsicSize.width * scale).rounded()),
+        height: max(1, (intrinsicSize.height * scale).rounded())
+    )
 }
 
 #if canImport(ImageIO) && !os(Android)
