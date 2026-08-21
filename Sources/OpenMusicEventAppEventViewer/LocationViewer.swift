@@ -94,11 +94,13 @@ public struct LocationViewerView: View {
                                 )
                             }
 
+                            #if !os(Android)
                             if let appleMapsURL = location.appleMapsURL {
                                 Link(destination: appleMapsURL) {
                                     Label("Apple Maps", systemImage: "location")
                                 }
                             }
+                            #endif
 
                             if let googleMapsURL = location.googleMapsURL {
                                 Link(destination: googleMapsURL) {
@@ -529,11 +531,18 @@ private extension Array where Element == OMERecord.Event.Location {
 
 private extension OMERecord.Event.Location {
     var hasDisplayContent: Bool {
+        #if os(Android)
+        displayAddress != nil
+            || displayDirections != nil
+            || coordinates != nil
+            || googleMapsLink != nil
+        #else
         displayAddress != nil
             || displayDirections != nil
             || coordinates != nil
             || appleMapsLink != nil
             || googleMapsLink != nil
+        #endif
     }
 
     var displayAddress: String? {

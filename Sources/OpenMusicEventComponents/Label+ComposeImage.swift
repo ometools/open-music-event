@@ -90,6 +90,8 @@ struct MaterialSystemImageComposer: ContentComposer {
     @Composable func Compose(context: ComposeContext) {
         let imageVector: ImageVector
         switch systemName {
+        case "arrow.up.right":
+            imageVector = Icons.Outlined.OpenInNew
         case "arrow.triangle.turn.up.right.diamond":
             imageVector = Icons.Outlined.Directions
         case "bubble.left.and.bubble.right":
@@ -124,6 +126,8 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.Info
         case "list.bullet":
             imageVector = Icons.Outlined.FormatListBulleted
+        case "layers":
+            imageVector = Icons.Outlined.Layers
         case "magnifyingglass":
             imageVector = Icons.Outlined.Search
         case "map":
@@ -136,14 +140,16 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.MusicNote
         case "music.note.list":
             imageVector = Icons.Outlined.QueueMusic
-        case "person", "person.3":
+        case "person", "person.crop.circle", "person.crop.square":
+            imageVector = Icons.Outlined.Person
+        case "person.3":
             imageVector = Icons.Outlined.Groups
         case "phone":
             imageVector = Icons.Outlined.Phone
         case "photo.on.rectangle":
             imageVector = Icons.Outlined.PhotoLibrary
         case "rectangle.split.1x2":
-            imageVector = Icons.Outlined.ViewWeekTableRows
+            imageVector = Icons.Outlined.ViewWeek
         case "rectangle.split.3x1":
             imageVector = Icons.Outlined.ViewColumn
         case "square.grid.2x2":
@@ -169,7 +175,7 @@ struct MaterialSystemImageComposer: ContentComposer {
         case "gearshape":
             imageVector = Icons.Outlined.Settings
         case "heart":
-            imageVector = Icons.Outlined.Heart
+            imageVector = Icons.Outlined.FavoriteBorder
         case "heart.badge":
             imageVector = ImageVector.Builder(
                 name = "HeartBadgePlus",

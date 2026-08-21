@@ -404,6 +404,7 @@ struct NavigationTests {
             state.event?.images?.imageAsset(role: .siteMap)?.url,
             siteMapURL
         )
+        #expect(state.featureTitle == "Site Map")
     }
 
     @Test
@@ -467,6 +468,7 @@ struct NavigationTests {
         #expect(store.state.selectedStyle?.title == "Festival")
         #expect(store.state.selectedAsset?.url == festivalURL)
         #expect(store.state.showsStyleSwitcher)
+        #expect(store.state.featureTitle == "Site Maps")
 
         // The attendee switches to Camping for this viewer session.
         store.send(.styleButtonTapped(campingStyleID)) {

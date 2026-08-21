@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -46,6 +47,10 @@ public struct SiteMapViewer {
 
         public var showsStyleSwitcher: Bool {
             (siteMap?.styles.count ?? 0) > 1
+        }
+
+        public var featureTitle: String {
+            showsStyleSwitcher ? "Site Maps" : "Site Map"
         }
     }
 
@@ -106,7 +111,8 @@ public struct SiteMapViewerView: View {
                                 HStack {
                                     Text(style.title)
                                     if style.id == store.selectedStyle?.id {
-                                        Image(systemName: "checkmark")
+                                        MappedSystemImage(systemName: "checkmark")
+                                            .frame(width: 18, height: 18)
                                     }
                                 }
                             }
@@ -115,7 +121,8 @@ public struct SiteMapViewerView: View {
                             )
                         }
                     } label: {
-                        Image(systemName: "layers")
+                        MappedSystemImage(systemName: "layers")
+                            .frame(width: 24, height: 24)
                     }
                     .accessibilityLabel(
                         Text(

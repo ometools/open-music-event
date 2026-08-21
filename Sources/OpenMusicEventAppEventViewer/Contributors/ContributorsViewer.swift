@@ -1590,8 +1590,8 @@ struct ContributorLinkRow: View {
 
                 Spacer()
 
-                Image(systemName: "arrow.up.right")
-                    .font(.caption)
+                MappedSystemImage(systemName: "arrow.up.right")
+                    .frame(width: 14, height: 14)
                     .foregroundStyle(.secondary)
             }
             .portableContentShape(Rectangle())
