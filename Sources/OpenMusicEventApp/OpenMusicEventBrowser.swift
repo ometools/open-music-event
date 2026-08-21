@@ -1360,6 +1360,7 @@ public struct EventBrowseDetailView: View {
                                 ProgressView()
                             }
                             Text(store.isEnteringEvent ? "Entering…" : "Enter Event")
+                                .lineLimit(1)
                         }
                     }
                     .buttonStyle(.borderedProminent)

@@ -487,7 +487,7 @@ struct HeroImageBottomChrome<ChromeTrailingContent: View>: View {
                 sources: titleSources[...]
             )
 
-            Spacer(minLength: 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             chromeTrailingContent()
         }

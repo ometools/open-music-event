@@ -978,17 +978,7 @@ struct PerformanceArtistPhotoBubbleView: View {
                 .mask {
                     Circle()
                         .fill(
-                            RadialGradient(
-                                stops: [
-                                    .init(color: .white, location: 0.0),
-                                    .init(color: .white, location: 0.54),
-                                    .init(color: .white.opacity(0.58), location: 0.82),
-                                    .init(color: .clear, location: 1.0),
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: PerformanceContextIdentity.bubbleSize / 2
-                            )
+                            performanceArtistPhotoMaskGradient
                         )
                 }
         }
@@ -996,6 +986,29 @@ struct PerformanceArtistPhotoBubbleView: View {
             width: PerformanceContextIdentity.bubbleSize,
             height: PerformanceContextIdentity.bubbleSize
         )
+    }
+
+    var performanceArtistPhotoMaskGradient: RadialGradient {
+        #if os(Android)
+        RadialGradient(
+            colors: [.white, .white, .white.opacity(0.58), .clear],
+            center: .center,
+            startRadius: 0,
+            endRadius: PerformanceContextIdentity.bubbleSize / 2
+        )
+        #else
+        RadialGradient(
+            stops: [
+                .init(color: .white, location: 0.0),
+                .init(color: .white, location: 0.54),
+                .init(color: .white.opacity(0.58), location: 0.82),
+                .init(color: .clear, location: 1.0),
+            ],
+            center: .center,
+            startRadius: 0,
+            endRadius: PerformanceContextIdentity.bubbleSize / 2
+        )
+        #endif
     }
 
     var imageContent: some View {
