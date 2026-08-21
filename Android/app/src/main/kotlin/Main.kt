@@ -29,8 +29,9 @@ import androidx.core.app.ActivityCompat
 
 internal val logger: SkipLogger = SkipLogger(subsystem = "open.music.event", category = "OpenMusicEvent")
 
-private typealias AppRootView = WickedWoodsApplicationRootView
+private typealias AppRootView = OpenMusicEventApplicationRootView
 private typealias AppDelegate = OpenMusicEventAppDelegate
+private typealias AppBootstrap = OpenMusicEventAndroidApplication
 
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
 open class AndroidAppMain: Application {
@@ -41,8 +42,7 @@ open class AndroidAppMain: Application {
         super.onCreate()
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
-        AppDelegate.shared.prepareWickedWoodsDependencies()
-        AppDelegate.shared.onInit()
+        AppBootstrap.prepareDependencies()
     }
 
     companion object {
@@ -58,6 +58,7 @@ open class MainActivity: AppCompatActivity {
         super.onCreate(savedInstanceState)
         logger.info("starting activity")
         UIApplication.launch(this)
+        AppDelegate.shared.onInit()
         enableEdgeToEdge()
 
         setContent {

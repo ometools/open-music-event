@@ -233,6 +233,19 @@ let routingDependency: Package.Dependency = .package(
     url: "https://github.com/pointfreeco/swift-tagged",
     from: "0.10.0"
 )
+let swiftSharingPath = environment["SKIP_SHARING_SWIFT_SHARING"]
+    ?? workspacePackagePath("swift-sharing")
+let swiftSharingDependency: Package.Dependency = isAndroidAppBuild
+    ? .package(
+        name: "swift-sharing",
+        path: swiftSharingPath,
+        traits: sharingTraits
+    )
+    : .package(
+        url: "https://github.com/pointfreeco/swift-sharing",
+        from: "2.8.1",
+        traits: sharingTraits
+    )
 let jwsetKitDependency: Package.Dependency = .package(
     url: "https://github.com/woodymelling/JWSETKit",
     branch: "fix/apple-commoncrypto-rsa-selection"
@@ -272,7 +285,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
-    .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.8.1", traits: sharingTraits),
+    swiftSharingDependency,
     routingDependency,
     .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
@@ -425,9 +438,14 @@ var scheduleComponentsDependencies: [Target.Dependency] = [
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
 
-openMusicEventComponentsDependencies.append(
-    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
-)
+openMusicEventComponentsDependencies.append(contentsOf: [
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+    .product(
+        name: "SkipAndroidBridge",
+        package: "skip-android-bridge",
+        condition: .when(platforms: [.android])
+    ),
+])
 if packageBuild != .appView {
     openMusicEventTimeZonesDependencies.append(
         .product(name: "SkipFuseUI", package: "skip-fuse-ui")
@@ -859,6 +877,9 @@ applicationTargets.append(contentsOf: [
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
         resources: [.process("Resources")],
+        swiftSettings: isAndroidAppBuild
+            ? [.unsafeFlags(["-disable-batch-mode"])]
+            : [],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
     .target(
@@ -956,7 +977,6 @@ applicationTargets.append(contentsOf: [
             ),
             "ErrorHandling",
             "OpenMusicEventApp",
-            "OpenMusicEventAppViewServer",
             "OpenMusicEventAuthentication",
             "OpenMusicEventImages",
             "OpenMusicEventLexicon",
@@ -967,14 +987,9 @@ applicationTargets.append(contentsOf: [
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
-            .product(
-                name: "ComposableNotificationsServer",
-                package: "swift-composable-notifications"
-            ),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
-            .product(name: "HummingbirdTesting", package: "hummingbird"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
@@ -983,7 +998,14 @@ applicationTargets.append(contentsOf: [
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ],
+        ] + (isAndroidAppBuild ? [] : [
+            .target(name: "OpenMusicEventAppViewServer"),
+            .product(
+                name: "ComposableNotificationsServer",
+                package: "swift-composable-notifications"
+            ),
+            .product(name: "HummingbirdTesting", package: "hummingbird"),
+        ]),
         exclude: ["__Snapshots__"]
     ),
     .testTarget(
@@ -1138,9 +1160,20 @@ case .app:
     targets = applicationTargets + [routingTarget, routingTestTarget] + appViewTargets
 
 case .androidApp:
-    products = applicationProducts
+    products = applicationProducts.filter {
+        !["ome", "ome-release-check", "OpenMusicEventReleaseTools"].contains($0.name)
+    }
     dependencies = applicationDependencies + [jwsetKitDependency]
-    targets = applicationTargets + [routingTarget, routingTestTarget]
+    targets = applicationTargets.filter { target in
+        if target.name.hasSuffix("Tests") {
+            return target.name == "OpenMusicEventAppTests"
+        }
+        return ![
+            "OpenMusicEventCLI",
+            "OpenMusicEventReleaseCheck",
+            "OpenMusicEventReleaseTools",
+        ].contains(target.name)
+    } + [routingTarget, routingTestTarget]
 
 case .appView:
     products = appViewProducts

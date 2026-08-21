@@ -542,6 +542,13 @@ struct OpenMusicEventApplicationRuntime {
         runtime.store
     }
 
+    /* SKIP @bridge */public convenience init() {
+        self.init(
+            variant: OpenMusicEventAppVariant.generic,
+            environment: OpenMusicEventServiceEnvironment.persisted()
+        )
+    }
+
     public init(
         variant: OpenMusicEventAppVariant,
         environment: OpenMusicEventServiceEnvironment = .production
@@ -556,6 +563,16 @@ struct OpenMusicEventApplicationRuntime {
         )
     }
 
+    #if os(Android)
+    public static func persisted(
+        variant: OpenMusicEventAppVariant
+    ) -> OpenMusicEventAppDelegate {
+        OpenMusicEventAppDelegate(
+            variant: variant,
+            environment: OpenMusicEventServiceEnvironment.persisted()
+        )
+    }
+    #else
     public static func persisted(
         variant: OpenMusicEventAppVariant,
         userDefaults: UserDefaults = .standard
@@ -567,6 +584,7 @@ struct OpenMusicEventApplicationRuntime {
             )
         )
     }
+    #endif
 
     init(
         variant: OpenMusicEventAppVariant,
@@ -675,7 +693,7 @@ struct OpenMusicEventApplicationRuntime {
             logger.error("Remote notification registration could not read its APNs environment")
             return
         }
-#if SKIP
+#if SKIP || os(Android)
         logger.info(
             "Remote notification destination available for \(bundleIdentifier) in \(environment.rawValue)"
         )
@@ -698,10 +716,29 @@ struct OpenMusicEventApplicationRuntime {
         )
     }
 
+#if os(Android)
+    /* SKIP @bridge */public func onFirebaseMessagingRegistration(
+        applicationID: String,
+        registrationToken: String
+    ) {
+        logger.info("Firebase Messaging destination available for \(applicationID)")
+        let destination = Push.Destination.fcm(
+            Push.FCM(
+                applicationID: .init(rawValue: applicationID),
+                registrationToken: .init(rawValue: registrationToken)
+            )
+        )
+        latestNotificationDestination = destination
+        store.send(
+            .notificationDestination(destination)
+        )
+    }
+#endif
+
     /* SKIP @bridge */public func onRemoteNotificationRegistrationFailed(
         errorDescription: String
     ) {
-#if SKIP
+#if SKIP || os(Android)
         logger.error("Remote notification registration failed: \(errorDescription)")
 #else
         logger.error(
@@ -813,3 +850,16 @@ struct OpenMusicEventApplicationRuntime {
         }
     }
 }
+
+#if os(Android)
+/// Prepares process-wide dependencies before Android initializes the shared app delegate.
+/* SKIP @bridge */public final class OpenMusicEventAndroidApplication : Sendable {
+    private init() {}
+
+    /* SKIP @bridge */public static func prepareDependencies() {
+        try! Dependencies.prepareDependencies {
+            try OME.preparePersistedServiceEnvironmentDependencies(&$0)
+        }
+    }
+}
+#endif

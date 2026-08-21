@@ -78,7 +78,9 @@ struct EventRowView: View {
                 Text("\(notificationIndicatorCount)")
                     .font(.caption)
                     .fontWeight(.semibold)
+                    #if !os(Android)
                     .monospacedDigit()
+                    #endif
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)

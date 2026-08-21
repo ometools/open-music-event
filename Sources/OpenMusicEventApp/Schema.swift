@@ -8,12 +8,16 @@ import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
+#if canImport(OSLog)
 import OSLog
+#endif
 
 public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 extension ExternalPlatform: SQLiteType {}
+#if canImport(OSLog)
 let dbLogger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "database")
+#endif
 
 public extension OpenMusicEventServiceEnvironment {
     var databaseFileName: String {
@@ -46,7 +50,11 @@ extension DependencyValues {
                 if context == .preview {
                     print($0.expandedDescription)
                 } else {
+                    #if canImport(OSLog)
                     dbLogger.debug("\($0.expandedDescription)")
+                    #else
+                    print($0.expandedDescription)
+                    #endif
                 }
             }
         }

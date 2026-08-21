@@ -13,9 +13,19 @@ public enum OpenMusicEventServiceEnvironment: String, CaseIterable, Equatable, H
 
     public static let userDefaultsKey = "openMusicEventServiceEnvironment"
 
+    #if os(Android)
+    public static func persisted() -> Self {
+        persistedValue(userDefaults: .standard)
+    }
+    #else
     public static func persisted(
         userDefaults: UserDefaults = .standard
     ) -> Self {
+        persistedValue(userDefaults: userDefaults)
+    }
+    #endif
+
+    private static func persistedValue(userDefaults: UserDefaults) -> Self {
         userDefaults.string(forKey: userDefaultsKey).flatMap(Self.init(rawValue:))
             ?? .production
     }
@@ -79,15 +89,15 @@ public enum OpenMusicEventNotificationAuthorization {
         }
         return NotificationInstallationCredentialStorage(
             credential: {
-                Keychain.shared.string(forKey: key).map {
+                try Keychain.shared.string(forKey: key).map {
                     NotificationInstallation.Credential(rawValue: $0)
                 }
             },
             setCredential: { credential in
                 if let credential {
-                    Keychain.shared.set(credential.rawValue, forKey: key)
+                    try Keychain.shared.set(credential.rawValue, forKey: key)
                 } else {
-                    Keychain.shared.removeValue(forKey: key)
+                    try Keychain.shared.removeValue(forKey: key)
                 }
             }
         )

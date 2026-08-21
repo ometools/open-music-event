@@ -62,7 +62,12 @@ extension DevicePermissionsClient: DependencyKey {
             return DevicePermissions(notifications: authorization.devicePermissionAuthorization)
         },
         openNotificationSettings: {
-            #if os(iOS) || os(Android)
+            #if os(Android)
+            guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
+                return false
+            }
+            return await UIApplication.shared.open(url, options: [:])
+            #elseif os(iOS)
             guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
                 return false
             }
