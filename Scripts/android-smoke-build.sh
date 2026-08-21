@@ -21,11 +21,14 @@ Options:
   --logs                   Dump focused logcat output after launch/install.
   --serial SERIAL          Android device serial. Default: ANDROID_SERIAL or emulator-5554.
   --app-root PATH          Skip app package to build. Default: this OME checkout.
+  --open-music-event-path PATH
+                          OME package used by an external app root. Default: this checkout.
   --target TARGET          Skip module target for --lane module. Default: OpenMusicEventApp.
-  --smoke-root PATH        Stable cache/scratch root. Default: /private/tmp/ome-android-smoke.
+  --smoke-root PATH        Stable cache/scratch root. External app roots get their own namespace.
   --compiler-lock PATH     Android compiler lock. Default: /private/tmp/woody-swift-compiler-android.lock.
   --skip-local PATH        Local skipstone checkout. Default: SKIPLOCAL or ~/Developer/swift-packages/3rd-party/skip/skipstone.
   --skip-command PATH      Local SkipRunner executable. Default: SKIP_COMMAND_OVERRIDE or SMOKE_ROOT/skipstone-build/debug/SkipRunner.
+  --adopt-build-config     Explicitly replace pinned build inputs after a successful apk/both build.
   --gradle-bin PATH        Gradle executable. Default: GRADLE_BIN, then known /private/tmp installs.
   --no-prebuild            Set SKIP_ANDROID_PREBUILD=0 for the apk lane.
   --dry-run                Print the resolved environment and commands without executing them.
@@ -36,7 +39,8 @@ Environment overrides:
   SKIP_COMMAND_OVERRIDE, SKIP_SHARING_SWIFT_SHARING, SKIP_EXPORT_ARCHS,
   CLANG_MODULE_CACHE_PATH, SWIFT_MODULECACHE_PATH, CFFIXED_USER_HOME,
   SWIFT_SDK_HOME, SWIFT_ANDROID_SDK_BUNDLE, SWIFT_TOOLCHAIN_DIR,
-  OME_ANDROID_APP_BUILD, OME_ANDROID_COMPILER_LOCK_FILE, OME_ANDROID_SKIPSTONE_BUILD_ROOT,
+  OME_ANDROID_APP_BUILD, OME_OPEN_MUSIC_EVENT_PATH, OME_ANDROID_COMPILER_LOCK_FILE,
+  OME_ANDROID_SKIPSTONE_BUILD_ROOT,
   OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_ARCHITECTURES,
   SWIFT_COMPILER_LANE_SCRIPT, ANDROID_SERIAL, ANDROID_APPLICATION_ID, LOGCAT_FILTERS.
 USAGE
@@ -78,6 +82,30 @@ read_skip_env_value() {
   ' "$file"
 }
 
+read_build_config_value() {
+  local key="$1"
+  local file="$2"
+
+  awk -v key="$key" '
+    index($0, key "=") == 1 {
+      print substr($0, length(key) + 2)
+      found = 1
+      exit
+    }
+    END {
+      if (!found) exit 1
+    }
+  ' "$file"
+}
+
+logical_absolute_path() {
+  local path="$1"
+  local directory
+
+  directory="$(cd -L "$(dirname "$path")" && pwd -L)"
+  printf '%s/%s\n' "$directory" "$(basename "$path")"
+}
+
 run() {
   printf '+'
   printf ' %q' "$@"
@@ -96,23 +124,62 @@ if [[ $# -gt 0 ]]; then
 fi
 LANE="apk"
 CONFIGURATION="debug"
+CONFIGURATION_EXPLICIT=0
 ARTIFACT="apk"
 ARCHITECTURES="${OME_ANDROID_ARCHITECTURES:-${SKIP_EXPORT_ARCHS:-}}"
+ARCHITECTURES_EXPLICIT=0
+if [[ -n "${OME_ANDROID_ARCHITECTURES+x}" || -n "${SKIP_EXPORT_ARCHS+x}" ]]; then
+  ARCHITECTURES_EXPLICIT=1
+fi
 INSTALL=0
 LAUNCH=0
 LOGS=0
 DRY_RUN=0
+ADOPT_BUILD_CONFIG=0
 MODULE_TARGET="OpenMusicEventApp"
 ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
+SMOKE_ROOT_EXPLICIT=0
+if [[ -n "${OME_ANDROID_SMOKE_ROOT+x}" ]]; then
+  SMOKE_ROOT_EXPLICIT=1
+fi
 SMOKE_ROOT="${OME_ANDROID_SMOKE_ROOT:-/private/tmp/ome-android-smoke}"
 COMPILER_LOCK_FILE="${OME_ANDROID_COMPILER_LOCK_FILE:-/private/tmp/woody-swift-compiler-android.lock}"
 COMPILER_LANE_SCRIPT="${SWIFT_COMPILER_LANE_SCRIPT:-${HOME}/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh}"
 COMPILER_LANE_ACTIVE="${OME_ANDROID_COMPILER_LANE_ACTIVE:-0}"
 SKIP_ANDROID_PREBUILD="${SKIP_ANDROID_PREBUILD:-1}"
 GRADLE_BIN="${GRADLE_BIN:-}"
+SKIPLOCAL_EXPLICIT=0
+if [[ -n "${SKIPLOCAL+x}" ]]; then
+  SKIPLOCAL_EXPLICIT=1
+fi
 SKIPLOCAL="${SKIPLOCAL:-${HOME}/Developer/swift-packages/3rd-party/skip/skipstone}"
 SKIP_COMMAND_OVERRIDE="${SKIP_COMMAND_OVERRIDE:-}"
-SKIP_SHARING_SWIFT_SHARING="${SKIP_SHARING_SWIFT_SHARING:-$ROOT/../swift-sharing}"
+SKIP_COMMAND_MANAGED=1
+if [[ -n "$SKIP_COMMAND_OVERRIDE" ]]; then
+  SKIP_COMMAND_MANAGED=0
+fi
+SKIP_SHARING_EXPLICIT=0
+if [[ -n "${SKIP_SHARING_SWIFT_SHARING+x}" ]]; then
+  SKIP_SHARING_EXPLICIT=1
+fi
+SKIP_SHARING_SWIFT_SHARING="${SKIP_SHARING_SWIFT_SHARING:-}"
+SWIFT_SDK_HOME="${SWIFT_SDK_HOME:-${HOME}/Library/org.swift.swiftpm/swift-sdks}"
+SWIFT_ANDROID_SDK_BUNDLE_EXPLICIT=0
+if [[ -n "${SWIFT_ANDROID_SDK_BUNDLE+x}" ]]; then
+  SWIFT_ANDROID_SDK_BUNDLE_EXPLICIT=1
+fi
+SWIFT_ANDROID_SDK_BUNDLE="${SWIFT_ANDROID_SDK_BUNDLE:-$SWIFT_SDK_HOME/swift-6.3.3-RELEASE_android.artifactbundle}"
+SWIFT_TOOLCHAIN_DIR_EXPLICIT=0
+if [[ -n "${SWIFT_TOOLCHAIN_DIR+x}" ]]; then
+  SWIFT_TOOLCHAIN_DIR_EXPLICIT=1
+fi
+SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_DIR:-${HOME}/Library/Developer/Toolchains}"
+OME_ANDROID_APP_BUILD_EXPLICIT=0
+if [[ -n "${OME_ANDROID_APP_BUILD+x}" ]]; then
+  OME_ANDROID_APP_BUILD_EXPLICIT=1
+fi
+OME_ANDROID_APP_BUILD="${OME_ANDROID_APP_BUILD:-1}"
+OME_OPEN_MUSIC_EVENT_PATH="${OME_OPEN_MUSIC_EVENT_PATH:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -124,6 +191,7 @@ while [[ $# -gt 0 ]]; do
     --configuration)
       [[ $# -ge 2 ]] || fail "--configuration requires debug or release"
       CONFIGURATION="$2"
+      CONFIGURATION_EXPLICIT=1
       shift 2
       ;;
     --artifact)
@@ -134,6 +202,7 @@ while [[ $# -gt 0 ]]; do
     --architectures)
       [[ $# -ge 2 ]] || fail "--architectures requires a comma-separated list"
       ARCHITECTURES="$2"
+      ARCHITECTURES_EXPLICIT=1
       shift 2
       ;;
     --install)
@@ -159,6 +228,11 @@ while [[ $# -gt 0 ]]; do
       APP_ROOT="$2"
       shift 2
       ;;
+    --open-music-event-path)
+      [[ $# -ge 2 ]] || fail "--open-music-event-path requires a path"
+      OME_OPEN_MUSIC_EVENT_PATH="$2"
+      shift 2
+      ;;
     --target)
       [[ $# -ge 2 ]] || fail "--target requires a Skip target"
       MODULE_TARGET="$2"
@@ -167,6 +241,7 @@ while [[ $# -gt 0 ]]; do
     --smoke-root)
       [[ $# -ge 2 ]] || fail "--smoke-root requires a path"
       SMOKE_ROOT="$2"
+      SMOKE_ROOT_EXPLICIT=1
       shift 2
       ;;
     --compiler-lock)
@@ -177,12 +252,18 @@ while [[ $# -gt 0 ]]; do
     --skip-local)
       [[ $# -ge 2 ]] || fail "--skip-local requires a path"
       SKIPLOCAL="$2"
+      SKIPLOCAL_EXPLICIT=1
       shift 2
       ;;
     --skip-command)
       [[ $# -ge 2 ]] || fail "--skip-command requires a path"
       SKIP_COMMAND_OVERRIDE="$2"
+      SKIP_COMMAND_MANAGED=0
       shift 2
+      ;;
+    --adopt-build-config)
+      ADOPT_BUILD_CONFIG=1
+      shift
       ;;
     --gradle-bin)
       [[ $# -ge 2 ]] || fail "--gradle-bin requires a path"
@@ -207,10 +288,157 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$SKIP_SHARING_SWIFT_SHARING" ]]; then
+  SKIP_SHARING_SWIFT_SHARING="$(dirname "$SKIPLOCAL")/swift-sharing"
+fi
+
 case "$LANE" in
   apk|module|both) ;;
   *) fail "--lane must be apk, module, or both" ;;
 esac
+
+case "$ARTIFACT" in
+  apk|bundle) ;;
+  *) fail "--artifact must be apk or bundle" ;;
+esac
+
+if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
+  fail "Android app bundles cannot be installed directly; use --artifact apk"
+fi
+
+APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
+if [[ "$APP_ROOT" != "$ROOT" && "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
+  SMOKE_ROOT="/private/tmp/ome-android-smoke-$(basename "$APP_ROOT")"
+fi
+if [[ "$APP_ROOT" != "$ROOT" && -z "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
+  OME_OPEN_MUSIC_EVENT_PATH="$ROOT"
+fi
+if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
+  [[ -d "$OME_OPEN_MUSIC_EVENT_PATH" ]] \
+    || fail "OME package path does not exist: $OME_OPEN_MUSIC_EVENT_PATH"
+  OME_OPEN_MUSIC_EVENT_PATH="$(logical_absolute_path "$OME_OPEN_MUSIC_EVENT_PATH")"
+  OME_OPEN_MUSIC_EVENT_PATH_RESOLVED="$(cd "$OME_OPEN_MUSIC_EVENT_PATH" && pwd -P)"
+else
+  OME_OPEN_MUSIC_EVENT_PATH_RESOLVED=""
+fi
+SKIPSTONE_BUILD_ROOT="${OME_ANDROID_SKIPSTONE_BUILD_ROOT:-$SMOKE_ROOT/skipstone-build}"
+SKIPSTONE_SWIFTPM_ROOT="$SMOKE_ROOT/skipstone-swiftpm"
+NATIVE_BUILD_CONFIG_FILE="${OME_ANDROID_NATIVE_BUILD_CONFIG_FILE:-$SMOKE_ROOT/android-native-build-config}"
+SKIP_RUNNER_PROVENANCE_FILE="$SKIPSTONE_BUILD_ROOT/skip-runner-provenance"
+ANDROID_NAMESPACE_INIT_SCRIPT="$SMOKE_ROOT/android-library-namespace.init.gradle.kts"
+BUILD_CONFIG_STATE="new"
+
+accept_or_reject_config_change() {
+  local key="$1"
+  local pinned="$2"
+  local requested="$3"
+
+  [[ "$pinned" != "$requested" ]] || return 0
+  if [[ "$ADOPT_BUILD_CONFIG" -eq 1 ]]; then
+    BUILD_CONFIG_STATE="adopting"
+    echo "Adopting Android build config change: $key" >&2
+    echo "  pinned:    $pinned" >&2
+    echo "  requested: $requested" >&2
+    return 0
+  fi
+
+  fail "Android build config drift for $key (pinned '$pinned', requested '$requested'); rerun with --adopt-build-config only for an intentional route change"
+}
+
+apply_pinned_config_value() {
+  local key="$1"
+  local variable_name="$2"
+  local explicit="$3"
+  local pinned
+  local requested
+
+  if ! pinned="$(read_build_config_value "$key" "$NATIVE_BUILD_CONFIG_FILE")"; then
+    return 0
+  fi
+  if [[ "$key" == "architectures" && "$pinned" == "automatic" ]]; then
+    pinned=""
+  fi
+
+  requested="${!variable_name}"
+  if [[ "$explicit" -eq 1 ]]; then
+    accept_or_reject_config_change "$key" "${pinned:-automatic}" "${requested:-automatic}"
+  else
+    printf -v "$variable_name" '%s' "$pinned"
+  fi
+}
+
+check_pinned_config_value() {
+  local key="$1"
+  local requested="$2"
+  local pinned
+
+  if ! pinned="$(read_build_config_value "$key" "$NATIVE_BUILD_CONFIG_FILE")"; then
+    return 0
+  fi
+  accept_or_reject_config_change "$key" "$pinned" "$requested"
+}
+
+if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
+  if ! BUILD_CONFIG_VERSION="$(read_build_config_value version "$NATIVE_BUILD_CONFIG_FILE")"; then
+    fail "Android build config is incomplete (missing version): $NATIVE_BUILD_CONFIG_FILE"
+  fi
+  case "$BUILD_CONFIG_VERSION" in
+    2|3|4) ;;
+    *) fail "unsupported Android build config version '$BUILD_CONFIG_VERSION': $NATIVE_BUILD_CONFIG_FILE" ;;
+  esac
+  for required_key in \
+    swift_android_sdk_bundle \
+    swift_toolchain_dir \
+    skiplocal \
+    skip_sharing_swift_sharing \
+    ome_android_app_build \
+    configuration \
+    architectures
+  do
+    read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
+      || fail "Android build config v$BUILD_CONFIG_VERSION is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+  done
+  if [[ "$BUILD_CONFIG_VERSION" == "3" || "$BUILD_CONFIG_VERSION" == "4" ]]; then
+    for required_key in \
+      app_root \
+      skiplocal_resolved \
+      skip_dependency_root \
+      skip_dependency_root_resolved \
+      skip_route_fingerprint \
+      skip_sharing_swift_sharing_resolved
+    do
+      read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
+        || fail "Android build config v3 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+    done
+  fi
+  if [[ "$BUILD_CONFIG_VERSION" == "4" ]]; then
+    for required_key in \
+      ome_open_music_event_path \
+      ome_open_music_event_path_resolved
+    do
+      read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
+        || fail "Android build config v4 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+    done
+  fi
+
+  BUILD_CONFIG_STATE="pinned v$BUILD_CONFIG_VERSION"
+  apply_pinned_config_value configuration CONFIGURATION "$CONFIGURATION_EXPLICIT"
+  apply_pinned_config_value architectures ARCHITECTURES "$ARCHITECTURES_EXPLICIT"
+  apply_pinned_config_value skiplocal SKIPLOCAL "$SKIPLOCAL_EXPLICIT"
+  apply_pinned_config_value skip_sharing_swift_sharing SKIP_SHARING_SWIFT_SHARING "$SKIP_SHARING_EXPLICIT"
+  apply_pinned_config_value swift_android_sdk_bundle SWIFT_ANDROID_SDK_BUNDLE "$SWIFT_ANDROID_SDK_BUNDLE_EXPLICIT"
+  apply_pinned_config_value swift_toolchain_dir SWIFT_TOOLCHAIN_DIR "$SWIFT_TOOLCHAIN_DIR_EXPLICIT"
+  apply_pinned_config_value ome_android_app_build OME_ANDROID_APP_BUILD "$OME_ANDROID_APP_BUILD_EXPLICIT"
+fi
+
+if [[ "${BUILD_CONFIG_VERSION:-0}" == "4" ]]; then
+  check_pinned_config_value \
+    ome_open_music_event_path \
+    "${OME_OPEN_MUSIC_EVENT_PATH:-none}"
+  check_pinned_config_value \
+    ome_open_music_event_path_resolved \
+    "${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-none}"
+fi
 
 case "$CONFIGURATION" in
   debug) CONFIGURATION_SUFFIX="Debug" ;;
@@ -232,16 +460,63 @@ if [[ -n "$ARCHITECTURES" ]]; then
   done
 fi
 
-case "$ARTIFACT" in
-  apk|bundle) ;;
-  *) fail "--artifact must be apk or bundle" ;;
-esac
+[[ -d "$SKIPLOCAL" ]] || fail "SKIPLOCAL does not exist: $SKIPLOCAL"
+[[ -d "$SKIP_SHARING_SWIFT_SHARING" ]] || fail "local swift-sharing does not exist: $SKIP_SHARING_SWIFT_SHARING"
+SKIPLOCAL="$(logical_absolute_path "$SKIPLOCAL")"
+SKIPLOCAL_RESOLVED="$(cd "$SKIPLOCAL" && pwd -P)"
+SKIP_DEPENDENCY_ROOT="$(dirname "$SKIPLOCAL")"
+SKIP_DEPENDENCY_ROOT_RESOLVED="$(cd "$SKIP_DEPENDENCY_ROOT" && pwd -P)"
+SKIP_SHARING_SWIFT_SHARING="$(logical_absolute_path "$SKIP_SHARING_SWIFT_SHARING")"
+SKIP_SHARING_SWIFT_SHARING_RESOLVED="$(cd "$SKIP_SHARING_SWIFT_SHARING" && pwd -P)"
 
-if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
-  fail "Android app bundles cannot be installed directly; use --artifact apk"
+skip_route_manifest() {
+  local package_name
+  local package_path
+  local resolved_path
+
+  for package_name in skipstone skip skip-ui skip-fuse-ui skip-kit skip-sharing skip-android-bridge; do
+    package_path="$SKIP_DEPENDENCY_ROOT/$package_name"
+    if [[ -d "$package_path" ]]; then
+      resolved_path="$(cd "$package_path" && pwd -P)"
+      printf '%s=%s|%s\n' "$package_name" "$package_path" "$resolved_path"
+    else
+      printf '%s=%s|missing\n' "$package_name" "$package_path"
+    fi
+  done
+}
+
+skip_route_fingerprint() {
+  skip_route_manifest | shasum -a 256 | awk '{ print $1 }'
+}
+
+skip_runner_source_fingerprint() {
+  find -L "$SKIPLOCAL/Package.swift" "$SKIPLOCAL/Package.resolved" "$SKIPLOCAL/Sources" \
+    -type f -print 2>/dev/null \
+    | LC_ALL=C sort \
+    | while IFS= read -r source_file; do
+        printf '%s  %s\n' \
+          "$(shasum -a 256 "$source_file" | awk '{ print $1 }')" \
+          "${source_file#"$SKIPLOCAL"/}"
+      done \
+    | shasum -a 256 \
+    | awk '{ print $1 }'
+}
+
+SKIP_ROUTE_FINGERPRINT="$(skip_route_fingerprint)"
+SKIP_RUNNER_SOURCE_FINGERPRINT="$(skip_runner_source_fingerprint)"
+
+if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
+  check_pinned_config_value app_root "$APP_ROOT"
+  check_pinned_config_value skiplocal_resolved "$SKIPLOCAL_RESOLVED"
+  check_pinned_config_value skip_dependency_root "$SKIP_DEPENDENCY_ROOT"
+  check_pinned_config_value skip_dependency_root_resolved "$SKIP_DEPENDENCY_ROOT_RESOLVED"
+  check_pinned_config_value skip_route_fingerprint "$SKIP_ROUTE_FINGERPRINT"
+  check_pinned_config_value skip_sharing_swift_sharing_resolved "$SKIP_SHARING_SWIFT_SHARING_RESOLVED"
 fi
 
-APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
+if [[ "$ADOPT_BUILD_CONFIG" -eq 1 && "$LANE" == "module" ]]; then
+  echo "Build config adoption is not persisted by the module-only lane; an apk/both build must succeed to record it" >&2
+fi
 
 if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
   [[ -x "$COMPILER_LANE_SCRIPT" ]] || fail "compiler lane script is not executable: $COMPILER_LANE_SCRIPT"
@@ -260,9 +535,6 @@ if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
       exec "${COMPILER_LANE_COMMAND[@]}"
   fi
 fi
-
-SKIPSTONE_BUILD_ROOT="${OME_ANDROID_SKIPSTONE_BUILD_ROOT:-$SMOKE_ROOT/skipstone-build}"
-SKIPSTONE_SWIFTPM_ROOT="$SMOKE_ROOT/skipstone-swiftpm"
 
 if [[ -z "$GRADLE_BIN" ]]; then
   GRADLE_BIN="$(first_executable \
@@ -300,6 +572,9 @@ export SWIFT_SDK_HOME="${SWIFT_SDK_HOME:-${HOME}/Library/org.swift.swiftpm/swift
 export SWIFT_ANDROID_SDK_BUNDLE="${SWIFT_ANDROID_SDK_BUNDLE:-$SWIFT_SDK_HOME/swift-6.3.3-RELEASE_android.artifactbundle}"
 export SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_DIR:-${HOME}/Library/Developer/Toolchains}"
 export OME_ANDROID_APP_BUILD="${OME_ANDROID_APP_BUILD:-1}"
+if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
+  export OME_OPEN_MUSIC_EVENT_PATH
+fi
 export SKIP_ANDROID_PREBUILD
 export ANDROID_SERIAL
 export PATH="$(dirname "$GRADLE_BIN"):$ANDROID_HOME/platform-tools:/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -329,7 +604,6 @@ fi
 [[ -n "$ANDROID_APPLICATION_ID" ]] || fail "could not determine Android application id from Skip.env"
 
 MODULE_SCRATCH_PATH="${SKIP_SCRATCH_PATH:-$SMOKE_ROOT/skip-android-build}"
-NATIVE_BUILD_CONFIG_FILE="${OME_ANDROID_NATIVE_BUILD_CONFIG_FILE:-$SMOKE_ROOT/android-native-build-config}"
 
 verify_swift_sdks() {
   local isolated_sdk_home="$CFFIXED_USER_HOME/Library/org.swift.swiftpm/swift-sdks"
@@ -347,16 +621,75 @@ verify_swift_sdks() {
   ln -sfn "$SWIFT_ANDROID_SDK_BUNDLE" "$isolated_sdk_home/$(basename "$SWIFT_ANDROID_SDK_BUNDLE")"
 }
 
+configure_android_namespace_init_script() {
+  cat > "$ANDROID_NAMESPACE_INIT_SCRIPT" <<'KOTLIN'
+import java.io.File
+import org.gradle.api.Project
+import org.gradle.kotlin.dsl.withGroovyBuilder
+
+val packageDeclaration = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)""")
+
+fun packageName(file: File): String? = file.useLines { lines ->
+    lines.mapNotNull { packageDeclaration.find(it)?.groupValues?.get(1) }.firstOrNull()
+}
+
+fun Project.inferredAndroidNamespace(): String {
+    val declaredPackage = sequenceOf(
+        projectDir.resolve("src/main/kotlin"),
+        projectDir.resolve("src/main/java"),
+    )
+        .filter(File::isDirectory)
+        .flatMap { sourceRoot ->
+            sourceRoot.walkTopDown()
+                .filter { source -> source.isFile && source.extension in setOf("kt", "java") }
+                .mapNotNull(::packageName)
+        }
+        .firstOrNull()
+
+    if (declaredPackage != null) {
+        return if (declaredPackage == rootProject.name) "$declaredPackage.module" else declaredPackage
+    }
+
+    val fallbackName = name.replace(Regex("[^A-Za-z0-9_]"), "_")
+    return "skip.generated.$fallbackName"
+}
+
+gradle.beforeProject {
+    pluginManager.withPlugin("com.android.library") {
+        val inferredNamespace = inferredAndroidNamespace()
+        extensions.getByName("android").withGroovyBuilder {
+            setProperty("namespace", inferredNamespace)
+        }
+        logger.lifecycle("Configured generated Android namespace for $path: $inferredNamespace")
+    }
+}
+KOTLIN
+}
+
 ensure_skip_command() {
   local rebuild=0
+  local rebuild_reason=""
+
+  if [[ "$SKIP_COMMAND_MANAGED" -eq 0 ]]; then
+    [[ -x "$SKIP_COMMAND_OVERRIDE" ]] || fail "explicit SkipRunner is not executable: $SKIP_COMMAND_OVERRIDE"
+    SKIP_RUNNER_STATE="external"
+    return 0
+  fi
+
   if [[ ! -x "$SKIP_COMMAND_OVERRIDE" ]]; then
     rebuild=1
-  elif find "$SKIPLOCAL/Package.swift" "$SKIPLOCAL/Sources" -type f -newer "$SKIP_COMMAND_OVERRIDE" -print -quit | rg -q .; then
+    rebuild_reason="managed executable is missing"
+  elif [[ ! -f "$SKIP_RUNNER_PROVENANCE_FILE" ]]; then
     rebuild=1
+    rebuild_reason="managed provenance is missing"
+  elif ! cmp -s "$SKIP_RUNNER_PROVENANCE_FILE" <(skip_runner_provenance); then
+    rebuild=1
+    rebuild_reason="managed provenance changed"
   fi
 
   if [[ "$rebuild" -eq 1 ]]; then
-    echo "Building local SkipRunner because the pinned executable is missing or stale"
+    SKIP_RUNNER_STATE="rebuild required: $rebuild_reason"
+    echo "Building local SkipRunner because $rebuild_reason"
     run swift build \
       --package-path "$SKIPLOCAL" \
       --product SkipRunner \
@@ -364,9 +697,30 @@ ensure_skip_command() {
       --cache-path "$SKIPSTONE_SWIFTPM_ROOT/cache" \
       --config-path "$SKIPSTONE_SWIFTPM_ROOT/config" \
       --security-path "$SKIPSTONE_SWIFTPM_ROOT/security"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      return 0
+    fi
+    [[ -x "$SKIP_COMMAND_OVERRIDE" ]] || fail "managed SkipRunner build did not produce: $SKIP_COMMAND_OVERRIDE"
+    skip_runner_provenance > "$SKIP_RUNNER_PROVENANCE_FILE"
+    SKIP_RUNNER_STATE="rebuilt and recorded"
+  else
+    SKIP_RUNNER_STATE="provenance matched"
   fi
 
   [[ -x "$SKIP_COMMAND_OVERRIDE" ]] || fail "local SkipRunner is not executable: $SKIP_COMMAND_OVERRIDE"
+}
+
+skip_runner_provenance() {
+  cat <<PROVENANCE
+version=1
+skiplocal=$SKIPLOCAL
+skiplocal_resolved=$SKIPLOCAL_RESOLVED
+skip_dependency_root=$SKIP_DEPENDENCY_ROOT
+skip_dependency_root_resolved=$SKIP_DEPENDENCY_ROOT_RESOLVED
+skip_route_fingerprint=$SKIP_ROUTE_FINGERPRINT
+source_fingerprint=$SKIP_RUNNER_SOURCE_FINGERPRINT
+skip_runner=$SKIP_COMMAND_OVERRIDE
+PROVENANCE
 }
 
 # Gradle daemons outlive the shell that launched them and therefore do not
@@ -405,24 +759,34 @@ configure_nested_skip_command() {
 }
 
 if [[ "$DRY_RUN" -eq 0 ]]; then
+  configure_android_namespace_init_script
   verify_swift_sdks
-  ensure_skip_command
 fi
+ensure_skip_command
 configure_nested_skip_command
 
 echo "Android smoke build"
 echo "  wiring repo: $ROOT"
 echo "  app root:    $APP_ROOT"
+echo "  OME package: ${OME_OPEN_MUSIC_EVENT_PATH:-in-app-root}"
 echo "  lane:        $LANE"
 echo "  configuration: $CONFIGURATION"
 echo "  artifact:    $ARTIFACT"
 echo "  architectures: ${ARCHITECTURES:-automatic}"
+echo "  build config: $NATIVE_BUILD_CONFIG_FILE ($BUILD_CONFIG_STATE)"
 echo "  compiler lock: $COMPILER_LOCK_FILE"
 echo "  skip runner: $SKIP_RUNNER_COMMAND"
+echo "  runner state: $SKIP_RUNNER_STATE"
+echo "  runner provenance: $SKIP_RUNNER_PROVENANCE_FILE"
+echo "  runner source: $SKIP_RUNNER_SOURCE_FINGERPRINT"
 echo "  nested skip: $SKIP_COMMAND_OVERRIDE"
 echo "  skip build:  $SKIPSTONE_BUILD_ROOT"
 echo "  SKIPLOCAL:   $SKIPLOCAL"
+echo "  resolved:    $SKIPLOCAL_RESOLVED"
+echo "  Skip root:   $SKIP_DEPENDENCY_ROOT"
+echo "  route hash:  $SKIP_ROUTE_FINGERPRINT"
 echo "  Sharing:     $SKIP_SHARING_SWIFT_SHARING"
+echo "  namespace init: $ANDROID_NAMESPACE_INIT_SCRIPT"
 echo "  JAVA_HOME:   $JAVA_HOME"
 echo "  Android home: $ANDROID_USER_HOME"
 echo "  Gradle:      $GRADLE_BIN"
@@ -461,18 +825,159 @@ native_package_metadata_fingerprint() {
 
 native_build_config() {
   cat <<CONFIG
-version=2
+version=4
+app_root=$APP_ROOT
+ome_open_music_event_path=${OME_OPEN_MUSIC_EVENT_PATH:-none}
+ome_open_music_event_path_resolved=${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-none}
 swift_android_sdk_bundle=$SWIFT_ANDROID_SDK_BUNDLE
 swift_toolchain_dir=$SWIFT_TOOLCHAIN_DIR
 skiplocal=$SKIPLOCAL
+skiplocal_resolved=$SKIPLOCAL_RESOLVED
+skip_dependency_root=$SKIP_DEPENDENCY_ROOT
+skip_dependency_root_resolved=$SKIP_DEPENDENCY_ROOT_RESOLVED
+skip_route_fingerprint=$SKIP_ROUTE_FINGERPRINT
 skip_command=$SKIP_COMMAND_OVERRIDE
 skip_runner=$SKIP_RUNNER_COMMAND
+skip_runner_provenance=$SKIP_RUNNER_PROVENANCE_FILE
+skip_runner_source_fingerprint=$SKIP_RUNNER_SOURCE_FINGERPRINT
 skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
+skip_sharing_swift_sharing_resolved=$SKIP_SHARING_SWIFT_SHARING_RESOLVED
 ome_android_app_build=$OME_ANDROID_APP_BUILD
 configuration=$CONFIGURATION
 architectures=${ARCHITECTURES:-automatic}
 native_package_metadata_fingerprint=$(native_package_metadata_fingerprint)
 CONFIG
+}
+
+native_package_projection_is_fresh() {
+  local generated_package="$1"
+  local source_package="${OME_OPEN_MUSIC_EVENT_PATH:-$APP_ROOT}/Package.swift"
+  local source_size
+
+  source_size="$(wc -c < "$source_package" | tr -d ' ')"
+  cmp -s "$source_package" <(head -c "$source_size" "$generated_package")
+}
+
+invalidate_stale_native_package_projections() {
+  local generated_package
+  local projection_path="*/$MODULE_TARGET/destination/skipstone/$MODULE_TARGET/src/main/swift/Package.swift"
+
+  while IFS= read -r -d '' generated_package; do
+    native_package_projection_is_fresh "$generated_package" && continue
+
+    if [[ "$SKIP_ANDROID_PREBUILD" == "0" ]]; then
+      fail "stale Android native Package.swift projection: $generated_package; rerun without --no-prebuild"
+    fi
+
+    echo "Invalidating stale Android native Package.swift projection: $generated_package"
+    run rm -f "$generated_package"
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path "$projection_path" \
+      -print0 2>/dev/null
+  )
+}
+
+verify_native_package_projections() {
+  local generated_package
+  local projection_count=0
+  local projection_path="*/$MODULE_TARGET/destination/skipstone/$MODULE_TARGET/src/main/swift/Package.swift"
+
+  while IFS= read -r -d '' generated_package; do
+    projection_count=$((projection_count + 1))
+    native_package_projection_is_fresh "$generated_package" \
+      || fail "Android native Package.swift projection is stale after build: $generated_package"
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path "$projection_path" \
+      -print0 2>/dev/null
+  )
+
+  [[ "$projection_count" -gt 0 ]] || fail "no generated Android native Package.swift projection found"
+  echo "Verified $projection_count current Android native Package.swift projection(s)"
+}
+
+skip_source_projection_is_fresh() {
+  local sourcehash="$1"
+  local target="$2"
+  local source_dir="$3/Sources/$target"
+
+  cmp -s \
+    <(
+      jq -r '.sourcehashes | to_entries[] | "\(.value)  \(.key)"' "$sourcehash" \
+        | LC_ALL=C sort
+    ) \
+    <(
+      (
+        cd "$source_dir"
+        find . \
+          -type f \
+          \( -name '*.swift' -o -path '*/Skip/*' \) \
+          -exec shasum -a 256 {} +
+      ) \
+        | sed 's#  \./#  #' \
+        | LC_ALL=C sort
+    )
+}
+
+verify_skip_source_projections() {
+  local phase="$1"
+  local package_identity
+  local package_root
+  local projection_count=0
+  local sourcehash
+  local sourcehash_count
+  local stale_count=0
+  local target
+
+  command -v jq >/dev/null || fail "jq is required to verify generated Android source projections"
+  for package_root in "${OME_OPEN_MUSIC_EVENT_PATH:-$ROOT}" "$APP_ROOT"; do
+    [[ -d "$package_root/Sources" ]] || continue
+    package_identity="$(basename "$package_root")"
+
+    while IFS= read -r -d '' sourcehash; do
+      sourcehash_count="$(jq -r '.sourcehashes | length' "$sourcehash")"
+      [[ "$sourcehash_count" -gt 0 ]] || continue
+
+      target="$(basename "$(dirname "$(dirname "$(dirname "$sourcehash")")")")"
+      [[ -d "$package_root/Sources/$target" ]] || continue
+      projection_count=$((projection_count + 1))
+
+      if ! skip_source_projection_is_fresh "$sourcehash" "$target" "$package_root"; then
+        echo "error: generated Android source projection is stale or incomplete for: $package_root/Sources/$target" >&2
+        stale_count=$((stale_count + 1))
+      fi
+    done < <(
+      find "$APP_ROOT/.build/plugins/outputs" \
+        -mindepth 5 \
+        -maxdepth 5 \
+        -type f \
+        -path "*/$package_identity/*/destination/skipstone/.*.sourcehash" \
+        -print0 2>/dev/null
+    )
+
+    [[ "$APP_ROOT" != "$package_root" ]] || break
+  done
+
+  if [[ "$projection_count" -eq 0 ]]; then
+    if [[ "$phase" == "before" && "$SKIP_ANDROID_PREBUILD" != "0" ]]; then
+      echo "No generated Android source projections found; the required prebuild must create them"
+      return 0
+    fi
+    fail "no generated Android source projections found for $MODULE_TARGET"
+  fi
+
+  if [[ "$stale_count" -gt 0 ]]; then
+    if [[ "$phase" == "before" && "$SKIP_ANDROID_PREBUILD" != "0" ]]; then
+      echo "Detected $stale_count stale Android source projection(s); the required prebuild must refresh them"
+      return 0
+    fi
+    fail "$stale_count generated Android source projection(s) are stale; rerun without --no-prebuild"
+  fi
+
+  echo "Verified $projection_count current Android source projection(s)"
 }
 
 # A stale compatibility module makes unrelated packages' canImport(SwiftUI)
@@ -481,10 +986,10 @@ invalidate_stale_swiftui_modules() {
   local metadata
   local module
   local should_invalidate
-  local config_changed=0
+  local config_changed=1
 
-  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]] && ! cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
-    config_changed=1
+  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]] && cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
+    config_changed=0
   fi
 
   while IFS= read -r -d '' module; do
@@ -531,6 +1036,56 @@ verify_observation_bridges() {
   echo "Verified $bridge_count observation-aware generated OME bridge(s)"
 }
 
+verify_root_constructor_bridges() {
+  local bridge
+  local bridge_count=0
+  local failure_count=0
+  local sources_file
+
+  while IFS= read -r -d '' sources_file; do
+    while IFS= read -r bridge; do
+      case "$bridge" in
+        */SkipBridgeGenerated/OpenMusicEventApp_Bridge.swift)
+          bridge_count=$((bridge_count + 1))
+          if ! rg -Fq '@_cdecl("Java_open_music_event_app_OpenMusicEventApplicationRootView_Swift_1constructor_10")' "$bridge"; then
+            echo "error: compiled OME bridge does not export the generic root constructor: $bridge" >&2
+            failure_count=$((failure_count + 1))
+          fi
+          ;;
+      esac
+    done < "$sources_file"
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path "*/build/swift/*-unknown-linux-android*/$CONFIGURATION/OpenMusicEventApp.build/sources" \
+      -print0 2>/dev/null
+  )
+
+  [[ "$bridge_count" -gt 0 ]] || fail "no compiled OpenMusicEventApp bridge source found under $APP_ROOT/.build/plugins/outputs"
+  [[ "$failure_count" -eq 0 ]] || fail "$failure_count compiled OME root bridge(s) omitted the generic constructor"
+  echo "Verified $bridge_count compiled generic OME root constructor bridge(s)"
+}
+
+invalidate_stale_observation_bridges() {
+  local bridge
+
+  while IFS= read -r -d '' bridge; do
+    rg -q 'withObservationTracking' "$bridge" && continue
+
+    if [[ "$SKIP_ANDROID_PREBUILD" == "0" ]]; then
+      fail "stale generated OME observation bridge: $bridge; rerun without --no-prebuild"
+    fi
+
+    echo "Invalidating stale generated OME observation bridge: $bridge"
+    run rm -f "$bridge"
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path '*/SkipBridgeGenerated/OpenMusicEventAppRoot_Bridge.swift' \
+      -print0 2>/dev/null
+  )
+}
+
 verify_periodic_timeline_bridges() {
   local bridge
   local bridge_count=0
@@ -567,15 +1122,24 @@ record_native_build_config() {
 build_apk() {
   local gradle_task
 
+  invalidate_stale_native_package_projections
+  verify_skip_source_projections before
+  invalidate_stale_observation_bridges
   invalidate_stale_swiftui_modules
   if [[ "$ARTIFACT" == "bundle" ]]; then
     gradle_task=":app:bundle$CONFIGURATION_SUFFIX"
   else
     gradle_task=":app:assemble$CONFIGURATION_SUFFIX"
   fi
-  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$APP_ROOT/Android" "$gradle_task"
+  run "$SKIP_COMMAND_OVERRIDE" gradle \
+    -p "$APP_ROOT/Android" \
+    --init-script "$ANDROID_NAMESPACE_INIT_SCRIPT" \
+    "$gradle_task"
   if [[ "$DRY_RUN" -eq 0 ]]; then
+    verify_native_package_projections
+    verify_skip_source_projections after
     verify_observation_bridges
+    verify_root_constructor_bridges
     verify_periodic_timeline_bridges
   fi
   record_native_build_config
