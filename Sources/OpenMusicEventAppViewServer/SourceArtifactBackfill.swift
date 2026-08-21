@@ -83,13 +83,12 @@ public extension OpenMusicEventAppViewServer {
                 watchID: watch.id,
                 deliveryID: .init(rawValue: uuid().uuidString.lowercased()),
                 repositoryOwnerDID: watch.repositoryOwnerDID,
-                repositoryKey: watch.repositoryKey,
                 ref: watch.ref,
                 before: checkpoint.revision,
                 after: checkpoint.revision,
                 receivedAt: now,
                 canonicalSource: watch.canonicalSource,
-                artifactRepository: watch.artifactRepository
+                repository: watch.repository
             )
             try checkpoint.validateWatch(for: sameRevisionUpdate)
             try await processor.process(sameRevisionUpdate)

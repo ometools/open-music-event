@@ -4,6 +4,7 @@ import Foundation
 import Hummingbird
 import OpenMusicEventLexicon
 import OpenMusicEventRouting
+import OpenMusicEventSourceClone
 import Tagged
 
 public struct AppViewNotificationRegistrationConfiguration: Equatable, Sendable {
@@ -323,6 +324,7 @@ public extension AppViewConfiguration {
         }
 
         let watches = try file.watches.map { configuredWatch in
+            let repository = try configuredWatch.physicalRepository()
             guard let repositoryOwnerDID = DID(configuredWatch.repositoryOwnerDID) else {
                 throw AppViewConfigurationError.invalidTangledWebhookRepositoryOwnerDID(
                     configuredWatch.repositoryOwnerDID
@@ -335,22 +337,16 @@ public extension AppViewConfiguration {
                     configuredWatch.canonicalSource.organizerID
                 )
             }
-            let watchID = WebhookInboxDelivery.WatchID(rawValue: configuredWatch.id)
             return TangledWebhookWatch(
-                id: watchID,
+                repository: repository,
                 hookID: configuredWatch.hookID,
                 repositoryOwnerDID: repositoryOwnerDID,
-                repositoryKey: ATProto.Record.Key(rawValue: configuredWatch.repositoryKey),
                 ref: configuredWatch.ref,
                 canonicalSource: CanonicalTangledSource(
                     organizerID: organizerID,
                     repositoryRecordKey: ATProto.Record.Key(
                         rawValue: configuredWatch.canonicalSource.repositoryRecordKey
                     )
-                ),
-                artifactRepository: SourceArtifactRepository(
-                    owner: configuredWatch.artifactRepository.owner,
-                    repository: configuredWatch.artifactRepository.repository
                 )
             )
         }
@@ -658,6 +654,7 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case notificationProviderConfigurationValueMissing(String)
     case invalidTangledCanonicalSourceOrganizerID(String)
     case invalidTangledWebhookRepositoryOwnerDID(String)
+    case invalidTangledWebhookWatchID(String)
     case invalidSourceArtifactPublicOrigin(String)
     case sourceArtifactConfigurationMissing
     case sourceArtifactConfigurationValueMissing(String)
@@ -675,20 +672,30 @@ private struct TangledWebhookConfigurationFile: Decodable {
         var id: String
         var hookID: Int64
         var repositoryOwnerDID: String
-        var repositoryKey: String
         var ref: String
         var canonicalSource: CanonicalSource
-        var artifactRepository: ArtifactRepository
     }
 
     struct CanonicalSource: Decodable {
         var organizerID: String
         var repositoryRecordKey: String
     }
+}
 
-    struct ArtifactRepository: Decodable {
-        var owner: String
-        var repository: String
+private extension TangledWebhookConfigurationFile.Watch {
+    func physicalRepository() throws -> TangledRepositoryReference {
+        guard let separator = id.firstIndex(of: "#") else {
+            throw AppViewConfigurationError.invalidTangledWebhookWatchID(id)
+        }
+        let repositoryReference = String(id[..<separator])
+        let idRef = String(id[id.index(after: separator)...])
+        guard idRef == ref,
+              let repository = try? TangledRepositoryReference(parsing: repositoryReference),
+              id == "\(repository.displayName)#\(ref)"
+        else {
+            throw AppViewConfigurationError.invalidTangledWebhookWatchID(id)
+        }
+        return repository
     }
 }
 

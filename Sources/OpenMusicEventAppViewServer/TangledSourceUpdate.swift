@@ -4,6 +4,7 @@ import ComposableNotificationsServer
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 
 /// One verified Tangled repository revision that may advance an application source.
 ///
@@ -15,36 +16,37 @@ public struct TangledSourceUpdate: Equatable, Sendable {
         watchID: WebhookInboxDelivery.WatchID,
         deliveryID: WebhookInboxDelivery.DeliveryID,
         repositoryOwnerDID: DID,
-        repositoryKey: ATProto.Record.Key,
         ref: String,
         before: String,
         after: String,
         receivedAt: Date,
         canonicalSource: CanonicalTangledSource,
-        artifactRepository: SourceArtifactRepository
+        repository: TangledRepositoryReference
     ) {
         self.watchID = watchID
         self.deliveryID = deliveryID
         self.repositoryOwnerDID = repositoryOwnerDID
-        self.repositoryKey = repositoryKey
         self.ref = ref
         self.before = before
         self.after = after
         self.receivedAt = receivedAt
         self.canonicalSource = canonicalSource
-        self.artifactRepository = artifactRepository
+        self.repository = repository
     }
 
     public let watchID: WebhookInboxDelivery.WatchID
     public let deliveryID: WebhookInboxDelivery.DeliveryID
     public let repositoryOwnerDID: DID
-    public let repositoryKey: ATProto.Record.Key
     public let ref: String
     public let before: String
     public let after: String
     public let receivedAt: Date
     public let canonicalSource: CanonicalTangledSource
-    public let artifactRepository: SourceArtifactRepository
+    public let repository: TangledRepositoryReference
+
+    public var repositoryKey: ATProto.Record.Key {
+        .init(rawValue: repository.repository)
+    }
 }
 
 /// Host-installed processing for a verified Tangled source update.
@@ -112,7 +114,7 @@ public struct TangledSourceUpdateProcessor: Sendable {
             let publishedArtifact = try await artifactPublisher.publish(
                 SourceArtifactPublicationRequest(
                     archiveData: currentArchive.data,
-                    repository: update.artifactRepository,
+                    repository: update.repository,
                     revision: update.after
                 )
             )

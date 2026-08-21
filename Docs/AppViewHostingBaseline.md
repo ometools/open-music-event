@@ -200,35 +200,29 @@ metadata in the public server-configuration repository, for example:
     "id": "woody.fm/wicked-woods-ome-stg#refs/heads/main",
     "hookID": 123,
     "repositoryOwnerDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
-    "repositoryKey": "wicked-woods-ome-stg",
     "ref": "refs/heads/main",
     "canonicalSource": {
       "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
       "repositoryRecordKey": "ome-workspace"
-    },
-    "artifactRepository": {
-      "owner": "wickedwoods.ca",
-      "repository": "ome-workspace"
     }
   }]
 }
 ```
 
-The numeric `hookID` is assigned by Tangled; replace `123` with the created hook's ID. `id` is the
-AppView's stable local key for this physical watch and its checkpoint; conventionally use the
-Tangled repository path plus ref. It is not an organizer or source identity. The public watch
-separates the remaining two identities. `repositoryOwnerDID`, `repositoryKey`, and `ref` identify
-the physical Tangled repository that signs the webhook and supplies bytes. `canonicalSource`
-identifies the organizer and `sh.tangled.repo` record whose stable namespace those bytes represent.
-`artifactRepository` selects the stable public path beneath
-`OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN`. This lets staging watch a fork without changing the organizer,
-event, channel, post, or published repository identities seen by clients. One source repository can
-contain multiple events; AppView projects all of them. Configure at most one authoritative physical
-watch and artifact path for the same canonical source in an environment.
+The numeric `hookID` is assigned by Tangled; replace `123` with the created hook's ID. `id` must be
+exactly `<Tangled owner>/<Tangled repository>#<ref>`. AppView derives the physical repository name,
+checkpoint key, and public artifact path from that one value; the separate `ref` must agree with the
+suffix. `repositoryOwnerDID` is the resolved Tangled owner used to authenticate the webhook and
+download source bytes. `canonicalSource` remains independent: it identifies the organizer and
+`sh.tangled.repo` record whose stable OME namespace those bytes represent. A staging watch therefore
+publishes its staging repository beneath `OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN` without changing the
+organizer, event, channel, or post identities. One source repository can contain multiple events;
+AppView projects all of them. Configure at most one authoritative physical watch for the same
+canonical source in an environment.
 
 AppView downloads each exact Tangled revision once, validates those archive bytes, publishes those
 same bytes to the immutable S3 key
-`<artifact owner>/<artifact repository>/archive/<revision>.tar.gz`, and only then stores the
+`<Tangled owner>/<Tangled repository>/archive/<revision>.tar.gz`, and only then stores the
 revision, S3 reference, checksum, byte count, complete calendar-event projections, and
 communication-post identities in its primary SQLite database. Every successful revision replaces
 all event rows owned by that watch, so source deletions disappear instead of surviving an upsert.
@@ -258,7 +252,7 @@ configuration as the service. It reads the secret from standard input and never 
 ```sh
 systemd-ask-password "Tangled webhook secret" \
   | OpenMusicEventAppView set-tangled-webhook-secret \
-      --watch-id 'wickedwoods.ca/ome-workspace#refs/heads/main'
+      --watch-id 'woody.fm/wicked-woods-ome-stg#refs/heads/main'
 ```
 
 An unsigned or unknown hook must receive an authentication failure and must not enter the durable

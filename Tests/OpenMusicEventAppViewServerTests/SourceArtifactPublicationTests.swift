@@ -7,6 +7,7 @@ import GRDB
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventLexicon
+import OpenMusicEventSourceClone
 @testable import OpenMusicEventAppViewServer
 import Testing
 
@@ -43,7 +44,7 @@ struct SourceArtifactPublicationTests {
             try await publisher.publish(
                 SourceArtifactPublicationRequest(
                     archiveData: archiveData,
-                    repository: Self.artifactRepository,
+                    repository: Self.repository,
                     revision: Self.revision
                 )
             )
@@ -53,8 +54,8 @@ struct SourceArtifactPublicationTests {
         expectNoDifference(
             artifact,
             PublishedSourceArtifact(
-                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                objectKey: "wickedwoods.ca/ome-workspace/archive/\(Self.revision).tar.gz",
+                reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
+                objectKey: "staging-owner/festival-staging/archive/\(Self.revision).tar.gz",
                 revision: Self.revision,
                 checksumSHA256: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM=",
                 byteCount: archiveData.count,
@@ -69,7 +70,7 @@ struct SourceArtifactPublicationTests {
         expectNoDifference(upload.request.method, .put)
         expectNoDifference(
             upload.request.url?.absoluteString,
-            "https://s3.us-west-2.amazonaws.com/resources.openmusicevent.app/wickedwoods.ca/ome-workspace/archive/\(Self.revision).tar.gz"
+            "https://s3.us-west-2.amazonaws.com/resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz"
         )
         expectNoDifference(upload.body, archiveData)
         expectNoDifference(
@@ -200,8 +201,8 @@ struct SourceArtifactPublicationTests {
         let expectedResult = SourceArtifactBackfillResult(
             watchID: Self.watchID.rawValue,
             revision: Self.revision,
-            reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-            objectKey: "wickedwoods.ca/ome-workspace/archive/\(Self.revision).tar.gz",
+            reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
+            objectKey: "staging-owner/festival-staging/archive/\(Self.revision).tar.gz",
             checksumSHA256: "fixture-sha256"
         )
         expectNoDifference(firstResults, [expectedResult])
@@ -223,7 +224,7 @@ struct SourceArtifactPublicationTests {
             Self.publishedArtifact(
                 for: SourceArtifactPublicationRequest(
                     archiveData: Data(Self.revision.utf8),
-                    repository: Self.artifactRepository,
+                    repository: Self.repository,
                     revision: Self.revision
                 )
             )
@@ -239,7 +240,7 @@ struct SourceArtifactPublicationTests {
         expectNoDifference(
             event.source.resolvedRepository,
             OME.CalendarEvent.Source.Repository(
-                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
                 ref: Self.revision
             )
         )
@@ -263,9 +264,10 @@ private extension SourceArtifactPublicationTests {
     static let canonicalRepositoryRecordKey = "ome"
     static let canonicalSourceReference =
         "at://\(canonicalOrganizerID)/sh.tangled.repo/\(canonicalRepositoryRecordKey)"
-    static let artifactRepository = SourceArtifactRepository(
-        owner: "wickedwoods.ca",
-        repository: "ome-workspace"
+    static let repository = TangledRepositoryReference(
+        host: "tangled.org",
+        owner: "staging-owner",
+        repository: "festival-staging"
     )
 
     static func update() throws -> TangledSourceUpdate {
@@ -273,7 +275,6 @@ private extension SourceArtifactPublicationTests {
             watchID: watchID,
             deliveryID: .init(rawValue: "d8c7e4a5-48ad-4698-9a95-daee25f36701"),
             repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
-            repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
             before: String(repeating: "0", count: 40),
             after: revision,
@@ -282,22 +283,20 @@ private extension SourceArtifactPublicationTests {
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
             ),
-            artifactRepository: artifactRepository
+            repository: repository
         )
     }
 
     static func watch() throws -> TangledWebhookWatch {
         TangledWebhookWatch(
-            id: watchID,
+            repository: repository,
             hookID: 42,
             repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
-            repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
-            ),
-            artifactRepository: artifactRepository
+            )
         )
     }
 
@@ -370,8 +369,8 @@ private extension SourceArtifactPublicationTests {
         for request: SourceArtifactPublicationRequest
     ) -> PublishedSourceArtifact {
         PublishedSourceArtifact(
-            reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-            objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
+            reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
+            objectKey: "staging-owner/festival-staging/archive/\(request.revision).tar.gz",
             revision: request.revision,
             checksumSHA256: "fixture-sha256",
             byteCount: request.archiveData.count,

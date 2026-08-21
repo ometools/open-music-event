@@ -11,13 +11,14 @@ import HummingbirdTesting
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventLexicon
+import OpenMusicEventSourceClone
 @testable import OpenMusicEventAppViewServer
 import Testing
 
 @Suite(.serialized)
 struct TangledWebhookInboxTests {
     @Test
-    func `configuration keeps physical canonical and published repositories independent`() throws {
+    func `legacy artifact configuration cannot override the watched Tangled repository`() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -29,33 +30,18 @@ struct TangledWebhookInboxTests {
             {
               "watches": [
                 {
-                  "id": "staging-owner/wicked-woods#refs/heads/main",
+                  "id": "woody.fm/wicked-woods-ome-stg#refs/heads/main",
                   "hookID": 42,
-                  "repositoryOwnerDID": "did:plc:staging-owner",
-                  "repositoryKey": "wicked-woods-staging",
+                  "repositoryOwnerDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+                  "repositoryKey": "wicked-woods-ome-stg",
                   "ref": "refs/heads/main",
                   "canonicalSource": {
-                    "organizerID": "did:plc:wickedwoods",
+                    "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
                     "repositoryRecordKey": "ome-workspace"
                   },
                   "artifactRepository": {
                     "owner": "wickedwoods.ca",
                     "repository": "ome-workspace"
-                  }
-                },
-                {
-                  "id": "other-owner/other-event#refs/heads/release",
-                  "hookID": 43,
-                  "repositoryOwnerDID": "did:plc:other-owner",
-                  "repositoryKey": "other-event-release",
-                  "ref": "refs/heads/release",
-                  "canonicalSource": {
-                    "organizerID": "did:plc:other-organizer",
-                    "repositoryRecordKey": "other-event"
-                  },
-                  "artifactRepository": {
-                    "owner": "other.example",
-                    "repository": "other-event"
                   }
                 }
               ]
@@ -70,9 +56,10 @@ struct TangledWebhookInboxTests {
             environment: [
                 "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL.path(percentEncoded: false),
                 "OME_WEBHOOK_SECRET_KEY_PATH": keyURL.path(percentEncoded: false),
-                "OME_SOURCE_ARTIFACT_S3_BUCKET": "resources.openmusicevent.app",
+                "OME_SOURCE_ARTIFACT_S3_BUCKET": "openmusicevent-staging-resources",
                 "OME_SOURCE_ARTIFACT_S3_REGION": "us-west-2",
-                "OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN": "https://resources.openmusicevent.app",
+                "OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN":
+                    "https://stg-resources.openmusicevent.app",
                 "AWS_ACCESS_KEY_ID": "fixture-access-key",
                 "AWS_SECRET_ACCESS_KEY": "fixture-secret-key",
             ]
@@ -83,80 +70,79 @@ struct TangledWebhookInboxTests {
             watches,
             [
                 TangledWebhookWatch(
-                    id: .init(rawValue: "staging-owner/wicked-woods#refs/heads/main"),
+                    repository: .init(
+                        host: "tangled.org",
+                        owner: "woody.fm",
+                        repository: "wicked-woods-ome-stg"
+                    ),
                     hookID: 42,
-                    repositoryOwnerDID: try #require(DID("did:plc:staging-owner")),
-                    repositoryKey: .init(rawValue: "wicked-woods-staging"),
+                    repositoryOwnerDID: try #require(
+                        DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+                    ),
                     ref: "refs/heads/main",
                     canonicalSource: CanonicalTangledSource(
-                        organizerID: try #require(OME.Organizer.ID("did:plc:wickedwoods")),
+                        organizerID: try #require(
+                            OME.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+                        ),
                         repositoryRecordKey: .init(rawValue: "ome-workspace")
-                    ),
-                    artifactRepository: .init(
-                        owner: "wickedwoods.ca",
-                        repository: "ome-workspace"
                     )
-                ),
-                TangledWebhookWatch(
-                    id: .init(rawValue: "other-owner/other-event#refs/heads/release"),
-                    hookID: 43,
-                    repositoryOwnerDID: try #require(DID("did:plc:other-owner")),
-                    repositoryKey: .init(rawValue: "other-event-release"),
-                    ref: "refs/heads/release",
-                    canonicalSource: CanonicalTangledSource(
-                        organizerID: try #require(OME.Organizer.ID("did:plc:other-organizer")),
-                        repositoryRecordKey: .init(rawValue: "other-event")
-                    ),
-                    artifactRepository: .init(
-                        owner: "other.example",
-                        repository: "other-event"
-                    )
-                ),
+                )
             ]
         )
 
+        let watch = try #require(watches.first)
+        let artifactConfiguration = try #require(configuration.sourceArtifacts)
+        expectNoDifference(
+            artifactConfiguration.reference(for: watch.repository),
+            "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg"
+        )
+        expectNoDifference(
+            artifactConfiguration.objectKey(
+                for: watch.repository,
+                revision: "2222222222222222222222222222222222222222"
+            ),
+            "woody.fm/wicked-woods-ome-stg/archive/"
+                + "2222222222222222222222222222222222222222.tar.gz"
+        )
+    }
+
+    @Test
+    func `one canonical source has only one authoritative physical watch`() throws {
+        let firstWatch = TangledWebhookWatch(
+            repository: .init(
+                host: "tangled.org",
+                owner: "staging-owner",
+                repository: "wicked-woods-staging"
+            ),
+            hookID: 42,
+            repositoryOwnerDID: try #require(DID("did:plc:staging-owner")),
+            ref: "refs/heads/main",
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID("did:plc:wickedwoods")),
+                repositoryRecordKey: .init(rawValue: "ome-workspace")
+            )
+        )
+
         let duplicateCanonicalSource = TangledWebhookWatch(
-            id: .init(rawValue: "third-owner/wicked-woods#refs/heads/main"),
+            repository: .init(
+                host: "tangled.org",
+                owner: "third-owner",
+                repository: "another-wicked-woods-fork"
+            ),
             hookID: 44,
             repositoryOwnerDID: try #require(DID("did:plc:third-owner")),
-            repositoryKey: .init(rawValue: "another-wicked-woods-fork"),
             ref: "refs/heads/main",
-            canonicalSource: watches[0].canonicalSource,
-            artifactRepository: .init(
-                owner: "third.example",
-                repository: "wicked-woods"
-            )
+            canonicalSource: firstWatch.canonicalSource
         )
         expectNoDifference(
             #expect(throws: TangledWebhookConfigurationError.self) {
                 try TangledWebhookConfiguration(
-                    watches: watches + [duplicateCanonicalSource]
+                    watches: [firstWatch, duplicateCanonicalSource]
                 )
             },
             .duplicateCanonicalSource(
                 "at://did:plc:wickedwoods/sh.tangled.repo/ome-workspace"
             )
-        )
-
-        let duplicateArtifactRepository = TangledWebhookWatch(
-            id: .init(rawValue: "fourth-owner/fourth-event#refs/heads/main"),
-            hookID: 45,
-            repositoryOwnerDID: try #require(DID("did:plc:fourth-owner")),
-            repositoryKey: .init(rawValue: "fourth-event"),
-            ref: "refs/heads/main",
-            canonicalSource: CanonicalTangledSource(
-                organizerID: try #require(OME.Organizer.ID("did:plc:fourth-organizer")),
-                repositoryRecordKey: .init(rawValue: "fourth-event")
-            ),
-            artifactRepository: watches[0].artifactRepository
-        )
-        expectNoDifference(
-            #expect(throws: TangledWebhookConfigurationError.self) {
-                try TangledWebhookConfiguration(
-                    watches: watches + [duplicateArtifactRepository]
-                )
-            },
-            .duplicateArtifactRepository("wickedwoods.ca/ome-workspace")
         )
     }
 
@@ -187,15 +173,10 @@ struct TangledWebhookInboxTests {
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
                 "repositoryOwnerDID": "\(Self.repositoryDID)",
-                "repositoryKey": "\(Self.repositoryKey)",
                 "ref": "refs/heads/main",
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
                   "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
-                },
-                "artifactRepository": {
-                  "owner": "wickedwoods.ca",
-                  "repository": "ome-workspace"
                 }
               }]
             }
@@ -260,7 +241,6 @@ struct TangledWebhookInboxTests {
                 watchID: Self.watchID,
                 deliveryID: .init(rawValue: Self.deliveryID),
                 repositoryOwnerDID: try #require(DID(Self.repositoryDID)),
-                repositoryKey: ATProto.Record.Key(rawValue: Self.repositoryKey),
                 ref: "refs/heads/main",
                 before: "1111111111111111111111111111111111111111",
                 after: "2222222222222222222222222222222222222222",
@@ -269,7 +249,7 @@ struct TangledWebhookInboxTests {
                     organizerID: try #require(OME.Organizer.ID(Self.canonicalOrganizerID)),
                     repositoryRecordKey: .init(rawValue: Self.canonicalRepositoryRecordKey)
                 ),
-                artifactRepository: Self.artifactRepository
+                repository: Self.repository
             )
         )
         let persisted = try await Self.persistedInbox(
@@ -301,15 +281,10 @@ struct TangledWebhookInboxTests {
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
                 "repositoryOwnerDID": "\(Self.repositoryDID)",
-                "repositoryKey": "\(Self.repositoryKey)",
                 "ref": "refs/heads/main",
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
                   "repositoryRecordKey": "\(Self.canonicalRepositoryRecordKey)"
-                },
-                "artifactRepository": {
-                  "owner": "wickedwoods.ca",
-                  "repository": "ome-workspace"
                 }
               }]
             }
@@ -1417,20 +1392,19 @@ private extension TangledWebhookInboxTests {
 
     static func watch() throws -> TangledWebhookWatch {
         TangledWebhookWatch(
-            id: watchID,
+            repository: repository,
             hookID: hookID,
             repositoryOwnerDID: try #require(DID(repositoryDID)),
-            repositoryKey: ATProto.Record.Key(rawValue: repositoryKey),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
-            ),
-            artifactRepository: artifactRepository
+            )
         )
     }
 
-    static let artifactRepository = SourceArtifactRepository(
+    static let repository = TangledRepositoryReference(
+        host: "tangled.org",
         owner: "wickedwoods.ca",
         repository: "ome-workspace"
     )

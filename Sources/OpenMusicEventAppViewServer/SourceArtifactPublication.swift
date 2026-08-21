@@ -40,14 +40,14 @@ public struct SourceArtifactS3Configuration: Sendable {
     public let publicOrigin: URL
     public let credentials: SourceArtifactAWSCredentials
 
-    func reference(for repository: SourceArtifactRepository) -> String {
+    func reference(for repository: TangledRepositoryReference) -> String {
         publicOrigin
             .appending(path: repository.owner)
             .appending(path: repository.repository)
             .absoluteString
     }
 
-    func objectKey(for repository: SourceArtifactRepository, revision: String) -> String {
+    func objectKey(for repository: TangledRepositoryReference, revision: String) -> String {
         "\(repository.owner)/\(repository.repository)/archive/\(revision).tar.gz"
     }
 
@@ -73,9 +73,10 @@ struct ValidatedSourceArchive: Equatable, Sendable {
         @Dependency(\.uuid) var uuid
 
         let repository = TangledRepositoryReference(
-            host: "tangled.org",
+            host: update.repository.host,
+            port: update.repository.port,
             owner: update.repositoryOwnerDID.description,
-            repository: update.repositoryKey.rawValue
+            repository: update.repository.repository
         )
         let archiveData: Data = try await withDependencies {
             $0.logBody = false
@@ -111,7 +112,7 @@ struct ValidatedSourceArchive: Equatable, Sendable {
 
 struct SourceArtifactPublicationRequest: Equatable, Sendable {
     let archiveData: Data
-    let repository: SourceArtifactRepository
+    let repository: TangledRepositoryReference
     let revision: String
 }
 

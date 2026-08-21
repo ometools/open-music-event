@@ -313,22 +313,19 @@ struct AppViewRouteTests {
         configuration.tangledWebhook = try TangledWebhookConfiguration(
             watches: [
                 TangledWebhookWatch(
-                    id: .init(
-                        rawValue: "woody.fm/wicked-woods-ome-stg#refs/heads/main"
+                    repository: .init(
+                        host: "tangled.org",
+                        owner: "woody.fm",
+                        repository: "wicked-woods-ome-stg"
                     ),
                     hookID: 42,
                     repositoryOwnerDID: try #require(DID(
                         "did:plc:cqqtuv75m7e5s4uj6nw4czyu"
                     )),
-                    repositoryKey: .init(rawValue: "wicked-woods-ome-stg"),
                     ref: "refs/heads/main",
                     canonicalSource: CanonicalTangledSource(
                         organizerID: organizerID,
                         repositoryRecordKey: .init(rawValue: "ome-workspace")
-                    ),
-                    artifactRepository: .init(
-                        owner: "wickedwoods.ca",
-                        repository: "ome-workspace"
                     )
                 )
             ]
@@ -340,13 +337,12 @@ struct AppViewRouteTests {
             watchID: watch.id,
             deliveryID: .init(rawValue: "d8c7e4a5-48ad-4698-9a95-daee25f36701"),
             repositoryOwnerDID: watch.repositoryOwnerDID,
-            repositoryKey: watch.repositoryKey,
             ref: watch.ref,
             before: String(repeating: "0", count: 40),
             after: firstRevision,
             receivedAt: Date(timeIntervalSince1970: 1_786_291_200),
             canonicalSource: watch.canonicalSource,
-            artifactRepository: watch.artifactRepository
+            repository: watch.repository
         )
         let firstEvent = try sourceCalendarEvent(
             organizerID: organizerID,
@@ -382,8 +378,8 @@ struct AppViewRouteTests {
                 ),
                 replacing: TangledSourceSnapshot.empty(revision: firstUpdate.before),
                 publishedArtifact: PublishedSourceArtifact(
-                    reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(firstRevision).tar.gz",
+                    reference: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg",
+                    objectKey: "woody.fm/wicked-woods-ome-stg/archive/\(firstRevision).tar.gz",
                     revision: firstRevision,
                     checksumSHA256: "fixture-sha256",
                     byteCount: 1,
@@ -411,7 +407,7 @@ struct AppViewRouteTests {
                 expectNoDifference(
                     event.source.resolvedRepository,
                     OME.CalendarEvent.Source.Repository(
-                        reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                        reference: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg",
                         ref: firstRevision
                     )
                 )
@@ -439,13 +435,12 @@ struct AppViewRouteTests {
                 watchID: watch.id,
                 deliveryID: .init(rawValue: "15f8f078-26dc-4ff3-9737-7af8e94ab624"),
                 repositoryOwnerDID: watch.repositoryOwnerDID,
-                repositoryKey: watch.repositoryKey,
                 ref: watch.ref,
                 before: firstRevision,
                 after: secondRevision,
                 receivedAt: firstUpdate.receivedAt.addingTimeInterval(60),
                 canonicalSource: watch.canonicalSource,
-                artifactRepository: watch.artifactRepository
+                repository: watch.repository
             )
             let secondEvent = try sourceCalendarEvent(
                 organizerID: organizerID,
@@ -467,8 +462,8 @@ struct AppViewRouteTests {
                     posts: []
                 ),
                 publishedArtifact: PublishedSourceArtifact(
-                    reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-                    objectKey: "wickedwoods.ca/ome-workspace/archive/\(secondRevision).tar.gz",
+                    reference: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg",
+                    objectKey: "woody.fm/wicked-woods-ome-stg/archive/\(secondRevision).tar.gz",
                     revision: secondRevision,
                     checksumSHA256: "fixture-sha256-2",
                     byteCount: 2,

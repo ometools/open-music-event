@@ -4,6 +4,7 @@ import Crypto
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 
 public enum TangledWebhookEndpoint {
     public static let path = "/webhooks/tangled"
@@ -36,53 +37,39 @@ public struct CanonicalTangledSource: Equatable, Hashable, Sendable {
     }
 }
 
-/// The public repository-shaped path where AppView publishes immutable source archives.
-///
-/// Clients already understand repository references shaped as `host/owner/repository` plus an
-/// exact ref. Keeping that shape lets AppView move the bytes without changing the client contract.
-public struct SourceArtifactRepository: Equatable, Hashable, Sendable {
-    public init(owner: String, repository: String) {
-        self.owner = owner
-        self.repository = repository
-    }
-
-    public let owner: String
-    public let repository: String
-
-    fileprivate var path: String {
-        "\(owner)/\(repository)"
-    }
-}
-
 public struct TangledWebhookWatch: Equatable, Sendable {
     public init(
-        id: WebhookInboxDelivery.WatchID,
+        repository: TangledRepositoryReference,
         hookID: Int64,
         repositoryOwnerDID: DID,
-        repositoryKey: ATProto.Record.Key,
         ref: String,
-        canonicalSource: CanonicalTangledSource,
-        artifactRepository: SourceArtifactRepository
+        canonicalSource: CanonicalTangledSource
     ) {
-        self.id = id
+        self.repository = repository
         self.hookID = hookID
         self.repositoryOwnerDID = repositoryOwnerDID
-        self.repositoryKey = repositoryKey
         self.ref = ref
         self.canonicalSource = canonicalSource
-        self.artifactRepository = artifactRepository
     }
 
-    public let id: WebhookInboxDelivery.WatchID
+    /// The physical Tangled repository that signs webhooks, supplies source bytes, and names the
+    /// public artifact path. The canonical source below remains the event's stable OME identity.
+    public let repository: TangledRepositoryReference
     public let hookID: Int64
     public let repositoryOwnerDID: DID
-    public let repositoryKey: ATProto.Record.Key
     public let ref: String
     public let canonicalSource: CanonicalTangledSource
-    public let artifactRepository: SourceArtifactRepository
+
+    public var id: WebhookInboxDelivery.WatchID {
+        .init(rawValue: "\(repository.displayName)#\(ref)")
+    }
+
+    public var repositoryKey: ATProto.Record.Key {
+        .init(rawValue: repository.repository)
+    }
 
     var repositoryFullName: String {
-        "\(repositoryOwnerDID.description)/\(repositoryKey.rawValue)"
+        "\(repositoryOwnerDID.description)/\(repository.repository)"
     }
 }
 
@@ -92,7 +79,6 @@ public struct TangledWebhookConfiguration: Sendable {
         var watchIDs: Set<WebhookInboxDelivery.WatchID> = []
         var repositoryReferences: Set<String> = []
         var canonicalSourceReferences: Set<String> = []
-        var artifactRepositoryPaths: Set<String> = []
         for watch in watches {
             guard watchesByHookID.updateValue(watch, forKey: watch.hookID) == nil else {
                 throw TangledWebhookConfigurationError.duplicateHookID(watch.hookID)
@@ -111,16 +97,11 @@ public struct TangledWebhookConfiguration: Sendable {
                     watch.canonicalSource.reference
                 )
             }
-            guard watch.artifactRepository.owner.isSourceArtifactPathComponent,
-                  watch.artifactRepository.repository.isSourceArtifactPathComponent
+            guard watch.repository.owner.isSourceArtifactPathComponent,
+                  watch.repository.repository.isSourceArtifactPathComponent
             else {
-                throw TangledWebhookConfigurationError.invalidArtifactRepository(
-                    watch.artifactRepository.path
-                )
-            }
-            guard artifactRepositoryPaths.insert(watch.artifactRepository.path).inserted else {
-                throw TangledWebhookConfigurationError.duplicateArtifactRepository(
-                    watch.artifactRepository.path
+                throw TangledWebhookConfigurationError.invalidRepositoryPath(
+                    watch.repository.displayName
                 )
             }
         }
@@ -228,13 +209,12 @@ struct TangledWebhookServer: Sendable {
                 watchID: watch.id,
                 deliveryID: deliveryID,
                 repositoryOwnerDID: watch.repositoryOwnerDID,
-                repositoryKey: watch.repositoryKey,
                 ref: payload.ref,
                 before: payload.before,
                 after: payload.after,
                 receivedAt: receivedAt,
                 canonicalSource: watch.canonicalSource,
-                artifactRepository: watch.artifactRepository
+                repository: watch.repository
             )
         )
     }
@@ -246,12 +226,11 @@ struct TangledWebhookReception: Equatable, Sendable {
 }
 
 public enum TangledWebhookConfigurationError: Error, Equatable, Sendable {
-    case duplicateArtifactRepository(String)
     case duplicateCanonicalSource(String)
     case duplicateHookID(Int64)
     case duplicateRepositoryReference(String)
     case duplicateWatchID(WebhookInboxDelivery.WatchID)
-    case invalidArtifactRepository(String)
+    case invalidRepositoryPath(String)
 }
 
 private extension String {

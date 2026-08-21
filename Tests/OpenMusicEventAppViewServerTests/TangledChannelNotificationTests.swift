@@ -784,7 +784,6 @@ private extension TangledChannelNotificationTests {
             watchID: .init(rawValue: watchID),
             deliveryID: .init(rawValue: deliveryID),
             repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
-            repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
             before: before,
             after: after,
@@ -793,28 +792,31 @@ private extension TangledChannelNotificationTests {
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
             ),
-            artifactRepository: Self.artifactRepository
+            repository: TangledRepositoryReference(
+                host: "tangled.org",
+                owner: "staging-owner",
+                repository: repositoryKey
+            )
         )
     }
 
     static func watch() throws -> TangledWebhookWatch {
         TangledWebhookWatch(
-            id: .init(rawValue: watchID),
+            repository: repository,
             hookID: 42,
             repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
-            repositoryKey: .init(rawValue: repositoryKey),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
                 repositoryRecordKey: .init(rawValue: canonicalRepositoryRecordKey)
-            ),
-            artifactRepository: Self.artifactRepository
+            )
         )
     }
 
-    static let artifactRepository = SourceArtifactRepository(
-        owner: "wickedwoods.ca",
-        repository: "ome-workspace"
+    static let repository = TangledRepositoryReference(
+        host: "tangled.org",
+        owner: "staging-owner",
+        repository: "festival-staging"
     )
 
     static let successfulArtifactPublisher = SourceArtifactPublisher { request in
@@ -825,8 +827,8 @@ private extension TangledChannelNotificationTests {
         for request: SourceArtifactPublicationRequest
     ) -> PublishedSourceArtifact {
         PublishedSourceArtifact(
-            reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
-            objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
+            reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
+            objectKey: "staging-owner/festival-staging/archive/\(request.revision).tar.gz",
             revision: request.revision,
             checksumSHA256: "fixture-sha256",
             byteCount: request.archiveData.count,
