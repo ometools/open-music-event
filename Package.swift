@@ -134,9 +134,21 @@ let composableNotificationsDependency: Package.Dependency = {
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
-let skipRootPath = environment["SKIPLOCAL"].map {
-    URL(fileURLWithPath: $0).deletingLastPathComponent()
-}
+let workspaceSkipRootPath = [
+    "../../swift-packages/3rd-party/skip",
+    "../../../swift-packages/3rd-party/skip",
+]
+    .map(packagePath)
+    .first { FileManager.default.fileExists(atPath: $0) }
+let skipRootPath: URL? = {
+    if let skipLocal = environment["SKIPLOCAL"] {
+        return URL(fileURLWithPath: skipLocal).deletingLastPathComponent()
+    }
+    guard isAndroidAppBuild, let workspaceSkipRootPath else {
+        return nil
+    }
+    return URL(fileURLWithPath: workspaceSkipRootPath)
+}()
 let skipDependency: Package.Dependency
 let skipFuseUIDependency: Package.Dependency
 let skipKitDependency: Package.Dependency

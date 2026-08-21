@@ -288,10 +288,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$SKIP_SHARING_SWIFT_SHARING" ]]; then
-  SKIP_SHARING_SWIFT_SHARING="$(dirname "$SKIPLOCAL")/swift-sharing"
-fi
-
 case "$LANE" in
   apk|module|both) ;;
   *) fail "--lane must be apk, module, or both" ;;
@@ -307,8 +303,28 @@ if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
 fi
 
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
-if [[ "$APP_ROOT" != "$ROOT" && "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
-  SMOKE_ROOT="/private/tmp/ome-android-smoke-$(basename "$APP_ROOT")"
+if [[ "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
+  APP_ROOT_FINGERPRINT="$(printf '%s' "$APP_ROOT" | shasum -a 256 | cut -c 1-12)"
+  SMOKE_ROOT="/private/tmp/ome-android-smoke-$(basename "$APP_ROOT")-$APP_ROOT_FINGERPRINT"
+fi
+if [[ -z "$SKIP_SHARING_SWIFT_SHARING" ]]; then
+  OME_WORKSPACE_CONTAINER="$(dirname "$ROOT")"
+  if [[ "$(basename "$OME_WORKSPACE_CONTAINER")" == "worktrees" ]]; then
+    OME_WORKSPACE_ROOT="$(dirname "$OME_WORKSPACE_CONTAINER")"
+  else
+    OME_WORKSPACE_ROOT="$OME_WORKSPACE_CONTAINER"
+  fi
+  for sharing_candidate in \
+    "$(dirname "$SKIPLOCAL")/swift-sharing" \
+    "$OME_WORKSPACE_ROOT/worktrees/swift-sharing" \
+    "$OME_WORKSPACE_ROOT/swift-sharing"
+  do
+    if [[ -d "$sharing_candidate" ]]; then
+      SKIP_SHARING_SWIFT_SHARING="$sharing_candidate"
+      break
+    fi
+  done
+  SKIP_SHARING_SWIFT_SHARING="${SKIP_SHARING_SWIFT_SHARING:-$OME_WORKSPACE_ROOT/worktrees/swift-sharing}"
 fi
 if [[ "$APP_ROOT" != "$ROOT" && -z "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
   OME_OPEN_MUSIC_EVENT_PATH="$ROOT"
@@ -730,20 +746,31 @@ PROVENANCE
 configure_nested_skip_command() {
   local skip_runner_command="$SKIP_COMMAND_OVERRIDE"
   local skip_command_wrapper="$SMOKE_ROOT/bin/SkipRunner-observation-aware"
+  local quoted_android_app_build
   local quoted_skiplocal
   local quoted_skip_runner
+  local quoted_skip_sharing
   local quoted_wrapper
   local quoted_architectures
+  local quoted_ome_path
 
+  printf -v quoted_android_app_build '%q' "$OME_ANDROID_APP_BUILD"
   printf -v quoted_skiplocal '%q' "$SKIPLOCAL"
   printf -v quoted_skip_runner '%q' "$skip_runner_command"
+  printf -v quoted_skip_sharing '%q' "$SKIP_SHARING_SWIFT_SHARING"
   printf -v quoted_wrapper '%q' "$skip_command_wrapper"
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
     {
       printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+      printf 'export OME_ANDROID_APP_BUILD=%s\n' "$quoted_android_app_build"
       printf 'export SKIPLOCAL=%s\n' "$quoted_skiplocal"
       printf 'export SKIP_COMMAND_OVERRIDE=%s\n' "$quoted_wrapper"
+      printf 'export SKIP_SHARING_SWIFT_SHARING=%s\n' "$quoted_skip_sharing"
+      if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
+        printf -v quoted_ome_path '%q' "$OME_OPEN_MUSIC_EVENT_PATH"
+        printf 'export OME_OPEN_MUSIC_EVENT_PATH=%s\n' "$quoted_ome_path"
+      fi
       if [[ -n "$ARCHITECTURES" ]]; then
         printf -v quoted_architectures '%q' "$ARCHITECTURES"
         printf 'export SKIP_EXPORT_ARCHS=%s\n' "$quoted_architectures"
@@ -858,18 +885,33 @@ native_package_projection_is_fresh() {
   cmp -s "$source_package" <(head -c "$source_size" "$generated_package")
 }
 
+native_android_dependency_projection_is_complete() {
+  local generated_package="$1"
+  local generated_package_root="${generated_package%/Package.swift}"
+
+  # The Android graph replaces GRDB.swift with grdb-sqlcipher. A fresh source
+  # projection can still be unusable when it was generated before SwiftPM
+  # resolved that Android-only checkout, leaving the nested native build to
+  # resolve both packages and fail with duplicate GRDB targets.
+  [[ -f "$generated_package_root/Packages/grdb-sqlcipher/Package.swift" ]]
+}
+
 invalidate_stale_native_package_projections() {
   local generated_package
   local projection_path="*/$MODULE_TARGET/destination/skipstone/$MODULE_TARGET/src/main/swift/Package.swift"
 
   while IFS= read -r -d '' generated_package; do
-    native_package_projection_is_fresh "$generated_package" && continue
-
-    if [[ "$SKIP_ANDROID_PREBUILD" == "0" ]]; then
-      fail "stale Android native Package.swift projection: $generated_package; rerun without --no-prebuild"
+    if native_package_projection_is_fresh "$generated_package" \
+      && native_android_dependency_projection_is_complete "$generated_package"
+    then
+      continue
     fi
 
-    echo "Invalidating stale Android native Package.swift projection: $generated_package"
+    if [[ "$SKIP_ANDROID_PREBUILD" == "0" ]]; then
+      fail "stale or incomplete Android native Package.swift projection: $generated_package; rerun without --no-prebuild"
+    fi
+
+    echo "Invalidating stale or incomplete Android native Package.swift projection: $generated_package"
     run rm -f "$generated_package"
   done < <(
     find "$APP_ROOT/.build/plugins/outputs" \
@@ -888,6 +930,8 @@ verify_native_package_projections() {
     projection_count=$((projection_count + 1))
     native_package_projection_is_fresh "$generated_package" \
       || fail "Android native Package.swift projection is stale after build: $generated_package"
+    native_android_dependency_projection_is_complete "$generated_package" \
+      || fail "Android native Package.swift projection is missing grdb-sqlcipher after build: $generated_package"
   done < <(
     find "$APP_ROOT/.build/plugins/outputs" \
       -type f \
@@ -986,10 +1030,10 @@ invalidate_stale_swiftui_modules() {
   local metadata
   local module
   local should_invalidate
-  local config_changed=1
+  local config_changed=0
 
-  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]] && cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
-    config_changed=0
+  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]] && ! cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
+    config_changed=1
   fi
 
   while IFS= read -r -d '' module; do
@@ -1133,6 +1177,7 @@ build_apk() {
   fi
   run "$SKIP_COMMAND_OVERRIDE" gradle \
     -p "$APP_ROOT/Android" \
+    --no-daemon \
     --init-script "$ANDROID_NAMESPACE_INIT_SCRIPT" \
     "$gradle_task"
   if [[ "$DRY_RUN" -eq 0 ]]; then

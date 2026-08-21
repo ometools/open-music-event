@@ -283,8 +283,7 @@ struct OpenMusicEventApplicationRuntime {
     @State var serviceEnvironmentSwitchErrorMessage = ""
     @State var store: StoreOf<OpenMusicEventApp>
 
-    @MainActor
-    /* SKIP @bridge */public init() {
+    /* SKIP @bridge */@MainActor public init() {
         self.init(appDelegate: OpenMusicEventAppDelegate.shared)
     }
 
@@ -354,20 +353,10 @@ struct OpenMusicEventApplicationRuntime {
             }
             .id(activeServiceEnvironment)
             .alert(
-                String(
-                    localized: "Unable to Switch Environment",
-                    bundle: .module,
-                    comment: "title for an alert shown when changing the OME service environment fails"
-                ),
+                "Unable to Switch Environment",
                 isPresented: $isServiceEnvironmentSwitchErrorPresented
             ) {
-                Button(
-                    String(
-                        localized: "OK",
-                        bundle: .module,
-                        comment: "dismiss button for an environment switch failure alert"
-                    )
-                ) {}
+                Button("OK") {}
             } message: {
                 Text(serviceEnvironmentSwitchErrorMessage)
             }
@@ -527,11 +516,8 @@ struct OpenMusicEventApplicationRuntime {
 /// Global application delegate functions.
 ///
 /// These functions can update a shared observable object to communicate app state changes to interested views.
-@MainActor
-/* SKIP @bridge */public final class OpenMusicEventAppDelegate : Sendable {
-    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate.persisted(
-        variant: .generic
-    )
+/* SKIP @bridge */@MainActor public final class OpenMusicEventAppDelegate : Sendable {
+    /* SKIP @bridge */public static let shared = OpenMusicEventAppDelegate()
 
     var latestNotificationDestination: Push.Destination?
     var runtime: OpenMusicEventApplicationRuntime
