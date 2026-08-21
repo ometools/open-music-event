@@ -80,4 +80,23 @@ final class MoreNavigationComposeTests: XCTestCase {
         composeRule.onNodeWithText("Contact").assertIsDisplayed()
         #endif
     }
+
+    func testContactSectionsUseDisjointRowIdentities() throws {
+        #if !SKIP
+        throw XCTSkip("Compose UI testing is Android-only")
+        #else
+        guard mainActorRelaxed else {
+            throw XCTSkip("host Swift runtime cannot relax bridged main-actor checks")
+        }
+
+        composeRule.setContent {
+            ContactInfoViewerFixture().Compose()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Reporting").assertIsDisplayed()
+        composeRule.onNodeWithText("Report Incident").assertIsDisplayed()
+        composeRule.onNodeWithText("Contact Numbers").assertIsDisplayed()
+        composeRule.onNodeWithText("On Site Emergency Services").assertIsDisplayed()
+        #endif
+    }
 }

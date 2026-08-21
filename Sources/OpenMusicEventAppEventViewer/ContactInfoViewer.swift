@@ -66,12 +66,15 @@ public struct ContactInfoViewerView: View {
     }
 
     public var body: some View {
+        let reportingLinkCount = store.event?.reportingLinks?.count ?? 0
+
         Group {
             if store.hasContent {
                 List {
                     if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
                         Section("Reporting") {
-                            ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
+                            ForEach(reportingLinks.indices, id: \.self) { index in
+                                let reportingLink = reportingLinks[index]
                                 IncidentReportingLinkRow(reportingLink: reportingLink)
                                 .buttonStyle(.plain)
                                 .portableAccessibilityHint(
@@ -84,7 +87,11 @@ public struct ContactInfoViewerView: View {
                     if let contactNumbers = store.event?.contactNumbers?.displayContactNumbers,
                        !contactNumbers.isEmpty {
                         Section("Contact Numbers") {
-                            ForEach(Array(contactNumbers.enumerated()), id: \.offset) { _, contactNumber in
+                            ForEach(
+                                reportingLinkCount..<(reportingLinkCount + contactNumbers.count),
+                                id: \.self
+                            ) { rowID in
+                                let contactNumber = contactNumbers[rowID - reportingLinkCount]
                                 if let url = contactNumber.phoneURL {
                                     Link(destination: url) {
                                         ContactNumberRow(contactNumber: contactNumber)

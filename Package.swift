@@ -951,8 +951,14 @@ applicationTargets.append(contentsOf: [
     .target(
         name: "SwiftUITabFeaturesFuseFixtures",
         dependencies: [
+            "OpenMusicEventApp",
+            "OpenMusicEventAppEventViewer",
+            "OpenMusicEventLexicon",
             "SwiftUITabFeatures",
+            .product(name: "ComposableArchitecture2", package: "TCA26"),
+            .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+            .product(name: "SQLiteData", package: "sqlite-data"),
         ],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
