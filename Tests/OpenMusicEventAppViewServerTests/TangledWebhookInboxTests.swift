@@ -930,7 +930,7 @@ struct TangledWebhookInboxTests {
     }
 
     @Test
-    func `a failed provider request is delivered from the same outbox after restart`() async throws {
+    func `a throttled provider request honors Retry-After and is delivered from the same outbox after restart`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -972,7 +972,12 @@ struct TangledWebhookInboxTests {
             $0.errorInterceptors = []
             $0.dataForURL = { request, body in
                 await firstRequests.record(request, body: body)
-                throw ProviderTransportFailure.unavailable
+                var response = HTTPResponse(status: .tooManyRequests)
+                response.headerFields[.retryAfter] = "1"
+                return (
+                    Data(#"{"error":{"status":"RESOURCE_EXHAUSTED"}}"#.utf8),
+                    response
+                )
             }
         } operation: {
             let provider = NotificationProviderClient.http(
@@ -1055,8 +1060,29 @@ struct TangledWebhookInboxTests {
             }
         }
 
-        let retryRequests = ProviderHTTPRequestRecorder()
         let retryAt = Self.receivedAt.addingTimeInterval(1)
+        let pendingLedger = try store.database.read { database in
+            try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT
+                      failedAttempts,
+                      nextAttemptAt,
+                      discardedAt,
+                      providerStatus,
+                      providerCode
+                    FROM pushOutbox
+                    """
+            )
+        }
+        let pendingRow = try #require(pendingLedger)
+        expectNoDifference(pendingRow["failedAttempts"] as Int, 1)
+        expectNoDifference(pendingRow["nextAttemptAt"] as Date, retryAt)
+        #expect((pendingRow["discardedAt"] as Date?) == nil)
+        expectNoDifference(pendingRow["providerStatus"] as Int?, 429)
+        expectNoDifference(pendingRow["providerCode"] as String?, "RESOURCE_EXHAUSTED")
+
+        let retryRequests = ProviderHTTPRequestRecorder()
         let reopenedStore = try OpenMusicEventAppViewStore(
             databaseURL: databaseURL,
             webhookSecretProtection: Self.webhookSecretProtection()
@@ -1114,7 +1140,15 @@ struct TangledWebhookInboxTests {
         let ledger = try reopenedStore.database.read { database in
             try Row.fetchOne(
                 database,
-                sql: "SELECT failedAttempts, deliveredAt FROM pushOutbox"
+                sql: """
+                    SELECT
+                      failedAttempts,
+                      deliveredAt,
+                      discardedAt,
+                      providerStatus,
+                      providerCode
+                    FROM pushOutbox
+                    """
             )
         }
         let ledgerRow = try #require(ledger)
@@ -1122,6 +1156,340 @@ struct TangledWebhookInboxTests {
         let deliveredAt: Date = ledgerRow["deliveredAt"]
         expectNoDifference(failedAttempts, 1)
         expectNoDifference(deliveredAt, retryAt)
+        #expect((ledgerRow["discardedAt"] as Date?) == nil)
+        expectNoDifference(ledgerRow["providerStatus"] as Int?, 200)
+        expectNoDifference(ledgerRow["providerCode"] as String?, nil as String?)
+    }
+
+    @Test
+    func `invalid and permanent provider failures terminate while a healthy destination delivers`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let destinationProtection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x3B, count: 32)
+        )
+        let store = try OpenMusicEventAppViewStore(
+            databaseURL: directory.appending(path: "appview.sqlite")
+        )
+        let applicationID = Push.ApplicationID(rawValue: "fm.woody.openmusicevent")
+        let source = NotificationSource(
+            id: Self.sourceID,
+            version: .init(rawValue: "provider-outcomes")
+        )
+        let notifications = withDependencies {
+            $0.defaultDatabase = store.database
+            $0.notificationDestinationProtectionClient = destinationProtection.client(
+                legacyAPNSEnvironments: [:]
+            )
+        } operation: {
+            NotificationDatabase()
+        }
+
+        // Three active installations subscribe to the same source before delivery begins.
+        for fixture in [
+            ("invalid-installation", "invalid-fcm-token"),
+            ("permanent-installation", "permanent-fcm-token"),
+            ("healthy-installation", "healthy-fcm-token"),
+        ] {
+            let installationID = NotificationInstallation.ID(rawValue: fixture.0)
+            try await notifications.insertInstallation(
+                NotificationInstallation(id: installationID),
+                credentialFingerprint: .init(rawValue: "\(fixture.0)-credential")
+            )
+            try await notifications.replaceDestination(
+                .fcm(
+                    Push.FCM(
+                        applicationID: applicationID,
+                        installationID: .init(rawValue: fixture.1)
+                    )
+                ),
+                for: installationID
+            )
+            try await notifications.replaceSubscriptions(
+                [NotificationSubscription(sourceID: source.id)],
+                for: installationID
+            )
+        }
+        let enqueuedCount = try await notifications.enqueue(
+            source: source,
+            at: Self.receivedAt
+        )
+        expectNoDifference(enqueuedCount, 3)
+
+        let requests = ProviderHTTPRequestRecorder()
+        try await withDependencies {
+            $0.continuousClock = ContinuousClock()
+            $0.date.now = Self.receivedAt
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
+                await requests.record(request, body: body)
+                let json = String(decoding: body ?? Data(), as: UTF8.self)
+                if json.contains("invalid-fcm-token") {
+                    return (
+                        Data(
+                            #"{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":"UNREGISTERED"}]}}"#.utf8
+                        ),
+                        HTTPResponse(status: .notFound)
+                    )
+                }
+                if json.contains("permanent-fcm-token") {
+                    return (
+                        Data(#"{"error":{"status":"INVALID_ARGUMENT"}}"#.utf8),
+                        HTTPResponse(status: .badRequest)
+                    )
+                }
+                return (Data(), HTTPResponse(status: .ok))
+            }
+        } operation: {
+            let provider = NotificationProviderClient.http(
+                configuration: NotificationProviderHTTPConfiguration(
+                    fcm: [applicationID: .init(projectID: "open-music-event")]
+                ),
+                authorization: NotificationProviderAuthorization(
+                    apnsBearerToken: { applicationID in
+                        throw NotificationProviderHTTPError.missingAPNSConfiguration(
+                            applicationID
+                        )
+                    },
+                    fcmAccessToken: { _ in "fixture-fcm-oauth" }
+                )
+            )
+            let app = try OpenMusicEventAppViewServer.application(
+                configuration: AppViewConfiguration(
+                    port: 0,
+                    notificationDestinationProtection: destinationProtection
+                ),
+                store: store,
+                notificationProvider: provider
+            )
+
+            try await app.test(.live) { _ in
+                try await requests.waitForRequestCount(3)
+                try await Self.waitForDeliveredOutboxCount(1, in: store.database)
+                try await Self.waitForDiscardedOutboxCount(2, in: store.database)
+            }
+        }
+
+        // The bad token is removed, but every installation and subscription remains durable.
+        let persisted = try store.database.read { database in
+            (
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushInstallations"),
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushRegistrations"),
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushSubscriptions"),
+                try Row.fetchAll(
+                    database,
+                    sql: """
+                        SELECT
+                          installationID,
+                          failedAttempts,
+                          deliveredAt,
+                          discardedAt,
+                          discardReason,
+                          providerStatus,
+                          providerCode
+                        FROM pushOutbox
+                        """
+                )
+            )
+        }
+        expectNoDifference(persisted.0, 3)
+        expectNoDifference(persisted.1, 2)
+        expectNoDifference(persisted.2, 3)
+
+        let rows = Dictionary(
+            uniqueKeysWithValues: persisted.3.map { row in
+                (row["installationID"] as String, row)
+            }
+        )
+        let invalid = try #require(rows["invalid-installation"])
+        #expect((invalid["deliveredAt"] as Date?) == nil)
+        expectNoDifference(invalid["discardedAt"] as Date?, Self.receivedAt)
+        expectNoDifference(
+            invalid["discardReason"] as String?,
+            NotificationDeliveryDiscardReason.invalidDestination.rawValue
+        )
+        expectNoDifference(invalid["providerStatus"] as Int?, 404)
+        expectNoDifference(invalid["providerCode"] as String?, "UNREGISTERED")
+
+        let permanent = try #require(rows["permanent-installation"])
+        expectNoDifference(permanent["failedAttempts"] as Int, 1)
+        #expect((permanent["deliveredAt"] as Date?) == nil)
+        expectNoDifference(permanent["discardedAt"] as Date?, Self.receivedAt)
+        expectNoDifference(
+            permanent["discardReason"] as String?,
+            NotificationDeliveryDiscardReason.permanentFailure.rawValue
+        )
+        expectNoDifference(permanent["providerStatus"] as Int?, 400)
+        expectNoDifference(permanent["providerCode"] as String?, "INVALID_ARGUMENT")
+
+        let healthy = try #require(rows["healthy-installation"])
+        expectNoDifference(healthy["failedAttempts"] as Int, 0)
+        expectNoDifference(healthy["deliveredAt"] as Date?, Self.receivedAt)
+        #expect((healthy["discardedAt"] as Date?) == nil)
+        expectNoDifference(healthy["providerStatus"] as Int?, 200)
+        expectNoDifference(healthy["providerCode"] as String?, nil as String?)
+    }
+
+    @Test
+    func `retry exhaustion terminates after eight attempts or twenty-four hours`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let destinationProtection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x3B, count: 32)
+        )
+        let store = try OpenMusicEventAppViewStore(
+            databaseURL: directory.appending(path: "appview.sqlite")
+        )
+        let applicationID = Push.ApplicationID(rawValue: "fm.woody.openmusicevent")
+        let notifications = withDependencies {
+            $0.defaultDatabase = store.database
+            $0.notificationDestinationProtectionClient = destinationProtection.client(
+                legacyAPNSEnvironments: [:]
+            )
+        } operation: {
+            NotificationDatabase()
+        }
+        let eightAttempts = NotificationSource(
+            id: .init(rawValue: "eight-attempts"),
+            version: .init(rawValue: "eight-attempts")
+        )
+        let twentyFourHours = NotificationSource(
+            id: .init(rawValue: "twenty-four-hours"),
+            version: .init(rawValue: "twenty-four-hours")
+        )
+
+        for fixture in [
+            ("eight-attempts", eightAttempts),
+            ("twenty-four-hours", twentyFourHours),
+        ] {
+            let installationID = NotificationInstallation.ID(rawValue: fixture.0)
+            try await notifications.insertInstallation(
+                NotificationInstallation(id: installationID),
+                credentialFingerprint: .init(rawValue: "\(fixture.0)-credential")
+            )
+            try await notifications.replaceDestination(
+                .fcm(
+                    Push.FCM(
+                        applicationID: applicationID,
+                        installationID: .init(rawValue: "\(fixture.0)-fcm-token")
+                    )
+                ),
+                for: installationID
+            )
+            try await notifications.replaceSubscriptions(
+                [NotificationSubscription(sourceID: fixture.1.id)],
+                for: installationID
+            )
+        }
+
+        _ = try await notifications.enqueue(source: eightAttempts, at: Self.receivedAt)
+        _ = try await notifications.enqueue(
+            source: twentyFourHours,
+            at: Self.receivedAt.addingTimeInterval(-(24 * 60 * 60) + 5)
+        )
+        try await store.database.write { database in
+            try database.execute(
+                sql: "UPDATE pushOutbox SET failedAttempts = 7 WHERE sourceID = ?",
+                arguments: [eightAttempts.id.rawValue]
+            )
+        }
+
+        let requests = ProviderHTTPRequestRecorder()
+        try await withDependencies {
+            $0.continuousClock = ContinuousClock()
+            $0.date.now = Self.receivedAt
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
+                await requests.record(request, body: body)
+                return (
+                    Data(#"{"error":{"status":"UNAVAILABLE"}}"#.utf8),
+                    HTTPResponse(status: .serviceUnavailable)
+                )
+            }
+        } operation: {
+            let provider = NotificationProviderClient.http(
+                configuration: NotificationProviderHTTPConfiguration(
+                    fcm: [applicationID: .init(projectID: "open-music-event")]
+                ),
+                authorization: NotificationProviderAuthorization(
+                    apnsBearerToken: { applicationID in
+                        throw NotificationProviderHTTPError.missingAPNSConfiguration(
+                            applicationID
+                        )
+                    },
+                    fcmAccessToken: { _ in "fixture-fcm-oauth" }
+                )
+            )
+            let app = try OpenMusicEventAppViewServer.application(
+                configuration: AppViewConfiguration(
+                    port: 0,
+                    notificationDestinationProtection: destinationProtection
+                ),
+                store: store,
+                notificationProvider: provider
+            )
+
+            try await app.test(.live) { _ in
+                try await requests.waitForRequestCount(2)
+                try await Self.waitForDiscardedOutboxCount(2, in: store.database)
+            }
+        }
+
+        let persisted = try store.database.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT
+                      sourceID,
+                      failedAttempts,
+                      deliveredAt,
+                      discardedAt,
+                      discardReason,
+                      providerStatus,
+                      providerCode
+                    FROM pushOutbox
+                    """
+            )
+        }
+        let rows = Dictionary(
+            uniqueKeysWithValues: persisted.map { row in
+                (row["sourceID"] as String, row)
+            }
+        )
+
+        let attempts = try #require(rows[eightAttempts.id.rawValue])
+        expectNoDifference(attempts["failedAttempts"] as Int, 8)
+        #expect((attempts["deliveredAt"] as Date?) == nil)
+        expectNoDifference(attempts["discardedAt"] as Date?, Self.receivedAt)
+        expectNoDifference(
+            attempts["discardReason"] as String?,
+            NotificationDeliveryDiscardReason.exhaustedAttempts.rawValue
+        )
+        expectNoDifference(attempts["providerStatus"] as Int?, 503)
+        expectNoDifference(attempts["providerCode"] as String?, "UNAVAILABLE")
+
+        let age = try #require(rows[twentyFourHours.id.rawValue])
+        expectNoDifference(age["failedAttempts"] as Int, 1)
+        #expect((age["deliveredAt"] as Date?) == nil)
+        expectNoDifference(age["discardedAt"] as Date?, Self.receivedAt)
+        expectNoDifference(
+            age["discardReason"] as String?,
+            NotificationDeliveryDiscardReason.exhaustedAge.rawValue
+        )
+        expectNoDifference(age["providerStatus"] as Int?, 503)
+        expectNoDifference(age["providerCode"] as String?, "UNAVAILABLE")
     }
 
     @Test
@@ -1545,6 +1913,35 @@ private extension TangledWebhookInboxTests {
             actualCount: actualCount
         )
     }
+
+    static func waitForDiscardedOutboxCount(
+        _ expectedCount: Int,
+        in database: any DatabaseWriter
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            let count = try await database.read { database in
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM pushOutbox WHERE discardedAt IS NOT NULL"
+                ) ?? 0
+            }
+            if count == expectedCount { return }
+            try await clock.sleep(for: .milliseconds(10))
+        }
+        let actualCount = try await database.read { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM pushOutbox WHERE discardedAt IS NOT NULL"
+            ) ?? 0
+        }
+        throw ProviderHarnessTimeout(
+            condition: "discarded outbox rows",
+            expectedCount: expectedCount,
+            actualCount: actualCount
+        )
+    }
 }
 
 private struct PersistedInbox: Equatable, Sendable {
@@ -1582,10 +1979,6 @@ private struct DecodedFCMServiceAccountAssertion: Equatable {
 
 private enum DecodedProviderTokenError: Error {
     case missingSegment(Int)
-}
-
-private enum ProviderTransportFailure: Error {
-    case unavailable
 }
 
 private actor FailOnceSourceUpdateProcessor {

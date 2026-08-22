@@ -377,11 +377,16 @@ struct NotificationPersistenceTests {
             expectNoDifference(signal, .sourceAvailable(source))
             expectNoDifference(delivery.destination, destination)
             expectNoDifference(delivery.failedAttempts, 0)
-            try await notifications.markDeliveryFailed(
-                id: delivery.id,
+            let shouldRetry = try await notifications.recordProviderResult(
+                .retryableFailure(
+                    NotificationProviderResponse(status: 503, code: "UNAVAILABLE"),
+                    retryAfter: 1
+                ),
+                for: delivery,
                 attemptedAt: receivedAt,
-                retryAt: retryAt
+                retryPolicy: .exponential
             )
+            #expect(shouldRetry)
             let deliveryBeforeRetry = try await notifications.nextDelivery(at: receivedAt)
             #expect(deliveryBeforeRetry == nil)
         }
@@ -400,10 +405,13 @@ struct NotificationPersistenceTests {
         expectNoDifference(retriedSignal, .sourceAvailable(source))
         expectNoDifference(retriedDelivery.destination, destination)
         expectNoDifference(retriedDelivery.failedAttempts, 1)
-        try await reopenedNotifications.markDeliverySucceeded(
-            id: retriedDelivery.id,
-            at: retryAt
+        let shouldRetry = try await reopenedNotifications.recordProviderResult(
+            .accepted(NotificationProviderResponse(status: 200)),
+            for: retriedDelivery,
+            attemptedAt: retryAt,
+            retryPolicy: .exponential
         )
+        #expect(!shouldRetry)
         let deliveryAfterSuccess = try await reopenedNotifications.nextDelivery(at: retryAt)
         #expect(deliveryAfterSuccess == nil)
 
@@ -427,57 +435,104 @@ struct NotificationPersistenceTests {
     }
 
     @Test
-    func `outbox migration preserves an existing notification installation`() async throws {
+    func `terminal delivery migration removes ambiguous APNS registration without losing installation or subscriptions`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let databaseURL = directory.appending(path: "appview.sqlite")
-        let protection = try NotificationDestinationProtection(
-            keyData: Data(repeating: 0x2A, count: 32)
-        )
-        let installation = NotificationInstallation(
-            id: .init(rawValue: "pre-outbox-installation")
-        )
-        let credentialFingerprint = NotificationInstallation.CredentialFingerprint(
-            rawValue: "pre-outbox-credential-fingerprint"
-        )
-        do {
-            let store = try OpenMusicEventAppViewStore(
-                databaseURL: databaseURL
-            )
-            let notifications = notificationDatabase(store: store, protection: protection)
-            try await notifications.insertInstallation(
-                installation,
-                credentialFingerprint: credentialFingerprint
-            )
-        }
-
         let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
+        var legacyMigrator = DatabaseMigrator()
+        NotificationDatabase.registerMigrations(into: &legacyMigrator)
+        try legacyMigrator.migrate(
+            rawDatabase,
+            upTo: "Create push notification outbox"
+        )
+
+        // A shipped AppView database has an installation and subscription, but its legacy APNs
+        // registration predates the required environment column.
         try await rawDatabase.write { database in
-            try database.execute(sql: "DROP TABLE pushOutbox")
             try database.execute(
-                sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
-                arguments: ["Create push notification outbox"]
+                sql: "INSERT INTO pushInstallations (id, credentialFingerprint) VALUES (?, ?)",
+                arguments: ["installation-1", "credential-fingerprint"]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO pushRegistrations (
+                      installationID,
+                      applicationID,
+                      provider,
+                      destination,
+                      destinationFingerprint,
+                      destinationKeyVersion
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    "installation-1",
+                    "com.Festivl.WickedWoods",
+                    "apns",
+                    Data("legacy-token-ciphertext".utf8),
+                    "legacy-fingerprint",
+                    1,
+                ]
+            )
+            try database.execute(
+                sql: "INSERT INTO pushSubscriptions (installationID, sourceID) VALUES (?, ?)",
+                arguments: ["installation-1", "wicked-woods-2025-general"]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO pushOutbox (
+                      installationID,
+                      sourceID,
+                      sourceVersion,
+                      reason,
+                      message,
+                      createdAt,
+                      failedAttempts,
+                      nextAttemptAt
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    "installation-1",
+                    "wicked-woods-2025-general",
+                    "legacy-version",
+                    "source_available",
+                    Data(
+                        #"{"kind":"source_available","source":"wicked-woods-2025-general","version":"legacy-version"}"#.utf8
+                    ),
+                    Date(timeIntervalSince1970: 1_786_291_200),
+                    0,
+                    Date(timeIntervalSince1970: 1_786_291_200),
+                ]
             )
         }
 
-        let migratedStore = try OpenMusicEventAppViewStore(
-            databaseURL: databaseURL
-        )
-        let migratedNotifications = notificationDatabase(
-            store: migratedStore,
-            protection: protection
-        )
-        let migratedInstallationID = try await migratedNotifications.installationID(
-            for: credentialFingerprint
-        )
-        expectNoDifference(migratedInstallationID, installation.id)
-        let outboxExists = try await rawDatabase.read { database in
-            try database.tableExists("pushOutbox")
+        // Opening the real AppView store applies the shared notification migration in place.
+        _ = try OpenMusicEventAppViewStore(database: rawDatabase)
+
+        let migrated = try await rawDatabase.read { database in
+            let outbox = try Row.fetchOne(
+                database,
+                sql: "SELECT discardedAt, discardReason FROM pushOutbox"
+            )
+            return (
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushInstallations"),
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushRegistrations"),
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushSubscriptions"),
+                outbox?["discardedAt"] as String?,
+                outbox?["discardReason"] as String?
+            )
         }
-        expectNoDifference(outboxExists, true)
+        expectNoDifference(migrated.0, 1)
+        expectNoDifference(migrated.1, 0)
+        expectNoDifference(migrated.2, 1)
+        #expect(migrated.3 != nil)
+        expectNoDifference(
+            migrated.4,
+            NotificationDeliveryDiscardReason.invalidRegistration.rawValue
+        )
     }
 
     @Test
