@@ -29,8 +29,8 @@ struct AuthenticationCoordinatorTests {
             )
         )
 
-        #expect(store.authorization?.requirement == requirement)
-        #expect(store.authorization?.loginHint == "")
+        #expect(store.authorization?.sheet?.requirement == requirement)
+        #expect(store.authorization?.sheet?.loginHint == "")
     }
 
     @Test
@@ -50,14 +50,14 @@ struct AuthenticationCoordinatorTests {
             )
         )
 
-        #expect(store.authorization?.requirement == OpenMusicEventOAuth.baseAuthRequirement)
-        #expect(store.authorization?.mode == .signUp)
-        #expect(store.authorization?.serverHost == "bsky.social")
+        #expect(store.authorization?.sheet?.requirement == OpenMusicEventOAuth.baseAuthRequirement)
+        #expect(store.authorization?.sheet?.mode == .signUp)
+        #expect(store.authorization?.sheet?.serverHost == "bsky.social")
         #expect(
-            store.authorization?.signUpServerConfiguration
+            store.authorization?.sheet?.signUpServerConfiguration
                 == OpenMusicEventOAuth.signUpServerConfiguration
         )
-        #expect(store.authorization?.selectedSignUpServerOptionID == "bsky")
+        #expect(store.authorization?.sheet?.selectedSignUpServerOptionID == "bsky")
     }
 
     @Test
@@ -72,8 +72,8 @@ struct AuthenticationCoordinatorTests {
 
         store.send(.authorizationPresentationRequested(request))
 
-        #expect(store.authorization?.requirement == requirement)
-        #expect(store.authorization?.loginHint == "")
+        #expect(store.authorization?.sheet?.requirement == requirement)
+        #expect(store.authorization?.sheet?.loginHint == "")
         #expect(store.routedAuthorizationRequest?.id == request.id)
     }
 
@@ -85,10 +85,11 @@ struct AuthenticationCoordinatorTests {
         )
         let session = openMusicEventTestSession(permissions: requirement.permissions)
         var state = AuthenticationCoordinator.State.localTestState()
-        state.authorization = AuthorizationFlow.State(
+        state.authorization = .sheet(AuthorizationFlow.State(
             requirement: requirement,
-            loginHint: "woody.fm"
-        )
+            loginHint: "woody.fm",
+            sessionStore: state.$sessionStore
+        ))
         let client = successfulOAuthClient(session: session)
         let store = withDependencies {
             $0[OAuth.Client.self] = client
@@ -102,7 +103,7 @@ struct AuthenticationCoordinatorTests {
             }
         }
 
-        let task = store.send(.authorization(.submit))
+        let task = store.send(.authorization(.sheet(.submit)))
         await task?.value
 
         #expect(store.authorization == nil)
@@ -123,11 +124,11 @@ struct AuthenticationCoordinatorTests {
         )
         var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
-        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+        state.authorization = .sheet(OpenMusicEventOAuth.authorizationFlowState(
             for: request,
             session: state.session,
-            sessionStore: state.sessionStore
-        )
+            sessionStore: state.$sessionStore
+        ))
         let client = successfulOAuthClient(session: session)
         let store = withDependencies {
             $0[OAuth.Client.self] = client
@@ -144,7 +145,7 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(.authorization(.submit))
+        let task = store.send(.authorization(.sheet(.submit)))
         await task?.value
         try await waiter.value
 
@@ -207,15 +208,15 @@ struct AuthenticationCoordinatorTests {
             let upgradedAccessToken = upgradedSession.accessToken
 
             var state = AuthenticationCoordinator.State(storage: storage)
-            state.directAuthorization = OpenMusicEventOAuth.authorizationFlowState(
+            state.authorization = .direct(OpenMusicEventOAuth.authorizationFlowState(
                 for: AuthorizationPresentationRequest(
                     loginHint: baseSession.accountID.rawValue.description,
                     startsImmediately: true,
                     requirement: OpenMusicEventOAuth.tangledPullMergeAuthRequirement
                 ),
                 session: baseSession,
-                sessionStore: initialSessionStore
-            )
+                sessionStore: sessionStore
+            ))
             let store = withDependencies {
                 $0[OAuth.Client.self] = successfulOAuthClient(session: upgradedSession)
                 $0.defaultPort = 443
@@ -229,11 +230,10 @@ struct AuthenticationCoordinatorTests {
                 }
             }
 
-            await store.send(.directAuthorization(.submit))?.value
             try await waitForCondition {
                 storage.session.wrappedValue?.accessToken == upgradedAccessToken
             }
-            #expect(store.directAuthorization == nil)
+            #expect(store.authorization == nil)
 
             // The upgraded selected session is saved to the same keychain-backed store the app
             // reloads on launch.
@@ -284,11 +284,12 @@ struct AuthenticationCoordinatorTests {
     func cancelClearsAuthorizationAndCancelsRequest() async {
         let recorder = AuthorizationRequestRecorder()
         var state = AuthenticationCoordinator.State.localTestState()
-        state.authorization = AuthorizationFlow.State(
+        state.authorization = .sheet(AuthorizationFlow.State(
             requirement: OAuth.AuthRequirement(
                 permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
-            )
-        )
+            ),
+            sessionStore: state.$sessionStore
+        ))
         let store = withDependencies {
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
@@ -297,7 +298,7 @@ struct AuthenticationCoordinatorTests {
             }
         }
 
-        let task = store.send(.authorization(.cancel))
+        let task = store.send(.authorization(.sheet(.cancel)))
         await task?.value
 
         #expect(store.authorization == nil)
@@ -314,11 +315,11 @@ struct AuthenticationCoordinatorTests {
         )
         var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
-        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+        state.authorization = .sheet(OpenMusicEventOAuth.authorizationFlowState(
             for: request,
             session: state.session,
-            sessionStore: state.sessionStore
-        )
+            sessionStore: state.$sessionStore
+        ))
         let store = withDependencies {
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
@@ -330,7 +331,7 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(.authorization(.cancel))
+        let task = store.send(.authorization(.sheet(.cancel)))
         await task?.value
         await #expect(throws: CancellationError.self) {
             try await waiter.value
@@ -349,10 +350,11 @@ struct AuthenticationCoordinatorTests {
         )
         let failure = OAuth.AuthorizationRequired.signIn(requirement)
         var state = AuthenticationCoordinator.State.localTestState()
-        state.authorization = AuthorizationFlow.State(
+        state.authorization = .sheet(AuthorizationFlow.State(
             requirement: requirement,
-            loginHint: "woody.fm"
-        )
+            loginHint: "woody.fm",
+            sessionStore: state.$sessionStore
+        ))
         let store = withDependencies {
             $0[OAuth.Client.self] = failingOAuthClient(failure)
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
@@ -363,7 +365,7 @@ struct AuthenticationCoordinatorTests {
             }
         }
 
-        let task = store.send(.authorization(.submit))
+        let task = store.send(.authorization(.sheet(.submit)))
         await task?.value
 
         #expect(store.authorization == nil)
@@ -383,11 +385,11 @@ struct AuthenticationCoordinatorTests {
         )
         var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
-        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+        state.authorization = .sheet(OpenMusicEventOAuth.authorizationFlowState(
             for: request,
             session: state.session,
-            sessionStore: state.sessionStore
-        )
+            sessionStore: state.$sessionStore
+        ))
         let store = withDependencies {
             $0[OAuth.Client.self] = failingOAuthClient(failure)
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
@@ -401,7 +403,7 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(.authorization(.submit))
+        let task = store.send(.authorization(.sheet(.submit)))
         await task?.value
         let error = await #expect(throws: OAuth.AuthorizationRequired.self) {
             try await waiter.value

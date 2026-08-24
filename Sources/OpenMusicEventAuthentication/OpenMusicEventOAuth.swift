@@ -11,7 +11,9 @@ import SkipSharing
 import Sharing
 #endif
 import TCATProtoAuthentication
+#if !SKIP_BRIDGE
 import WebMetadataClient
+#endif
 import XRPCClient
 #if canImport(OSLog)
 import OSLog
@@ -226,7 +228,14 @@ public enum OpenMusicEventOAuth {
     )
 
     public static var signUpServerConfiguration: OAuthSignUpServerConfiguration {
+        #if SKIP_BRIDGE
+        let providerImageURL: (String) -> URL? = { _ in nil }
+        #else
         @Dependency(\DependencyValues.webMetadataClient) var webMetadataClient: WebMetadataClient
+        let providerImageURL: (String) -> URL? = {
+            webMetadataClient.googleS2FaviconURL($0, 128)
+        }
+        #endif
 
         return OAuthSignUpServerConfiguration(
             defaultServerHost: "bsky.social",
@@ -236,7 +245,7 @@ public enum OpenMusicEventOAuth {
                     title: "Open Music Event",
                     subtitle: "ome.social",
                     description: "Open Music Event's own hosted account option.",
-                    imageURL: webMetadataClient.googleS2FaviconURL("openmusicevent.app", 128),
+                    imageURL: providerImageURL("openmusicevent.app"),
                     metadataSource: "community-lexicon-enrichment",
                     availability: .comingSoon
                 ),
@@ -245,7 +254,7 @@ public enum OpenMusicEventOAuth {
                     title: "BlueSky",
                     subtitle: "bsky.social",
                     description: "The first and largest hosted account provider, with bsky.social handles.",
-                    imageURL: webMetadataClient.googleS2FaviconURL("bsky.social", 128),
+                    imageURL: providerImageURL("bsky.social"),
                     metadataSource: "community-lexicon-enrichment",
                     availability: .available(serverHost: "bsky.social")
                 ),
@@ -254,7 +263,7 @@ public enum OpenMusicEventOAuth {
                     title: "Eurosky",
                     subtitle: "eurosky.social",
                     description: "A Europe-focused community account provider using eurosky.social handles.",
-                    imageURL: webMetadataClient.googleS2FaviconURL("eurosky.social", 128),
+                    imageURL: providerImageURL("eurosky.social"),
                     metadataSource: "community-lexicon-enrichment",
                     availability: .available(serverHost: "eurosky.social")
                 ),

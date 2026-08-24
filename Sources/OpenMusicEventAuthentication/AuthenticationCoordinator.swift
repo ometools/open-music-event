@@ -4,8 +4,19 @@ import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventComponents
+import Sharing
+#if SKIP_BRIDGE
+import SkipSwiftUI
+#else
 import SwiftUI
+#endif
 import TCATProtoAuthentication
+
+#if SKIP_BRIDGE
+private typealias _AuthenticationForm = SkipSwiftUI.Form
+#else
+private typealias _AuthenticationForm = SwiftUI.Form
+#endif
 
 public typealias AuthenticationCoordinator = OAuthAuthenticationCoordinator
 public typealias AuthorizationFlowSheetView = OpenMusicEventAuthorizationFlowSheetView
@@ -43,7 +54,7 @@ public struct OpenMusicEventAuthorizationView<
 }
 
 public struct AuthenticationCoordinatorView<Content: View>: View {
-    @Bindable var store: StoreOf<AuthenticationCoordinator>
+    let store: StoreOf<AuthenticationCoordinator>
     let isPresentationEnabled: Bool
     let content: Content
 
@@ -59,10 +70,13 @@ public struct AuthenticationCoordinatorView<Content: View>: View {
 
     public var body: some View {
         if isPresentationEnabled {
-            content
-                .sheet(item: $store.scope(\.authorization, action: \.authorization)) { authorizationStore in
+            OAuthAuthenticationCoordinatorView(
+                store: store,
+                authorizationContent: { authorizationStore in
                     OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
-                }
+                },
+                content: { content }
+            )
         } else {
             content
         }
@@ -101,7 +115,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
     }
 
     public var body: some View {
-        SwiftUI.Form {
+        _AuthenticationForm {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Your Atmosphere account")
@@ -136,7 +150,10 @@ public struct OpenMusicEventAuthorizationFormView: View {
 
                     TextField(
                         "Search profiles",
-                        text: $store.loginHint,
+                        text: Binding(
+                            get: { store.loginHint },
+                            set: { store.send(.loginHintChanged($0)) }
+                        ),
                         prompt: Text("name.atmo.social")
                     )
                     #if os(iOS) || os(macOS)
@@ -215,10 +232,10 @@ public struct OpenMusicEventAuthorizationFormView: View {
             if let error = store.error {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(error.message)
+                        authorizationErrorText(error.message)
                             .font(.headline)
                         if let subtitle = error.subtitle {
-                            Text(subtitle)
+                            authorizationErrorText(subtitle)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -263,6 +280,16 @@ public struct OpenMusicEventAuthorizationFormView: View {
                 }
             }
         }
+    }
+
+    private func authorizationErrorText(
+        _ resource: TCATProtoLocalizedStringResource
+    ) -> Text {
+        #if SKIP_BRIDGE
+        Text(String(localized: resource))
+        #else
+        Text(resource)
+        #endif
     }
 
     private func requestSignInActorSearch(
@@ -325,7 +352,13 @@ public struct OpenMusicEventAuthorizationFormView: View {
 
         if store.showsSignUpServerTextField {
             Section("Server") {
-                TextField("Server Host", text: $store.serverHost)
+                TextField(
+                    "Server Host",
+                    text: Binding(
+                        get: { store.serverHost },
+                        set: { store.send(.serverHostChanged($0)) }
+                    )
+                )
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -357,7 +390,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
         Binding {
             AccountAction(mode: store.mode)
         } set: { action in
-            $store.mode.wrappedValue = action.mode
+            store.send(.modeChanged(action.mode))
         }
     }
 }
@@ -427,7 +460,7 @@ public extension OpenMusicEventOAuth {
     static func authorizationFlowState(
         for request: AuthorizationPresentationRequest,
         session: OAuth.Session?,
-        sessionStore: OAuth.SessionStore
+        sessionStore: Shared<OAuth.SessionStore>
     ) -> AuthorizationFlow.State {
         @Dependency(\.openMusicEventSignUpServerConfiguration)
         var signUpServerConfiguration
@@ -446,7 +479,7 @@ public extension OpenMusicEventOAuth {
         authorizationFlowState(
             for: request,
             session: session.wrappedValue,
-            sessionStore: sessionStore.wrappedValue
+            sessionStore: sessionStore
         )
     }
 }

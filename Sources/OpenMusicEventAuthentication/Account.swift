@@ -9,10 +9,44 @@ import IssueReporting
 import OpenMusicEventComponents
 import Sharing
 import SQLiteData
+#if SKIP_BRIDGE
+import SkipSwiftUI
+#else
 import SwiftUI
+#endif
 import Tagged
 import TCATProtoAuthentication
 import XRPCClient
+
+#if SKIP_BRIDGE
+private typealias _AuthenticationAnimation = SkipSwiftUI.Animation
+private typealias _AuthenticationForm = SkipSwiftUI.Form
+
+private struct AccountFormFieldValidationStatus: View {
+    let validation: FieldValidationState?
+
+    var body: some View {
+        if validation?.isValidating == true {
+            HStack(spacing: 6) {
+                ProgressView()
+                Text("Checking")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        ForEach(Array((validation?.errors ?? []).enumerated()), id: \.offset) { _, error in
+            Text(error.message)
+                .font(.footnote)
+                .foregroundStyle(.red)
+        }
+    }
+}
+#else
+private typealias _AuthenticationAnimation = SwiftUI.Animation
+private typealias _AuthenticationForm = SwiftUI.Form
+private typealias AccountFormFieldValidationStatus = FormFieldValidationStatus
+#endif
 
 enum AccountImageScale {
     case medium
@@ -22,7 +56,7 @@ enum AccountImageScale {
 extension View {
     @ViewBuilder
     func accountImageScale(_ scale: AccountImageScale) -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         switch scale {
@@ -36,7 +70,7 @@ extension View {
 
     @ViewBuilder
     func accountGeometryGroup() -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.geometryGroup()
@@ -45,7 +79,7 @@ extension View {
 
     @ViewBuilder
     func accountExtraLargeControlSize() -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.controlSize(.extraLarge)
@@ -54,7 +88,7 @@ extension View {
 
     @ViewBuilder
     func accountListRowInsets() -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.listRowInsets(EdgeInsets())
@@ -63,7 +97,7 @@ extension View {
 
     @ViewBuilder
     func accountContentShape() -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.contentShape(Rectangle())
@@ -72,7 +106,7 @@ extension View {
 
     @ViewBuilder
     func accountAccessibilityHint(_ hint: Text) -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.accessibilityHint(hint)
@@ -81,7 +115,7 @@ extension View {
 
     @ViewBuilder
     func accountAccessibilityCombineChildren() -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         self
         #else
         self.accessibilityElement(children: .combine)
@@ -507,6 +541,7 @@ public struct Account {
         case signInFormSubmitted(SignInFormValue)
         case signUpForm(SignUpFormFeature.Action)
         case signUpFormSubmitted(SignUpFormValue)
+        case signUpServerHostChanged(String)
         case signUpServerOptionTapped(OAuthSignUpServerOption.ID)
         case signInButtonTapped
         case submitAuthenticationFormButtonTapped
@@ -836,6 +871,9 @@ public struct Account {
                         }
                     }
 
+                case .signUpServerHostChanged(let serverHost):
+                    state.signUpServerHost = serverHost
+
                 case .signUpServerOptionTapped(let id):
                     guard let option = state.signUpServerConfiguration.availableOption(id: id),
                           let serverHost = option.serverHost
@@ -1086,7 +1124,7 @@ public struct AccountPicker: View {
 
     private func select(_ row: Account.AccountRow) {
         guard !row.isSelected else { return }
-        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+        withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
             _ = store.send(.accountRowTapped(row.id))
         }
     }
@@ -1117,7 +1155,7 @@ struct AccountManagementPresentationView: View {
 
     var body: some View {
         NavigationStack {
-            SwiftUI.Form {
+            _AuthenticationForm {
                 AccountView(store: store)
             }
             #if os(macOS)
@@ -1262,14 +1300,14 @@ struct AccountManagementSection: View {
     }
 
     private func logOut(_ row: Account.AccountRow) {
-        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+        withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
             _ = store.send(.accountLogOutButtonTapped(row.id))
         }
     }
 
     private func select(_ row: Account.AccountRow) {
         guard !row.isSelected else { return }
-        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+        withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
             _ = store.send(.accountRowTapped(row.id))
         }
     }
@@ -1312,8 +1350,8 @@ struct AccountRowView: View {
             }
         }
         .padding(.vertical, 8)
-        .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.isSelected)
-        .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.requiresRelog)
+        .animation(_AuthenticationAnimation.easeInOut(duration: 0.2), value: row.isSelected)
+        .animation(_AuthenticationAnimation.easeInOut(duration: 0.2), value: row.requiresRelog)
         .foregroundStyle(.primary)
     }
 }
@@ -1399,7 +1437,7 @@ struct AccountAuthenticationPresentationView: View {
 
     var body: some View {
         NavigationStack {
-            SwiftUI.Form {
+            _AuthenticationForm {
                 AccountAuthenticationFormSections(store: store)
             }
             #if os(macOS)
@@ -1456,7 +1494,13 @@ struct AccountAuthenticationFormSections: View {
         }
 
         Section("Account") {
-            Picker("Action", selection: $store.selectedMode) {
+            Picker(
+                "Action",
+                selection: Binding(
+                    get: { store.selectedMode },
+                    set: { store.send(.selectedModeChanged($0)) }
+                )
+            ) {
                 ForEach(Account.Mode.allCases, id: \.self) { mode in
                     Text(mode.title)
                         .tag(mode)
@@ -1474,10 +1518,13 @@ struct AccountAuthenticationFormSections: View {
 
                 TextField(
                     "Search profiles",
-                    text: $store.signInForm.value.handle,
+                    text: Binding(
+                        get: { store.signInLoginHint },
+                        set: { store.send(.signInActorSearchQueryChanged($0)) }
+                    ),
                     prompt: Text("name.atmo.social")
                 )
-                #if os(iOS) || os(macOS)
+                #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
                 .textContentType(.username)
                 #endif
                 #if os(iOS)
@@ -1486,9 +1533,6 @@ struct AccountAuthenticationFormSections: View {
                 .autocorrectionDisabled()
                 .onSubmit {
                     store.send(.signInActorSearchSubmitted)
-                }
-                .onChange(of: store.signInLoginHint) { _, query in
-                    store.send(.signInActorSearchQueryChanged(query))
                 }
 
                 if store.signInActorSearchIsLoading {
@@ -1518,7 +1562,7 @@ struct AccountAuthenticationFormSections: View {
                     }
                 }
 
-                FormFieldValidationStatus(
+                AccountFormFieldValidationStatus(
                     validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
                 )
             } header: {
@@ -1689,7 +1733,7 @@ struct SafeEdgeExpansionModifier<ExpansionContent: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if SKIP_BRIDGE
         switch edge {
         case .top:
             VStack(spacing: spacing) {
@@ -1702,7 +1746,7 @@ struct SafeEdgeExpansionModifier<ExpansionContent: View>: ViewModifier {
                 styledExpansionContent
             }
         }
-        #elseif os(iOS) || os(macOS)
+        #elseif (os(iOS) || os(macOS)) && !SKIP_BRIDGE
         if #available(iOS 26, macOS 26, *) {
             content.safeAreaBar(edge: edge, spacing: spacing) {
                 styledExpansionContent
@@ -1752,7 +1796,7 @@ extension View {
 extension View {
     @ViewBuilder
     func safeEdgeExpansionScrollEdgeEffect(_ edge: VerticalEdge) -> some View {
-        #if os(iOS) || os(macOS)
+        #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
         if #available(iOS 26, macOS 26, *) {
             self.scrollEdgeEffectStyle(.soft, for: edge.edgeSet)
         } else {
@@ -1828,7 +1872,7 @@ struct AccountProminentSignInButton: View {
 extension View {
     @ViewBuilder
     func accountProminentSignInButtonStyle() -> some View {
-        #if os(iOS) || os(macOS)
+        #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
         if #available(iOS 26, macOS 26, *) {
             self
                 .buttonStyle(.glassProminent)
@@ -1879,13 +1923,19 @@ struct AccountSignUpServerFormView: View {
         if store.usesCustomSignUpServerHost ||
             store.signUpServerConfiguration.options.isEmpty {
             Section("Server") {
-                TextField("Server Host", text: $store.signUpForm.value.serverHost)
+                TextField(
+                    "Server Host",
+                    text: Binding(
+                        get: { store.signUpServerHost },
+                        set: { store.send(.signUpServerHostChanged($0)) }
+                    )
+                )
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     #endif
 
-                FormFieldValidationStatus(
+                AccountFormFieldValidationStatus(
                     validation: store.signUpForm.validation[AccountFormFieldID.signUpServerHost]
                 )
             }

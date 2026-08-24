@@ -36,7 +36,6 @@ struct AuthenticationRootTests {
         }
 
         #expect(store.authentication.authorization == nil)
-        #expect(store.authentication.directAuthorization == nil)
     }
 
     @Test
@@ -130,7 +129,7 @@ struct AuthenticationRootTests {
         )
 
         #expect(
-            store.authentication.authorization?.requirement
+            store.authentication.authorization?.sheet?.requirement
                 == OpenMusicEventOAuth.baseAuthRequirement
         )
     }
@@ -140,48 +139,47 @@ struct AuthenticationRootTests {
         let database = try makePreparedDatabase()
         let storage = makeStorage()
         let failure = AuthenticationRootTestError.invalidScope
-        let store = withDependencies {
-            $0.defaultDatabase = database
-            $0[OAuth.Client.self] = failingOAuthClient(failure)
-            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
-        } operation: {
-            var state = OpenMusicEventApplication.State(storage: storage) {
-                OpenMusicEventAppRoot.State()
-            }
-            state.authentication.directAuthorization = OpenMusicEventOAuth.authorizationFlowState(
-                for: AuthorizationPresentationRequest(
-                    loginHint: "woody.fm",
-                    startsImmediately: true,
-                    requirement: OpenMusicEventOAuth.baseAuthRequirement
-                )
-            )
-            return Store(initialState: state) {
-                OpenMusicEventApplication(storage: storage) {
-                    OpenMusicEventAppRoot()
-                }
-                .presentAuthorizationFailures()
-            }
-        }
-
         await withIssueReporters([]) {
-            let task = store.send(.authentication(.directAuthorization(.submit)))
-            await task?.value
-        }
+            let store = withDependencies {
+                $0.defaultDatabase = database
+                $0[OAuth.Client.self] = failingOAuthClient(failure)
+                $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            } operation: {
+                var state = OpenMusicEventApplication.State(storage: storage) {
+                    OpenMusicEventAppRoot.State()
+                }
+                state.authentication.authorization = .direct(
+                    OpenMusicEventOAuth.authorizationFlowState(
+                        for: AuthorizationPresentationRequest(
+                            loginHint: "woody.fm",
+                            startsImmediately: true,
+                            requirement: OpenMusicEventOAuth.baseAuthRequirement
+                        )
+                    )
+                )
+                return Store(initialState: state) {
+                    OpenMusicEventApplication(storage: storage) {
+                        OpenMusicEventAppRoot()
+                    }
+                    .presentAuthorizationFailures()
+                }
+            }
 
-        await waitForCondition {
-            store.authentication.authorizationFailure != nil
+            await waitForCondition {
+                store.authentication.authorizationFailure != nil
+            }
+            await waitForCondition {
+                store.content.errorNotifications.state.latestError != nil
+            }
+            expectNoDifference(
+                store.content.errorNotifications.state.latestError?.message.fallback,
+                "Unable to authorize account."
+            )
+            expectNoDifference(
+                store.content.errorNotifications.state.latestError?.operation.rawValue,
+                "auth.authorization"
+            )
         }
-        await waitForCondition {
-            store.content.errorNotifications.state.latestError != nil
-        }
-        expectNoDifference(
-            store.content.errorNotifications.state.latestError?.message.fallback,
-            "Unable to authorize account."
-        )
-        expectNoDifference(
-            store.content.errorNotifications.state.latestError?.operation.rawValue,
-            "auth.authorization"
-        )
     }
 
     @Test
