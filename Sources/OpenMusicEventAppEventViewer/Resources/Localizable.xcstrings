@@ -123,6 +123,9 @@
     "Allow" : {
 
     },
+    "Allow Critical Alerts" : {
+
+    },
     "Allow Notifications" : {
 
     },
@@ -303,6 +306,12 @@
     "Coordinates" : {
 
     },
+    "Critical Alerts" : {
+
+    },
+    "Critical Alerts are unavailable on this device." : {
+
+    },
     "Create a proposal or reset your local changes before switching branches." : {
 
     },
@@ -448,6 +457,9 @@
 
     },
     "Empty" : {
+
+    },
+    "Emergency updates can alert you even when notifications are silenced." : {
 
     },
     "End date" : {
@@ -601,6 +613,9 @@
 
     },
     "Look up exact handle or DID" : {
+
+    },
+    "Manage Critical Alerts" : {
 
     },
     "Manage Notifications" : {
@@ -1348,6 +1363,9 @@
     "Turn notifications on in system settings to get event updates." : {
 
     },
+    "Turn on Notifications before enabling Critical Alerts." : {
+
+    },
     "Turn On Notifications" : {
 
     },
@@ -1355,6 +1373,9 @@
 
     },
     "Unable to load contributor profile." : {
+
+    },
+    "Unable to request Critical Alerts permission." : {
 
     },
     "Unavailable" : {

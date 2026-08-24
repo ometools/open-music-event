@@ -6730,6 +6730,7 @@ struct NavigationTests {
                 )
             },
             openNotificationSettings: { false },
+            requestCriticalAlerts: { .unavailable },
             requestNotifications: {
                 permissionWasRequested.withLock { $0 = true }
                 return .authorized
@@ -6757,6 +6758,55 @@ struct NavigationTests {
     }
 
     @Test
+    func communicationsViewerOffersCriticalAlertsAfterNotificationsAreAllowed() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let criticalAlertsWereRequested = Mutex(false)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+        let client = DevicePermissionsClient(
+            load: {
+                DevicePermissions(
+                    criticalAlerts: criticalAlertsWereRequested.withLock {
+                        $0 ? .enabled : .disabled
+                    },
+                    notifications: .authorized
+                )
+            },
+            openNotificationSettings: { false },
+            requestCriticalAlerts: {
+                criticalAlertsWereRequested.withLock { $0 = true }
+                return .enabled
+            },
+            requestNotifications: { .authorized }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultEventID = eventID
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        // Existing users do not see the ordinary notification prompt again.
+        try await store.state.$permissions.load()
+        #expect(!store.state.shouldShowNotificationPrompt)
+        #expect(store.state.shouldShowCriticalAlertPrompt)
+
+        // The Comms prompt requests Critical Alerts independently and disappears when enabled.
+        await store.send(.criticalAlertPermissionButtonTapped)?.value
+
+        #expect(criticalAlertsWereRequested.withLock { $0 })
+        #expect(!store.state.shouldShowCriticalAlertPrompt)
+    }
+
+    @Test
     func communicationsViewerNotificationPromptOpensSettingsWhenPermissionIsOff() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -6772,6 +6822,7 @@ struct NavigationTests {
                 settingsOpenCount.withLock { $0 += 1 }
                 return true
             },
+            requestCriticalAlerts: { .unavailable },
             requestNotifications: { .denied }
         )
         let store = withDependencies {

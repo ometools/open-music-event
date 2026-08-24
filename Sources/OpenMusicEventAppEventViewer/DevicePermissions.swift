@@ -10,6 +10,12 @@ import UserNotifications
 #endif
 
 public struct DevicePermissions: Equatable, Sendable {
+    public enum CriticalAlertAuthorization: Equatable, Sendable {
+        case disabled
+        case enabled
+        case unavailable
+    }
+
     public enum NotificationAuthorization: Equatable, Sendable {
         case authorized
         case denied
@@ -18,9 +24,14 @@ public struct DevicePermissions: Equatable, Sendable {
         case unknown
     }
 
+    public var criticalAlerts: CriticalAlertAuthorization
     public var notifications: NotificationAuthorization
 
-    public init(notifications: NotificationAuthorization = .unknown) {
+    public init(
+        criticalAlerts: CriticalAlertAuthorization = .unavailable,
+        notifications: NotificationAuthorization = .unknown
+    ) {
+        self.criticalAlerts = criticalAlerts
         self.notifications = notifications
     }
 
@@ -36,15 +47,18 @@ public struct DevicePermissions: Equatable, Sendable {
 public struct DevicePermissionsClient: Sendable {
     public var load: @Sendable () async -> DevicePermissions
     public var openNotificationSettings: @MainActor @Sendable () async -> Bool
+    public var requestCriticalAlerts: @Sendable () async throws -> DevicePermissions.CriticalAlertAuthorization
     public var requestNotifications: @Sendable () async throws -> DevicePermissions.NotificationAuthorization
 
     public init(
         load: @escaping @Sendable () async -> DevicePermissions,
         openNotificationSettings: @escaping @MainActor @Sendable () async -> Bool,
+        requestCriticalAlerts: @escaping @Sendable () async throws -> DevicePermissions.CriticalAlertAuthorization,
         requestNotifications: @escaping @Sendable () async throws -> DevicePermissions.NotificationAuthorization
     ) {
         self.load = load
         self.openNotificationSettings = openNotificationSettings
+        self.requestCriticalAlerts = requestCriticalAlerts
         self.requestNotifications = requestNotifications
     }
 }
@@ -53,14 +67,28 @@ extension DevicePermissionsClient: DependencyKey {
     public static let liveValue = Self(
         load: {
             let authorization = await PermissionManager.queryPostNotificationPermission()
+            #if os(iOS)
+            let criticalAlerts = await UNUserNotificationCenter.current()
+                .notificationSettings()
+                .criticalAlertSetting
+                .devicePermissionAuthorization
+            #else
+            let criticalAlerts = DevicePermissions.CriticalAlertAuthorization.unavailable
+            #endif
             #if os(Android)
             if authorization == .unknown,
                UserDefaults.standard.bool(forKey: notificationPermissionWasRequestedKey)
             {
-                return DevicePermissions(notifications: .denied)
+                return DevicePermissions(
+                    criticalAlerts: criticalAlerts,
+                    notifications: .denied
+                )
             }
             #endif
-            return DevicePermissions(notifications: authorization.devicePermissionAuthorization)
+            return DevicePermissions(
+                criticalAlerts: criticalAlerts,
+                notifications: authorization.devicePermissionAuthorization
+            )
         },
         openNotificationSettings: {
             #if os(Android)
@@ -81,10 +109,23 @@ extension DevicePermissionsClient: DependencyKey {
             return false
             #endif
         },
+        requestCriticalAlerts: {
+            #if os(iOS)
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.criticalAlert]
+            )
+            return await UNUserNotificationCenter.current()
+                .notificationSettings()
+                .criticalAlertSetting
+                .devicePermissionAuthorization
+            #else
+            return .unavailable
+            #endif
+        },
         requestNotifications: {
             #if os(iOS)
             _ = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.alert, .badge, .criticalAlert, .sound]
+                options: [.alert, .badge, .sound]
             )
             let authorization = await PermissionManager.queryPostNotificationPermission()
             #else
@@ -104,6 +145,7 @@ extension DevicePermissionsClient: DependencyKey {
     public static let testValue = Self(
         load: { DevicePermissions() },
         openNotificationSettings: { false },
+        requestCriticalAlerts: { .unavailable },
         requestNotifications: { .unknown }
     )
 }
@@ -161,6 +203,23 @@ extension PermissionAuthorization {
         }
     }
 }
+
+#if os(iOS)
+extension UNNotificationSetting {
+    var devicePermissionAuthorization: DevicePermissions.CriticalAlertAuthorization {
+        switch self {
+        case .disabled:
+            .disabled
+        case .enabled:
+            .enabled
+        case .notSupported:
+            .unavailable
+        @unknown default:
+            .unavailable
+        }
+    }
+}
+#endif
 
 #if os(Android)
 let notificationPermissionWasRequestedKey = "devicePermissions.notifications.wasRequested"

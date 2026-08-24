@@ -35,6 +35,7 @@ public struct EventSettings {
     }
 
     public enum Action {
+        case criticalAlertPermissionButtonTapped
         case destination(Destination.Action)
         case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
@@ -74,6 +75,20 @@ public struct EventSettings {
 
         Update { state, action in
             switch action {
+            case .criticalAlertPermissionButtonTapped:
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestCriticalAlerts()
+                        try await store.state.$permissions.load()
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .notificationPermissionRequestFailed,
+                            operation: .notificationPermissionRequest
+                        )
+                    }
+                }
+
             case .destination(.exitAuthoringConfirmation(.cancelButtonTapped)):
                 break
 
@@ -187,6 +202,28 @@ public struct EventSettingsView: View {
         _isNotificationPermissionExpanded = State(
             initialValue: store.permissions.notifications == .unknown
         )
+    }
+
+    var criticalAlertStatusTitle: String {
+        switch store.permissions.criticalAlerts {
+        case .disabled:
+            "Off"
+        case .enabled:
+            "On"
+        case .unavailable:
+            "Unavailable"
+        }
+    }
+
+    var criticalAlertSystemImage: String {
+        switch store.permissions.criticalAlerts {
+        case .disabled:
+            "bell.badge"
+        case .enabled:
+            "bell.fill"
+        case .unavailable:
+            "bell.slash"
+        }
     }
 
     var notificationStatusTitle: String {
@@ -310,6 +347,62 @@ public struct EventSettingsView: View {
                         }
                     }
                 }
+
+                #if os(iOS)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        MappedSystemImage(systemName: criticalAlertSystemImage)
+                            .frame(width: 22, height: 22)
+
+                        Text("Critical Alerts")
+
+                        Spacer()
+
+                        Text(criticalAlertStatusTitle)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    switch store.permissions.criticalAlerts {
+                    case .enabled:
+                        Text(
+                            "Emergency updates can alert you even when notifications are silenced."
+                        )
+                        .foregroundStyle(.secondary)
+                        Button("Manage Critical Alerts") {
+                            store.send(.openNotificationSettingsButtonTapped)
+                        }
+
+                    case .disabled where store.permissions.notificationsAreAllowed:
+                        Text(
+                            "Emergency updates can alert you even when notifications are silenced."
+                        )
+                        .foregroundStyle(.secondary)
+                        Button("Allow Critical Alerts") {
+                            store.send(.criticalAlertPermissionButtonTapped)
+                        }
+                        Button("Open Notification Settings") {
+                            store.send(.openNotificationSettingsButtonTapped)
+                        }
+
+                    case .disabled:
+                        Text("Turn on Notifications before enabling Critical Alerts.")
+                            .foregroundStyle(.secondary)
+                        if store.permissions.notifications == .unknown {
+                            Button("Allow Notifications") {
+                                store.send(.notificationPermissionButtonTapped)
+                            }
+                        } else {
+                            Button("Open Notification Settings") {
+                                store.send(.openNotificationSettingsButtonTapped)
+                            }
+                        }
+
+                    case .unavailable:
+                        Text("Critical Alerts are unavailable on this device.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                #endif
             }
             #endif
 

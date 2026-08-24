@@ -94,9 +94,15 @@ public struct CommunicationsViewer {
         var hasContent: Bool {
             event != nil && (
                 shouldShowNotificationPrompt
+                    || shouldShowCriticalAlertPrompt
                     || !(event?.reportingLinks ?? []).isEmpty
                     || !channels.isEmpty
             )
+        }
+
+        var shouldShowCriticalAlertPrompt: Bool {
+            permissions.notificationsAreAllowed
+                && permissions.criticalAlerts == .disabled
         }
 
         var shouldShowNotificationPrompt: Bool {
@@ -115,6 +121,7 @@ public struct CommunicationsViewer {
     public enum Action {
         case addChannelButtonTapped
         case channelButtonTapped(OMERecord.ID<OMERecord.Channel>)
+        case criticalAlertPermissionButtonTapped
         case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
         case destination(Destination.Action)
         case editChannelButtonTapped(OMERecord.Channel)
@@ -171,6 +178,19 @@ public struct CommunicationsViewer {
                         eventID: state.eventID
                     )
                 )
+
+            case .criticalAlertPermissionButtonTapped:
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestCriticalAlerts()
+                        try await store.state.$permissions.load()
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to request Critical Alerts permission."
+                        }
+                    }
+                }
 
             case let .deleteChannelButtonTapped(channelID):
                 state.destination = .deleteChannelConfirmation(
@@ -336,6 +356,39 @@ public struct CommunicationsViewerView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                        }
+                    }
+
+                    if store.shouldShowCriticalAlertPrompt {
+                        Section {
+                            Button {
+                                store.send(.criticalAlertPermissionButtonTapped)
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    MappedSystemImage(systemName: "bell.badge")
+                                        .frame(width: 24, height: 24)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Allow Critical Alerts")
+                                            .foregroundStyle(.primary)
+                                        Text(
+                                            "Emergency updates can alert you even when notifications are silenced."
+                                        )
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Text("Allow")
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                            }
+                            .buttonStyle(.plain)
+
+                            Button("Open Notification Settings") {
+                                store.send(.openNotificationSettingsButtonTapped)
+                            }
                         }
                     }
 

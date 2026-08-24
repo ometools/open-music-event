@@ -354,6 +354,7 @@ struct SettingsFeatureTests {
                 )
             },
             openNotificationSettings: { false },
+            requestCriticalAlerts: { .unavailable },
             requestNotifications: {
                 permissionWasRequested.withLock { $0 = true }
                 return .authorized
@@ -377,6 +378,53 @@ struct SettingsFeatureTests {
 
         expectNoDifference(permissionWasRequested.withLock { $0 }, true)
         expectNoDifference(store.state.permissions.notifications, .authorized)
+        expectNoDifference(loadCount.withLock { $0 }, loadsBeforeRequest + 1)
+    }
+
+    @Test
+    func eventSettingsRequestsCriticalAlertsSeparatelyAndReloadsTheSharedStatus() async throws {
+        let database = try makePreparedDatabase()
+        let criticalAlertsWereRequested = Mutex(false)
+        let loadCount = Mutex(0)
+        let client = DevicePermissionsClient(
+            load: {
+                loadCount.withLock { $0 += 1 }
+                return DevicePermissions(
+                    criticalAlerts: criticalAlertsWereRequested.withLock {
+                        $0 ? .enabled : .disabled
+                    },
+                    notifications: .authorized
+                )
+            },
+            openNotificationSettings: { false },
+            requestCriticalAlerts: {
+                criticalAlertsWereRequested.withLock { $0 = true }
+                return .enabled
+            },
+            requestNotifications: { .authorized }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+                EventSettings()
+            }
+        }
+
+        // Ordinary notifications are already allowed, but Critical Alerts are still off.
+        try await store.state.$permissions.load()
+        expectNoDifference(store.state.permissions.notifications, .authorized)
+        expectNoDifference(store.state.permissions.criticalAlerts, .disabled)
+        let loadsBeforeRequest = loadCount.withLock { $0 }
+
+        // The distinct Critical Alerts action requests only that permission and reloads system state.
+        await store.send(.criticalAlertPermissionButtonTapped)?.value
+
+        expectNoDifference(criticalAlertsWereRequested.withLock { $0 }, true)
+        expectNoDifference(store.state.permissions.notifications, .authorized)
+        expectNoDifference(store.state.permissions.criticalAlerts, .enabled)
         expectNoDifference(loadCount.withLock { $0 }, loadsBeforeRequest + 1)
     }
 
@@ -421,6 +469,7 @@ struct SettingsFeatureTests {
                 settingsOpenCount.withLock { $0 += 1 }
                 return true
             },
+            requestCriticalAlerts: { .unavailable },
             requestNotifications: {
                 requestCount.withLock { $0 += 1 }
                 return .denied
@@ -455,6 +504,7 @@ struct SettingsFeatureTests {
                 return DevicePermissions(notifications: .authorized)
             },
             openNotificationSettings: { false },
+            requestCriticalAlerts: { .unavailable },
             requestNotifications: { .authorized }
         )
         let store = withDependencies {
