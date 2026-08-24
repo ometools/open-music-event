@@ -70,6 +70,7 @@ public struct TangledWebhookWatch: Equatable, Sendable {
 public struct TangledWebhookConfiguration: Sendable {
     public init(watches: [TangledWebhookWatch]) throws {
         var watchesByHookID: [Int64: TangledWebhookWatch] = [:]
+        var watchesByID: [WebhookInboxDelivery.WatchID: TangledWebhookWatch] = [:]
         var watchIDs: Set<WebhookInboxDelivery.WatchID> = []
         var repositoryReferences: Set<String> = []
         var canonicalSourceReferences: Set<String> = []
@@ -80,6 +81,7 @@ public struct TangledWebhookConfiguration: Sendable {
             guard watchIDs.insert(watch.id).inserted else {
                 throw TangledWebhookConfigurationError.duplicateWatchID(watch.id)
             }
+            watchesByID[watch.id] = watch
             let repositoryReference = "\(watch.repositoryFullName)#\(watch.ref)"
             guard repositoryReferences.insert(repositoryReference).inserted else {
                 throw TangledWebhookConfigurationError.duplicateRepositoryReference(
@@ -102,10 +104,12 @@ public struct TangledWebhookConfiguration: Sendable {
 
         self.watches = watches
         self.watchesByHookID = watchesByHookID
+        self.watchesByID = watchesByID
     }
 
     public let watches: [TangledWebhookWatch]
     let watchesByHookID: [Int64: TangledWebhookWatch]
+    let watchesByID: [WebhookInboxDelivery.WatchID: TangledWebhookWatch]
 }
 
 public enum TangledWebhookConfigurationError: Error, Equatable, Sendable {

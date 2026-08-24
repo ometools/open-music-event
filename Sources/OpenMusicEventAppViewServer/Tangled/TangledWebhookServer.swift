@@ -49,9 +49,6 @@ struct TangledWebhookServer: Sendable {
         else {
             throw TangledWebhookReceiveError.authenticationFailed
         }
-        guard request.event == "push" else {
-            throw TangledWebhookReceiveError.unsupportedEvent
-        }
         guard let deliveryIDValue = request.deliveryID,
               let deliveryUUID = UUID(uuidString: deliveryIDValue)
         else {
@@ -61,24 +58,35 @@ struct TangledWebhookServer: Sendable {
             rawValue: deliveryUUID.uuidString.lowercased()
         )
 
-        let payload: TangledPushPayload
-        do {
-            payload = try JSONDecoder().decode(TangledPushPayload.self, from: request.payload)
-        } catch {
-            throw TangledWebhookReceiveError.invalidPayload
+        guard let eventName = request.event else {
+            throw TangledWebhookReceiveError.unsupportedEvent
         }
-        guard payload.ref == watch.ref else {
-            throw TangledWebhookReceiveError.refMismatch
-        }
-        guard payload.repository.fullName == watch.repositoryFullName,
-              payload.repository.owner.did == watch.repositoryOwnerDID
-        else {
-            throw TangledWebhookReceiveError.repositoryMismatch
-        }
-        if let repository = request.repository,
-           repository != payload.repository.fullName
-        {
-            throw TangledWebhookReceiveError.repositoryMismatch
+        let event: TangledWebhookReception.Event
+        switch eventName {
+        case "push":
+            event = .sourceUpdate(
+                try TangledSourceUpdate(
+                    payload: request.payload,
+                    deliveryID: deliveryID,
+                    receivedAt: receivedAt,
+                    watch: watch,
+                    headerRepository: request.repository
+                )
+            )
+
+        case "pull_request:created":
+            event = .pullCreated(
+                try TangledPullCreated(
+                    payload: request.payload,
+                    deliveryID: deliveryID,
+                    receivedAt: receivedAt,
+                    watch: watch,
+                    headerRepository: request.repository
+                )
+            )
+
+        default:
+            throw TangledWebhookReceiveError.unsupportedEvent
         }
 
         let recordResult = try await inbox.record(
@@ -86,31 +94,26 @@ struct TangledWebhookServer: Sendable {
                 source: .tangled,
                 watchID: watch.id,
                 deliveryID: deliveryID,
-                event: "push",
+                event: eventName,
                 payload: request.payload,
                 receivedAt: receivedAt
             )
         )
         return TangledWebhookReception(
             recordResult: recordResult,
-            sourceUpdate: TangledSourceUpdate(
-                watchID: watch.id,
-                deliveryID: deliveryID,
-                repositoryOwnerDID: watch.repositoryOwnerDID,
-                ref: payload.ref,
-                before: payload.before,
-                after: payload.after,
-                receivedAt: receivedAt,
-                canonicalSource: watch.canonicalSource,
-                repository: watch.repository
-            )
+            event: event
         )
     }
 }
 
 struct TangledWebhookReception: Equatable, Sendable {
+    enum Event: Equatable, Sendable {
+        case sourceUpdate(TangledSourceUpdate)
+        case pullCreated(TangledPullCreated)
+    }
+
     let recordResult: WebhookInboxRecordResult
-    let sourceUpdate: TangledSourceUpdate
+    let event: Event
 }
 
 struct TangledWebhookRequest: Sendable {
@@ -130,6 +133,7 @@ enum TangledWebhookReceiveError: Error, Equatable, Sendable {
     case invalidPayload
     case refMismatch
     case repositoryMismatch
+    case pullRequestMismatch
 }
 
 enum TangledWebhookSignature {
@@ -157,28 +161,236 @@ enum TangledWebhookSignature {
     }
 }
 
+private extension TangledSourceUpdate {
+    init(
+        payload data: Data,
+        deliveryID: WebhookInboxDelivery.DeliveryID,
+        receivedAt: Date,
+        watch: TangledWebhookWatch,
+        headerRepository: String?
+    ) throws {
+        let payload: TangledPushPayload
+        do {
+            payload = try JSONDecoder().decode(TangledPushPayload.self, from: data)
+        } catch {
+            throw TangledWebhookReceiveError.invalidPayload
+        }
+        guard payload.ref == watch.ref else {
+            throw TangledWebhookReceiveError.refMismatch
+        }
+        try validate(
+            payload.repository,
+            headerRepository: headerRepository,
+            watch: watch
+        )
+        self.init(
+            watchID: watch.id,
+            deliveryID: deliveryID,
+            repositoryOwnerDID: watch.repositoryOwnerDID,
+            ref: payload.ref,
+            before: payload.before,
+            after: payload.after,
+            receivedAt: receivedAt,
+            canonicalSource: watch.canonicalSource,
+            repository: watch.repository
+        )
+    }
+}
+
+extension TangledPullCreated {
+    init(
+        payload data: Data,
+        deliveryID: WebhookInboxDelivery.DeliveryID,
+        receivedAt: Date,
+        watch: TangledWebhookWatch,
+        headerRepository: String? = nil
+    ) throws {
+        let payload: TangledPullRequestPayload
+        do {
+            payload = try JSONDecoder().decode(TangledPullRequestPayload.self, from: data)
+        } catch {
+            throw TangledWebhookReceiveError.invalidPayload
+        }
+        guard payload.action == "created",
+              payload.pullRequest.number > 0,
+              payload.pullRequest.roundNumber >= 0,
+              !payload.pullRequest.targetBranch.isEmpty,
+              payload.pullRequest.state == "open"
+        else {
+            throw TangledWebhookReceiveError.pullRequestMismatch
+        }
+        try validate(
+            payload.repository,
+            headerRepository: headerRepository,
+            watch: watch
+        )
+        try validate(
+            pageURL: payload.pullRequest.htmlURL,
+            patchURL: payload.pullRequest.patchURL,
+            pullNumber: payload.pullRequest.number,
+            roundNumber: payload.pullRequest.roundNumber,
+            watch: watch
+        )
+        self.init(
+            watchID: watch.id,
+            deliveryID: deliveryID,
+            webhook: Webhook(
+                canonicalSource: watch.canonicalSource.reference,
+                repository: Webhook.Repository(
+                    host: watch.repository.host,
+                    port: watch.repository.port,
+                    owner: watch.repository.owner,
+                    ownerDID: watch.repositoryOwnerDID,
+                    name: watch.repository.repository
+                ),
+                pullNumber: payload.pullRequest.number,
+                authorDID: payload.pullRequest.owner.did,
+                title: payload.pullRequest.title,
+                body: payload.pullRequest.body,
+                targetBranch: payload.pullRequest.targetBranch,
+                source: payload.pullRequest.source.map {
+                    Webhook.Source(
+                        branch: $0.branch,
+                        revision: $0.sha,
+                        repositoryDID: $0.repo
+                    )
+                },
+                roundNumber: payload.pullRequest.roundNumber,
+                state: payload.pullRequest.state,
+                pageURL: payload.pullRequest.htmlURL,
+                patchURL: payload.pullRequest.patchURL,
+                createdAt: payload.pullRequest.createdAt
+            ),
+            receivedAt: receivedAt
+        )
+    }
+}
+
+private func validate(
+    _ repository: TangledWebhookRepository,
+    headerRepository: String?,
+    watch: TangledWebhookWatch
+) throws {
+    guard repository.fullName == watch.repositoryFullName,
+          repository.owner.did == watch.repositoryOwnerDID
+    else {
+        throw TangledWebhookReceiveError.repositoryMismatch
+    }
+    if let headerRepository, headerRepository != repository.fullName {
+        throw TangledWebhookReceiveError.repositoryMismatch
+    }
+}
+
+private func validate(
+    pageURL: URL,
+    patchURL: URL,
+    pullNumber: Int64,
+    roundNumber: Int,
+    watch: TangledWebhookWatch
+) throws {
+    let repositoryOwners = [
+        watch.repository.owner.trimmingCharacters(in: CharacterSet(charactersIn: "@")),
+        watch.repositoryOwnerDID.description,
+    ]
+    guard validTangledURL(pageURL, watch: watch),
+          validTangledURL(patchURL, watch: watch)
+    else {
+        throw TangledWebhookReceiveError.repositoryMismatch
+    }
+    let pagePath = pageURL.pathComponents.filter { $0 != "/" }
+    let patchPath = patchURL.pathComponents.filter { $0 != "/" }
+    guard pagePath.count == 4,
+          repositoryOwners.contains(pagePath[0]),
+          pagePath[1] == watch.repository.repository,
+          pagePath[2] == "pulls",
+          pagePath[3] == "\(pullNumber)",
+          patchPath.count == 6,
+          repositoryOwners.contains(patchPath[0]),
+          patchPath[1] == watch.repository.repository,
+          patchPath[2] == "pulls",
+          patchPath[3] == "\(pullNumber)",
+          patchPath[4] == "round",
+          patchPath[5] == "\(roundNumber).patch"
+    else {
+        throw TangledWebhookReceiveError.pullRequestMismatch
+    }
+}
+
+private func validTangledURL(_ url: URL, watch: TangledWebhookWatch) -> Bool {
+    url.scheme == "https"
+        && url.host(percentEncoded: false)?.lowercased() == watch.repository.host.lowercased()
+        && url.port == watch.repository.port
+        && url.user(percentEncoded: false) == nil
+        && url.password(percentEncoded: false) == nil
+        && url.query(percentEncoded: false) == nil
+        && url.fragment(percentEncoded: false) == nil
+}
+
 private struct TangledPushPayload: Decodable {
     let ref: String
     let before: String
     let after: String
-    let repository: Repository
-    let pusher: User
+    let repository: TangledWebhookRepository
+}
 
-    struct Repository: Decodable {
-        let name: String
-        let fullName: String
-        let owner: User
+private struct TangledPullRequestPayload: Decodable {
+    let action: String
+    let pullRequest: PullRequest
+    let repository: TangledWebhookRepository
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case pullRequest = "pull_request"
+        case repository
+    }
+
+    struct PullRequest: Decodable {
+        let number: Int64
+        let title: String
+        let body: String?
+        let state: String
+        let targetBranch: String
+        let source: Source?
+        let roundNumber: Int
+        let owner: TangledWebhookUser
+        let htmlURL: URL
+        let patchURL: URL
+        let createdAt: String
+
+        struct Source: Decodable {
+            let branch: String
+            let sha: String?
+            let repo: String?
+        }
 
         enum CodingKeys: String, CodingKey {
-            case name
-            case fullName = "full_name"
+            case number
+            case title
+            case body
+            case state
+            case targetBranch = "target_branch"
+            case source
+            case roundNumber = "round_number"
             case owner
+            case htmlURL = "html_url"
+            case patchURL = "patch_url"
+            case createdAt = "created_at"
         }
     }
+}
 
-    struct User: Decodable {
-        let did: DID
+private struct TangledWebhookRepository: Decodable {
+    let fullName: String
+    let owner: TangledWebhookUser
+
+    enum CodingKeys: String, CodingKey {
+        case fullName = "full_name"
+        case owner
     }
+}
+
+private struct TangledWebhookUser: Decodable {
+    let did: DID
 }
 
 private extension Data {

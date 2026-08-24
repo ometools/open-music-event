@@ -48,6 +48,16 @@ public enum OpenMusicEventAppViewServer {
                 )
             )
         }
+        if let tangledWebhook = configuration.tangledWebhook, let store {
+            services.append(
+                TangledWorkspaceProposalService(
+                    processor: TangledWorkspaceProposalProcessor(
+                        configuration: tangledWebhook,
+                        store: store
+                    )
+                )
+            )
+        }
 
         let notificationRegistration = try notificationRegistration
             ?? withNotificationDependencies(configuration: configuration, store: store) {

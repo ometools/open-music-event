@@ -50,6 +50,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         NotificationDatabase.registerMigrations(into: &migrator)
         TangledSourceProjectionSchema.registerMigration(into: &migrator)
         WebhookInboxSchema.registerMigration(into: &migrator)
+        TangledWorkspaceProposalSchema.registerMigration(into: &migrator)
         WebhookSecretSchema.registerMigration(into: &migrator)
         try migrator.migrate(database)
     }

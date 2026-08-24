@@ -42,7 +42,7 @@ extension OpenMusicEventAppViewStore {
 }
 
 @Table("webhookInboxDeliveries")
-private struct WebhookInboxDeliveryRow: Equatable, Sendable {
+struct WebhookInboxDeliveryRow: Equatable, Sendable {
     var source: String
     var watchID: String
     var deliveryID: String
@@ -50,6 +50,17 @@ private struct WebhookInboxDeliveryRow: Equatable, Sendable {
     var payload: Data
     var payloadDigest: String
     var receivedAt: Date
+
+    var delivery: WebhookInboxDelivery {
+        WebhookInboxDelivery(
+            source: .init(rawValue: source),
+            watchID: .init(rawValue: watchID),
+            deliveryID: .init(rawValue: deliveryID),
+            event: event,
+            payload: payload,
+            receivedAt: receivedAt
+        )
+    }
 }
 
 enum WebhookInboxSchema {

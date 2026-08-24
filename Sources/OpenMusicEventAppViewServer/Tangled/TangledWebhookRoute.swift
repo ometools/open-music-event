@@ -44,23 +44,25 @@ extension OpenMusicEventAppViewServer {
                     webhookRequest,
                     receivedAt: now
                 )
-                if let sourceUpdateProcessor {
-                    try await sourceUpdateProcessor.process(reception.sourceUpdate)
+                if case let .sourceUpdate(sourceUpdate) = reception.event,
+                   let sourceUpdateProcessor
+                {
+                    try await sourceUpdateProcessor.process(sourceUpdate)
                     context.logger.info(
                         "Tangled source update processed",
                         metadata: [
                             "notification.source.reference": .string(
-                                reception.sourceUpdate.canonicalSource.reference
+                                sourceUpdate.canonicalSource.reference
                             ),
                             "notification.source.revision": .string(
-                                reception.sourceUpdate.after
+                                sourceUpdate.after
                             ),
                             "tangled.repository": .string(
-                                "\(reception.sourceUpdate.repositoryOwnerDID)/"
-                                    + reception.sourceUpdate.repositoryKey.rawValue
+                                "\(sourceUpdate.repositoryOwnerDID)/"
+                                    + sourceUpdate.repositoryKey.rawValue
                             ),
                             "webhook.delivery.id": .string(
-                                reception.sourceUpdate.deliveryID.rawValue
+                                sourceUpdate.deliveryID.rawValue
                             ),
                         ]
                     )
@@ -76,7 +78,8 @@ extension OpenMusicEventAppViewServer {
                      .invalidDeliveryID,
                      .invalidPayload,
                      .refMismatch,
-                     .repositoryMismatch:
+                     .repositoryMismatch,
+                     .pullRequestMismatch:
                     throw HTTPError(.badRequest)
                 }
             } catch let error as WebhookInboxError {

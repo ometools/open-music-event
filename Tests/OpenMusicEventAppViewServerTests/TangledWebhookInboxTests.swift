@@ -236,20 +236,22 @@ struct TangledWebhookInboxTests {
 
         expectNoDifference(result.recordResult, .inserted)
         expectNoDifference(
-            result.sourceUpdate,
-            TangledSourceUpdate(
-                watchID: Self.watchID,
-                deliveryID: .init(rawValue: Self.deliveryID),
-                repositoryOwnerDID: try #require(DID(Self.repositoryDID)),
-                ref: "refs/heads/main",
-                before: "1111111111111111111111111111111111111111",
-                after: "2222222222222222222222222222222222222222",
-                receivedAt: Self.receivedAt,
-                canonicalSource: CanonicalTangledSource(
-                    organizerID: try #require(OME.Organizer.ID(Self.canonicalOrganizerID)),
-                    repositoryRecordKey: .init(rawValue: Self.canonicalRepositoryRecordKey)
-                ),
-                repository: Self.repository
+            result.event,
+            .sourceUpdate(
+                TangledSourceUpdate(
+                    watchID: Self.watchID,
+                    deliveryID: .init(rawValue: Self.deliveryID),
+                    repositoryOwnerDID: try #require(DID(Self.repositoryDID)),
+                    ref: "refs/heads/main",
+                    before: "1111111111111111111111111111111111111111",
+                    after: "2222222222222222222222222222222222222222",
+                    receivedAt: Self.receivedAt,
+                    canonicalSource: CanonicalTangledSource(
+                        organizerID: try #require(OME.Organizer.ID(Self.canonicalOrganizerID)),
+                        repositoryRecordKey: .init(rawValue: Self.canonicalRepositoryRecordKey)
+                    ),
+                    repository: Self.repository
+                )
             )
         )
         let persisted = try await Self.persistedInbox(
