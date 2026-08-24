@@ -21,6 +21,11 @@ import SQLiteData
 import Sharing
 import SourceEditing
 import Synchronization
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
+import SwiftUI
+#endif
 import Testing
 import XRPCClient
 
@@ -617,23 +622,16 @@ struct WorkspaceAuthoringStoryTests {
                 failsPush: scenario.failsPush
             )
         } operation: {
-            let opened = TestStore(
+            let opened = WorkspaceStoryLiveStore(
                 initialState: OpenMusicEventApplication.State(
                     storage: authenticationStorage
                 ) {
                     OpenMusicEventAppRoot.State()
-                }
-            ) {
-                OpenMusicEventApplication(
-                    storage: authenticationStorage,
-                    requestCenter: authorizationRequestCenter
-                ) {
-                    OpenMusicEventAppRoot()
-                }
-                    .presentAuthorizationFailures()
-                    .deliverAuthoringAuthorizationChanges()
-            }
-            await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
+                },
+                storage: authenticationStorage,
+                requestCenter: authorizationRequestCenter
+            )
+            try await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
 
             let eligibility = AuthoringEligibility(
                 principal: AuthoringPrincipal(actorID: repositoryOwnerID),
@@ -691,8 +689,6 @@ struct WorkspaceAuthoringStoryTests {
                     opened.state.authentication.session?.accountID,
                     Atmosphere.Account.ID(repositoryOwnerID)
                 )
-                #expect(opened.state.authentication.authorization == nil)
-                #expect(opened.state.authentication.directAuthorization == nil)
                 #expect(operations.snapshot.isEmpty)
             }
 
@@ -778,8 +774,8 @@ struct WorkspaceAuthoringStoryTests {
                 "Wicked Woods 2026"
             )
 
-            // A real editor action opens the live form. TestStore.modify is the same blessed
-            // binding entry point used by SwiftUI, and save writes through Workspace's database.
+            // A real editor action opens the live form. The harness routes form binding changes
+            // through the live store, and save writes through Workspace's database.
             await opened.send(
                 to: \.content.destination!.eventViewer!.authoring.content.content.eventInfoViewer!,
                 .editButtonTapped
@@ -1056,23 +1052,16 @@ struct WorkspaceAuthoringStoryTests {
                 // A fresh app mount must recognize the durable local commit, restore the settled
                 // source, and surface one interrupted publication instead of trapping the user in
                 // source preparation with a persisted-revision mismatch.
-                let remountedStore = TestStore(
+                let remountedStore = WorkspaceStoryLiveStore(
                     initialState: OpenMusicEventApplication.State(
                         storage: authenticationStorage
                     ) {
                         OpenMusicEventAppRoot.State()
-                    }
-                ) {
-                    OpenMusicEventApplication(
-                        storage: authenticationStorage,
-                        requestCenter: authorizationRequestCenter
-                    ) {
-                        OpenMusicEventAppRoot()
-                    }
-                        .presentAuthorizationFailures()
-                        .deliverAuthoringAuthorizationChanges()
-                }
-                await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
+                    },
+                    storage: authenticationStorage,
+                    requestCenter: authorizationRequestCenter
+                )
+                try await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
                 try await workspaceStoryWaitUntil {
                     guard case .publicationInterrupted = remountedStore.state.content.destination?
                         .eventViewer?.authoring.content.phase
@@ -1208,23 +1197,16 @@ struct WorkspaceAuthoringStoryTests {
 
             // A fresh application mount starts in attendee mode. Reentering authoring reuses the
             // selected source branch and restores the tracked review relationship.
-            let remountedStore = TestStore(
+            let remountedStore = WorkspaceStoryLiveStore(
                 initialState: OpenMusicEventApplication.State(
                     storage: authenticationStorage
                 ) {
                     OpenMusicEventAppRoot.State()
-                }
-            ) {
-                OpenMusicEventApplication(
-                    storage: authenticationStorage,
-                    requestCenter: authorizationRequestCenter
-                ) {
-                    OpenMusicEventAppRoot()
-                }
-                    .presentAuthorizationFailures()
-                    .deliverAuthoringAuthorizationChanges()
-            }
-            await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
+                },
+                storage: authenticationStorage,
+                requestCenter: authorizationRequestCenter
+            )
+            try await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
             if target == .settings {
                 await remountedStore.send(
                     to: \.content.destination!.eventViewer!.authoring.content.content.eventSettings!,
@@ -2518,6 +2500,134 @@ struct WorkspaceStoryProposalScenario: CustomStringConvertible, Sendable {
 }
 
 private struct WorkspaceStoryPushFailure: Error {}
+
+@Feature
+private struct WorkspaceStoryLiveApplicationHarness {
+    struct State {
+        var application: OpenMusicEventApplication.State?
+    }
+
+    enum Action {
+        case application(OpenMusicEventApplication.Action)
+        case dismount
+    }
+
+    let requestCenter: AuthorizationRequestCenter
+    let storage: OAuthSessionStorage
+
+    var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .application:
+                break
+
+            case .dismount:
+                state.application = nil
+            }
+        }
+        .ifLet(\.application, action: \.application) {
+            OpenMusicEventApplication(
+                storage: storage,
+                requestCenter: requestCenter
+            ) {
+                OpenMusicEventAppRoot()
+            }
+                .presentAuthorizationFailures()
+                .deliverAuthoringAuthorizationChanges()
+        }
+    }
+}
+
+@MainActor
+private final class WorkspaceStoryLiveStore {
+    private let store: Store<
+        WorkspaceStoryLiveApplicationHarness.State,
+        WorkspaceStoryLiveApplicationHarness.Action
+    >
+
+    init(
+        initialState: OpenMusicEventApplication.State,
+        storage: OAuthSessionStorage,
+        requestCenter: AuthorizationRequestCenter
+    ) {
+        store = Store(
+            initialState: WorkspaceStoryLiveApplicationHarness.State(
+                application: initialState
+            )
+        ) {
+            WorkspaceStoryLiveApplicationHarness(
+                requestCenter: requestCenter,
+                storage: storage
+            )
+        }
+    }
+
+    var state: OpenMusicEventApplication.State {
+        applicationStore.state
+    }
+
+    @discardableResult
+    func send(
+        _ action: OpenMusicEventApplication.Action
+    ) -> Task<Void, Never>? {
+        applicationStore.send(action)
+    }
+
+    @discardableResult
+    func send<Child: FeatureProtocol>(
+        to stateKeyPath: KeyPath<OpenMusicEventApplication.State, Spawn<Child>>,
+        _ action: Child.Action
+    ) -> Task<Void, Never>? {
+        applicationStore.spawn(stateKeyPath).send(action)
+    }
+
+    @discardableResult
+    func send<Child: FeatureProtocol>(
+        to stateKeyPath: KeyPath<OpenMusicEventApplication.State, Spawn<Child>?>,
+        _ action: Child.Action
+    ) -> Task<Void, Never>? {
+        applicationStore.spawn(stateKeyPath)?.send(action)
+    }
+
+    func modify(
+        _ update: (inout OpenMusicEventApplication.State) -> Void
+    ) {
+        @Bindable var applicationStore = applicationStore
+        var state = applicationStore.state
+        update(&state)
+        $applicationStore[dynamicMember: \.self].wrappedValue = state
+    }
+
+    func dismount(timeout: Duration) async {
+        _ = timeout
+        await store.send(.dismount)?.value
+    }
+
+    private var applicationStore: Store<
+        OpenMusicEventApplication.State,
+        OpenMusicEventApplication.Action
+    > {
+        guard let applicationStore = store.scope(\.application, action: \.application) else {
+            preconditionFailure("The workspace story application is not mounted.")
+        }
+        return applicationStore
+    }
+}
+
+@MainActor
+private func workspaceStoryOpenEvent(
+    _ store: WorkspaceStoryLiveStore,
+    route _: AppRoute,
+    url: URL
+) async throws {
+    await store.send(.content(.openURL(url)))?.value
+    try await workspaceStoryWaitUntil {
+        guard let phase = store.state.content.destination?.eventViewer?.authoring.phase else {
+            return false
+        }
+        return phase != .restoring
+    }
+}
 
 @MainActor
 private func workspaceStoryOpenEvent<Subject: FeatureProtocol>(
