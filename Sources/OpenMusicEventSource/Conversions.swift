@@ -1,6 +1,7 @@
 import FileTree
 import Foundation
 import FrontmatterParsing
+import OpenMusicEventLexicon
 import Yams
 
 struct YamlConversion<Value: Codable & Equatable>: Conversion {
@@ -168,7 +169,8 @@ public struct CommunicationPostMarkdownConversion: Conversion {
                 headerImageURL: frontMatter.headerImageURLValue,
                 images: frontMatter.images,
                 timestamp: frontMatter.timestamp,
-                isPinned: frontMatter.isPinned ?? false
+                isPinned: frontMatter.isPinned ?? false,
+                delivery: frontMatter.delivery ?? .standard
             )
         }
     }
@@ -249,6 +251,7 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
     var timestamp: Date?
     var isPinned: Bool?
     var sendPush: Bool?
+    var delivery: OME.Announcement.Delivery?
 
     init(
         title: String,
@@ -256,7 +259,8 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
         images: [SourceImageAsset]? = nil,
         timestamp: Date? = nil,
         isPinned: Bool? = nil,
-        sendPush: Bool? = nil
+        sendPush: Bool? = nil,
+        delivery: OME.Announcement.Delivery? = nil
     ) {
         self.title = title
         self.headerImageURL = headerImageURL
@@ -264,6 +268,7 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
         self.timestamp = timestamp
         self.isPinned = isPinned
         self.sendPush = sendPush
+        self.delivery = delivery
     }
 
     init(_ post: CommunicationPostDTO) {
@@ -272,7 +277,8 @@ private struct CommunicationPostFrontMatter: Codable, Equatable {
             headerImageURL: post.headerImageURL?.absoluteString,
             images: post.images,
             timestamp: post.timestamp,
-            isPinned: post.isPinned ? true : nil
+            isPinned: post.isPinned ? true : nil,
+            delivery: post.delivery == .standard ? nil : post.delivery
         )
     }
 

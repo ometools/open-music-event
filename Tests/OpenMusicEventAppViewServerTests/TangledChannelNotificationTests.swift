@@ -283,6 +283,153 @@ struct TangledChannelNotificationTests {
     }
 
     @Test
+    func `an emergency post reaches every event registration with a short lifetime`() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let beforeRepository = directory.appending(path: "before", directoryHint: .isDirectory)
+        let afterRepository = directory.appending(path: "after", directoryHint: .isDirectory)
+        try Self.writeRepository(to: beforeRepository, posts: [:])
+        try Self.writeRepository(
+            to: afterRepository,
+            posts: [
+                "evacuate-now": SourcePost(
+                    contents: "Proceed to the marked evacuation point.",
+                    delivery: .emergency
+                )
+            ]
+        )
+
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let notifications = withDependencies {
+            $0.defaultDatabase = database
+            $0.notificationDestinationProtectionClient = protection.client
+        } operation: {
+            NotificationDatabase()
+        }
+        try await Self.register(
+            id: "event-ios",
+            destination: .apns(
+                Push.APNS(
+                    applicationID: .init(rawValue: "com.Festivl.WickedWoods"),
+                    environment: .production,
+                    deviceToken: .init(rawValue: "production-device-token")
+                )
+            ),
+            sourceIDs: [Self.eventSourceID],
+            in: notifications
+        )
+        try await Self.register(
+            id: "event-android",
+            destination: .fcm(
+                Push.FCM(
+                    applicationID: .init(rawValue: "fm.woody.openmusicevent"),
+                    installationID: .init(rawValue: "android-installation-id")
+                )
+            ),
+            sourceIDs: [Self.eventSourceID],
+            in: notifications
+        )
+        try await Self.register(
+            id: "channel-only-ios",
+            destination: .apns(
+                Push.APNS(
+                    applicationID: .init(rawValue: "app.channel.only"),
+                    environment: .development,
+                    deviceToken: .init(rawValue: "channel-only-device-token")
+                )
+            ),
+            sourceIDs: [.init(rawValue: Self.channelRoute)],
+            in: notifications
+        )
+
+        let checkout = TangledSourceCheckoutClient { request in
+            let repository: URL
+            switch request.ref {
+            case Self.beforeRevision:
+                repository = beforeRepository
+            case Self.afterRevision:
+                repository = afterRepository
+            default:
+                throw FixtureError.unexpectedRevision(request.ref)
+            }
+            try FileManager.default.copyItem(at: repository, to: request.outputURL)
+            return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
+        let processor = TangledSourceUpdateProcessor.publishSourceAndNotifyChannels(
+            store: store,
+            artifactPublisher: Self.successfulArtifactPublisher,
+            downloadAndValidate: Self.loadFixtureArchive
+        )
+        try await withDependencies {
+            $0.tangledSourceCheckout = checkout
+            $0.uuid = .incrementing
+        } operation: {
+            try await processor.process(Self.update())
+        }
+
+        let emergencyDeliveries = try await database.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT registrations.applicationID,
+                           outbox.deliveryClass,
+                           outbox.expiresAt,
+                           outbox.message,
+                           outbox.sourceID
+                    FROM pushOutbox AS outbox
+                    JOIN pushRegistrations AS registrations
+                      ON registrations.installationID = outbox.installationID
+                    ORDER BY registrations.applicationID
+                    """
+            )
+            .compactMap { row -> PersistedEmergencyDelivery? in
+                let deliveryClass: String = row["deliveryClass"]
+                guard deliveryClass == "emergency" else {
+                    return nil
+                }
+                let messageData: Data = row["message"]
+                let message = try NotificationProviderMessage(
+                    json: String(decoding: messageData, as: UTF8.self)
+                )
+                return PersistedEmergencyDelivery(
+                    applicationID: row["applicationID"],
+                    expiresAt: row["expiresAt"],
+                    route: message.data[NotificationProviderMessage.routeKey],
+                    sourceID: row["sourceID"]
+                )
+            }
+        }
+        expectNoDifference(
+            emergencyDeliveries,
+            [
+                PersistedEmergencyDelivery(
+                    applicationID: "com.Festivl.WickedWoods",
+                    expiresAt: Self.receivedAt.addingTimeInterval(
+                        OME.Announcement.Delivery.emergencyTimeToLive
+                    ),
+                    route: "\(Self.channelRoute)/posts/evacuate-now",
+                    sourceID: Self.eventSourceID.rawValue
+                ),
+                PersistedEmergencyDelivery(
+                    applicationID: "fm.woody.openmusicevent",
+                    expiresAt: Self.receivedAt.addingTimeInterval(
+                        OME.Announcement.Delivery.emergencyTimeToLive
+                    ),
+                    route: "\(Self.channelRoute)/posts/evacuate-now",
+                    sourceID: Self.eventSourceID.rawValue
+                ),
+            ]
+        )
+    }
+
+    @Test
     func `removing the last post refreshes its event without a visible alert`() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -927,14 +1074,14 @@ private extension TangledChannelNotificationTests {
         )
     }
 
-    static func writeRepository(to root: URL, posts: [String: String]) throws {
+    static func writeRepository(to root: URL, posts: [String: SourcePost]) throws {
         try writeEvent(to: root, eventDirectory: "2026", posts: posts)
     }
 
     static func writeEvent(
         to root: URL,
         eventDirectory: String,
-        posts: [String: String]
+        posts: [String: SourcePost]
     ) throws {
         let communications = root
             .appending(path: "events", directoryHint: .isDirectory)
@@ -960,13 +1107,14 @@ private extension TangledChannelNotificationTests {
             defaultNotificationState: subscribed
             """.utf8
         ).write(to: communications.appending(path: "channel-info.yaml"))
-        for (postID, contents) in posts {
+        for (postID, post) in posts {
             try Data(
                 """
                 ---
                 title: \(postID)
+                delivery: \(post.delivery.rawValue)
                 ---
-                \(contents)
+                \(post.contents)
                 """.utf8
             ).write(to: communications.appending(path: "\(postID).md"))
         }
@@ -1029,6 +1177,30 @@ private struct PersistedChannelDelivery: Equatable {
     let sourceID: String
     let sourceVersion: String
     let title: String?
+}
+
+private struct PersistedEmergencyDelivery: Equatable {
+    let applicationID: String
+    let expiresAt: Date
+    let route: String?
+    let sourceID: String
+}
+
+private struct SourcePost: ExpressibleByStringLiteral {
+    let contents: String
+    let delivery: OME.Announcement.Delivery
+
+    init(
+        contents: String,
+        delivery: OME.Announcement.Delivery = .standard
+    ) {
+        self.contents = contents
+        self.delivery = delivery
+    }
+
+    init(stringLiteral value: String) {
+        self.init(contents: value)
+    }
 }
 
 private enum FixtureError: Error, Equatable {

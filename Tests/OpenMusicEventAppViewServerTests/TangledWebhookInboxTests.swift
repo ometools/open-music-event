@@ -557,7 +557,8 @@ struct TangledWebhookInboxTests {
               "fcm": [
                 {
                   "applicationID": "com.Festivl.WickedWoods",
-                  "projectID": "ome-push-notifications"
+                  "projectID": "ome-push-notifications",
+                  "emergencyChannelID": "emergency-alerts"
                 }
               ]
             }

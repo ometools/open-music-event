@@ -334,7 +334,7 @@ struct SourceWorkspacePatchGenerationTests {
     }
 
     @Test
-    func `a saved comms post becomes the normal source proposal patch`() async throws {
+    func `a saved emergency post becomes the source proposal patch`() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let workspace = try fixture.workspace(
@@ -387,6 +387,7 @@ struct SourceWorkspacePatchGenerationTests {
             try CommsPost.find(postID).update {
                 $0.title = "Gates are open"
                 $0.contents = "**Welcome** to Wicked Woods."
+                $0.delivery = #bind(.emergency)
             }
             .execute(db)
         }
@@ -402,6 +403,7 @@ struct SourceWorkspacePatchGenerationTests {
             as: UTF8.self
         )
         #expect(markdown.contains("title: Gates are open"))
+        #expect(markdown.contains("delivery: emergency"))
         #expect(markdown.contains("**Welcome** to Wicked Woods."))
     }
 

@@ -7,7 +7,11 @@ import skip.ui.*
 
 import android.Manifest
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.graphics.Color as AndroidColor
+import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
@@ -33,6 +37,8 @@ private typealias AppRootView = OpenMusicEventApplicationRootView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 private typealias AppBootstrap = OpenMusicEventAndroidApplication
 
+private const val emergencyNotificationChannelID = "emergency-alerts"
+
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
 open class AndroidAppMain: Application {
     constructor() {
@@ -43,9 +49,26 @@ open class AndroidAppMain: Application {
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
         AppBootstrap.prepareDependencies()
+        createEmergencyNotificationChannel()
     }
 
     companion object {
+    }
+
+    private fun createEmergencyNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val channel = NotificationChannel(
+            emergencyNotificationChannelID,
+            "Emergency alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Urgent safety information from event organizers."
+            enableVibration(true)
+        }
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        notificationManager.createNotificationChannel(channel)
     }
 }
 

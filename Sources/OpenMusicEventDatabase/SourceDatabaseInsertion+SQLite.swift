@@ -609,6 +609,7 @@ private extension CommsPost {
             images: post.images,
             timestamp: post.timestamp,
             isPinned: post.isPinned,
+            delivery: post.delivery,
             sortIndex: post.sortIndex
         )
     }

@@ -199,7 +199,7 @@ struct NotificationRegistrationStoryTests {
     }
 
     @Test @MainActor
-    func `entered event receives channel FCM updates and survives app and AppView restarts`() async throws {
+    func `entered event receives standard and emergency FCM updates across restarts`() async throws {
         let database = try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -283,7 +283,15 @@ struct NotificationRegistrationStoryTests {
         try writeNotificationSourceRepository(to: beforeRepository, posts: [:])
         try writeNotificationSourceRepository(
             to: afterRepository,
-            posts: ["gates-open": "The gates are now open."]
+            posts: [
+                "gates-open": NotificationSourcePost(
+                    contents: "The gates are now open."
+                ),
+                "evacuate-now": NotificationSourcePost(
+                    contents: "Proceed to the marked evacuation point.",
+                    delivery: .emergency
+                ),
+            ]
         )
         let sourceCheckout = TangledSourceCheckoutClient { request in
             let repository: URL
@@ -323,20 +331,19 @@ struct NotificationRegistrationStoryTests {
             tangledWebhook: try TangledWebhookConfiguration(
                 watches: [
                     TangledWebhookWatch(
-                        id: webhookWatchID,
+                        repository: TangledRepositoryReference(
+                            host: "tangled.org",
+                            owner: "wickedwoods.ca",
+                            repository: "ome-workspace"
+                        ),
                         hookID: webhookHookID,
                         repositoryOwnerDID: organizerID,
-                        repositoryKey: repositoryKey,
                         ref: "refs/heads/main",
                         canonicalSource: CanonicalTangledSource(
                             organizerID: try #require(
                                 OME.Organizer.ID(organizerID.description)
                             ),
                             repositoryRecordKey: repositoryKey
-                        ),
-                        artifactRepository: .init(
-                            owner: "wickedwoods.ca",
-                            repository: "ome-workspace"
                         )
                     )
                 ]
@@ -378,7 +385,8 @@ struct NotificationRegistrationStoryTests {
             configuration: NotificationProviderHTTPConfiguration(
                 fcm: [
                     .init(rawValue: "app.openmusicevent"): .init(
-                        projectID: "open-music-event"
+                        projectID: "open-music-event",
+                        emergencyChannelID: "emergency-alerts"
                     )
                 ]
             ),
@@ -391,7 +399,8 @@ struct NotificationRegistrationStoryTests {
             ),
             transport: NotificationProviderHTTPTransport { request in
                 try await fakeFCM.send(request)
-            }
+            },
+            now: { Date(timeIntervalSince1970: 0) }
         )
 
         do {
@@ -570,16 +579,16 @@ struct NotificationRegistrationStoryTests {
                             body: ByteBuffer(data: webhookPayload)
                         )
                         #expect(webhookResponse.head.status == .accepted)
-                        try await fakeFCM.waitForRequestCount(2)
-                        try await requestRecorder.waitForRequestCount(7)
+                        try await fakeFCM.waitForRequestCount(3)
+                        try await requestRecorder.waitForRequestCount(8)
                         let refreshedEventIDs = await eventRefreshRecorder.eventIDs()
                         expectNoDifference(
                             refreshedEventIDs,
-                            [eventID, eventID]
+                            [eventID, eventID, eventID]
                         )
 
                         let providerRequests = await fakeFCM.requests()
-                        expectNoDifference(providerRequests.count, 2)
+                        expectNoDifference(providerRequests.count, 3)
                         for providerRequest in providerRequests {
                             expectNoDifference(providerRequest.method, .post)
                             expectNoDifference(
@@ -597,6 +606,7 @@ struct NotificationRegistrationStoryTests {
                         expectNoDifference(
                             providerRequests.map { String(decoding: $0.body, as: UTF8.self) },
                             [
+                                #"{"message":{"android":{"priority":"HIGH","ttl":"900s"},"data":{"body":"Proceed to the marked evacuation point.","kind":"content","route":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements/posts/evacuate-now","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","title":"evacuate-now","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten","notification":{"body":"Proceed to the marked evacuation point.","channel_id":"emergency-alerts","title":"evacuate-now"}}}"#,
                                 #"{"message":{"data":{"kind":"source_available","source":"at://did:plc:wickedwoods/app.openmusicevent.event/2026","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten"}}"#,
                                 #"{"message":{"android":{"priority":"HIGH"},"data":{"body":"The gates are now open.","kind":"content","route":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements/posts/gates-open","source":"/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","title":"gates-open","version":"2222222222222222222222222222222222222222"},"fid":"fcm-registration-token-that-must-not-be-rewritten","notification":{"body":"The gates are now open.","title":"gates-open"}}}"#,
                             ]
@@ -708,7 +718,7 @@ struct NotificationRegistrationStoryTests {
                 }
                 await destinationTask?.value
 
-                try await requestRecorder.waitForRequestCount(7)
+                try await requestRecorder.waitForRequestCount(8)
                 withExtendedLifetime(relaunchedStore) {}
             }
         }
@@ -797,7 +807,7 @@ struct NotificationRegistrationStoryTests {
                 #"{"sourceIDs":["/orgs/did%3Aplc%3Awickedwoods/events/2026/communications/announcements","at://did:plc:wickedwoods/app.openmusicevent.event/2026"]}"#,
             ]
         )
-        expectNoDifference(browseExchanges.count, 3)
+        expectNoDifference(browseExchanges.count, 4)
         #expect(browseExchanges.allSatisfy { $0.response.status == .ok })
         #expect(registrationExchanges.dropFirst().allSatisfy { $0.responseBody.isEmpty })
         #expect(registrationExchanges[0].request.headerFields[.authorization] == nil)
@@ -869,7 +879,7 @@ private func tangledPushPayload(
 
 private func writeNotificationSourceRepository(
     to root: URL,
-    posts: [String: String]
+    posts: [String: NotificationSourcePost]
 ) throws {
     let event = root
         .appending(path: "events", directoryHint: .isDirectory)
@@ -894,16 +904,22 @@ private func writeNotificationSourceRepository(
         defaultNotificationState: subscribed
         """.utf8
     ).write(to: communications.appending(path: "channel-info.yaml"))
-    for (postID, contents) in posts {
+    for (postID, post) in posts {
         try Data(
             """
             ---
             title: \(postID)
+            delivery: \(post.delivery.rawValue)
             ---
-            \(contents)
+            \(post.contents)
             """.utf8
         ).write(to: communications.appending(path: "\(postID).md"))
     }
+}
+
+private struct NotificationSourcePost {
+    var contents: String
+    var delivery: OME.Announcement.Delivery = .standard
 }
 
 private func tangledWebhookHeaders(
@@ -940,7 +956,9 @@ private actor FakeFCMTransport {
         self.delivery = delivery
     }
 
-    func send(_ request: NotificationProviderHTTPRequest) async throws {
+    func send(
+        _ request: NotificationProviderHTTPRequest
+    ) async throws -> NotificationProviderHTTPResponse {
         let payload = try JSONSerialization.jsonObject(with: request.body)
         guard
             let payload = payload as? [String: Any],
@@ -955,6 +973,7 @@ private actor FakeFCMTransport {
         )
         await delivery?(String(decoding: appPayload, as: UTF8.self))
         recordedRequests.append(request)
+        return NotificationProviderHTTPResponse(status: 200)
     }
 
     func requests() -> [NotificationProviderHTTPRequest] {

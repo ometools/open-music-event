@@ -193,6 +193,9 @@ extension OpenMusicEventAppViewStore {
                 )
             }
 
+            let emergencyExpiresAt = update.receivedAt.addingTimeInterval(
+                OME.Announcement.Delivery.emergencyTimeToLive
+            )
             for post in addedPosts.sorted(by: {
                 $0.id.postID.rawValue.rawValue < $1.id.postID.rawValue.rawValue
             }) {
@@ -200,15 +203,31 @@ extension OpenMusicEventAppViewStore {
                     organizerID: post.id.organizerID,
                     eventID: post.id.eventID
                 )
-                let source = NotificationSource(
-                    id: .init(
-                        rawValue: openMusicEventEventPathRouter.communicationChannelPath(
-                            eventID: eventID,
-                            channelID: post.id.channelID
-                        )
-                    ),
-                    version: .init(rawValue: update.after)
-                )
+                let source: NotificationSource
+                let delivery: NotificationPresentation.Delivery
+                switch post.delivery {
+                case .emergency:
+                    source = NotificationSource(
+                        id: .init(rawValue: OME.Event.reference(id: eventID).uri.description),
+                        version: .init(rawValue: update.after)
+                    )
+                    delivery = .emergency(expiresAt: emergencyExpiresAt)
+
+                case .silent:
+                    continue
+
+                case .standard:
+                    source = NotificationSource(
+                        id: .init(
+                            rawValue: openMusicEventEventPathRouter.communicationChannelPath(
+                                eventID: eventID,
+                                channelID: post.id.channelID
+                            )
+                        ),
+                        version: .init(rawValue: update.after)
+                    )
+                    delivery = .standard
+                }
                 let route = TangledCommunicationPostNotificationRoute(
                     notificationRoute: openMusicEventEventPathRouter.communicationPostPath(
                         eventID: eventID,
@@ -222,7 +241,8 @@ extension OpenMusicEventAppViewStore {
                         route: route,
                         presentation: NotificationPresentation(
                             title: post.title,
-                            body: post.contents
+                            body: post.contents,
+                            delivery: delivery
                         )
                     ),
                     at: update.receivedAt,

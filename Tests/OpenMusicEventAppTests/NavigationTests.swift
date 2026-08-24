@@ -7231,7 +7231,7 @@ struct NavigationTests {
     }
 
     @Test
-    func `an author saves a comms post to the event database`() async throws {
+    func `an author saves an emergency comms post to the event database`() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let channelID = channelRecordID("general", eventID: eventID)
@@ -7258,6 +7258,11 @@ struct NavigationTests {
             }
         }
 
+        // The author marks this post as an emergency in the notification picker.
+        store.modify {
+            $0.draft.delivery = .emergency
+        }
+
         // Saving dismisses the form and leaves the source-backed change in defaultDatabase.
         await store.send(.saveButtonTapped) {
             $0.isSaving = true
@@ -7279,6 +7284,7 @@ struct NavigationTests {
                 title: "Gates are open",
                 contents: "**Welcome** to Wicked Woods.",
                 timestamp: Date(timeIntervalSince1970: 0),
+                delivery: .emergency,
                 sortIndex: 0
             )
         )

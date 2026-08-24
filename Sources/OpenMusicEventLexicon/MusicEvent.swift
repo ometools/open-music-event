@@ -849,10 +849,12 @@ extension OpenMusicEvent {
         public static let collection = AnnouncementCollection.announcement
         public static let nsid = collection.nsid
 
-        public enum Delivery: String, Codable, Equatable, Sendable {
+        public enum Delivery: String, Codable, Equatable, Hashable, Sendable, SQLiteType {
             case emergency
             case silent
             case standard
+
+            public static let emergencyTimeToLive: TimeInterval = 15 * 60
         }
 
         public var type: String
@@ -862,7 +864,6 @@ extension OpenMusicEvent {
         public var title: String
         public var markdown: String
         public var delivery: Delivery
-        public var requestsOperatingSystemEmergencyAlert: Bool
         public var createdAt: String
         public var updatedAt: String?
 
@@ -874,7 +875,6 @@ extension OpenMusicEvent {
             title: String,
             markdown: String,
             delivery: Delivery = .standard,
-            requestsOperatingSystemEmergencyAlert: Bool = false,
             createdAt: String,
             updatedAt: String? = nil
         ) {
@@ -885,7 +885,6 @@ extension OpenMusicEvent {
             self.title = title
             self.markdown = markdown
             self.delivery = delivery
-            self.requestsOperatingSystemEmergencyAlert = requestsOperatingSystemEmergencyAlert
             self.createdAt = createdAt
             self.updatedAt = updatedAt
         }

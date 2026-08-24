@@ -83,7 +83,10 @@ public extension AppViewConfiguration {
                     )
                 } ?? [:],
                 fcm: configuration.fcm?.applications.mapValues {
-                    .init(projectID: $0.projectID)
+                    .init(
+                        projectID: $0.projectID,
+                        emergencyChannelID: $0.emergencyChannelID
+                    )
                 } ?? [:]
             ),
             authorization: NotificationProviderAuthorization(

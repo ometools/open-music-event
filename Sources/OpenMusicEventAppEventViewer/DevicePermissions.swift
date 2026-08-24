@@ -6,6 +6,7 @@ import SkipKit
 import SkipSwiftUI
 #elseif os(iOS)
 import UIKit
+import UserNotifications
 #endif
 
 public struct DevicePermissions: Equatable, Sendable {
@@ -81,11 +82,18 @@ extension DevicePermissionsClient: DependencyKey {
             #endif
         },
         requestNotifications: {
+            #if os(iOS)
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.alert, .badge, .criticalAlert, .sound]
+            )
+            let authorization = await PermissionManager.queryPostNotificationPermission()
+            #else
             let authorization = try await PermissionManager.requestPostNotificationPermission(
                 alert: true,
                 sound: true,
                 badge: true
             )
+            #endif
             #if os(Android)
             UserDefaults.standard.set(true, forKey: notificationPermissionWasRequestedKey)
             #endif

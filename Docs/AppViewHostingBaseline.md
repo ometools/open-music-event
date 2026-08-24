@@ -97,7 +97,8 @@ at least one matching provider route:
   "fcm": [
     {
       "applicationID": "com.Festivl.WickedWoods",
-      "projectID": "ome-push-notifications"
+      "projectID": "ome-push-notifications",
+      "emergencyChannelID": "emergency-alerts"
     }
   ]
 }
@@ -107,7 +108,8 @@ Use `development` for an application ID whose tokens come from Xcode development
 `production` for an application ID distributed through TestFlight or the App Store. APNs routing
 is selected independently for every registered application ID; FCM routes each application ID to
 its configured Firebase project and has no APNs-style sandbox host. The routing file contains no
-private key or service-account JSON.
+private key or service-account JSON. `emergencyChannelID` must match the high-importance channel
+created by the Android application.
 
 Branded route configuration keeps the public claim separate from the durable event identity. The
 Wicked Woods production entry is:

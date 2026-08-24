@@ -117,6 +117,7 @@ public extension OME {
                 images: [OME.ImageAsset]? = nil,
                 timestamp: Date? = nil,
                 isPinned: Bool = false,
+                delivery: OME.Announcement.Delivery = .standard,
                 sortIndex: Int
             ) {
                 self.id = id
@@ -126,6 +127,7 @@ public extension OME {
                 self.images = images
                 self.timestamp = timestamp
                 self.isPinned = isPinned
+                self.delivery = delivery
                 self.sortIndex = sortIndex
             }
 
@@ -136,6 +138,7 @@ public extension OME {
             public var images: [OME.ImageAsset]?
             public var timestamp: Date?
             public var isPinned: Bool
+            public var delivery: OME.Announcement.Delivery
             public var sortIndex: Int
         }
 
@@ -477,6 +480,7 @@ public extension OME {
                             ),
                             timestamp: post.data.timestamp,
                             isPinned: post.data.isPinned,
+                            delivery: post.data.delivery,
                             sortIndex: index
                         )
                     }

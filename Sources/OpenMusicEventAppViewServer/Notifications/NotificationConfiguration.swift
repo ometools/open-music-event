@@ -59,11 +59,13 @@ public struct AppViewNotificationProviderConfiguration: Equatable, Sendable {
 
     public struct FCM: Equatable, Sendable {
         public struct Application: Equatable, Sendable {
-            public init(projectID: String) {
+            public init(projectID: String, emergencyChannelID: String) {
                 self.projectID = projectID
+                self.emergencyChannelID = emergencyChannelID
             }
 
             public var projectID: String
+            public var emergencyChannelID: String
         }
 
         public init(
@@ -170,7 +172,8 @@ extension AppViewConfiguration {
         for application in file.fcm {
             guard
                 isNonemptyConfigurationValue(application.applicationID),
-                isNonemptyConfigurationValue(application.projectID)
+                isNonemptyConfigurationValue(application.projectID),
+                isNonemptyConfigurationValue(application.emergencyChannelID)
             else {
                 throw AppViewConfigurationError.notificationProviderConfigurationInvalid(path)
             }
@@ -181,7 +184,10 @@ extension AppViewConfiguration {
                     applicationID: applicationID
                 )
             }
-            fcmApplications[applicationID] = .init(projectID: application.projectID)
+            fcmApplications[applicationID] = .init(
+                projectID: application.projectID,
+                emergencyChannelID: application.emergencyChannelID
+            )
         }
 
         let apns: AppViewNotificationProviderConfiguration.APNS?
@@ -241,6 +247,7 @@ private struct NotificationProviderConfigurationFile: Decodable {
     struct FCMApplication: Decodable {
         var applicationID: String
         var projectID: String
+        var emergencyChannelID: String
     }
 }
 

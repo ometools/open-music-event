@@ -646,7 +646,8 @@ public struct CommunicationPostDTO: Equatable, Sendable {
         headerImageURL: URL? = nil,
         images: [SourceImageAsset]? = nil,
         timestamp: Date? = nil,
-        isPinned: Bool = false
+        isPinned: Bool = false,
+        delivery: OME.Announcement.Delivery = .standard
     ) {
         self.title = title
         self.contents = contents
@@ -654,6 +655,7 @@ public struct CommunicationPostDTO: Equatable, Sendable {
         self.images = images?.bundlingAppearancePairs()
         self.timestamp = timestamp
         self.isPinned = isPinned
+        self.delivery = delivery
     }
 
     public var title: String
@@ -662,6 +664,7 @@ public struct CommunicationPostDTO: Equatable, Sendable {
     public var images: [SourceImageAsset]?
     public var timestamp: Date?
     public var isPinned: Bool
+    public var delivery: OME.Announcement.Delivery
 }
 
 public struct PosterDTO: Codable, Equatable, Sendable {

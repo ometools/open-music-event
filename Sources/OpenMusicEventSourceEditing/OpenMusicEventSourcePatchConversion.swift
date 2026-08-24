@@ -736,7 +736,8 @@ private extension CommunicationPostDTO {
             headerImageURL: post.headerImageURL,
             images: post.images?.sourceImageAssets(),
             timestamp: post.timestamp,
-            isPinned: post.isPinned
+            isPinned: post.isPinned,
+            delivery: post.delivery
         )
     }
 }

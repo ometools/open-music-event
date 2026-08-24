@@ -10,6 +10,65 @@ import Testing
 
 struct DatabaseMigrationTests {
     @Test
+    func `existing comms posts migrate to standard notification delivery`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(
+            database,
+            upTo: "Add attached images to OpenMusicEvent comms posts"
+        )
+
+        try await database.write { db in
+            try db.execute(sql: """
+                INSERT INTO "organizers" ("id")
+                VALUES ('did:plc:festival');
+
+                INSERT INTO "events" (
+                  "organizerID", "eventID", "name", "timeZone"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'Summer Festival', 'America/Denver'
+                );
+
+                INSERT INTO "channels" (
+                  "organizerID", "eventID", "channelID", "name", "description",
+                  "defaultNotificationState"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'announcements', 'Announcements',
+                  'Official updates.', 'subscribed'
+                );
+
+                INSERT INTO "commsPosts" (
+                  "organizerID", "eventID", "channelID", "postID", "title", "contents",
+                  "sortIndex"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'announcements', 'gates-open',
+                  'Gates are open', 'Welcome to the festival.', 0
+                );
+                """)
+        }
+
+        try migrator.migrate(database)
+
+        let delivery = try await database.read { db in
+            try String.fetchOne(
+                db,
+                sql: #"SELECT "delivery" FROM "commsPosts" WHERE "postID" = 'gates-open'"#
+            )
+        }
+        expectNoDifference(delivery, "standard")
+
+        await #expect(throws: (any Error).self) {
+            try await database.write { db in
+                try db.execute(
+                    sql: #"UPDATE "commsPosts" SET "delivery" = 'unknown'"#
+                )
+            }
+        }
+    }
+
+    @Test
     func migratesPerformanceIntoPerformanceScheduleItemWithoutChangingItsScheduleData() async throws {
         let database = try SQLiteData.defaultDatabase()
 

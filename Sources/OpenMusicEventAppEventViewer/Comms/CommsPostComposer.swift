@@ -2,16 +2,20 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import SwiftUI
 
 public struct CommsPostDraft: Equatable, Sendable {
+    public var delivery: OME.Announcement.Delivery
     public var markdown: String
     public var title: String
 
     public init(
         title: String = "",
-        markdown: String = ""
+        markdown: String = "",
+        delivery: OME.Announcement.Delivery = .standard
     ) {
+        self.delivery = delivery
         self.markdown = markdown
         self.title = title
     }
@@ -198,6 +202,7 @@ public struct CommsPostComposer {
             title: draft.trimmedTitle,
             contents: draft.trimmedMarkdown,
             timestamp: timestamp,
+            delivery: draft.delivery,
             sortIndex: (existingPosts.map(\.sortIndex).max() ?? -1) + 1
         )
     }
@@ -211,6 +216,10 @@ public struct CommsPostComposerView: View {
     }
 
     public var body: some View {
+        let emergencyLifetimeInMinutes = Int(
+            OME.Announcement.Delivery.emergencyTimeToLive / 60
+        )
+
         Form {
             Section {
                 Picker(
@@ -234,6 +243,18 @@ public struct CommsPostComposerView: View {
                     TextField("Title", text: $store.draft.title)
                     CommsMarkdownEditor(markdown: $store.draft.markdown)
                 }
+            }
+
+            Section("Notification") {
+                Picker("Delivery", selection: $store.draft.delivery) {
+                    Text("Standard").tag(OME.Announcement.Delivery.standard)
+                    Text("Emergency").tag(OME.Announcement.Delivery.emergency)
+                }
+                Text(
+                    "Emergency alerts use the operating system's urgent presentation and expire after \(emergencyLifetimeInMinutes) minutes."
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let errorMessage = store.errorMessage {

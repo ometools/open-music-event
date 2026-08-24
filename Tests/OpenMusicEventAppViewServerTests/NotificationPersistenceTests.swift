@@ -739,7 +739,12 @@ struct NotificationPersistenceTests {
                         privateKeyURL: directory.appending(path: "unused-apns-key.p8")
                     ),
                     fcm: .init(
-                        applications: [applicationID: .init(projectID: "ome-push-notifications")],
+                        applications: [
+                            applicationID: .init(
+                                projectID: "ome-push-notifications",
+                                emergencyChannelID: "emergency-alerts"
+                            )
+                        ],
                         serviceAccountURL: directory.appending(path: "unused-fcm-account.json")
                     )
                 ),
@@ -944,7 +949,8 @@ struct NotificationPersistenceTests {
               "fcm": [
                 {
                   "applicationID": "com.Festivl.WickedWoods",
-                  "projectID": "ome-push-notifications"
+                  "projectID": "ome-push-notifications",
+                  "emergencyChannelID": "emergency-alerts"
                 }
               ]
             }
@@ -984,7 +990,8 @@ struct NotificationPersistenceTests {
                 fcm: .init(
                     applications: [
                         .init(rawValue: "com.Festivl.WickedWoods"): .init(
-                            projectID: "ome-push-notifications"
+                            projectID: "ome-push-notifications",
+                            emergencyChannelID: "emergency-alerts"
                         )
                     ],
                     serviceAccountURL: URL(fileURLWithPath: serviceAccountPath)
@@ -1039,7 +1046,8 @@ struct NotificationPersistenceTests {
               "fcm": [
                 {
                   "applicationID": "com.Festivl.WickedWoods",
-                  "projectID": "   "
+                  "projectID": "ome-push-notifications",
+                  "emergencyChannelID": "   "
                 }
               ]
             }
@@ -1072,7 +1080,8 @@ struct NotificationPersistenceTests {
               "fcm": [
                 {
                   "applicationID": "com.Festivl.WickedWoods",
-                  "projectID": "ome-push-notifications"
+                  "projectID": "ome-push-notifications",
+                  "emergencyChannelID": "emergency-alerts"
                 }
               ]
             }

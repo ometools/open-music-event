@@ -290,6 +290,15 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Add notification delivery to OpenMusicEvent comms posts") { db in
+                try #sql("""
+                    ALTER TABLE "commsPosts"
+                    ADD COLUMN "delivery" TEXT NOT NULL DEFAULT 'standard'
+                    CHECK ("delivery" IN ('standard', 'silent', 'emergency'))
+                    """)
+                    .execute(db)
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
             WorkspacePublicationMigrations.register(into: &migrator)
 
