@@ -459,7 +459,11 @@ struct OpenMusicEventApplicationRuntime {
                     environment: environment
                 )
             }
-            $0.openMusicEventAppConfiguration = variant.appConfiguration
+            let appConfiguration = variant.appConfiguration
+            $0.openMusicEventAppConfiguration = appConfiguration
+            $0.devicePermissions = .live(
+                supportsCriticalAlerts: appConfiguration.supportsCriticalAlerts
+            )
         } operation: {
             @Dependency(\.notificationsClient) var notificationsClient
             let selectedEventRestoration = restoresSelectedEvent

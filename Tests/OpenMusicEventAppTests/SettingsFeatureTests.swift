@@ -25,6 +25,9 @@ import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
 #endif
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
 import Testing
 import XRPCClient
 
@@ -156,6 +159,36 @@ struct TechnicalDetailsTests {
 @MainActor
 @Suite(.tcaExhaustivity(.off))
 struct SettingsFeatureTests {
+    @Test
+    func `Wicked Woods supports Critical Alerts without exposing them in generic OME`() {
+        expectNoDifference(
+            OpenMusicEventAppConfiguration.wickedWoods.supportsCriticalAlerts,
+            true
+        )
+        expectNoDifference(
+            OpenMusicEventAppConfiguration.openMusicEvent.supportsCriticalAlerts,
+            false
+        )
+    }
+
+    #if canImport(UserNotifications)
+    @Test
+    func `an entitled app can request Critical Alerts before authorization exists`() {
+        expectNoDifference(
+            UNNotificationSetting.notSupported.devicePermissionAuthorization(
+                supportsCriticalAlerts: true
+            ),
+            .disabled
+        )
+        expectNoDifference(
+            UNNotificationSetting.notSupported.devicePermissionAuthorization(
+                supportsCriticalAlerts: false
+            ),
+            .unavailable
+        )
+    }
+    #endif
+
     @Test
     func `clean authoring exit proceeds without a destructive prompt`() async throws {
         let fixture = try await makeEventSettingsAuthoringExitFixture(isDirty: false)

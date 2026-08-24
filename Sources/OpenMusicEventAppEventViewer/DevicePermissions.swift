@@ -1,11 +1,15 @@
 import Dependencies
 import Foundation
 import Sharing
+#if os(Android) || os(iOS)
 import SkipKit
+#endif
 #if os(Android)
 import SkipSwiftUI
 #elseif os(iOS)
 import UIKit
+import UserNotifications
+#elseif canImport(UserNotifications)
 import UserNotifications
 #endif
 
@@ -64,90 +68,108 @@ public struct DevicePermissionsClient: Sendable {
 }
 
 extension DevicePermissionsClient: DependencyKey {
-    public static let liveValue = Self(
-        load: {
-            let authorization = await PermissionManager.queryPostNotificationPermission()
-            #if os(iOS)
-            let criticalAlerts = await UNUserNotificationCenter.current()
-                .notificationSettings()
-                .criticalAlertSetting
-                .devicePermissionAuthorization
-            #else
-            let criticalAlerts = DevicePermissions.CriticalAlertAuthorization.unavailable
-            #endif
-            #if os(Android)
-            if authorization == .unknown,
-               UserDefaults.standard.bool(forKey: notificationPermissionWasRequestedKey)
-            {
+    public static var liveValue: Self {
+        live(supportsCriticalAlerts: false)
+    }
+
+    public static func live(supportsCriticalAlerts: Bool) -> Self {
+        Self(
+            load: {
+                #if os(iOS)
+                let authorization = await PermissionManager.queryPostNotificationPermission()
+                let criticalAlerts = await UNUserNotificationCenter.current()
+                    .notificationSettings()
+                    .criticalAlertSetting
+                    .devicePermissionAuthorization(
+                        supportsCriticalAlerts: supportsCriticalAlerts
+                    )
                 return DevicePermissions(
                     criticalAlerts: criticalAlerts,
-                    notifications: .denied
+                    notifications: authorization.devicePermissionAuthorization
                 )
-            }
-            #endif
-            return DevicePermissions(
-                criticalAlerts: criticalAlerts,
-                notifications: authorization.devicePermissionAuthorization
-            )
-        },
-        openNotificationSettings: {
-            #if os(Android)
-            guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
-                return false
-            }
-            return await UIApplication.shared.open(url, options: [:])
-            #elseif os(iOS)
-            guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
-                return false
-            }
-            return await withCheckedContinuation { continuation in
-                UIApplication.shared.open(url, options: [:]) { success in
-                    continuation.resume(returning: success)
+                #elseif os(Android)
+                let authorization = await PermissionManager.queryPostNotificationPermission()
+                if authorization == .unknown,
+                   UserDefaults.standard.bool(forKey: notificationPermissionWasRequestedKey)
+                {
+                    return DevicePermissions(
+                        criticalAlerts: .unavailable,
+                        notifications: .denied
+                    )
                 }
+                return DevicePermissions(
+                    criticalAlerts: .unavailable,
+                    notifications: authorization.devicePermissionAuthorization
+                )
+                #else
+                return DevicePermissions()
+                #endif
+            },
+            openNotificationSettings: {
+                #if os(Android)
+                guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
+                    return false
+                }
+                return await UIApplication.shared.open(url, options: [:])
+                #elseif os(iOS)
+                guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
+                    return false
+                }
+                return await withCheckedContinuation { continuation in
+                    UIApplication.shared.open(url, options: [:]) { success in
+                        continuation.resume(returning: success)
+                    }
+                }
+                #else
+                return false
+                #endif
+            },
+            requestCriticalAlerts: {
+                #if os(iOS)
+                guard supportsCriticalAlerts else { return .unavailable }
+                _ = try await UNUserNotificationCenter.current().requestAuthorization(
+                    options: [.criticalAlert]
+                )
+                return await UNUserNotificationCenter.current()
+                    .notificationSettings()
+                    .criticalAlertSetting
+                    .devicePermissionAuthorization(
+                        supportsCriticalAlerts: supportsCriticalAlerts
+                    )
+                #else
+                return .unavailable
+                #endif
+            },
+            requestNotifications: {
+                #if os(iOS)
+                _ = try await UNUserNotificationCenter.current().requestAuthorization(
+                    options: [.alert, .badge, .sound]
+                )
+                let authorization = await PermissionManager.queryPostNotificationPermission()
+                return authorization.devicePermissionAuthorization
+                #elseif os(Android)
+                let authorization = try await PermissionManager.requestPostNotificationPermission(
+                    alert: true,
+                    sound: true,
+                    badge: true
+                )
+                UserDefaults.standard.set(true, forKey: notificationPermissionWasRequestedKey)
+                return authorization.devicePermissionAuthorization
+                #else
+                return .unknown
+                #endif
             }
-            #else
-            return false
-            #endif
-        },
-        requestCriticalAlerts: {
-            #if os(iOS)
-            _ = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.criticalAlert]
-            )
-            return await UNUserNotificationCenter.current()
-                .notificationSettings()
-                .criticalAlertSetting
-                .devicePermissionAuthorization
-            #else
-            return .unavailable
-            #endif
-        },
-        requestNotifications: {
-            #if os(iOS)
-            _ = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.alert, .badge, .sound]
-            )
-            let authorization = await PermissionManager.queryPostNotificationPermission()
-            #else
-            let authorization = try await PermissionManager.requestPostNotificationPermission(
-                alert: true,
-                sound: true,
-                badge: true
-            )
-            #endif
-            #if os(Android)
-            UserDefaults.standard.set(true, forKey: notificationPermissionWasRequestedKey)
-            #endif
-            return authorization.devicePermissionAuthorization
-        }
-    )
+        )
+    }
 
-    public static let testValue = Self(
-        load: { DevicePermissions() },
-        openNotificationSettings: { false },
-        requestCriticalAlerts: { .unavailable },
-        requestNotifications: { .unknown }
-    )
+    public static var testValue: Self {
+        Self(
+            load: { DevicePermissions() },
+            openNotificationSettings: { false },
+            requestCriticalAlerts: { .unavailable },
+            requestNotifications: { .unknown }
+        )
+    }
 }
 
 public extension DependencyValues {
@@ -187,6 +209,7 @@ public extension SharedReaderKey where Self == DevicePermissionsKey.Default {
     }
 }
 
+#if os(Android) || os(iOS)
 extension PermissionAuthorization {
     var devicePermissionAuthorization: DevicePermissions.NotificationAuthorization {
         switch self {
@@ -203,17 +226,22 @@ extension PermissionAuthorization {
         }
     }
 }
+#endif
 
-#if os(iOS)
+#if canImport(UserNotifications)
 extension UNNotificationSetting {
-    var devicePermissionAuthorization: DevicePermissions.CriticalAlertAuthorization {
-        switch self {
+    func devicePermissionAuthorization(
+        supportsCriticalAlerts: Bool
+    ) -> DevicePermissions.CriticalAlertAuthorization {
+        guard supportsCriticalAlerts else { return .unavailable }
+
+        return switch self {
         case .disabled:
             .disabled
         case .enabled:
             .enabled
         case .notSupported:
-            .unavailable
+            .disabled
         @unknown default:
             .unavailable
         }

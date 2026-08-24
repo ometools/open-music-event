@@ -7,16 +7,19 @@ import OpenMusicEventAppRouting
 
 public struct OpenMusicEventAppConfiguration: Equatable, Sendable {
     public var productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration?
+    public var supportsCriticalAlerts: Bool
 
     public init(
-        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp
+        productFeedbackBoard: OpenMusicEventFeedbackBoardConfiguration? = .openMusicEventApp,
+        supportsCriticalAlerts: Bool = false
     ) {
         self.productFeedbackBoard = productFeedbackBoard
+        self.supportsCriticalAlerts = supportsCriticalAlerts
     }
 
     public static let openMusicEvent = Self()
 
-    public static let wickedWoods = Self()
+    public static let wickedWoods = Self(supportsCriticalAlerts: true)
 }
 
 public struct OpenMusicEventFeedbackBoardConfiguration: Equatable, Sendable {
