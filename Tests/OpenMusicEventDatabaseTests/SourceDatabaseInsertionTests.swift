@@ -3027,15 +3027,95 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func `published event replacement cannot cross a repository boundary`() async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
+        let installedEventID = eventID("attendee-event", organizerID: organizerID)
+        let installedSource = tangledSourceProvenance("installed-source", ref: "old-revision")
+        let installedWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: installedSource.reference,
+            branch: "old-revision"
+        )
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Installed content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: installedSource
+            )
+        )
+        let foreignSource = tangledSourceProvenance("foreign-source", ref: "new-revision")
+        let foreignWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: foreignSource.reference,
+            branch: "new-revision"
+        )
+        let foreignInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Foreign content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: foreignSource
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await installedInsertion.installPublishedEvent(
+            installedEventID,
+            from: installedWorkspace,
+            in: database
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await foreignInsertion.replacePublishedEvent(
+                installedEventID,
+                from: foreignWorkspace,
+                replacing: installedWorkspace,
+                in: database
+            )
+        }
+
+        try await database.read { db in
+            expectNoDifference(
+                try OME.Event.find(installedEventID).fetchOne(db)?.name,
+                "Installed content"
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+        }
+    }
+
+    @Test
     func `confirmed authoring exit restores a deleted attendee event and discards workspace state atomically`() async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:authoring-exit"))
         let attendeeEventID = eventID("attendee-event", organizerID: organizerID)
         let authoringOnlyEventID = eventID("authoring-only", organizerID: organizerID)
-        let sourceProvenance = tangledSourceProvenance("authoring-exit", ref: "main")
+        let installedRevision = "installed-revision"
+        let publishedRevision = "published-revision"
+        let installedSource = tangledSourceProvenance(
+            "authoring-exit",
+            ref: installedRevision
+        )
+        let publishedSource = tangledSourceProvenance(
+            "authoring-exit",
+            ref: publishedRevision
+        )
         let workspace = SourceWorkspace(
             organizerID: organizerID,
-            repository: sourceProvenance.reference,
-            branch: "main"
+            repository: installedSource.reference,
+            branch: installedRevision
         )
         let attendeeSource = try makeSourceRepository(
             eventDirectoryName: "attendee-event",
@@ -3053,7 +3133,7 @@ struct SourceDatabaseInsertionTests {
                     events: attendeeSource.events + authoringOnlySource.events
                 ),
                 organizerID: organizerID,
-                sourceProvenance: sourceProvenance
+                sourceProvenance: installedSource
             )
         )
         let publishedInsertion = try OME.SourceDatabaseInsertion(
@@ -3064,7 +3144,7 @@ struct SourceDatabaseInsertionTests {
                     explicitLocalEventID: id("attendee-event")
                 ),
                 organizerID: organizerID,
-                sourceProvenance: sourceProvenance
+                sourceProvenance: publishedSource
             )
         )
         let unrelatedOrganizerID = try #require(OME.Organizer.ID("did:plc:unrelated"))
@@ -3115,7 +3195,7 @@ struct SourceDatabaseInsertionTests {
 
         try await OME.SourceDatabaseInsertion.restorePublishedEvents(
             [publishedInsertion],
-            from: workspace,
+            replacing: workspace,
             in: database
         )
 
@@ -3133,6 +3213,14 @@ struct SourceDatabaseInsertionTests {
             expectNoDifference(
                 try InstalledEventRecord.fetchAll(db).map(\.id),
                 [attendeeEventID]
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(attendeeEventID).fetchOne(db)?.ref,
+                publishedRevision
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(attendeeEventID).fetchOne(db)?.ref,
+                publishedRevision
             )
             #expect(
                 try SourceWorkspaceInstallationRecord.find(workspace.id).fetchOne(db) == nil
@@ -3214,7 +3302,7 @@ struct SourceDatabaseInsertionTests {
         await #expect(throws: (any Error).self) {
             try await OME.SourceDatabaseInsertion.restorePublishedEvents(
                 [],
-                from: workspace,
+                replacing: workspace,
                 in: database
             )
         }

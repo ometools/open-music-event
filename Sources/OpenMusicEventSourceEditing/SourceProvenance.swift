@@ -82,6 +82,14 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         )
     }
 
+    /// Whether two revisions belong to the same organizer-owned repository.
+    ///
+    /// A workspace ID includes its ref. Published attendee content may advance that ref, but it
+    /// must never cross either the organizer or repository boundary.
+    public func referencesSameRepository(as other: Self) -> Bool {
+        organizerID == other.organizerID && repository == other.repository
+    }
+
     public static func normalizedBranch(_ branch: String?) -> String {
         let branch = branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if branch.isEmpty || branch == "HEAD" {

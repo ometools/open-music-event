@@ -191,20 +191,16 @@ extension OMEEventInstallationClient: DependencyKey {
                 publishedEvents.reserveCapacity(installedEventIDs.count)
                 for eventID in installedEventIDs {
                     let published = try await publishedEventInstallation(eventID)
-                    guard published.workspace.id == workspace.id else {
+                    guard published.workspace.referencesSameRepository(as: workspace) else {
                         throw OMEEventInstallationError.installationSourceUnavailable(
                             OME.Event.reference(id: eventID).uri
                         )
                     }
-                    var insertion = published.insertion
-                    for index in insertion.eventSourceProvenances.indices {
-                        insertion.eventSourceProvenances[index].source = workspace.sourceProvenance
-                    }
-                    publishedEvents.append(insertion)
+                    publishedEvents.append(published.insertion)
                 }
                 try await OME.SourceDatabaseInsertion.restorePublishedEvents(
                     publishedEvents,
-                    from: workspace,
+                    replacing: workspace,
                     in: database
                 )
             },
@@ -229,30 +225,28 @@ extension OMEEventInstallationClient: DependencyKey {
                 """)
 
                 let published = try await publishedEventInstallation(eventID)
-                guard published.workspace.id == workspace.id else {
+                guard published.workspace.referencesSameRepository(as: workspace) else {
                     throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
                 }
                 NotificationRefreshDiagnostics.notice("""
                 Installed event source validated
                 event: \(eventURI)
-                repository: \(workspace.repository)
-                ref: \(workspace.defaultBranch)
+                repository: \(published.workspace.repository)
+                installed ref: \(workspace.defaultBranch)
+                published ref: \(published.workspace.defaultBranch)
                 """)
 
-                var insertion = published.insertion
-                for index in insertion.eventSourceProvenances.indices {
-                    insertion.eventSourceProvenances[index].source = workspace.sourceProvenance
-                }
-                try await insertion.replacePublishedEvent(
+                try await published.insertion.replacePublishedEvent(
                     eventID,
-                    from: workspace,
+                    from: published.workspace,
+                    replacing: workspace,
                     in: database
                 )
                 NotificationRefreshDiagnostics.notice("""
                 Installed event source committed
                 event: \(eventURI)
-                repository: \(workspace.repository)
-                ref: \(workspace.defaultBranch)
+                repository: \(published.workspace.repository)
+                ref: \(published.workspace.defaultBranch)
                 """)
             },
             install: { eventURI in

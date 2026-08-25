@@ -1508,6 +1508,144 @@ struct EventBrowseStoryTests {
         #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)
     }
 
+    @Test
+    func `refreshing Wicked Woods advances the published revision without losing attendee data`() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
+        )
+        let sourceReference = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+        let installedRevision = "d8048ab9d0ba54d6266e23d7b2e6c65de595ac7b"
+        let publishedRevision = "3cc283a5d07218f4dfc55652513e9191d2040a06"
+        let installedSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: sourceReference,
+            ref: installedRevision
+        )
+        let installedWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: sourceReference,
+            branch: installedRevision
+        )
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: OpenMusicEventSourceRepository(
+                    events: [
+                        try wickedWoodsSourceEvent(
+                            directoryName: "2026",
+                            name: "Wicked Woods before refresh",
+                            timeZone: timeZone,
+                            includesCommunicationPost: true,
+                            communicationPostContents: "The earlier published update."
+                        )
+                    ]
+                ),
+                organizerID: organizerID,
+                sourceProvenance: installedSource
+            )
+        )
+        try await installedInsertion.installPublishedEvent(
+            eventID,
+            from: installedWorkspace,
+            in: database
+        )
+
+        // This is an already-shipped attendee database: its selected schedule and read state are
+        // user data, while its source provenance still points at the previously published commit.
+        let userSchedule = UserSchedule(
+            id: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000026")),
+            eventID: eventID,
+            title: "My Schedule"
+        )
+        let installedPostID = try await database.read { db in
+            try #require(CommsPost.fetchOne(db)?.id)
+        }
+        try await database.write { db in
+            try UserSchedule.insert { userSchedule }.execute(db)
+            try CommsPostRead.insert { CommsPostRead(id: installedPostID) }.execute(db)
+            try db.execute(
+                sql: """
+                    INSERT INTO "contributorPreferences" (
+                      "organizerID", "eventID", "contributorID", "isFavorite"
+                    ) VALUES (?, ?, 'favorite-artist', 1)
+                    """,
+                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+            )
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { _, _ in
+                Data(Self.wickedWoodsRevisionRefreshResponse.utf8)
+            }
+            $0.uuid = .constant(
+                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000027"))
+            )
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                expectNoDifference(
+                    request.repository.normalizedReference,
+                    "tangled.org/did:plc:5df2u7ief6m6tn77jznicxob/ome-workspace"
+                )
+                expectNoDifference(request.ref, publishedRevision)
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                try writeWickedWoodsSourceWithTwoEvents(
+                    to: request.outputURL,
+                    event2026Name: "Wicked Woods after refresh",
+                    includes2026CommunicationPost: true,
+                    communicationPostContents: "The emergency update arrived."
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            try await OMEEventInstallationClient.liveValue.synchronizeInstalledEvent(eventID)
+        }
+
+        try await database.read { db in
+            expectNoDifference(
+                try OME.Event.find(eventID).fetchOne(db)?.name,
+                "Wicked Woods after refresh"
+            )
+            expectNoDifference(
+                try CommsPost.fetchOne(db)?.contents,
+                "The emergency update arrived."
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.ref,
+                publishedRevision
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(eventID).fetchOne(db)?.ref,
+                publishedRevision
+            )
+            expectNoDifference(try UserSchedule.find(userSchedule.id).fetchOne(db), userSchedule)
+            expectNoDifference(
+                try CommsPostRead.fetchAll(db).map(\.id),
+                [installedPostID]
+            )
+            expectNoDifference(
+                try Int.fetchOne(
+                    db,
+                    sql: #"SELECT "isFavorite" FROM "contributorPreferences" WHERE "contributorID" = 'favorite-artist'"#
+                ),
+                1
+            )
+        }
+    }
+
     @Test @MainActor
     func `a failed event installation is reported without becoming detail state`() async throws {
         struct InstallationFailure: Error {}
@@ -1664,6 +1802,41 @@ extension EventBrowseStoryTests {
             "resolvedRepository": {
               "reference": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
               "ref": "main"
+            }
+          }
+        }
+        """#
+
+    static let wickedWoodsRevisionRefreshResponse = #"""
+        {
+          "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
+          "name": "Wicked Woods 2026",
+          "locations": [],
+          "links": [],
+          "media": [],
+          "organizer": {
+            "id": "did:plc:5df2u7ief6m6tn77jznicxob",
+            "displayName": "Wicked Woods"
+          },
+          "attendance": {
+            "going": 0,
+            "interested": 0,
+            "notGoing": 0
+          },
+          "source": {
+            "collection": "app.openmusicevent.event",
+            "appViewHost": "stg.openmusicevent.app",
+            "sourceRecord": {
+              "$type": "app.openmusicevent.source",
+              "kind": "tangled",
+              "reference": "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace",
+              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
+            },
+            "resolvedArtifact": {
+              "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
+              "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
+              "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+              "byteCount": 403521
             }
           }
         }
@@ -1829,7 +2002,8 @@ private func writeWickedWoodsSourceWithTwoEvents(
     to repositoryURL: URL,
     event2026Name: String = "Wicked Woods 2026",
     event2026EndDate: LocalDate? = nil,
-    includes2026CommunicationPost: Bool = false
+    includes2026CommunicationPost: Bool = false,
+    communicationPostContents: String = "Welcome to Wicked Woods."
 ) throws {
     let timeZone = try #require(TimeZone(identifier: "America/Denver"))
     let source = OpenMusicEventSourceRepository(
@@ -1844,7 +2018,8 @@ private func writeWickedWoodsSourceWithTwoEvents(
                 name: event2026Name,
                 timeZone: timeZone,
                 endDate: event2026EndDate,
-                includesCommunicationPost: includes2026CommunicationPost
+                includesCommunicationPost: includes2026CommunicationPost,
+                communicationPostContents: communicationPostContents
             ),
         ]
     )
@@ -1870,7 +2045,8 @@ private func wickedWoodsSourceEvent(
     name: String,
     timeZone: TimeZone,
     endDate: LocalDate? = nil,
-    includesCommunicationPost: Bool = false
+    includesCommunicationPost: Bool = false,
+    communicationPostContents: String = "Welcome to Wicked Woods."
 ) throws -> DirectoryContent<OpenMusicEventSourceEvent> {
     DirectoryContent(
         directoryName: directoryName,
@@ -1918,7 +2094,7 @@ private func wickedWoodsSourceEvent(
                                 fileType: "md",
                                 data: CommunicationPostDTO(
                                     title: "Welcome",
-                                    contents: "Welcome to Wicked Woods."
+                                    contents: communicationPostContents
                                 )
                             )
                         ]
