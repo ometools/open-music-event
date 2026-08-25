@@ -198,6 +198,25 @@ public extension OpenMusicEvent.CalendarEvent {
     }
 
     struct Source: Codable, Equatable, Sendable {
+        public struct Artifact: Codable, Equatable, Sendable {
+            public init(
+                url: URL,
+                revision: String,
+                checksumSHA256: String,
+                byteCount: Int
+            ) {
+                self.url = url
+                self.revision = revision
+                self.checksumSHA256 = checksumSHA256
+                self.byteCount = byteCount
+            }
+
+            public var url: URL
+            public var revision: String
+            public var checksumSHA256: String
+            public var byteCount: Int
+        }
+
         public struct Repository: Codable, Equatable, Sendable {
             public init(
                 reference: String,
@@ -215,17 +234,20 @@ public extension OpenMusicEvent.CalendarEvent {
             collection: ATProto.NSID,
             appViewHost: ATProto.PDSHost? = nil,
             sourceRecord: OpenMusicEvent.SourceRecord? = nil,
+            resolvedArtifact: Artifact? = nil,
             resolvedRepository: Repository? = nil
         ) {
             self.collection = collection
             self.appViewHost = appViewHost
             self.sourceRecord = sourceRecord
+            self.resolvedArtifact = resolvedArtifact
             self.resolvedRepository = resolvedRepository
         }
 
         public var collection: ATProto.NSID
         public var appViewHost: ATProto.PDSHost?
         public var sourceRecord: OpenMusicEvent.SourceRecord?
+        public var resolvedArtifact: Artifact?
         public var resolvedRepository: Repository?
     }
 

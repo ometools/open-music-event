@@ -25,6 +25,15 @@ struct CalendarEventLexiconTests {
         let sourceProperties = try #require(source["properties"] as? [String: Any])
         let sourceRecord = try #require(sourceProperties["sourceRecord"] as? [String: Any])
         #expect(sourceRecord["ref"] as? String == "#sourceRecord")
+        let resolvedArtifact = try #require(
+            sourceProperties["resolvedArtifact"] as? [String: Any]
+        )
+        #expect(resolvedArtifact["ref"] as? String == "#sourceArtifact")
+        let sourceArtifact = try #require(definitionsBody["sourceArtifact"] as? [String: Any])
+        #expect(
+            sourceArtifact["required"] as? [String]
+                == ["url", "revision", "checksumSHA256", "byteCount"]
+        )
 
         let page = try #require(definitionsBody["page"] as? [String: Any])
         let pageProperties = try #require(page["properties"] as? [String: Any])
@@ -76,6 +85,11 @@ struct CalendarEventLexiconTests {
             eventID: OME.ID<OME.Event>(.init("wicked-woods-2026"))
         )
         let event = try makeEvent(id: eventID)
+        let artifactURL = try #require(
+            URL(
+                string: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace/archive/2222222222222222222222222222222222222222.tar.gz"
+            )
+        )
         let source = OME.CalendarEvent.Source(
             collection: OME.Event.nsid,
             appViewHost: "openmusicevent.app",
@@ -83,6 +97,16 @@ struct CalendarEventLexiconTests {
                 kind: .tangled,
                 reference: "https://tangled.org/wickedwoods.ca/ome-workspace",
                 ref: "main"
+            ),
+            resolvedArtifact: OME.CalendarEvent.Source.Artifact(
+                url: artifactURL,
+                revision: "2222222222222222222222222222222222222222",
+                checksumSHA256: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM=",
+                byteCount: 7
+            ),
+            resolvedRepository: OME.CalendarEvent.Source.Repository(
+                reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
+                ref: "2222222222222222222222222222222222222222"
             )
         )
         let organizer = OME.CalendarEvent.Organizer(
@@ -139,6 +163,17 @@ struct CalendarEventLexiconTests {
         let encodedSourceRecord = try #require(encodedSource["sourceRecord"] as? [String: Any])
         #expect(encodedSourceRecord["$type"] as? String == OME.SourceRecord.nsid.rawValue)
         #expect(encodedSourceRecord["reference"] as? String == "https://tangled.org/wickedwoods.ca/ome-workspace")
+        let encodedArtifact = try #require(encodedSource["resolvedArtifact"] as? [String: Any])
+        #expect(encodedArtifact["url"] as? String == artifactURL.absoluteString)
+        #expect(
+            encodedArtifact["revision"] as? String
+                == "2222222222222222222222222222222222222222"
+        )
+        #expect(
+            encodedArtifact["checksumSHA256"] as? String
+                == "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM="
+        )
+        #expect(encodedArtifact["byteCount"] as? Int == 7)
     }
 
     @Test

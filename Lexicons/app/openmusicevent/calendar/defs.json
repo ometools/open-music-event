@@ -134,6 +134,7 @@
         "collection": { "type": "string", "format": "nsid" },
         "appViewHost": { "type": "string" },
         "sourceRecord": { "type": "ref", "ref": "#sourceRecord" },
+        "resolvedArtifact": { "type": "ref", "ref": "#sourceArtifact" },
         "resolvedRepository": { "type": "ref", "ref": "#sourceRepository" }
       }
     },
@@ -149,6 +150,17 @@
         "reference": { "type": "string" },
         "ref": { "type": "string" },
         "createdAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "sourceArtifact": {
+      "type": "object",
+      "description": "The immutable source archive published by the AppView. Canonical source identity remains in sourceRecord.",
+      "required": ["url", "revision", "checksumSHA256", "byteCount"],
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "revision": { "type": "string" },
+        "checksumSHA256": { "type": "string" },
+        "byteCount": { "type": "integer", "minimum": 0 }
       }
     },
     "sourceRepository": {

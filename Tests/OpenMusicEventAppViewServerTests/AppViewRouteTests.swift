@@ -378,6 +378,9 @@ struct AppViewRouteTests {
                 ),
                 replacing: TangledSourceSnapshot.empty(revision: firstUpdate.before),
                 publishedArtifact: PublishedSourceArtifact(
+                    url: try #require(
+                        URL(string: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/\(firstRevision).tar.gz")
+                    ),
                     reference: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg",
                     objectKey: "woody.fm/wicked-woods-ome-stg/archive/\(firstRevision).tar.gz",
                     revision: firstRevision,
@@ -402,6 +405,17 @@ struct AppViewRouteTests {
                         kind: .tangled,
                         reference: watch.canonicalSource.reference,
                         ref: firstRevision
+                    )
+                )
+                expectNoDifference(
+                    event.source.resolvedArtifact,
+                    OME.CalendarEvent.Source.Artifact(
+                        url: try #require(
+                            URL(string: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/\(firstRevision).tar.gz")
+                        ),
+                        revision: firstRevision,
+                        checksumSHA256: "fixture-sha256",
+                        byteCount: 1
                     )
                 )
                 expectNoDifference(
@@ -462,6 +476,9 @@ struct AppViewRouteTests {
                     posts: []
                 ),
                 publishedArtifact: PublishedSourceArtifact(
+                    url: try #require(
+                        URL(string: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/\(secondRevision).tar.gz")
+                    ),
                     reference: "https://resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg",
                     objectKey: "woody.fm/wicked-woods-ome-stg/archive/\(secondRevision).tar.gz",
                     revision: secondRevision,

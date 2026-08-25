@@ -46,6 +46,12 @@ public struct SourceArtifactS3Configuration: Sendable {
         "\(repository.owner)/\(repository.repository)/archive/\(revision).tar.gz"
     }
 
+    func publicURL(key: String) -> URL {
+        key.split(separator: "/").reduce(publicOrigin) { url, component in
+            url.appending(path: String(component))
+        }
+    }
+
     func objectURL(key: String) -> URL {
         key.split(separator: "/").reduce(
             URL(string: "https://s3.\(region).amazonaws.com")!

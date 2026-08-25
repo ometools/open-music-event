@@ -34,6 +34,7 @@ public struct SourceArtifactPublisher: Sendable {
             )
             _ = try await httpClient.run(signedRequest.request, request.archiveData)
             return PublishedSourceArtifact(
+                url: configuration.publicURL(key: objectKey),
                 reference: configuration.reference(for: request.repository),
                 objectKey: objectKey,
                 revision: request.revision,
@@ -52,6 +53,7 @@ struct SourceArtifactPublicationRequest: Equatable, Sendable {
 }
 
 struct PublishedSourceArtifact: Equatable, Sendable {
+    let url: URL
     let reference: String
     let objectKey: String
     let revision: String

@@ -295,6 +295,7 @@ private struct TangledSourceRevisionRow: Equatable, Sendable {
     var ref: String
     @Column("sourceID") var canonicalSourceReference: String
     var revision: String
+    var artifactURL: String?
     var artifactReference: String?
     var artifactObjectKey: String?
     var artifactChecksumSHA256: String?
@@ -311,6 +312,7 @@ private struct TangledSourceRevisionRow: Equatable, Sendable {
         ref = update.ref
         canonicalSourceReference = update.canonicalSource.reference
         revision = update.after
+        artifactURL = publishedArtifact.url.absoluteString
         artifactReference = publishedArtifact.reference
         artifactObjectKey = publishedArtifact.objectKey
         artifactChecksumSHA256 = publishedArtifact.checksumSHA256
@@ -319,13 +321,18 @@ private struct TangledSourceRevisionRow: Equatable, Sendable {
     }
 
     var publishedArtifact: PublishedSourceArtifact? {
-        guard let artifactReference,
+        guard let artifactURL,
+              let url = URL(string: artifactURL),
+              url.scheme == "https",
+              url.host(percentEncoded: false) != nil,
+              let artifactReference,
               let artifactObjectKey,
               let artifactChecksumSHA256,
               let artifactByteCount,
               let artifactPublishedAt
         else { return nil }
         return PublishedSourceArtifact(
+            url: url,
             reference: artifactReference,
             objectKey: artifactObjectKey,
             revision: revision,
@@ -389,7 +396,20 @@ private struct TangledSourceCalendarEventRow: Equatable, Sendable {
             )
         }
         var calendarEvent = try JSONDecoder().decode(OME.CalendarEvent.self, from: event)
+        guard calendarEvent.source.sourceRecord?.ref == publishedArtifact.revision else {
+            throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
+                watchID: watchID,
+                expected: publishedArtifact.revision,
+                actual: calendarEvent.source.sourceRecord?.ref
+            )
+        }
         calendarEvent.source.appViewHost = appViewHost
+        calendarEvent.source.resolvedArtifact = OME.CalendarEvent.Source.Artifact(
+            url: publishedArtifact.url,
+            revision: publishedArtifact.revision,
+            checksumSHA256: publishedArtifact.checksumSHA256,
+            byteCount: publishedArtifact.byteCount
+        )
         calendarEvent.source.resolvedRepository = OME.CalendarEvent.Source.Repository(
             reference: publishedArtifact.reference,
             ref: publishedArtifact.revision
@@ -502,6 +522,25 @@ enum TangledSourceProjectionSchema {
                 """
                 CREATE INDEX \(quote: browseIndex)
                 ON \(quote: eventTable) ("watchID", "startsAt", "uri")
+                """
+            )
+            .execute(database)
+        }
+        migrator.registerMigration("Advertise exact Tangled source artifact URLs") { database in
+            let revisionTable = TangledSourceRevisionRow.tableName
+            try #sql(
+                "ALTER TABLE \(quote: revisionTable) ADD COLUMN \"artifactURL\" TEXT"
+            )
+            .execute(database)
+            try #sql(
+                """
+                UPDATE \(quote: revisionTable)
+                SET "artifactURL" = rtrim("artifactReference", '/') || '/archive/' || "revision" || '.tar.gz'
+                WHERE "artifactReference" IS NOT NULL
+                  AND "artifactObjectKey" IS NOT NULL
+                  AND "artifactChecksumSHA256" IS NOT NULL
+                  AND "artifactByteCount" IS NOT NULL
+                  AND "artifactPublishedAt" IS NOT NULL
                 """
             )
             .execute(database)

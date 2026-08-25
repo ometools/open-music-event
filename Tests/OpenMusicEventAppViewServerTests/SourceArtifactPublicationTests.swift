@@ -54,6 +54,9 @@ struct SourceArtifactPublicationTests {
         expectNoDifference(
             artifact,
             PublishedSourceArtifact(
+                url: try #require(
+                    URL(string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz")
+                ),
                 reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
                 objectKey: "staging-owner/festival-staging/archive/\(Self.revision).tar.gz",
                 revision: Self.revision,
@@ -201,6 +204,9 @@ struct SourceArtifactPublicationTests {
         let expectedResult = SourceArtifactBackfillResult(
             watchID: Self.watchID.rawValue,
             revision: Self.revision,
+            url: try #require(
+                URL(string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz")
+            ),
             reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
             objectKey: "staging-owner/festival-staging/archive/\(Self.revision).tar.gz",
             checksumSHA256: "fixture-sha256"
@@ -238,6 +244,17 @@ struct SourceArtifactPublicationTests {
         expectNoDifference(event.name, "Festival 2026")
         expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
         expectNoDifference(
+            event.source.resolvedArtifact,
+            OME.CalendarEvent.Source.Artifact(
+                url: try #require(
+                    URL(string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz")
+                ),
+                revision: Self.revision,
+                checksumSHA256: "fixture-sha256",
+                byteCount: Self.revision.utf8.count
+            )
+        )
+        expectNoDifference(
             event.source.resolvedRepository,
             OME.CalendarEvent.Source.Repository(
                 reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
@@ -249,6 +266,103 @@ struct SourceArtifactPublicationTests {
             try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
         }
         expectNoDifference(notificationCount, 0)
+    }
+
+    @Test
+    func `migration advertises legacy artifacts without losing their checkpoint or event`() async throws {
+        let database = try DatabaseQueue()
+        try Self.migrateLegacyArtifactSchema(database)
+        let calendarEvent = try Self.calendarEvent(revision: Self.revision)
+        let encodedEvent = try JSONEncoder().encode(calendarEvent)
+
+        // This is the complete artifact and event shape stored by the current public server.
+        try await database.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO tangledSourceRevisions
+                      (watchID, repositoryDID, repositoryKey, ref, sourceID, revision,
+                       artifactReference, artifactObjectKey, artifactChecksumSHA256,
+                       artifactByteCount, artifactPublishedAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    Self.watchID.rawValue,
+                    Self.repositoryOwnerDID,
+                    Self.repositoryKey,
+                    "refs/heads/main",
+                    Self.canonicalSourceReference,
+                    Self.revision,
+                    "https://resources.openmusicevent.app/staging-owner/festival-staging",
+                    "staging-owner/festival-staging/archive/\(Self.revision).tar.gz",
+                    "fixture-sha256",
+                    Self.revision.utf8.count,
+                    Self.receivedAt,
+                ]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO tangledSourceCalendarEvents (uri, watchID, startsAt, event)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    calendarEvent.uri.description,
+                    Self.watchID.rawValue,
+                    nil,
+                    encodedEvent,
+                ]
+            )
+        }
+
+        // Opening the real store applies the new forward migration in place.
+        let store = try OpenMusicEventAppViewStore(database: database)
+
+        let migratedURL = try #require(
+            try await database.read { database in
+                try String.fetchOne(
+                    database,
+                    sql: """
+                        SELECT artifactURL
+                        FROM tangledSourceRevisions
+                        WHERE watchID = ?
+                        """,
+                    arguments: [Self.watchID.rawValue]
+                )
+            }
+        )
+        expectNoDifference(
+            migratedURL,
+            "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz"
+        )
+
+        let checkpoint = try #require(
+            try await store.tangledSourceCheckpoint(watchID: Self.watchID)
+        )
+        expectNoDifference(
+            checkpoint.publishedArtifact,
+            Self.publishedArtifact(
+                for: SourceArtifactPublicationRequest(
+                    archiveData: Data(Self.revision.utf8),
+                    repository: Self.repository,
+                    revision: Self.revision
+                )
+            )
+        )
+        let catalog = try store.tangledSourceCalendarEvents(
+            watchIDs: [Self.watchID],
+            appViewHost: "stg.openmusicevent.app"
+        )
+        let event = try #require(catalog.first)
+        expectNoDifference(catalog.count, 1)
+        expectNoDifference(event.uri, calendarEvent.uri)
+        expectNoDifference(
+            event.source.resolvedArtifact,
+            OME.CalendarEvent.Source.Artifact(
+                url: try #require(URL(string: migratedURL)),
+                revision: Self.revision,
+                checksumSHA256: "fixture-sha256",
+                byteCount: Self.revision.utf8.count
+            )
+        )
     }
 }
 
@@ -369,6 +483,9 @@ private extension SourceArtifactPublicationTests {
         for request: SourceArtifactPublicationRequest
     ) -> PublishedSourceArtifact {
         PublishedSourceArtifact(
+            url: URL(
+                string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(request.revision).tar.gz"
+            )!,
             reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
             objectKey: "staging-owner/festival-staging/archive/\(request.revision).tar.gz",
             revision: request.revision,
@@ -376,6 +493,62 @@ private extension SourceArtifactPublicationTests {
             byteCount: request.archiveData.count,
             publishedAt: receivedAt
         )
+    }
+
+    static func migrateLegacyArtifactSchema(_ database: DatabaseQueue) throws {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("Create Tangled source notification projections") { database in
+            try database.execute(
+                sql: """
+                    CREATE TABLE tangledSourceRevisions (
+                      watchID TEXT PRIMARY KEY NOT NULL,
+                      repositoryDID TEXT NOT NULL,
+                      repositoryKey TEXT NOT NULL,
+                      ref TEXT NOT NULL,
+                      sourceID TEXT NOT NULL,
+                      revision TEXT NOT NULL
+                    ) STRICT
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE TABLE tangledSourceCommunicationPosts (
+                      watchID TEXT NOT NULL REFERENCES tangledSourceRevisions(watchID) ON DELETE CASCADE,
+                      organizerID TEXT NOT NULL,
+                      eventID TEXT NOT NULL,
+                      channelID TEXT NOT NULL,
+                      postID TEXT NOT NULL,
+                      PRIMARY KEY (watchID, organizerID, eventID, channelID, postID)
+                    ) STRICT
+                    """
+            )
+        }
+        migrator.registerMigration("Add Tangled source artifact publications") { database in
+            try database.execute(
+                sql: """
+                    ALTER TABLE tangledSourceRevisions ADD COLUMN artifactReference TEXT;
+                    ALTER TABLE tangledSourceRevisions ADD COLUMN artifactObjectKey TEXT;
+                    ALTER TABLE tangledSourceRevisions ADD COLUMN artifactChecksumSHA256 TEXT;
+                    ALTER TABLE tangledSourceRevisions ADD COLUMN artifactByteCount INTEGER;
+                    ALTER TABLE tangledSourceRevisions ADD COLUMN artifactPublishedAt TEXT;
+                    """
+            )
+        }
+        migrator.registerMigration("Create Tangled source calendar event projections") { database in
+            try database.execute(
+                sql: """
+                    CREATE TABLE tangledSourceCalendarEvents (
+                      uri TEXT PRIMARY KEY NOT NULL,
+                      watchID TEXT NOT NULL REFERENCES tangledSourceRevisions(watchID) ON DELETE CASCADE,
+                      startsAt TEXT,
+                      event BLOB NOT NULL
+                    ) STRICT;
+                    CREATE INDEX tangledSourceCalendarEvents_browse
+                    ON tangledSourceCalendarEvents (watchID, startsAt, uri);
+                    """
+            )
+        }
+        try migrator.migrate(database)
     }
 }
 

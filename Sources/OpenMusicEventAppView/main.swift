@@ -53,7 +53,7 @@ case .backfillSourceArtifacts:
     )
     for result in results {
         print(
-            "Published \(result.watchID) at \(result.revision) to \(result.reference) (\(result.objectKey), sha256 \(result.checksumSHA256))."
+            "Published \(result.watchID) at \(result.revision) to \(result.url) (\(result.objectKey), sha256 \(result.checksumSHA256))."
         )
     }
 

@@ -974,6 +974,9 @@ private extension TangledChannelNotificationTests {
         for request: SourceArtifactPublicationRequest
     ) -> PublishedSourceArtifact {
         PublishedSourceArtifact(
+            url: URL(
+                string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(request.revision).tar.gz"
+            )!,
             reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
             objectKey: "staging-owner/festival-staging/archive/\(request.revision).tar.gz",
             revision: request.revision,

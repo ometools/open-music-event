@@ -5,12 +5,14 @@ public struct SourceArtifactBackfillResult: Equatable, Sendable {
     public init(
         watchID: String,
         revision: String,
+        url: URL,
         reference: String,
         objectKey: String,
         checksumSHA256: String
     ) {
         self.watchID = watchID
         self.revision = revision
+        self.url = url
         self.reference = reference
         self.objectKey = objectKey
         self.checksumSHA256 = checksumSHA256
@@ -18,6 +20,7 @@ public struct SourceArtifactBackfillResult: Equatable, Sendable {
 
     public let watchID: String
     public let revision: String
+    public let url: URL
     public let reference: String
     public let objectKey: String
     public let checksumSHA256: String
@@ -104,6 +107,7 @@ public extension OpenMusicEventAppViewServer {
                 SourceArtifactBackfillResult(
                     watchID: watch.id.rawValue,
                     revision: publishedArtifact.revision,
+                    url: publishedArtifact.url,
                     reference: publishedArtifact.reference,
                     objectKey: publishedArtifact.objectKey,
                     checksumSHA256: publishedArtifact.checksumSHA256

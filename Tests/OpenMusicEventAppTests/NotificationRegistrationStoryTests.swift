@@ -822,6 +822,9 @@ struct NotificationRegistrationStoryTests {
 
 private let notificationSourceArtifactPublisher = SourceArtifactPublisher { request in
     PublishedSourceArtifact(
+        url: URL(
+            string: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz"
+        )!,
         reference: "https://resources.openmusicevent.app/wickedwoods.ca/ome-workspace",
         objectKey: "wickedwoods.ca/ome-workspace/archive/\(request.revision).tar.gz",
         revision: request.revision,
