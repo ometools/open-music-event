@@ -60,7 +60,7 @@ extension EventTarget {
         case .posters:
             .posters
         case .notifications:
-            .notifications
+            .settings
         case .settings:
             .settings
         case .workspace:

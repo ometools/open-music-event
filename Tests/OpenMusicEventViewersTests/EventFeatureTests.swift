@@ -5,7 +5,8 @@ import Testing
 @Suite
 struct EventFeatureTests {
     @Test
-    func readOnlyDefaultFeaturesKeepSettingsAndExcludeWorkspace() {
+    func readOnlyDefaultFeaturesKeepSettingsAndExcludeDisabledFeatures() {
+        #expect(!EventFeature.defaultReadOnlyFeatures.contains(.notifications))
         #expect(!EventFeature.defaultReadOnlyFeatures.contains(.workspace))
         #expect(EventFeature.defaultReadOnlyFeatures.contains(.settings))
     }
@@ -42,6 +43,7 @@ struct EventFeatureTests {
                 .eventFeature == .contributors
         )
         #expect(EventTarget.settings.eventFeature == .settings)
+        #expect(EventTarget.notifications.eventFeature == .settings)
         #expect(EventTarget.workspace.eventFeature == .workspace)
     }
 

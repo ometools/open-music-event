@@ -373,7 +373,7 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func eventSettingsRequestsNotificationPermissionAndReloadsTheSharedStatus() async throws {
+    func `Event Settings requests notification permission and reloads the system status`() async throws {
         let database = try makePreparedDatabase()
         let permissionWasRequested = Mutex(false)
         let loadCount = Mutex(0)
@@ -407,7 +407,7 @@ struct SettingsFeatureTests {
         expectNoDifference(store.state.permissions.notifications, .unknown)
         let loadsBeforeRequest = loadCount.withLock { $0 }
 
-        await store.send(.notificationPermissionButtonTapped)?.value
+        await store.send(.notificationPermissionToggleChanged(true))?.value
 
         expectNoDifference(permissionWasRequested.withLock { $0 }, true)
         expectNoDifference(store.state.permissions.notifications, .authorized)
@@ -415,7 +415,7 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func eventSettingsRequestsCriticalAlertsSeparatelyAndReloadsTheSharedStatus() async throws {
+    func `Event Settings requests Critical Alerts separately and reloads the system status`() async throws {
         let database = try makePreparedDatabase()
         let criticalAlertsWereRequested = Mutex(false)
         let loadCount = Mutex(0)
@@ -453,7 +453,7 @@ struct SettingsFeatureTests {
         let loadsBeforeRequest = loadCount.withLock { $0 }
 
         // The distinct Critical Alerts action requests only that permission and reloads system state.
-        await store.send(.criticalAlertPermissionButtonTapped)?.value
+        await store.send(.criticalAlertPermissionToggleChanged(true))?.value
 
         expectNoDifference(criticalAlertsWereRequested.withLock { $0 }, true)
         expectNoDifference(store.state.permissions.notifications, .authorized)
@@ -462,27 +462,63 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func notificationSetupOnlyRaisesAnIndicatorBeforeThePersonMakesAChoice() {
+    func `Event Settings raises an indicator for unfinished notification setup`() throws {
+        let database = try makePreparedDatabase()
+
         expectNoDifference(
             DevicePermissions(notifications: .unknown).notificationSetupBadgeValue,
             1
         )
         expectNoDifference(
-            DevicePermissions(notifications: .authorized).notificationSetupBadgeValue,
+            DevicePermissions(
+                criticalAlerts: .disabled,
+                notifications: .authorized
+            ).notificationSetupBadgeValue,
+            1
+        )
+        expectNoDifference(
+            DevicePermissions(
+                criticalAlerts: .disabled,
+                notifications: .limited
+            ).notificationSetupBadgeValue,
+            1
+        )
+        expectNoDifference(
+            DevicePermissions(
+                criticalAlerts: .enabled,
+                notifications: .authorized
+            ).notificationSetupBadgeValue,
             nil
         )
         expectNoDifference(
-            DevicePermissions(notifications: .denied).notificationSetupBadgeValue,
+            DevicePermissions(
+                criticalAlerts: .unavailable,
+                notifications: .authorized
+            ).notificationSetupBadgeValue,
             nil
         )
         expectNoDifference(
-            DevicePermissions(notifications: .limited).notificationSetupBadgeValue,
+            DevicePermissions(
+                criticalAlerts: .disabled,
+                notifications: .denied
+            ).notificationSetupBadgeValue,
             nil
         )
         expectNoDifference(
-            DevicePermissions(notifications: .restricted).notificationSetupBadgeValue,
+            DevicePermissions(
+                criticalAlerts: .disabled,
+                notifications: .restricted
+            ).notificationSetupBadgeValue,
             nil
         )
+
+        let settings = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            EventSettings.State(eventID: testEventID())
+        }
+        expectNoDifference(settings.notificationIndicatorValue, 1)
 
         #expect(DevicePermissions(notifications: .authorized).notificationsAreAllowed)
         #expect(DevicePermissions(notifications: .limited).notificationsAreAllowed)
@@ -492,7 +528,7 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func eventSettingsOpensSystemSettingsAfterNotificationPermissionIsDenied() async throws {
+    func `Event Settings opens system settings when denied notifications are switched on`() async throws {
         let database = try makePreparedDatabase()
         let settingsOpenCount = Mutex(0)
         let requestCount = Mutex(0)
@@ -521,7 +557,43 @@ struct SettingsFeatureTests {
         try await store.state.$permissions.load()
         expectNoDifference(store.state.permissions.notifications, .denied)
 
-        await store.send(.openNotificationSettingsButtonTapped)?.value
+        await store.send(.notificationPermissionToggleChanged(true))?.value
+
+        expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
+        expectNoDifference(requestCount.withLock { $0 }, 0)
+    }
+
+    @Test
+    func `Event Settings opens system settings when allowed notifications are switched off`() async throws {
+        let database = try makePreparedDatabase()
+        let settingsOpenCount = Mutex(0)
+        let requestCount = Mutex(0)
+        let client = DevicePermissionsClient(
+            load: { DevicePermissions(notifications: .authorized) },
+            openNotificationSettings: {
+                settingsOpenCount.withLock { $0 += 1 }
+                return true
+            },
+            requestCriticalAlerts: { .unavailable },
+            requestNotifications: {
+                requestCount.withLock { $0 += 1 }
+                return .authorized
+            }
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.devicePermissions = client
+        } operation: {
+            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+                EventSettings()
+            }
+        }
+
+        try await store.state.$permissions.load()
+        expectNoDifference(store.state.permissions.notifications, .authorized)
+
+        await store.send(.notificationPermissionToggleChanged(false))?.value
 
         expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
         expectNoDifference(requestCount.withLock { $0 }, 0)

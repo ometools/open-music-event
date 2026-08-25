@@ -40,7 +40,10 @@ public struct DevicePermissions: Equatable, Sendable {
     }
 
     public var notificationSetupBadgeValue: Int? {
-        notifications == .unknown ? 1 : nil
+        notifications == .unknown
+            || (notificationsAreAllowed && criticalAlerts == .disabled)
+            ? 1
+            : nil
     }
 
     public var notificationsAreAllowed: Bool {

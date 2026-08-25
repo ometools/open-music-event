@@ -29,7 +29,6 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         .location,
         .contributors,
         .posters,
-        .notifications,
         .stages,
         .search,
         .settings,

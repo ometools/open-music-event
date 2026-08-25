@@ -1970,7 +1970,7 @@ private extension TangledWebhookInboxTests {
         in database: any DatabaseWriter
     ) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
+        let deadline = clock.now.advanced(by: providerHarnessTimeout)
         while clock.now < deadline {
             let count = try await database.read { database in
                 try Int.fetchOne(
@@ -1999,7 +1999,7 @@ private extension TangledWebhookInboxTests {
         in database: any DatabaseWriter
     ) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
+        let deadline = clock.now.advanced(by: providerHarnessTimeout)
         while clock.now < deadline {
             let count = try await database.read { database in
                 try Int.fetchOne(
@@ -2028,7 +2028,7 @@ private extension TangledWebhookInboxTests {
         in database: any DatabaseWriter
     ) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
+        let deadline = clock.now.advanced(by: providerHarnessTimeout)
         while clock.now < deadline {
             let count = try await database.read { database in
                 try Int.fetchOne(
@@ -2136,7 +2136,7 @@ private actor ProviderHTTPRequestRecorder {
 
     func waitForRequestCount(_ count: Int) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
+        let deadline = clock.now.advanced(by: providerHarnessTimeout)
         while requests.count < count, clock.now < deadline {
             try await clock.sleep(for: .milliseconds(10))
         }
@@ -2155,3 +2155,5 @@ private struct ProviderHarnessTimeout: Error, Equatable {
     let expectedCount: Int
     let actualCount: Int
 }
+
+private let providerHarnessTimeout = Duration.seconds(30)

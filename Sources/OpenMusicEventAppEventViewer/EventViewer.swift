@@ -1421,7 +1421,7 @@ public struct EventViewerView: View {
                         title: EventViewer.EventFeature.settings.title,
                         systemImage: EventViewer.EventFeature.settings.systemImage,
                         labelTint: EventViewer.EventFeature.settings.labelTint,
-                        badgeValue: featureStore.permissions.notificationSetupBadgeValue,
+                        badgeValue: featureStore.notificationIndicatorValue,
                         navigation: .stack
                     ) {
                         EventSettingsView(store: featureStore)
@@ -1614,7 +1614,7 @@ public struct EventViewerView: View {
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(
                     .settings,
-                    badgeValue: featureStore.permissions.notificationSetupBadgeValue
+                    badgeValue: featureStore.notificationIndicatorValue
                 ) {
                     EventSettingsView(store: featureStore)
                 }
@@ -1737,7 +1737,7 @@ public struct EventViewerView: View {
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(
                     .settings,
-                    badgeValue: featureStore.permissions.notificationSetupBadgeValue
+                    badgeValue: featureStore.notificationIndicatorValue
                 ) {
                     EventSettingsView(store: featureStore)
                 }

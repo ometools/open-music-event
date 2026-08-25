@@ -120,6 +120,9 @@
     "After" : {
 
     },
+    "Alerts" : {
+
+    },
     "Allow" : {
 
     },
@@ -127,6 +130,9 @@
 
     },
     "Allow Notifications" : {
+
+    },
+    "Always Deliver Immediately" : {
 
     },
     "An open-source app for discovering, following, and contributing to music events." : {
@@ -306,12 +312,6 @@
     "Coordinates" : {
 
     },
-    "Critical Alerts" : {
-
-    },
-    "Critical Alerts are unavailable on this device." : {
-
-    },
     "Create a proposal or reset your local changes before switching branches." : {
 
     },
@@ -325,6 +325,12 @@
 
     },
     "Created at" : {
+
+    },
+    "Critical Alerts" : {
+
+    },
+    "Critical Alerts appear on the Lock Screen and play a sound even if a Focus is on or iPhone is muted." : {
 
     },
     "Current branch" : {
@@ -450,6 +456,9 @@
     "Emergency alerts use the operating system's urgent presentation and expire after %lld minutes." : {
 
     },
+    "Emergency updates can alert you even when notifications are silenced." : {
+
+    },
     "Emoji" : {
 
     },
@@ -457,9 +466,6 @@
 
     },
     "Empty" : {
-
-    },
-    "Emergency updates can alert you even when notifications are silenced." : {
 
     },
     "End date" : {
@@ -523,9 +529,6 @@
 
     },
     "From Other Event" : {
-
-    },
-    "Get schedule changes and important updates from this event." : {
 
     },
     "Google Maps" : {
@@ -613,12 +616,6 @@
 
     },
     "Look up exact handle or DID" : {
-
-    },
-    "Manage Critical Alerts" : {
-
-    },
-    "Manage Notifications" : {
 
     },
     "Map Style" : {
@@ -751,9 +748,6 @@
 
     },
     "Notifications" : {
-
-    },
-    "Notifications are being delivered quietly." : {
 
     },
     "Notifications are required" : {
@@ -1358,12 +1352,6 @@
 
     },
     "Try Again" : {
-
-    },
-    "Turn notifications on in system settings to get event updates." : {
-
-    },
-    "Turn on Notifications before enabling Critical Alerts." : {
 
     },
     "Turn On Notifications" : {

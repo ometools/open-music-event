@@ -86,12 +86,6 @@ public struct EventSearchFeature: Equatable, Identifiable, Sendable {
             keywords: "posters images flyers photos"
         ),
         Self(
-            id: KnownID.alerts,
-            title: "Alerts",
-            body: "Notifications and urgent event updates.",
-            keywords: "alerts notifications warnings updates"
-        ),
-        Self(
             id: KnownID.about,
             title: "About",
             body: "Event description, details, policies, and general information.",
