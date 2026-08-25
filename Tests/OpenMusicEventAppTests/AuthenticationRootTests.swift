@@ -1,5 +1,6 @@
 import ATProtoOAuth
 import ComposableArchitecture2
+import ComposableNotifications
 import CustomDump
 import Dependencies
 import Foundation
@@ -7,6 +8,7 @@ import IssueReporting
 import Observation
 import Sharing
 import SQLiteData
+import Synchronization
 import TCATProtoAuthentication
 import Testing
 
@@ -135,6 +137,64 @@ struct AuthenticationRootTests {
     }
 
     @Test
+    func productionRootStartsImmediateBrowserAuthorizationRequest() async throws {
+        let database = try makePreparedDatabase()
+        let storage = makeStorage()
+        let authorizationCenter = AuthorizationRequestCenter()
+        let authorizationStartCount = Mutex(0)
+        var oauthClient = OAuth.Client()
+        oauthClient.beginAuthorizationWithPermissions = { _, _ in
+            authorizationStartCount.withLock { $0 += 1 }
+            throw AuthenticationRootTestError.invalidScope
+        }
+
+        try await withIssueReporters([]) {
+            let store = withDependencies {
+                $0.defaultDatabase = database
+                $0[OAuth.Client.self] = oauthClient
+                $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            } operation: {
+                Store(
+                    initialState: OpenMusicEventApp.State(
+                        content: OpenMusicEventApplication.State(storage: storage) {
+                            OpenMusicEventAppRoot.State()
+                        }
+                    )
+                ) {
+                    OpenMusicEventApp(
+                        eventTrigger:
+                            \OpenMusicEventApplication.State.content.appDelegateEvent,
+                        notificationDestinationTrigger:
+                            \OpenMusicEventApplication.State.content.notificationDestination,
+                        notificationEventTrigger:
+                            \OpenMusicEventApplication.State.content.notificationEvent
+                    ) {
+                        OpenMusicEventApplication(
+                            storage: storage,
+                            requestCenter: authorizationCenter
+                        ) {
+                            OpenMusicEventAppRoot()
+                        }
+                    }
+                }
+            }
+
+            let authorizationTask = Task {
+                try await authorizationCenter.authorize(
+                    OpenMusicEventOAuth.baseAuthRequirement,
+                    loginHint: "woody.fm"
+                )
+            }
+            defer { authorizationTask.cancel() }
+
+            try await waitForMountCondition {
+                authorizationStartCount.withLock { $0 == 1 }
+            }
+            withExtendedLifetime(store) {}
+        }
+    }
+
+    @Test
     func authorizationFlowErrorIsReportedThroughRootErrorHandling() async throws {
         let database = try makePreparedDatabase()
         let storage = makeStorage()
@@ -235,4 +295,15 @@ private func waitForCondition(
             }
         }
     }
+}
+
+@MainActor
+private func waitForMountCondition(
+    _ condition: @escaping @MainActor () -> Bool
+) async throws {
+    for _ in 0..<100 {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(condition())
 }

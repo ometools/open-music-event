@@ -250,8 +250,86 @@ public struct OpenMusicEventApplication: FeatureProtocol {
     }
 }
 
-/// The application-delegate boundary around the authenticated application tree.
-public typealias OpenMusicEventApp = AppDelegateFeature<OpenMusicEventApplication>
+/// The concrete application-delegate boundary around the authenticated application tree.
+///
+/// Keeping this root concrete avoids a TCA26 remount issue in which a generic outer feature can
+/// lose an optional descendant's mount observer while the rest of the root initializes.
+@Feature
+public struct OpenMusicEventApp {
+    private let eventTrigger:
+        KeyPath<OpenMusicEventApplication.State, Trigger<AppDelegateEvent>>
+    private let notificationDestinationTrigger:
+        KeyPath<OpenMusicEventApplication.State, Trigger<Push.Destination>>
+    private let notificationEventTrigger:
+        KeyPath<OpenMusicEventApplication.State, Trigger<NotificationEvent>>
+    private let makeContent: @Sendable () -> OpenMusicEventApplication
+
+    public init(
+        eventTrigger:
+            KeyPath<OpenMusicEventApplication.State, Trigger<AppDelegateEvent>>,
+        notificationDestinationTrigger:
+            KeyPath<OpenMusicEventApplication.State, Trigger<Push.Destination>>,
+        notificationEventTrigger:
+            KeyPath<OpenMusicEventApplication.State, Trigger<NotificationEvent>>,
+        content makeContent: @escaping @Sendable () -> OpenMusicEventApplication
+    ) {
+        self.eventTrigger = eventTrigger
+        self.notificationDestinationTrigger = notificationDestinationTrigger
+        self.notificationEventTrigger = notificationEventTrigger
+        self.makeContent = makeContent
+    }
+
+    public struct State {
+        public init(content: OpenMusicEventApplication.State) {
+            self.content = content
+        }
+
+        public var content: OpenMusicEventApplication.State
+    }
+
+    public enum Action {
+        case content(OpenMusicEventApplication.Action)
+        case lifecycle(AppDelegateEvent)
+        case notification(NotificationEvent)
+        case notificationDestination(Push.Destination)
+    }
+
+    public var body: some FeatureProtocol<State, Action> {
+        Features {
+            Update { _, action in
+                switch action {
+                case .content:
+                    break
+
+                case let .lifecycle(event):
+                    store.addTask {
+                        let reaction = try store.state.content[keyPath: eventTrigger](event)
+                        await reaction?.value
+                    }
+
+                case let .notification(event):
+                    store.addTask {
+                        let reaction = try store.state.content[keyPath: notificationEventTrigger](
+                            event
+                        )
+                        await reaction?.value
+                    }
+
+                case let .notificationDestination(destination):
+                    store.addTask {
+                        let reaction = try store.state.content[
+                            keyPath: notificationDestinationTrigger
+                        ](destination)
+                        await reaction?.value
+                    }
+                }
+            }
+            Scope(\.content, action: \.content) {
+                makeContent()
+            }
+        }
+    }
+}
 
 struct SelectedEventRestoration {
     var eventID: OMERecord.Event.ID?
