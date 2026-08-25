@@ -438,21 +438,23 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
 var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "ArgumentParser", package: "swift-argument-parser"),
     .product(name: "ATProto", package: "swift-composable-atmosphere"),
+    .product(name: "Crypto", package: "swift-crypto"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Gzip", package: "gzipswift"),
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
     .product(name: "Tar", package: "swift-tar"),
 ]
 
-openMusicEventSourceCloneDependencies.append(contentsOf: [
-    .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
-    .product(name: "Crypto", package: "swift-crypto"),
-    .product(name: "Sharing", package: "swift-sharing"),
-    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
-    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-    .product(name: "Tagged", package: "swift-tagged"),
-    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-])
+if packageBuild != .appView {
+    openMusicEventSourceCloneDependencies.append(contentsOf: [
+        .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+        .product(name: "Sharing", package: "swift-sharing"),
+        .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+        .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+        .product(name: "Tagged", package: "swift-tagged"),
+        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+    ])
+}
 
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),

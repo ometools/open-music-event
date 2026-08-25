@@ -5,6 +5,7 @@ import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import SQLiteData
 import XRPCClient
 
@@ -144,7 +145,10 @@ extension OME.CalendarEvent.Source {
     func installationRequest(
         organizerID: OME.Organizer.ID
     ) throws -> OpenMusicEventSourceValidationRequest? {
-        guard let sourceRecord, sourceRecord.kind == .tangled else { return nil }
+        guard let sourceRecord,
+              sourceRecord.kind == .tangled,
+              let resolvedArtifact
+        else { return nil }
         let canonicalRef = sourceRecord.ref ?? "main"
         guard let sourceProvenance = try OpenMusicEventSourceValidationRequest(
             source: sourceRecord.reference,
@@ -154,10 +158,15 @@ extension OME.CalendarEvent.Source {
         .tangledSourceProvenance()
         else { return nil }
         return OpenMusicEventSourceValidationRequest(
-            source: resolvedRepository?.reference ?? sourceRecord.reference,
+            source: sourceRecord.reference,
             organizerID: organizerID,
             sourceProvenance: sourceProvenance,
-            ref: resolvedRepository?.ref ?? canonicalRef
+            ref: resolvedArtifact.revision,
+            archive: SourceArchiveReference(
+                url: resolvedArtifact.url,
+                checksumSHA256: resolvedArtifact.checksumSHA256,
+                byteCount: resolvedArtifact.byteCount
+            )
         )
     }
 }

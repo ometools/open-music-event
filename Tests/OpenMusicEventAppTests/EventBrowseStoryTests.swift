@@ -524,13 +524,27 @@ struct EventBrowseStoryTests {
             )
             expectNoDifference(
                 checkoutRequests.withLock { $0.map(\.ref) },
-                ["main"]
+                ["3cc283a5d07218f4dfc55652513e9191d2040a06"]
             )
             expectNoDifference(
                 checkoutRequests.withLock {
                     $0.map(\.repository.normalizedReference)
                 },
                 ["tangled.org/wickedwoods.ca/ome-workspace"]
+            )
+            expectNoDifference(
+                checkoutRequests.withLock { $0.map(\.archive) },
+                [
+                    SourceArchiveReference(
+                        url: try #require(
+                            URL(
+                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
+                            )
+                        ),
+                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+                        byteCount: 403_521
+                    )
+                ]
             )
 
             // Refresh remains event-scoped even though the published repository also contains
@@ -751,13 +765,27 @@ struct EventBrowseStoryTests {
 
             expectNoDifference(
                 checkoutRequests.withLock { $0.map(\.ref) },
-                ["main"]
+                ["3cc283a5d07218f4dfc55652513e9191d2040a06"]
             )
             expectNoDifference(
                 checkoutRequests.withLock {
                     $0.map(\.repository.normalizedReference)
                 },
                 ["tangled.org/wickedwoods.ca/ome-workspace"]
+            )
+            expectNoDifference(
+                checkoutRequests.withLock { $0.map(\.archive) },
+                [
+                    SourceArchiveReference(
+                        url: try #require(
+                            URL(
+                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
+                            )
+                        ),
+                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+                        byteCount: 403_521
+                    )
+                ]
             )
 
             // Reconciliation is not part of the attendee slice. Until it has an explicit owner,
@@ -1333,7 +1361,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `entering Wicked Woods from staging downloads the fork under its canonical identity`() async throws {
+    func `entering Wicked Woods downloads the advertised artifact under its canonical identity`() async throws {
         struct UnexpectedGitOperation: Error {}
 
         let database = try SQLiteData.defaultDatabase()
@@ -1398,9 +1426,24 @@ struct EventBrowseStoryTests {
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 expectNoDifference(
                     request.repository.normalizedReference,
-                    "tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome-stg"
+                    "tangled.org/wickedwoods.ca/ome-workspace"
                 )
-                expectNoDifference(request.ref, "main")
+                expectNoDifference(
+                    request.ref,
+                    "3cc283a5d07218f4dfc55652513e9191d2040a06"
+                )
+                expectNoDifference(
+                    request.archive,
+                    SourceArchiveReference(
+                        url: try #require(
+                            URL(
+                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
+                            )
+                        ),
+                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+                        byteCount: 403_521
+                    )
+                )
                 try FileManager.default.createDirectory(
                     at: request.outputURL,
                     withIntermediateDirectories: true
@@ -1612,6 +1655,12 @@ extension EventBrowseStoryTests {
               "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
               "ref": "main"
             },
+            "resolvedArtifact": {
+              "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
+              "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
+              "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+              "byteCount": 403521
+            },
             "resolvedRepository": {
               "reference": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
               "ref": "main"
@@ -1760,6 +1809,12 @@ private func eventBrowsePublishedEventNetwork(
                       "kind": "tangled",
                       "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
                       "ref": "main"
+                    },
+                    "resolvedArtifact": {
+                      "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
+                      "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
+                      "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
+                      "byteCount": 403521
                     }
                   }
                 }

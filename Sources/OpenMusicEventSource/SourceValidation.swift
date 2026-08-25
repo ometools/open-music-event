@@ -9,6 +9,7 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
     public var organizerID: OME.Organizer.ID?
     public var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance?
     public var ref: String
+    public var archive: SourceArchiveReference?
     public var outputURL: URL?
 
     public init(
@@ -16,12 +17,14 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
         organizerID: OME.Organizer.ID? = nil,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance? = nil,
         ref: String = "HEAD",
+        archive: SourceArchiveReference? = nil,
         outputURL: URL? = nil
     ) {
         self.source = source
         self.organizerID = organizerID
         self.sourceProvenance = sourceProvenance
         self.ref = ref
+        self.archive = archive
         self.outputURL = outputURL
     }
 
@@ -212,6 +215,7 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 TangledSourceCheckoutRequest(
                     repository: repository,
                     ref: request.resolvedRef,
+                    archive: request.archive,
                     outputURL: outputURL
                 )
             )
