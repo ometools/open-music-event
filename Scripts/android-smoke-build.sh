@@ -1330,10 +1330,15 @@ invalidate_stale_swiftui_modules() {
   local metadata
   local module
   local should_invalidate
-  local config_changed=0
+  # Without a recorded configuration, existing SwiftUI metadata has no trustworthy
+  # package-route provenance. Treat it as stale just as we do a changed configuration.
+  local config_changed=1
 
-  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]] && ! cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
-    config_changed=1
+  if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
+    config_changed=0
+    if ! cmp -s "$NATIVE_BUILD_CONFIG_FILE" <(native_build_config); then
+      config_changed=1
+    fi
   fi
 
   while IFS= read -r -d '' module; do
