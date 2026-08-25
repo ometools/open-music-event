@@ -1,6 +1,6 @@
 import Dependencies
 import Foundation
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -25,7 +25,7 @@ public struct PeriodicTimelineView<Content: View>: View {
     }
 
     public var body: some View {
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
         content(currentDate ?? date.now)
             .task {
                 currentDate = date.now

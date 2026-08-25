@@ -1,5 +1,5 @@
 import Dependencies
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -12,7 +12,7 @@ public struct SchedulePageView<
     CardContent: View,
     EmptyContent: View
 >: View {
-    #if os(Android)
+    #if os(Android) || SKIP_BRIDGE
     var calendar: Calendar { .current }
     #else
     @Environment(\.calendar) var calendar
@@ -59,7 +59,7 @@ public struct SchedulePageView<
             if cards.isEmpty || scheduleTimeRange == nil {
                 emptyContent
             } else {
-                #if os(Android)
+                #if os(Android) || SKIP_BRIDGE
                 ZStack(alignment: .topLeading) {
                     if scheduleWidth > 0, scheduleHeight > 0 {
                         let layoutSize = ScheduleCGSize(

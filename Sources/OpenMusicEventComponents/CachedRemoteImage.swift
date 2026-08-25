@@ -2,8 +2,10 @@ import Foundation
 #if canImport(ImageIO)
 import ImageIO
 #endif
+#if os(Android) || SKIP_BRIDGE
 #if os(Android)
 import SkipAndroidBridge
+#endif
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -12,7 +14,7 @@ import SwiftUI
 #if os(Android) || canImport(SwiftUI)
 // SKIP INSERT: import skip.ui.*
 
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 public typealias CachedRemoteImageSize = SkipSwiftUI.CGSize
 typealias CachedRemoteImageCGFloat = SkipSwiftUI.CGFloat
 #else
@@ -61,7 +63,7 @@ public struct CachedRemoteImage<Content: View>: View {
     var targetPixelSize: CachedRemoteImageSize? {
         #if os(iOS)
         cachedRemotePixelSize(targetSize: targetSize, displayScale: displayScale)
-        #elseif os(Android)
+        #elseif os(Android) || SKIP_BRIDGE
         cachedRemotePixelSize(
             targetSize: targetSize,
             displayScale: CachedRemoteImageAndroidDisplay.scale
@@ -114,7 +116,7 @@ public struct CachedRemoteImage<Content: View>: View {
                 dataKey: sourceRequestID,
                 targetPixelSize: targetPixelSize
             )
-            #elseif os(Android)
+            #elseif os(Android) || SKIP_BRIDGE
             let data = try await CachedRemoteImageDataLoader.shared.data(
                 url: url,
                 key: sourceRequestID
@@ -222,7 +224,7 @@ final class CachedRemoteImageStore {
     }
 }
 
-#elseif os(macOS)
+#elseif os(macOS) && !SKIP_BRIDGE
 import AppKit
 
 func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
@@ -237,7 +239,7 @@ func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
     )
 }
 
-#elseif os(Android)
+#elseif os(Android) || SKIP_BRIDGE
 
 actor CachedRemoteAndroidImageStore {
     static let shared = CachedRemoteAndroidImageStore()
@@ -357,7 +359,7 @@ func cachedRemotePixelSize(
     }
 }
 
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 enum CachedRemoteImageAndroidDisplay {
     static let scale: CachedRemoteImageCGFloat = {
         let context = ProcessInfo.processInfo.dynamicAndroidContext()
@@ -397,7 +399,7 @@ func cachedRemoteThumbnailSize(
     )
 }
 
-#if canImport(ImageIO) && !os(Android)
+#if canImport(ImageIO) && !os(Android) && !SKIP_BRIDGE
 func decodeCachedRemoteCGImage(
     _ data: Data,
     targetPixelSize: CGSize

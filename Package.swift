@@ -26,6 +26,7 @@ let packageBuild: PackageBuild = {
 }()
 
 let isAndroidAppBuild = packageBuild == .androidApp
+let isSkipBridgeHostBuild = environment["SKIP_BRIDGE"] == "1" && !isAndroidAppBuild
 let grdbPackageName = isAndroidAppBuild ? "grdb-sqlcipher" : "GRDB.swift"
 let sharingTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild ? [] : [.defaults]
@@ -93,6 +94,84 @@ let tca26Dependency: Package.Dependency = {
         traits: ["Dependencies"]
     )
 }()
+let composableAtmosphereUserInputDependency: Package.Dependency = isAndroidAppBuild
+    ? .package(
+        name: "composable-atmosphere-userinput",
+        path: workspacePackagePath("composable-atmosphere-userinput")
+    )
+    : .package(
+        url: "https://source.woody.fm/composable-atmosphere-userinput",
+        branch: "main"
+    )
+let composableWorkspaceDependency: Package.Dependency = {
+    if let path = environment["OME_COMPOSABLE_WORKSPACE_PATH"] {
+        return .package(
+            name: "swift-composable-workspace",
+            path: packagePath(path)
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-composable-workspace",
+        branch: "main"
+    )
+}()
+let dependenciesHTTPClientDependency: Package.Dependency = {
+    if let path = environment["OME_DEPENDENCIES_HTTP_CLIENT_PATH"] {
+        return .package(
+            name: "swift-dependencies-http-client",
+            path: packagePath(path)
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "swift-dependencies-http-client",
+            path: workspacePackagePath("swift-dependencies-http-client")
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-dependencies-http-client",
+        branch: "main"
+    )
+}()
+let composableAtmosphereDependency: Package.Dependency = {
+    if let path = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
+        return .package(
+            name: "swift-composable-atmosphere",
+            path: packagePath(path),
+            traits: composableAtmosphereTraits
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "swift-composable-atmosphere",
+            path: workspacePackagePath("swift-composable-atmosphere"),
+            traits: composableAtmosphereTraits
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-composable-atmosphere",
+        branch: "main",
+        traits: ["TCA26"]
+    )
+}()
+let composableAtmosphereConstellationDependency: Package.Dependency = isAndroidAppBuild
+    ? .package(
+        name: "composable-atmosphere-constellation",
+        path: workspacePackagePath("composable-atmosphere-constellation")
+    )
+    : .package(
+        url: "https://source.woody.fm/composable-atmosphere-constellation",
+        branch: "main"
+    )
+let composableAtmosphereTangledDependency: Package.Dependency = isAndroidAppBuild
+    ? .package(
+        name: "composable-atmosphere-tangled",
+        path: workspacePackagePath("composable-atmosphere-tangled")
+    )
+    : .package(
+        url: "https://source.woody.fm/composable-atmosphere-tangled",
+        branch: "main"
+    )
 let appViewComposableCalendarEventsDependency: Package.Dependency
 if let composableCalendarEventsPath = environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"] {
     appViewComposableCalendarEventsDependency = .package(
@@ -119,32 +198,17 @@ if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] 
         traits: []
     )
 }
-let applicationComposableAtmosphereDependency: Package.Dependency = {
-    if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
-        return .package(
-            name: "swift-composable-atmosphere",
-            path: composableAtmospherePath,
-            traits: composableAtmosphereTraits
-        )
-    }
-    if isAndroidAppBuild {
-        return .package(
-            name: "swift-composable-atmosphere",
-            path: workspacePackagePath("swift-composable-atmosphere"),
-            traits: composableAtmosphereTraits
-        )
-    }
-    return .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
-        traits: ["TCA26"]
-    )
-}()
 let composableNotificationsDependency: Package.Dependency = {
     if let path = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"] {
         return .package(
             name: "swift-composable-notifications",
             path: packagePath(path)
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "swift-composable-notifications",
+            path: workspacePackagePath("swift-composable-notifications")
         )
     }
     return .package(
@@ -290,7 +354,7 @@ let jwsetKitDependency: Package.Dependency = .package(
 )
 
 var applicationDependencies: [Package.Dependency] = [
-    .package(url: "https://source.woody.fm/composable-atmosphere-userinput", branch: "main"),
+    composableAtmosphereUserInputDependency,
     .package(
         url: "https://source.woody.fm/composable-calendar-events",
         branch: "main"
@@ -301,12 +365,12 @@ var applicationDependencies: [Package.Dependency] = [
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
+    composableWorkspaceDependency,
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
-    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
-    applicationComposableAtmosphereDependency,
-    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
-    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
+    dependenciesHTTPClientDependency,
+    composableAtmosphereDependency,
+    composableAtmosphereConstellationDependency,
+    composableAtmosphereTangledDependency,
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
@@ -339,11 +403,14 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/tuist/Noora", from: "0.15.0"),
     skipDependency,
     skipFuseUIDependency,
-    skipKitDependency,
     skipAndroidBridgeDependency,
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
 ]
+
+if !isSkipBridgeHostBuild {
+    applicationDependencies.append(skipKitDependency)
+}
 
 if isAndroidAppBuild {
     applicationDependencies.append(skipSharingDependency)
@@ -479,6 +546,15 @@ var openMusicEventWhiteLabelDependencies: [Target.Dependency] = [
     "OpenMusicEventLexicon",
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
+let skipKitTargetDependencies: [Target.Dependency] = isSkipBridgeHostBuild
+    ? []
+    : [
+        .product(
+            name: "SkipKit",
+            package: "skip-kit",
+            condition: .when(platforms: [.iOS, .android])
+        )
+    ]
 var scheduleComponentsDependencies: [Target.Dependency] = [
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
@@ -908,11 +984,10 @@ applicationTargets.append(contentsOf: [
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Sharing", package: "swift-sharing"),
-            .product(name: "SkipKit", package: "skip-kit"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ],
+        ] + skipKitTargetDependencies,
         resources: [.process("Resources")],
         swiftSettings: isAndroidAppBuild
             ? [.unsafeFlags(["-disable-batch-mode"])]

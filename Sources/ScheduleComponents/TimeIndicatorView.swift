@@ -1,5 +1,5 @@
 import Foundation
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -32,7 +32,7 @@ struct TimeIndicatorView: View {
     }
 
     var body: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ZStack(alignment: .topLeading) {
             if scheduleWidth > 0, scheduleHeight > 0 {
                 PeriodicTimelineView(every: 1) { currentDate in

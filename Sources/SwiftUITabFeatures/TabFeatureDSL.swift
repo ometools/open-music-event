@@ -1,6 +1,10 @@
 import Foundation
 import OpenMusicEventComponents
+#if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
+import SkipSwiftUI
+#else
 import SwiftUI
+#endif
 
 public protocol TabFeatureValue: Hashable, LosslessStringConvertible, Sendable {}
 
@@ -705,7 +709,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         showsMore: Bool,
         moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
     ) -> some View {
-        #if os(Android)
+        #if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
         TabView(selection: tabSelection(showsMore: showsMore)) {
             ForEach(resolved.visibleFeatures, id: \.value) { feature in
                 primaryFeatureDestination(for: feature)
@@ -806,7 +810,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             showsMore: showsMore,
             moreFeatureContent: moreFeatureContent
         )
-        #elseif os(Android) && SKIP_BRIDGE
+        #elseif (os(Android) || ROBOLECTRIC) && SKIP_BRIDGE
         tabView(
             for: resolved,
             showsMore: showsMore,
@@ -970,7 +974,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     private var currentPlatform: TabFeaturePlatform {
         #if os(iOS)
         .iOS
-        #elseif os(macOS)
+        #elseif os(macOS) && !ROBOLECTRIC && !SKIP_BRIDGE
         .macOS
         #elseif os(tvOS)
         .tvOS
@@ -978,7 +982,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         .visionOS
         #elseif os(watchOS)
         .watchOS
-        #elseif os(Android)
+        #elseif os(Android) || ROBOLECTRIC || SKIP_BRIDGE
         .iOS
         #endif
     }
@@ -1098,7 +1102,7 @@ struct TabFeatureSelectionState<Value: TabFeatureValue>: Equatable {
     }
 }
 
-#if os(Android)
+#if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
 private extension View {
     @ViewBuilder
     func tabFeatureBadge(_ badgeValue: Int?) -> some View {
@@ -1134,7 +1138,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         let view = AnyView(
             List {
                 if !featureContent.isEmpty {
-                    #if os(Android)
+                    #if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
                     ForEach(flattenedFeatureMetadata.indices, id: \.self) { index in
                         moreFeatureRow(flattenedFeatureMetadata[index])
                     }
@@ -1203,7 +1207,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         case .feature(let node):
             return AnyView(moreFeatureRow(node.metadata))
         case .section(let title, let content):
-            #if os(Android)
+            #if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
             return moreContentList(content)
             #else
             return AnyView(
@@ -1258,7 +1262,7 @@ struct TabFeatureBadgeValueView: View {
     let value: Int
 
     var body: some View {
-        #if os(Android) && SKIP_BRIDGE
+        #if (os(Android) || ROBOLECTRIC) && SKIP_BRIDGE
         Text(value, format: .number)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.white)
@@ -1283,7 +1287,7 @@ struct TabFeatureBadgeValueView: View {
     }
 }
 
-#if !SKIP && !os(Android)
+#if !SKIP && !os(Android) && !ROBOLECTRIC && !SKIP_BRIDGE
 #Preview {
     @Previewable @State var selection: DemoTab = .schedule
     @Previewable @State var layout: TabFeatureLayout = .init(preferredIDs: [

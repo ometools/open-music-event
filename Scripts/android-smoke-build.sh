@@ -23,6 +23,12 @@ Options:
   --app-root PATH          Skip app package to build. Default: this OME checkout.
   --open-music-event-path PATH
                           OME package used by an external app root. Default: this checkout.
+  --composable-notifications PATH
+                          Local ComposableNotifications checkout. Default: the Android workspace route.
+  --composable-workspace PATH
+                          Local ComposableWorkspace checkout. Default: the remote package.
+  --dependencies-http-client PATH
+                          Local HTTP client checkout. Default: the Android workspace route.
   --target TARGET          Skip module target for --lane module. Default: OpenMusicEventApp.
   --smoke-root PATH        Stable cache/scratch root. External app roots get their own namespace.
   --compiler-lock PATH     Android compiler lock. Default: /private/tmp/woody-swift-compiler-android.lock.
@@ -39,9 +45,13 @@ Environment overrides:
   SKIP_COMMAND_OVERRIDE, SKIP_SHARING_SWIFT_SHARING, SKIP_EXPORT_ARCHS,
   CLANG_MODULE_CACHE_PATH, SWIFT_MODULECACHE_PATH, CFFIXED_USER_HOME,
   SWIFT_SDK_HOME, SWIFT_ANDROID_SDK_BUNDLE, SWIFT_TOOLCHAIN_DIR,
-  OME_ANDROID_APP_BUILD, OME_OPEN_MUSIC_EVENT_PATH, OME_ANDROID_COMPILER_LOCK_FILE,
+  OME_ANDROID_APP_BUILD, OME_OPEN_MUSIC_EVENT_PATH, OME_TCA26_PATH,
+  OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_WORKSPACE_PATH,
+  OME_DEPENDENCIES_HTTP_CLIENT_PATH,
+  OME_ANDROID_COMPILER_LOCK_FILE,
   OME_ANDROID_SKIPSTONE_BUILD_ROOT,
-  OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_ARCHITECTURES,
+  OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_PACKAGE_RESOLUTION_CONFIG_FILE,
+  OME_ANDROID_ARCHITECTURES,
   SWIFT_COMPILER_LANE_SCRIPT, ANDROID_SERIAL, ANDROID_APPLICATION_ID, LOGCAT_FILTERS.
 USAGE
 }
@@ -104,6 +114,108 @@ logical_absolute_path() {
 
   directory="$(cd -L "$(dirname "$path")" && pwd -L)"
   printf '%s/%s\n' "$directory" "$(basename "$path")"
+}
+
+package_absolute_path() {
+  local package_root="$1"
+  local path="$2"
+
+  case "$path" in
+    /*) logical_absolute_path "$path" ;;
+    *) logical_absolute_path "$package_root/$path" ;;
+  esac
+}
+
+android_workspace_package_path() {
+  local package_root="$1"
+  local package_name="$2"
+  local workspace_container
+  local workspace_root
+  local candidate
+
+  workspace_container="$(dirname "$package_root")"
+  if [[ "$(basename "$workspace_container")" == "worktrees" ]]; then
+    workspace_root="$(dirname "$workspace_container")"
+  else
+    workspace_root="$workspace_container"
+  fi
+
+  for candidate in \
+    "$workspace_root/worktrees/$package_name" \
+    "$workspace_container/$package_name" \
+    "$workspace_root/$package_name"
+  do
+    if [[ -d "$candidate" ]]; then
+      logical_absolute_path "$candidate"
+      return 0
+    fi
+  done
+
+  logical_absolute_path "$workspace_root/worktrees/$package_name"
+}
+
+package_source_fingerprint() {
+  local package_root="$1"
+  local input
+
+  {
+    for input in \
+      "$package_root"/Package*.swift \
+      "$package_root/Package.resolved" \
+      "$package_root/Plugins" \
+      "$package_root/Sources"
+    do
+      [[ -e "$input" ]] || continue
+      if [[ -d "$input" ]]; then
+        find -L "$input" -type f -print0
+      else
+        printf '%s\0' "$input"
+      fi
+    done
+  } \
+    | LC_ALL=C sort -z \
+    | xargs -0 shasum -a 256 \
+    | sed "s#  $package_root/#  #" \
+    | shasum -a 256 \
+    | awk '{ print $1 }'
+}
+
+package_graph_fingerprint() {
+  local package_root="$1"
+  local input
+
+  {
+    for input in "$package_root"/Package*.swift "$package_root/Package.resolved"; do
+      [[ -f "$input" ]] || continue
+      printf '%s  %s\n' \
+        "$(shasum -a 256 "$input" | awk '{ print $1 }')" \
+        "${input#"$package_root"/}"
+    done
+  } \
+    | LC_ALL=C sort \
+    | shasum -a 256 \
+    | awk '{ print $1 }'
+}
+
+android_package_input_manifest() {
+  local descriptor
+  local package_name
+  local package_path
+  local resolved_path
+
+  printf 'open-music-event-package-graph=%s|%s\n' \
+    "$OME_PACKAGE_ROOT" \
+    "$(package_graph_fingerprint "$OME_PACKAGE_ROOT")"
+  for descriptor in "${ANDROID_LOCAL_PACKAGE_INPUTS[@]}"; do
+    package_name="${descriptor%%|*}"
+    package_path="${descriptor#*|}"
+    resolved_path="$(cd "$package_path" && pwd -P)"
+    printf '%s=%s|%s|%s\n' \
+      "$package_name" \
+      "$package_path" \
+      "$resolved_path" \
+      "$(package_source_fingerprint "$resolved_path")"
+  done
 }
 
 run() {
@@ -180,6 +292,10 @@ if [[ -n "${OME_ANDROID_APP_BUILD+x}" ]]; then
 fi
 OME_ANDROID_APP_BUILD="${OME_ANDROID_APP_BUILD:-1}"
 OME_OPEN_MUSIC_EVENT_PATH="${OME_OPEN_MUSIC_EVENT_PATH:-}"
+OME_TCA26_PATH="${OME_TCA26_PATH:-}"
+COMPOSABLE_NOTIFICATIONS_PATH="${OME_COMPOSABLE_NOTIFICATIONS_PATH:-}"
+COMPOSABLE_WORKSPACE_PATH="${OME_COMPOSABLE_WORKSPACE_PATH:-}"
+DEPENDENCIES_HTTP_CLIENT_PATH="${OME_DEPENDENCIES_HTTP_CLIENT_PATH:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -231,6 +347,21 @@ while [[ $# -gt 0 ]]; do
     --open-music-event-path)
       [[ $# -ge 2 ]] || fail "--open-music-event-path requires a path"
       OME_OPEN_MUSIC_EVENT_PATH="$2"
+      shift 2
+      ;;
+    --composable-notifications)
+      [[ $# -ge 2 ]] || fail "--composable-notifications requires a path"
+      COMPOSABLE_NOTIFICATIONS_PATH="$2"
+      shift 2
+      ;;
+    --composable-workspace)
+      [[ $# -ge 2 ]] || fail "--composable-workspace requires a path"
+      COMPOSABLE_WORKSPACE_PATH="$2"
+      shift 2
+      ;;
+    --dependencies-http-client)
+      [[ $# -ge 2 ]] || fail "--dependencies-http-client requires a path"
+      DEPENDENCIES_HTTP_CLIENT_PATH="$2"
       shift 2
       ;;
     --target)
@@ -337,6 +468,25 @@ if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
 else
   OME_OPEN_MUSIC_EVENT_PATH_RESOLVED=""
 fi
+OME_PACKAGE_ROOT="${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-$ROOT}"
+if [[ -n "$OME_TCA26_PATH" ]]; then
+  OME_TCA26_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$OME_TCA26_PATH")"
+else
+  OME_TCA26_PATH="$(android_workspace_package_path "$OME_PACKAGE_ROOT" TCA26)"
+fi
+if [[ -n "$COMPOSABLE_NOTIFICATIONS_PATH" ]]; then
+  COMPOSABLE_NOTIFICATIONS_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$COMPOSABLE_NOTIFICATIONS_PATH")"
+else
+  COMPOSABLE_NOTIFICATIONS_PATH="$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-composable-notifications)"
+fi
+if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
+  COMPOSABLE_WORKSPACE_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$COMPOSABLE_WORKSPACE_PATH")"
+fi
+if [[ -n "$DEPENDENCIES_HTTP_CLIENT_PATH" ]]; then
+  DEPENDENCIES_HTTP_CLIENT_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$DEPENDENCIES_HTTP_CLIENT_PATH")"
+else
+  DEPENDENCIES_HTTP_CLIENT_PATH="$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-dependencies-http-client)"
+fi
 SKIPSTONE_BUILD_ROOT="${OME_ANDROID_SKIPSTONE_BUILD_ROOT:-$SMOKE_ROOT/skipstone-build}"
 SKIPSTONE_SWIFTPM_ROOT="$SMOKE_ROOT/skipstone-swiftpm"
 NATIVE_BUILD_CONFIG_FILE="${OME_ANDROID_NATIVE_BUILD_CONFIG_FILE:-$SMOKE_ROOT/android-native-build-config}"
@@ -399,7 +549,7 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
     fail "Android build config is incomplete (missing version): $NATIVE_BUILD_CONFIG_FILE"
   fi
   case "$BUILD_CONFIG_VERSION" in
-    2|3|4) ;;
+    2|3|4|5) ;;
     *) fail "unsupported Android build config version '$BUILD_CONFIG_VERSION': $NATIVE_BUILD_CONFIG_FILE" ;;
   esac
   for required_key in \
@@ -436,6 +586,16 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
         || fail "Android build config v4 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
     done
   fi
+  if [[ "$BUILD_CONFIG_VERSION" == "5" ]]; then
+    for required_key in \
+      ome_open_music_event_path \
+      ome_open_music_event_path_resolved \
+      android_package_inputs_fingerprint
+    do
+      read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
+        || fail "Android build config v5 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+    done
+  fi
 
   BUILD_CONFIG_STATE="pinned v$BUILD_CONFIG_VERSION"
   apply_pinned_config_value configuration CONFIGURATION "$CONFIGURATION_EXPLICIT"
@@ -447,7 +607,7 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   apply_pinned_config_value ome_android_app_build OME_ANDROID_APP_BUILD "$OME_ANDROID_APP_BUILD_EXPLICIT"
 fi
 
-if [[ "${BUILD_CONFIG_VERSION:-0}" == "4" ]]; then
+if [[ "${BUILD_CONFIG_VERSION:-0}" == "4" || "${BUILD_CONFIG_VERSION:-0}" == "5" ]]; then
   check_pinned_config_value \
     ome_open_music_event_path \
     "${OME_OPEN_MUSIC_EVENT_PATH:-none}"
@@ -485,6 +645,41 @@ SKIP_DEPENDENCY_ROOT_RESOLVED="$(cd "$SKIP_DEPENDENCY_ROOT" && pwd -P)"
 SKIP_SHARING_SWIFT_SHARING="$(logical_absolute_path "$SKIP_SHARING_SWIFT_SHARING")"
 SKIP_SHARING_SWIFT_SHARING_RESOLVED="$(cd "$SKIP_SHARING_SWIFT_SHARING" && pwd -P)"
 
+ANDROID_LOCAL_PACKAGE_INPUTS=(
+  "TCA26|$OME_TCA26_PATH"
+  "composable-atmosphere-userinput|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-userinput)"
+  "swift-composable-notifications|$COMPOSABLE_NOTIFICATIONS_PATH"
+  "swift-composable-forms|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-composable-forms-android)"
+  "swift-dependencies-http-client|$DEPENDENCIES_HTTP_CLIENT_PATH"
+  "swift-composable-atmosphere|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-composable-atmosphere)"
+  "composable-atmosphere-constellation|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-constellation)"
+  "composable-atmosphere-tangled|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-tangled)"
+  "sqlite-data|$(android_workspace_package_path "$OME_PACKAGE_ROOT" sqlite-data)"
+  "swift-structured-queries|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-structured-queries)"
+  "swift-sharing|$SKIP_SHARING_SWIFT_SHARING"
+  "skipstone|$SKIPLOCAL"
+  "skip|$SKIP_DEPENDENCY_ROOT/skip"
+  "skip-ui|$SKIP_DEPENDENCY_ROOT/skip-ui"
+  "skip-fuse-ui|$SKIP_DEPENDENCY_ROOT/skip-fuse-ui"
+  "skip-sharing|$SKIP_DEPENDENCY_ROOT/skip-sharing"
+  "skip-android-bridge|$SKIP_DEPENDENCY_ROOT/skip-android-bridge"
+)
+if [[ -d "$SKIP_DEPENDENCY_ROOT/skip-kit" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("skip-kit|$SKIP_DEPENDENCY_ROOT/skip-kit")
+fi
+if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-composable-workspace|$COMPOSABLE_WORKSPACE_PATH")
+fi
+for package_input in "${ANDROID_LOCAL_PACKAGE_INPUTS[@]}"; do
+  package_input_path="${package_input#*|}"
+  [[ -d "$package_input_path" ]] \
+    || fail "Android local package input does not exist: $package_input"
+  [[ -f "$package_input_path/Package.swift" ]] \
+    || fail "Android local package input has no Package.swift: $package_input"
+done
+ANDROID_PACKAGE_INPUT_MANIFEST="$(android_package_input_manifest)"
+ANDROID_PACKAGE_INPUTS_FINGERPRINT="$(printf '%s\n' "$ANDROID_PACKAGE_INPUT_MANIFEST" | shasum -a 256 | awk '{ print $1 }')"
+
 skip_route_manifest() {
   local package_name
   local package_path
@@ -505,21 +700,8 @@ skip_route_fingerprint() {
   skip_route_manifest | shasum -a 256 | awk '{ print $1 }'
 }
 
-skip_runner_source_fingerprint() {
-  find -L "$SKIPLOCAL/Package.swift" "$SKIPLOCAL/Package.resolved" "$SKIPLOCAL/Sources" \
-    -type f -print 2>/dev/null \
-    | LC_ALL=C sort \
-    | while IFS= read -r source_file; do
-        printf '%s  %s\n' \
-          "$(shasum -a 256 "$source_file" | awk '{ print $1 }')" \
-          "${source_file#"$SKIPLOCAL"/}"
-      done \
-    | shasum -a 256 \
-    | awk '{ print $1 }'
-}
-
 SKIP_ROUTE_FINGERPRINT="$(skip_route_fingerprint)"
-SKIP_RUNNER_SOURCE_FINGERPRINT="$(skip_runner_source_fingerprint)"
+SKIP_RUNNER_SOURCE_FINGERPRINT="$(package_source_fingerprint "$SKIPLOCAL_RESOLVED")"
 
 if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   check_pinned_config_value app_root "$APP_ROOT"
@@ -528,6 +710,9 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   check_pinned_config_value skip_dependency_root_resolved "$SKIP_DEPENDENCY_ROOT_RESOLVED"
   check_pinned_config_value skip_route_fingerprint "$SKIP_ROUTE_FINGERPRINT"
   check_pinned_config_value skip_sharing_swift_sharing_resolved "$SKIP_SHARING_SWIFT_SHARING_RESOLVED"
+  if [[ "${BUILD_CONFIG_VERSION:-0}" == "5" ]]; then
+    check_pinned_config_value android_package_inputs_fingerprint "$ANDROID_PACKAGE_INPUTS_FINGERPRINT"
+  fi
 fi
 
 if [[ "$ADOPT_BUILD_CONFIG" -eq 1 && "$LANE" == "module" ]]; then
@@ -577,6 +762,12 @@ export ANDROID_USER_HOME="${ANDROID_USER_HOME:-${HOME}/.android}"
 export SKIPLOCAL
 export SKIP_COMMAND_OVERRIDE
 export SKIP_SHARING_SWIFT_SHARING
+export OME_TCA26_PATH
+export OME_COMPOSABLE_NOTIFICATIONS_PATH="$COMPOSABLE_NOTIFICATIONS_PATH"
+export OME_DEPENDENCIES_HTTP_CLIENT_PATH="$DEPENDENCIES_HTTP_CLIENT_PATH"
+if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
+  export OME_COMPOSABLE_WORKSPACE_PATH="$COMPOSABLE_WORKSPACE_PATH"
+fi
 if [[ -n "$ARCHITECTURES" ]]; then
   export SKIP_EXPORT_ARCHS="$ARCHITECTURES"
 fi
@@ -607,6 +798,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     "$SWIFT_MODULECACHE_PATH" \
     "$CFFIXED_USER_HOME" \
     "$SMOKE_ROOT/bin" \
+    "$SMOKE_ROOT/package-state" \
     "$SKIPSTONE_BUILD_ROOT" \
     "$SKIPSTONE_SWIFTPM_ROOT/cache" \
     "$SKIPSTONE_SWIFTPM_ROOT/config" \
@@ -620,6 +812,92 @@ fi
 [[ -n "$ANDROID_APPLICATION_ID" ]] || fail "could not determine Android application id from Skip.env"
 
 MODULE_SCRATCH_PATH="${SKIP_SCRATCH_PATH:-$SMOKE_ROOT/skip-android-build}"
+PACKAGE_RESOLUTION_CONFIG_FILE="${OME_ANDROID_PACKAGE_RESOLUTION_CONFIG_FILE:-$SMOKE_ROOT/android-package-resolution-config}"
+WORKSPACE_PACKAGE_RESOLVED="$APP_ROOT/Package.resolved"
+ANDROID_PACKAGE_RESOLVED="$SMOKE_ROOT/package-state/Package.resolved"
+WORKSPACE_PACKAGE_RESOLVED_BACKUP=""
+WORKSPACE_PACKAGE_RESOLVED_WAS_PRESENT=0
+ANDROID_PACKAGE_RESOLUTION_ACTIVE=0
+ANDROID_PACKAGE_RESOLUTION_CAPTURE=0
+
+restore_workspace_package_resolution() {
+  local exit_status=$?
+  local cached_package_resolved="$ANDROID_PACKAGE_RESOLVED.next"
+
+  trap - EXIT
+  set +e
+
+  if [[ "$ANDROID_PACKAGE_RESOLUTION_ACTIVE" -eq 1 ]]; then
+    if [[ "$ANDROID_PACKAGE_RESOLUTION_CAPTURE" -eq 1 && -f "$WORKSPACE_PACKAGE_RESOLVED" ]]; then
+      cp -p "$WORKSPACE_PACKAGE_RESOLVED" "$cached_package_resolved"
+      mv "$cached_package_resolved" "$ANDROID_PACKAGE_RESOLVED"
+    fi
+
+    if [[ "$WORKSPACE_PACKAGE_RESOLVED_WAS_PRESENT" -eq 1 ]]; then
+      cp -p "$WORKSPACE_PACKAGE_RESOLVED_BACKUP" "$WORKSPACE_PACKAGE_RESOLVED"
+    else
+      rm -f "$WORKSPACE_PACKAGE_RESOLVED"
+    fi
+    rm -f "$WORKSPACE_PACKAGE_RESOLVED_BACKUP" "$cached_package_resolved"
+  fi
+
+  exit "$exit_status"
+}
+
+prepare_android_package_resolution() {
+  [[ "$DRY_RUN" -eq 0 ]] || return 0
+
+  WORKSPACE_PACKAGE_RESOLVED_BACKUP="$(mktemp "$SMOKE_ROOT/package-state/workspace-Package.resolved.XXXXXX")"
+  if [[ -f "$WORKSPACE_PACKAGE_RESOLVED" ]]; then
+    WORKSPACE_PACKAGE_RESOLVED_WAS_PRESENT=1
+    cp -p "$WORKSPACE_PACKAGE_RESOLVED" "$WORKSPACE_PACKAGE_RESOLVED_BACKUP"
+  fi
+
+  if [[ -f "$ANDROID_PACKAGE_RESOLVED" ]]; then
+    cp -p "$ANDROID_PACKAGE_RESOLVED" "$WORKSPACE_PACKAGE_RESOLVED"
+    echo "Restored workspace-specific Android package resolution"
+  fi
+
+  ANDROID_PACKAGE_RESOLUTION_ACTIVE=1
+  trap restore_workspace_package_resolution EXIT
+}
+
+package_resolution_config() {
+  cat <<CONFIG
+version=5
+app_package_graph_fingerprint=$(package_graph_fingerprint "$APP_ROOT")
+ome_package_graph_fingerprint=$(package_graph_fingerprint "$OME_PACKAGE_ROOT")
+android_package_inputs_fingerprint=$ANDROID_PACKAGE_INPUTS_FINGERPRINT
+skiplocal=$SKIPLOCAL
+skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
+ome_tca26_path=$OME_TCA26_PATH
+composable_notifications_path=$COMPOSABLE_NOTIFICATIONS_PATH
+composable_workspace_path=${COMPOSABLE_WORKSPACE_PATH:-remote}
+dependencies_http_client_path=$DEPENDENCIES_HTTP_CLIENT_PATH
+ome_android_app_build=$OME_ANDROID_APP_BUILD
+CONFIG
+}
+
+invalidate_stale_package_resolution_state() {
+  local workspace_state="$APP_ROOT/.build/workspace-state.json"
+
+  if [[ -f "$PACKAGE_RESOLUTION_CONFIG_FILE" ]] \
+    && cmp -s "$PACKAGE_RESOLUTION_CONFIG_FILE" <(package_resolution_config)
+  then
+    return 0
+  fi
+
+  if [[ -f "$workspace_state" ]]; then
+    echo "Invalidating stale Android SwiftPM workspace state: $workspace_state"
+    run rm -f "$workspace_state"
+  fi
+}
+
+record_package_resolution_config() {
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    package_resolution_config > "$PACKAGE_RESOLUTION_CONFIG_FILE"
+  fi
+}
 
 verify_swift_sdks() {
   local isolated_sdk_home="$CFFIXED_USER_HOME/Library/org.swift.swiftpm/swift-sdks"
@@ -753,12 +1031,19 @@ configure_nested_skip_command() {
   local quoted_wrapper
   local quoted_architectures
   local quoted_ome_path
+  local quoted_tca26_path
+  local quoted_composable_notifications
+  local quoted_composable_workspace
+  local quoted_dependencies_http_client
 
   printf -v quoted_android_app_build '%q' "$OME_ANDROID_APP_BUILD"
   printf -v quoted_skiplocal '%q' "$SKIPLOCAL"
   printf -v quoted_skip_runner '%q' "$skip_runner_command"
   printf -v quoted_skip_sharing '%q' "$SKIP_SHARING_SWIFT_SHARING"
   printf -v quoted_wrapper '%q' "$skip_command_wrapper"
+  printf -v quoted_tca26_path '%q' "$OME_TCA26_PATH"
+  printf -v quoted_composable_notifications '%q' "$COMPOSABLE_NOTIFICATIONS_PATH"
+  printf -v quoted_dependencies_http_client '%q' "$DEPENDENCIES_HTTP_CLIENT_PATH"
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
     {
@@ -767,6 +1052,13 @@ configure_nested_skip_command() {
       printf 'export SKIPLOCAL=%s\n' "$quoted_skiplocal"
       printf 'export SKIP_COMMAND_OVERRIDE=%s\n' "$quoted_wrapper"
       printf 'export SKIP_SHARING_SWIFT_SHARING=%s\n' "$quoted_skip_sharing"
+      printf 'export OME_TCA26_PATH=%s\n' "$quoted_tca26_path"
+      printf 'export OME_COMPOSABLE_NOTIFICATIONS_PATH=%s\n' "$quoted_composable_notifications"
+      printf 'export OME_DEPENDENCIES_HTTP_CLIENT_PATH=%s\n' "$quoted_dependencies_http_client"
+      if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
+        printf -v quoted_composable_workspace '%q' "$COMPOSABLE_WORKSPACE_PATH"
+        printf 'export OME_COMPOSABLE_WORKSPACE_PATH=%s\n' "$quoted_composable_workspace"
+      fi
       if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
         printf -v quoted_ome_path '%q' "$OME_OPEN_MUSIC_EVENT_PATH"
         printf 'export OME_OPEN_MUSIC_EVENT_PATH=%s\n' "$quoted_ome_path"
@@ -813,6 +1105,12 @@ echo "  resolved:    $SKIPLOCAL_RESOLVED"
 echo "  Skip root:   $SKIP_DEPENDENCY_ROOT"
 echo "  route hash:  $SKIP_ROUTE_FINGERPRINT"
 echo "  Sharing:     $SKIP_SHARING_SWIFT_SHARING"
+echo "  TCA26:       $OME_TCA26_PATH"
+echo "  Notifications: $COMPOSABLE_NOTIFICATIONS_PATH"
+echo "  Workspace:   ${COMPOSABLE_WORKSPACE_PATH:-remote}"
+echo "  HTTP client: $DEPENDENCIES_HTTP_CLIENT_PATH"
+echo "  package inputs: $ANDROID_PACKAGE_INPUTS_FINGERPRINT"
+printf '%s\n' "$ANDROID_PACKAGE_INPUT_MANIFEST" | sed 's/^/    /'
 echo "  namespace init: $ANDROID_NAMESPACE_INIT_SCRIPT"
 echo "  JAVA_HOME:   $JAVA_HOME"
 echo "  Android home: $ANDROID_USER_HOME"
@@ -829,6 +1127,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 build_module() {
+  ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
   run "$SKIP_COMMAND_OVERRIDE" android build \
     --package-path "$APP_ROOT" \
     --scratch-path "$MODULE_SCRATCH_PATH" \
@@ -852,7 +1151,7 @@ native_package_metadata_fingerprint() {
 
 native_build_config() {
   cat <<CONFIG
-version=4
+version=5
 app_root=$APP_ROOT
 ome_open_music_event_path=${OME_OPEN_MUSIC_EVENT_PATH:-none}
 ome_open_music_event_path_resolved=${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-none}
@@ -869,6 +1168,7 @@ skip_runner_provenance=$SKIP_RUNNER_PROVENANCE_FILE
 skip_runner_source_fingerprint=$SKIP_RUNNER_SOURCE_FINGERPRINT
 skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
 skip_sharing_swift_sharing_resolved=$SKIP_SHARING_SWIFT_SHARING_RESOLVED
+android_package_inputs_fingerprint=$ANDROID_PACKAGE_INPUTS_FINGERPRINT
 ome_android_app_build=$OME_ANDROID_APP_BUILD
 configuration=$CONFIGURATION
 architectures=${ARCHITECTURES:-automatic}
@@ -1166,6 +1466,7 @@ record_native_build_config() {
 build_apk() {
   local gradle_task
 
+  ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
   invalidate_stale_native_package_projections
   verify_skip_source_projections before
   invalidate_stale_observation_bridges
@@ -1222,6 +1523,9 @@ artifact_path() {
   fi
 }
 
+prepare_android_package_resolution
+invalidate_stale_package_resolution_state
+
 case "$LANE" in
   module)
     build_module
@@ -1234,6 +1538,8 @@ case "$LANE" in
     build_apk
     ;;
 esac
+
+record_package_resolution_config
 
 if [[ "$DRY_RUN" -eq 0 && "$LANE" != "module" ]]; then
   ARTIFACT_PATH="$(artifact_path)"

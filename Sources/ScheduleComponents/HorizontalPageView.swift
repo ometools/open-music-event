@@ -1,4 +1,4 @@
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -19,7 +19,7 @@ public struct HorizontalPageView<Content: View, ID: Hashable>: View {
     }
 
     public var body: some View {
-        #if os(iOS) || os(macOS)
+        #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 content

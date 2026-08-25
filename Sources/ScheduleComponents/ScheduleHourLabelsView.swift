@@ -1,4 +1,4 @@
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -66,7 +66,7 @@ public struct ScheduleHourLabelsView: View {
     }
 
     var verticalTimeLabels: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ZStack(alignment: .topLeading) {
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
@@ -109,7 +109,7 @@ public struct ScheduleHourLabelsView: View {
     }
 
     var horizontalTimeLabels: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ZStack(alignment: .topLeading) {
             if scheduleWidth > 0 {
                 ForEach(hourDates, id: \.self) { date in

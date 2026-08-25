@@ -1,6 +1,6 @@
 import Foundation
 #if os(Android) || canImport(SwiftUI)
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -138,7 +138,7 @@ struct TimeZoneRow: View {
 private extension View {
     @ViewBuilder
     func timeZoneRowContentShape() -> some View {
-        #if TARGET_OS_ANDROID
+        #if TARGET_OS_ANDROID || SKIP_BRIDGE
         self
         #else
         self.contentShape(Rectangle())

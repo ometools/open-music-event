@@ -1,5 +1,5 @@
 #if os(Android) || canImport(SwiftUI)
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -13,7 +13,7 @@ public struct MappedSystemImage: View {
     }
 
     public var body: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ComposeView {
             MaterialSystemImageComposer(systemName: systemName)
         }
@@ -25,7 +25,7 @@ public struct MappedSystemImage: View {
     }
 }
 
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 public struct MappedSystemLabelIcon: View {
     let systemName: String
 

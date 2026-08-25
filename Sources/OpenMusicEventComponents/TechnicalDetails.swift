@@ -77,7 +77,7 @@ private extension String {
 }
 
 #if os(Android) || canImport(SwiftUI)
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #else
 import SwiftUI
@@ -114,7 +114,7 @@ public struct WorkspaceTechnicalValueView: View {
             Text(value)
                 .font(.caption)
                 .monospaced()
-                #if !os(Android)
+                #if !os(Android) && !SKIP_BRIDGE
                 .textSelection(.enabled)
                 #endif
         }

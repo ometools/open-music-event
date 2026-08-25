@@ -1,4 +1,4 @@
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 
 public typealias ScheduleCGFloat = SkipSwiftUI.CGFloat

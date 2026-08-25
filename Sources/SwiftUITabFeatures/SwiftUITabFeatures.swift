@@ -1,4 +1,4 @@
-#if os(Android) || ROBOLECTRIC
+#if os(Android) || ROBOLECTRIC || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI

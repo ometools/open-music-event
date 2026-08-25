@@ -1,4 +1,4 @@
-#if os(Android)
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
@@ -44,7 +44,7 @@ public struct ScheduleHourLines: View {
     }
 
     var verticalTimeLines: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ZStack(alignment: .topLeading) {
             if scheduleWidth > 0 {
                 verticalTimeLines(width: scheduleWidth)
@@ -60,7 +60,7 @@ public struct ScheduleHourLines: View {
     }
 
     var horizontalTimeLines: some View {
-        #if os(Android)
+        #if os(Android) || SKIP_BRIDGE
         ZStack(alignment: .topLeading) {
             if scheduleWidth > 0 {
                 horizontalTimeLines(width: scheduleWidth)
