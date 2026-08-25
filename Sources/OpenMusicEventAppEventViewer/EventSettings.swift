@@ -163,12 +163,10 @@ public struct EventSettings {
             }
         }
         .onChange(of: store.criticalAlertsAreAllowed) { _, isOn, state in
-            guard isOn != (state.permissions.criticalAlerts == .enabled),
-                  state.permissions.criticalAlerts != .unavailable
-            else { return }
+            guard isOn else { return }
 
-            state.criticalAlertsAreAllowed = state.permissions.criticalAlerts == .enabled
-            if isOn && state.permissions.notificationsAreAllowed {
+            switch state.permissions.criticalAlerts {
+            case .disabled where state.permissions.notificationsAreAllowed:
                 store.addTask {
                     do {
                         _ = try await devicePermissions.requestCriticalAlerts()
@@ -181,17 +179,22 @@ public struct EventSettings {
                         )
                     }
                 }
-            } else {
+
+            case .disabled:
+                state.criticalAlertsAreAllowed = false
                 store.addTask {
                     _ = await devicePermissions.openNotificationSettings()
                 }
+
+            case .enabled, .unavailable:
+                break
             }
         }
         .onChange(of: store.notificationsAreAllowed) { _, isOn, state in
-            guard isOn != state.permissions.notificationsAreAllowed else { return }
+            guard isOn else { return }
 
-            state.notificationsAreAllowed = state.permissions.notificationsAreAllowed
-            if isOn && state.permissions.notifications == .unknown {
+            switch state.permissions.notifications {
+            case .unknown:
                 store.addTask {
                     do {
                         _ = try await devicePermissions.requestNotifications()
@@ -204,10 +207,15 @@ public struct EventSettings {
                         )
                     }
                 }
-            } else {
+
+            case .denied, .restricted:
+                state.notificationsAreAllowed = false
                 store.addTask {
                     _ = await devicePermissions.openNotificationSettings()
                 }
+
+            case .authorized, .limited:
+                break
             }
         }
         .onChange(of: store.permissions, initial: true) { _, permissions, state in
