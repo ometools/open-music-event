@@ -29,30 +29,22 @@ public struct EventSettings {
         }
 
         @FetchOne public var event: OMERecord.Event?
+        public var criticalAlertsAreAllowed = false
         public var destination: Destination.State?
         public var eventID: OMERecord.Event.ID
+        public var notificationsAreAllowed = false
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
-
-        public var criticalAlertsAreAllowed: Bool {
-            permissions.criticalAlerts == .enabled
-        }
 
         public var notificationIndicatorValue: Int? {
             permissions.notificationSetupBadgeValue
         }
-
-        public var notificationsAreAllowed: Bool {
-            permissions.notificationsAreAllowed
-        }
     }
 
     public enum Action {
-        case criticalAlertPermissionToggleChanged(Bool)
         case destination(Destination.Action)
         case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
         case exitAuthoringButtonTapped
-        case notificationPermissionToggleChanged(Bool)
         case openNotificationSettingsButtonTapped
         case testErrorButtonTapped
     }
@@ -87,30 +79,6 @@ public struct EventSettings {
 
         Update { state, action in
             switch action {
-            case let .criticalAlertPermissionToggleChanged(isOn):
-                guard isOn != state.criticalAlertsAreAllowed,
-                      state.permissions.criticalAlerts != .unavailable
-                else { return }
-
-                if isOn && state.permissions.notificationsAreAllowed {
-                    store.addTask {
-                        do {
-                            _ = try await devicePermissions.requestCriticalAlerts()
-                            try await store.state.$permissions.load()
-                        } catch {
-                            await store.reportError(
-                                error,
-                                fallbackMessage: .notificationPermissionRequestFailed,
-                                operation: .notificationPermissionRequest
-                            )
-                        }
-                    }
-                } else {
-                    store.addTask {
-                        _ = await devicePermissions.openNotificationSettings()
-                    }
-                }
-
             case .destination(.exitAuthoringConfirmation(.cancelButtonTapped)):
                 break
 
@@ -175,28 +143,6 @@ public struct EventSettings {
                     }
                 }
 
-            case let .notificationPermissionToggleChanged(isOn):
-                guard isOn != state.notificationsAreAllowed else { return }
-
-                if isOn && state.permissions.notifications == .unknown {
-                    store.addTask {
-                        do {
-                            _ = try await devicePermissions.requestNotifications()
-                            try await store.state.$permissions.load()
-                        } catch {
-                            await store.reportError(
-                                error,
-                                fallbackMessage: .notificationPermissionRequestFailed,
-                                operation: .notificationPermissionRequest
-                            )
-                        }
-                    }
-                } else {
-                    store.addTask {
-                        _ = await devicePermissions.openNotificationSettings()
-                    }
-                }
-
             case .openNotificationSettingsButtonTapped:
                 store.addTask {
                     _ = await devicePermissions.openNotificationSettings()
@@ -215,6 +161,58 @@ public struct EventSettings {
             case .destination:
                 break
             }
+        }
+        .onChange(of: store.criticalAlertsAreAllowed) { _, isOn, state in
+            guard isOn != (state.permissions.criticalAlerts == .enabled),
+                  state.permissions.criticalAlerts != .unavailable
+            else { return }
+
+            state.criticalAlertsAreAllowed = state.permissions.criticalAlerts == .enabled
+            if isOn && state.permissions.notificationsAreAllowed {
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestCriticalAlerts()
+                        try await store.state.$permissions.load()
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .notificationPermissionRequestFailed,
+                            operation: .notificationPermissionRequest
+                        )
+                    }
+                }
+            } else {
+                store.addTask {
+                    _ = await devicePermissions.openNotificationSettings()
+                }
+            }
+        }
+        .onChange(of: store.notificationsAreAllowed) { _, isOn, state in
+            guard isOn != state.permissions.notificationsAreAllowed else { return }
+
+            state.notificationsAreAllowed = state.permissions.notificationsAreAllowed
+            if isOn && state.permissions.notifications == .unknown {
+                store.addTask {
+                    do {
+                        _ = try await devicePermissions.requestNotifications()
+                        try await store.state.$permissions.load()
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .notificationPermissionRequestFailed,
+                            operation: .notificationPermissionRequest
+                        )
+                    }
+                }
+            } else {
+                store.addTask {
+                    _ = await devicePermissions.openNotificationSettings()
+                }
+            }
+        }
+        .onChange(of: store.permissions, initial: true) { _, permissions, state in
+            state.criticalAlertsAreAllowed = permissions.criticalAlerts == .enabled
+            state.notificationsAreAllowed = permissions.notificationsAreAllowed
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
@@ -270,9 +268,7 @@ public struct EventSettingsView: View {
             Section {
                 Toggle(
                     "Allow Notifications",
-                    isOn: $store.notificationsAreAllowed.sending(
-                        \.notificationPermissionToggleChanged
-                    )
+                    isOn: $store.notificationsAreAllowed
                 )
                 .tint(.green)
             }
@@ -281,9 +277,7 @@ public struct EventSettingsView: View {
             if store.permissions.criticalAlerts != .unavailable {
                 Section {
                     Toggle(
-                        isOn: $store.criticalAlertsAreAllowed.sending(
-                            \.criticalAlertPermissionToggleChanged
-                        )
+                        isOn: $store.criticalAlertsAreAllowed
                     ) {
                         Label {
                             Text("Critical Alerts")

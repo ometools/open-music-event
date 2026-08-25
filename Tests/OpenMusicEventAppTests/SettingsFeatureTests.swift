@@ -407,7 +407,10 @@ struct SettingsFeatureTests {
         expectNoDifference(store.state.permissions.notifications, .unknown)
         let loadsBeforeRequest = loadCount.withLock { $0 }
 
-        await store.send(.notificationPermissionToggleChanged(true))?.value
+        let permissionRequest = store.modify {
+            $0.notificationsAreAllowed = true
+        }
+        await permissionRequest?.value
 
         expectNoDifference(permissionWasRequested.withLock { $0 }, true)
         expectNoDifference(store.state.permissions.notifications, .authorized)
@@ -452,8 +455,11 @@ struct SettingsFeatureTests {
         expectNoDifference(store.state.permissions.criticalAlerts, .disabled)
         let loadsBeforeRequest = loadCount.withLock { $0 }
 
-        // The distinct Critical Alerts action requests only that permission and reloads system state.
-        await store.send(.criticalAlertPermissionToggleChanged(true))?.value
+        // The Critical Alerts toggle requests only that permission and reloads system state.
+        let permissionRequest = store.modify {
+            $0.criticalAlertsAreAllowed = true
+        }
+        await permissionRequest?.value
 
         expectNoDifference(criticalAlertsWereRequested.withLock { $0 }, true)
         expectNoDifference(store.state.permissions.notifications, .authorized)
@@ -557,7 +563,10 @@ struct SettingsFeatureTests {
         try await store.state.$permissions.load()
         expectNoDifference(store.state.permissions.notifications, .denied)
 
-        await store.send(.notificationPermissionToggleChanged(true))?.value
+        let settingsRequest = store.modify {
+            $0.notificationsAreAllowed = true
+        }
+        await settingsRequest?.value
 
         expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
         expectNoDifference(requestCount.withLock { $0 }, 0)
@@ -593,7 +602,10 @@ struct SettingsFeatureTests {
         try await store.state.$permissions.load()
         expectNoDifference(store.state.permissions.notifications, .authorized)
 
-        await store.send(.notificationPermissionToggleChanged(false))?.value
+        let settingsRequest = store.modify {
+            $0.notificationsAreAllowed = false
+        }
+        await settingsRequest?.value
 
         expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
         expectNoDifference(requestCount.withLock { $0 }, 0)
