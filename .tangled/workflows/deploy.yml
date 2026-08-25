@@ -33,7 +33,9 @@ steps:
           git config --global credential.helper store
           printf "https://x-access-token:%s@github.com\n" "$GITHUB_TOKEN" > ~/.git-credentials
 
-          git ls-remote https://github.com/pointfreeco/TCA26 HEAD >/dev/null
+          rm -rf .build/lambda-build .build/checkouts/TCA26 "$HOME/.cache/org.swift.swiftpm" "$HOME/.swiftpm"
+          rm -f Package.resolved
+          git clone --depth 1 https://github.com/pointfreeco/TCA26 .build/checkouts/TCA26
 
           yum install -y zip file
           release_bin_path="$(swift build --build-path .build/lambda-build -c release --show-bin-path)"
