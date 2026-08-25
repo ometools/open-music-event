@@ -88,8 +88,8 @@ let tca26Dependency: Package.Dependency = {
         )
     }
     return .package(
-        name: "TCA26",
-        path: packagePath(".build/checkouts/TCA26"),
+        url: "https://github.com/pointfreeco/TCA26",
+        branch: "main",
         traits: ["Dependencies"]
     )
 }()

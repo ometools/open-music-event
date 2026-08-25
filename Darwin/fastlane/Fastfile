@@ -7,6 +7,12 @@ default_platform(:ios)
 lane :assemble do |options|
   # only build the iOS side of the app
   ENV["SKIP_ZERO"] = "true"
+  tca26_path = ENV["OME_TCA26_PATH"].to_s
+  tca26_checkout = File.expand_path(tca26_path, File.expand_path("../..", __dir__))
+  unless !tca26_path.empty? && File.directory?(tca26_checkout)
+    UI.user_error!("OME_TCA26_PATH must point to the release TCA26 checkout")
+  end
+
   build_app(
     scheme: "OpenMusicEvent App",
     sdk: "iphoneos",
@@ -37,4 +43,3 @@ lane :release do |options|
     release_notes: { default: "Fixes and improvements." }
   )
 end
-

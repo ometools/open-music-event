@@ -1,5 +1,5 @@
 {
-  "originHash" : "c2d856069e43e228a6e1af6e0d0f93c8629be485a24bfd940d9eae2873ff94e7",
+  "originHash" : "617c7c151f98fe23a21302cdacdbab4146d9e7ac245ce82c0326b44a37c6caf1",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -827,6 +827,15 @@
       "state" : {
         "revision" : "126df9655565068bd97838c072c1db11f9fd42ee",
         "version" : "1.6.1"
+      }
+    },
+    {
+      "identity" : "tca26",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/TCA26",
+      "state" : {
+        "branch" : "main",
+        "revision" : "cf2f6b58c7be7736a9705dc194c7ff81513bd28d"
       }
     },
     {
