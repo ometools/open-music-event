@@ -1492,18 +1492,27 @@ struct EventBrowseStoryTests {
             communicationReadState.postIDs
         )
 
-        // Browse persists only the neutral source locator carried by the OME record. It does not
-        // prepare a repository, install an organization source, or manufacture publication state.
+        // Browse preserves the exact published revision as event provenance while installed-event
+        // intent resolves the same repository to its editable main branch. Neither record prepares
+        // a repository, installs an organization source, or manufactures publication state.
         let browseState = try await database.read { db in
             (
                 provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
+                installedEvent: try InstalledEventRecord.find(eventID).fetchOne(db),
                 installations: try SourceWorkspaceInstallationRecord.fetchCount(db)
             )
         }
         let workspace = try #require(browseState.provenance?.workspace)
+        let installedWorkspace = try #require(browseState.installedEvent?.workspace)
         expectNoDifference(workspace.organizerID, organizerID)
         expectNoDifference(workspace.repository, "tangled.org/wickedwoods.ca/ome-workspace")
         expectNoDifference(workspace.defaultBranch, "main")
+        expectNoDifference(
+            browseState.provenance?.ref,
+            "3cc283a5d07218f4dfc55652513e9191d2040a06"
+        )
+        expectNoDifference(browseState.installedEvent?.ref, "main")
+        expectNoDifference(installedWorkspace, workspace)
         expectNoDifference(browseState.installations, 0)
         #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)
     }
@@ -1791,7 +1800,7 @@ extension EventBrowseStoryTests {
               "$type": "app.openmusicevent.source",
               "kind": "tangled",
               "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
-              "ref": "main"
+              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
             },
             "resolvedArtifact": {
               "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
@@ -1801,7 +1810,7 @@ extension EventBrowseStoryTests {
             },
             "resolvedRepository": {
               "reference": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
-              "ref": "main"
+              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
             }
           }
         }

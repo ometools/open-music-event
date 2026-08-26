@@ -3115,7 +3115,7 @@ struct SourceDatabaseInsertionTests {
         let workspace = SourceWorkspace(
             organizerID: organizerID,
             repository: installedSource.reference,
-            branch: installedRevision
+            branch: "main"
         )
         let attendeeSource = try makeSourceRepository(
             eventDirectoryName: "attendee-event",
@@ -3336,6 +3336,93 @@ struct SourceDatabaseInsertionTests {
                 )
             )
         }
+    }
+
+    @Test
+    func `a published revision starts source authoring on main`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let publishedRevision = "3cc283a5d07218f4dfc55652513e9191d2040a06"
+        let sourceReference = "tangled.org/example/testival-source"
+        let eventID = eventID(
+            "testival-source-testival-2026",
+            organizerID: organizerID
+        )
+        let provenance = EventSourceProvenanceRecord(
+            id: eventID,
+            sourceKind: .tangled,
+            sourceReference: sourceReference,
+            ref: publishedRevision,
+            eventIDOrigin: .inferred,
+            sourceEventDirectory: "testival-2026"
+        )
+        let workspace = try #require(provenance.workspace)
+        let recordWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            sourceRecord: OME.SourceRecord(
+                kind: .tangled,
+                reference: sourceReference,
+                ref: publishedRevision
+            )
+        )
+        let installedWorkspace = try #require(
+            InstalledEventRecord(
+                id: eventID,
+                sourceProvenance: provenance.sourceProvenance
+            )
+            .workspace
+        )
+        expectNoDifference(provenance.ref, publishedRevision)
+        expectNoDifference(workspace.defaultBranch, "main")
+        expectNoDifference(recordWorkspace, workspace)
+        expectNoDifference(installedWorkspace, workspace)
+
+        let source = try makeSourceRepository()
+        let checkoutRefs = Mutex<[String]>([])
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+
+        let prepared = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient { request in
+                checkoutRefs.withLock { $0.append(request.ref) }
+                try FileManager.default.createDirectory(
+                    at: request.outputURL,
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    source,
+                    to: request.outputURL
+                )
+                return .init(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            try await SourceWorkspacePreparationClient
+                .openMusicEvent { _, _ in CommitID(rawValue: "main-revision") }
+                .prepare(workspace)
+        }
+
+        expectNoDifference(checkoutRefs.withLock { $0 }, ["main"])
+        expectNoDifference(
+            prepared.context,
+            .published(
+                WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "main"),
+                    revision: WorkspaceRevision(rawValue: "main-revision")
+                )
+            )
+        )
     }
 
     @Test

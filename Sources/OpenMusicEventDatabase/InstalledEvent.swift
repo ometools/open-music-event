@@ -30,7 +30,7 @@ public struct InstalledEventRecord: Equatable, Sendable, Identifiable {
         return SourceWorkspace(
             organizerID: id.organizerID,
             repository: sourceReference,
-            branch: SourceWorkspace.normalizedBranch(ref)
+            branch: "main"
         )
     }
 }

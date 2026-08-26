@@ -40,7 +40,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         self.init(
             organizerID: organizerID,
             repository: sourceRecord.reference,
-            branch: Self.normalizedBranch(sourceRecord.ref)
+            branch: "main"
         )
     }
 
@@ -82,10 +82,10 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         )
     }
 
-    /// Whether two revisions belong to the same organizer-owned repository.
+    /// Whether two workspaces belong to the same organizer-owned repository.
     ///
-    /// A workspace ID includes its ref. Published attendee content may advance that ref, but it
-    /// must never cross either the organizer or repository boundary.
+    /// Published attendee content may advance independently of the editable branch, but it must
+    /// never cross either the organizer or repository boundary.
     public func referencesSameRepository(as other: Self) -> Bool {
         organizerID == other.organizerID && repository == other.repository
     }
@@ -166,7 +166,7 @@ public struct EventSourceProvenanceRecord: Equatable, Sendable, Identifiable {
         return SourceWorkspace(
             organizerID: id.organizerID,
             repository: sourceReference,
-            branch: SourceWorkspace.normalizedBranch(ref)
+            branch: "main"
         )
     }
 }
