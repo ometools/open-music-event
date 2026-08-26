@@ -120,9 +120,6 @@
     "After" : {
 
     },
-    "Alerts" : {
-
-    },
     "Allow" : {
 
     },
@@ -618,6 +615,12 @@
     "Look up exact handle or DID" : {
 
     },
+    "Manage Critical Alerts" : {
+      "comment" : "Primary button for opening system settings to manage Critical Alerts"
+    },
+    "Manage Notifications" : {
+      "comment" : "Primary button for opening system settings to manage notifications"
+    },
     "Map Style" : {
       "comment" : "Accessibility label for the site map style menu"
     },
@@ -777,6 +780,12 @@
     "Now" : {
 
     },
+    "Off" : {
+      "comment" : "System notification or Critical Alert permission status"
+    },
+    "On" : {
+      "comment" : "System notification or Critical Alert permission status"
+    },
     "Open Music Event could not request notification permission." : {
 
     },
@@ -932,6 +941,9 @@
     },
     "Pushing the source branch" : {
 
+    },
+    "Quiet" : {
+      "comment" : "Notification permission status when notifications are delivered provisionally or quietly"
     },
     "Raw record diff" : {
 
@@ -1118,6 +1130,9 @@
     },
     "Set as primary" : {
 
+    },
+    "Set Up" : {
+      "comment" : "Notification permission status before the person has made a choice"
     },
     "Settings" : {
 
