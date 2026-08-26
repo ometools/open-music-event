@@ -2,6 +2,7 @@ import ATProto
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import SQLiteData
 
 public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Sendable {
@@ -85,9 +86,38 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
     /// Whether two workspaces belong to the same organizer-owned repository.
     ///
     /// Published attendee content may advance independently of the editable branch, but it must
-    /// never cross either the organizer or repository boundary.
+    /// never cross either the organizer or repository boundary. A legacy Tangled locator may
+    /// migrate to the organizer's canonical repository-record URI when both name the same record
+    /// key.
     public func referencesSameRepository(as other: Self) -> Bool {
-        organizerID == other.organizerID && repository == other.repository
+        guard organizerID == other.organizerID else { return false }
+        guard repository != other.repository else { return true }
+
+        switch (tangledRepositoryIdentity, other.tangledRepositoryIdentity) {
+        case let (.legacy(legacy), .canonical(canonical)),
+             let (.canonical(canonical), .legacy(legacy)):
+            return legacy == canonical
+
+        default:
+            return false
+        }
+    }
+
+    private enum TangledRepositoryIdentity {
+        case canonical(String)
+        case legacy(String)
+    }
+
+    private var tangledRepositoryIdentity: TangledRepositoryIdentity? {
+        if let record = try? TangledRepositoryRecordReference(parsing: repository),
+           record.uri.authority.description == organizerID.description
+        {
+            return .canonical(record.rkey.rawValue)
+        }
+        if let legacy = try? TangledRepositoryReference(parsing: repository) {
+            return .legacy(legacy.repository)
+        }
+        return nil
     }
 
     public static func normalizedBranch(_ branch: String?) -> String {

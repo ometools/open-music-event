@@ -3034,7 +3034,7 @@ struct SourceDatabaseInsertionTests {
         let installedWorkspace = SourceWorkspace(
             organizerID: organizerID,
             repository: installedSource.reference,
-            branch: "old-revision"
+            branch: "main"
         )
         let installedInsertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -3051,7 +3051,7 @@ struct SourceDatabaseInsertionTests {
         let foreignWorkspace = SourceWorkspace(
             organizerID: organizerID,
             repository: foreignSource.reference,
-            branch: "new-revision"
+            branch: "main"
         )
         let foreignInsertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -3092,7 +3092,7 @@ struct SourceDatabaseInsertionTests {
             )
             expectNoDifference(
                 try InstalledEventRecord.find(installedEventID).fetchOne(db)?.ref,
-                "old-revision"
+                "main"
             )
         }
     }

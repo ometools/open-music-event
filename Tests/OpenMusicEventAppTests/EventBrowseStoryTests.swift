@@ -1518,7 +1518,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test
-    func `refreshing Wicked Woods advances the published revision without losing attendee data`() async throws {
+    func `refreshing Wicked Woods migrates its legacy source and revision without losing attendee data`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -1531,18 +1531,20 @@ struct EventBrowseStoryTests {
             organizerID: organizerID,
             eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
         )
-        let sourceReference = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+        let legacySourceReference = "tangled.org/wickedwoods.ca/ome-workspace"
+        let publishedSourceReference =
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
         let installedRevision = "d8048ab9d0ba54d6266e23d7b2e6c65de595ac7b"
         let publishedRevision = "3cc283a5d07218f4dfc55652513e9191d2040a06"
         let installedSource = OME.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
-            reference: sourceReference,
+            reference: legacySourceReference,
             ref: installedRevision
         )
         let installedWorkspace = SourceWorkspace(
             organizerID: organizerID,
-            repository: sourceReference,
-            branch: installedRevision
+            repository: legacySourceReference,
+            branch: "main"
         )
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let installedInsertion = try OME.SourceDatabaseInsertion(
@@ -1633,12 +1635,23 @@ struct EventBrowseStoryTests {
                 "The emergency update arrived."
             )
             expectNoDifference(
-                try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.ref,
-                publishedRevision
+                try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.sourceProvenance,
+                OME.SourceDatabaseInsertion.SourceProvenance(
+                    kind: .tangled,
+                    reference: publishedSourceReference,
+                    ref: publishedRevision
+                )
             )
             expectNoDifference(
-                try InstalledEventRecord.find(eventID).fetchOne(db)?.ref,
-                publishedRevision
+                try InstalledEventRecord.find(eventID).fetchOne(db),
+                InstalledEventRecord(
+                    id: eventID,
+                    sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance(
+                        kind: .tangled,
+                        reference: publishedSourceReference,
+                        ref: "main"
+                    )
+                )
             )
             expectNoDifference(try UserSchedule.find(userSchedule.id).fetchOne(db), userSchedule)
             expectNoDifference(
