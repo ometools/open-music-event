@@ -328,13 +328,23 @@ public struct EventSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Button {
-                        store.send(.notificationPermissionButtonTapped)
-                    } label: {
-                        Text(notificationPermissionButtonTitle)
-                            .frame(maxWidth: .infinity)
+                    if store.permissions.notificationsAreAllowed {
+                        Button {
+                            store.send(.notificationPermissionButtonTapped)
+                        } label: {
+                            Text(notificationPermissionButtonTitle)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button {
+                            store.send(.notificationPermissionButtonTapped)
+                        } label: {
+                            Text(notificationPermissionButtonTitle)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding(.vertical, 6)
             }
@@ -357,13 +367,23 @@ public struct EventSettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Button {
-                            store.send(.criticalAlertPermissionButtonTapped)
-                        } label: {
-                            Text(criticalAlertPermissionButtonTitle)
-                                .frame(maxWidth: .infinity)
+                        if store.permissions.criticalAlerts == .enabled {
+                            Button {
+                                store.send(.criticalAlertPermissionButtonTapped)
+                            } label: {
+                                Text(criticalAlertPermissionButtonTitle)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                store.send(.criticalAlertPermissionButtonTapped)
+                            } label: {
+                                Text(criticalAlertPermissionButtonTitle)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
                     }
                     .padding(.vertical, 6)
                 } header: {
