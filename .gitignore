@@ -75,6 +75,8 @@ Carthage/Build/
 
 # fastlane
 
+.maestro/screenshots/
+
 **/fastlane/apikey.json
 **/fastlane/report.xml
 **/fastlane/README.md

@@ -31,9 +31,44 @@ def run_compiler_lane(*command)
   )
 end
 
+def skiplocal
+  File.expand_path(
+    ENV.fetch(
+      "SKIPLOCAL",
+      "~/Developer/swift-packages/3rd-party/skip/skipstone"
+    )
+  )
+end
+
+def run_local_skip(*arguments)
+  UI.user_error!("SKIPLOCAL is unavailable at #{skiplocal}") unless File.directory?(skiplocal)
+
+  run_compiler_lane(
+    "swift-run",
+    "--package-path", skiplocal,
+    "SkipRunner",
+    *arguments
+  )
+end
+
+def android_harness
+  File.join(repo_root, "Scripts", "android-smoke-build.sh")
+end
+
+def run_android_harness(*arguments)
+  UI.user_error!("Android harness is unavailable at #{android_harness}") unless File.executable?(android_harness)
+
+  with_environment(
+    "SWIFT_COMPILER_WAIT" => "1",
+    "SWIFT_COMPILER_PRIORITY" => "interactive"
+  ) do
+    sh(android_harness, *arguments)
+  end
+end
+
 def with_environment(values)
   previous_values = values.to_h { |key, _value| [key, ENV[key]] }
-  values.each { |key, value| ENV[key] = value }
+  values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   yield
 ensure
   previous_values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
@@ -61,12 +96,12 @@ def maestro_flow(options)
 end
 
 def run_maestro(device:, app_id:, platform:, flow:)
-  with_environment(
-    "APP_ID" => app_id,
-    "MAESTRO_PLATFORM" => platform
-  ) do
-    sh("maestro", "--device", device, "test", flow)
-  end
+  sh(
+    "maestro", "--device", device, "test",
+    "-e", "APP_ID=#{app_id}",
+    "-e", "MAESTRO_PLATFORM=#{platform}",
+    flow
+  )
 end
 
 def verify_maestro_device!(device)
@@ -74,26 +109,81 @@ def verify_maestro_device!(device)
   UI.user_error!("Maestro cannot connect to #{device}: #{error}") unless status.success?
 end
 
+def ios_ui_derived_data_path
+  File.join(repo_root, ".build", "fastlane-ios-derived-data")
+end
+
+def build_install_launch_ios(device:, app_id:)
+  with_environment(
+    "SKIP_PLUGIN_DISABLED" => "",
+    "SKIP_ACTION" => "none",
+    "OME_ANDROID_APP_BUILD" => nil
+  ) do
+    run_compiler_lane(
+      "xcodebuild",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEvent App",
+      "-configuration", "Debug",
+      "-destination", "platform=iOS Simulator,id=#{device}",
+      "-derivedDataPath", ios_ui_derived_data_path,
+      "-skipPackagePluginValidation",
+      "-skipMacroValidation",
+      "build"
+    )
+  end
+
+  app_path = File.join(
+    ios_ui_derived_data_path,
+    "Build", "Products", "Debug-iphonesimulator", "OpenMusicEventApp.app"
+  )
+  UI.user_error!("iOS app product is missing at #{app_path}") unless File.directory?(app_path)
+
+  sh("xcrun", "simctl", "install", device, app_path)
+  sh("xcrun", "simctl", "launch", device, app_id)
+end
+
 desc "Run credential-free release readiness checks"
 lane :check do
   Dir.chdir(repo_root) do
-    sh("swift run ome-release-check")
-    sh("skip verify")
-    sh("skip meta index")
+    run_compiler_lane("swift-run", "ome-release-check")
+    run_local_skip("verify")
+    run_local_skip("meta", "index")
   end
 end
 
-desc "Run the Swift package suite used by the iOS app"
-lane :ios_tests do
+desc "Run the complete Swift package suite on the macOS host"
+lane :host_tests do
   run_compiler_lane("swift-test", "--no-parallel")
 end
 
-desc "Run the Swift package suite natively on Android with Skip Fuse"
+desc "Run OpenMusicEventAppTests on an iOS Simulator"
+lane :ios_tests do |options|
+  device = options[:device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+
+  with_environment(
+    "SKIP_PLUGIN_DISABLED" => "",
+    "SKIP_ACTION" => "none",
+    "OME_ANDROID_APP_BUILD" => nil
+  ) do
+    run_compiler_lane(
+      "xcodebuild",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEventAppTests",
+      "-destination", "platform=iOS Simulator,id=#{device}",
+      "-skipPackagePluginValidation",
+      "-skipMacroValidation",
+      "-parallel-testing-enabled", "NO",
+      "-only-testing:OpenMusicEventAppTests",
+      "test"
+    )
+  end
+end
+
+desc "Run OpenMusicEventAppTests in an Android instrumentation APK"
 lane :android_tests do |options|
   device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
-  with_environment("OME_ANDROID_APP_BUILD" => "1") do
-    run_compiler_lane("skip", "android", "test", "--android-serial", device)
-  end
+  run_android_harness("--serial", device)
+  run_android_harness("--tests", "--serial", device)
 end
 
 desc "Run the complete non-UI suite for the iOS app and Android"
@@ -101,16 +191,16 @@ lane :suite do |options|
   failures = []
 
   begin
-    ios_tests
+    ios_tests(device: options[:ios_device])
   rescue StandardError => error
-    failures << "iOS package suite: #{error.message.lines.first.strip}"
+    failures << "iOS Simulator suite: #{error.message.lines.first.strip}"
     UI.error(failures.last)
   end
 
   begin
     android_tests(device: options[:android_device])
   rescue StandardError => error
-    failures << "Android Fuse suite: #{error.message.lines.first.strip}"
+    failures << "Android instrumentation suite: #{error.message.lines.first.strip}"
     UI.error(failures.last)
   end
 
@@ -120,8 +210,8 @@ end
 desc "Start the default headless Android emulator used by local tests"
 lane :start_android_emulator do |options|
   name = options[:name] || ENV.fetch("OME_ANDROID_AVD", "Medium_Phone_API_36")
-  sh(
-    "skip", "android", "emulator", "launch",
+  run_local_skip(
+    "android", "emulator", "launch",
     "--name", name,
     "--background",
     "--headless"
@@ -154,12 +244,8 @@ lane :ui_tests do |options|
   android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
   flow = maestro_flow(options)
 
-  with_environment(
-    "ANDROID_SERIAL" => android_device,
-    "OME_ANDROID_APP_BUILD" => "1"
-  ) do
-    run_compiler_lane("skip", "app", "launch")
-  end
+  run_android_harness("--launch", "--serial", android_device)
+  build_install_launch_ios(device: ios_device, app_id: ios_app_id)
 
   run_maestro(
     device: ios_device,

@@ -46,6 +46,7 @@ Environment overrides:
   OME_ANDROID_APP_BUILD, OME_OPEN_MUSIC_EVENT_PATH, OME_TCA26_PATH,
   OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_WORKSPACE_PATH,
   OME_DEPENDENCIES_HTTP_CLIENT_PATH,
+  OME_ANDROID_TEST_APP_APK, OME_ANDROID_TEST_FILTER, OME_ANDROID_TEST_PARALLELISM,
   OME_ANDROID_COMPILER_LOCK_FILE,
   OME_ANDROID_SKIPSTONE_BUILD_ROOT,
   OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_PACKAGE_RESOLUTION_CONFIG_FILE,
@@ -294,6 +295,8 @@ OME_TCA26_PATH="${OME_TCA26_PATH:-}"
 COMPOSABLE_NOTIFICATIONS_PATH="${OME_COMPOSABLE_NOTIFICATIONS_PATH:-}"
 COMPOSABLE_WORKSPACE_PATH="${OME_COMPOSABLE_WORKSPACE_PATH:-}"
 DEPENDENCIES_HTTP_CLIENT_PATH="${OME_DEPENDENCIES_HTTP_CLIENT_PATH:-}"
+ANDROID_TEST_PARALLELISM="${OME_ANDROID_TEST_PARALLELISM:-1}"
+ANDROID_TEST_FILTER="${OME_ANDROID_TEST_FILTER:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -426,9 +429,12 @@ if [[ "$RUN_TESTS" -eq 1 ]]; then
     || fail "--tests cannot be combined with --install, --launch, or --logs"
   [[ "$ADOPT_BUILD_CONFIG" -eq 0 ]] \
     || fail "--tests cannot adopt the app build configuration; run a successful app build instead"
+  [[ "$ANDROID_TEST_PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
+    || fail "OME_ANDROID_TEST_PARALLELISM must be a positive integer"
 fi
 
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
+ANDROID_TEST_APP_APK="${OME_ANDROID_TEST_APP_APK:-$APP_ROOT/.build/Android/app/outputs/apk/$CONFIGURATION/app-$CONFIGURATION.apk}"
 if [[ "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
   APP_ROOT_FINGERPRINT="$(printf '%s' "$APP_ROOT" | shasum -a 256 | cut -c 1-12)"
   SMOKE_ROOT="/private/tmp/ome-android-smoke-$(basename "$APP_ROOT")-$APP_ROOT_FINGERPRINT"
@@ -737,7 +743,7 @@ fi
 
 if [[ -z "$GRADLE_BIN" ]]; then
   GRADLE_BIN="$(first_executable \
-    "/private/tmp/gradle-9.0.0/bin/gradle" \
+    "/private/tmp/gradle-9.4.1/bin/gradle" \
     "/tmp/gradle-9.5.0/bin/gradle" \
     "/private/tmp/gradle-9.5.0/bin/gradle" \
   )" || fail "could not find a pinned Gradle; set GRADLE_BIN"
@@ -819,7 +825,7 @@ ANDROID_PACKAGE_RESOLUTION_ACTIVE=0
 ANDROID_PACKAGE_RESOLUTION_CAPTURE=0
 
 restore_workspace_package_resolution() {
-  local exit_status=$?
+  local exit_status="$1"
   local cached_package_resolved="$ANDROID_PACKAGE_RESOLVED.next"
 
   trap - EXIT
@@ -857,7 +863,7 @@ prepare_android_package_resolution() {
   fi
 
   ANDROID_PACKAGE_RESOLUTION_ACTIVE=1
-  trap restore_workspace_package_resolution EXIT
+  trap 'restore_workspace_package_resolution "$?"' EXIT
 }
 
 package_resolution_config() {
@@ -1124,21 +1130,39 @@ echo "  toolchains:  $SWIFT_TOOLCHAIN_DIR"
 echo "  serial:      $ANDROID_SERIAL"
 echo "  app id:      $ANDROID_APPLICATION_ID"
 echo "  android app: $OME_ANDROID_APP_BUILD"
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  echo "  test app APK: $ANDROID_TEST_APP_APK"
+  echo "  test parallelism: $ANDROID_TEST_PARALLELISM"
+  if [[ -n "$ANDROID_TEST_FILTER" ]]; then
+    echo "  test filter: $ANDROID_TEST_FILTER"
+  fi
+fi
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "  dry run:     yes"
 fi
 
 run_android_tests() {
+  [[ -f "$ANDROID_TEST_APP_APK" ]] \
+    || fail "Android tests require the canonical app APK at $ANDROID_TEST_APP_APK; run Scripts/android-smoke-build.sh first"
   ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
-  run "$SKIP_COMMAND_OVERRIDE" android test \
-    --apk \
-    --testing-library testing \
-    --android-serial "$ANDROID_SERIAL" \
-    --plain \
-    --verbose \
-    --package-path "$APP_ROOT" \
-    --scratch-path "$ANDROID_TEST_SCRATCH_PATH" \
+  local test_arguments=(
+    android test
+    --apk
+    --app-apk "$ANDROID_TEST_APP_APK"
+    --testing-library testing
+    --maximum-parallelization-width "$ANDROID_TEST_PARALLELISM"
+  )
+  if [[ -n "$ANDROID_TEST_FILTER" ]]; then
+    test_arguments+=(--filter "$ANDROID_TEST_FILTER")
+  fi
+  test_arguments+=(
+    --android-serial "$ANDROID_SERIAL"
+    --plain
+    --package-path "$APP_ROOT"
+    --scratch-path "$ANDROID_TEST_SCRATCH_PATH"
     --configuration "$CONFIGURATION"
+  )
+  run "$SKIP_COMMAND_OVERRIDE" "${test_arguments[@]}"
 }
 
 # SwiftPM may rewrite Package.resolved without changing its contents. Fingerprint the generated

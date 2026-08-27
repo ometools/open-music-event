@@ -13,6 +13,7 @@ struct CommsPostingTests {
         )
     }
 
+    #if !os(Android)
     @available(iOS 26.0, macOS 26.0, *)
     @Test
     func `rich text editor preserves normalized inline Markdown`() {
@@ -23,4 +24,5 @@ struct CommsPostingTests {
                 == "**Bold** and *italic*."
         )
     }
+    #endif
 }

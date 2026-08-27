@@ -591,6 +591,25 @@ scheduleComponentsDependencies.append(
 
 // Targets
 
+let openMusicEventAppHostTestDependencies: [Target.Dependency] = isAndroidAppBuild
+    ? []
+    : [
+        .target(
+            name: "OpenMusicEventAppViewServer",
+            condition: .when(platforms: [.macOS])
+        ),
+        .product(
+            name: "ComposableNotificationsServer",
+            package: "swift-composable-notifications",
+            condition: .when(platforms: [.macOS])
+        ),
+        .product(
+            name: "HummingbirdTesting",
+            package: "hummingbird",
+            condition: .when(platforms: [.macOS])
+        ),
+    ]
+
 let routingTarget = Target.target(
     name: "OpenMusicEventRouting",
     dependencies: [
@@ -1145,14 +1164,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ] + (isAndroidAppBuild ? [] : [
-            .target(name: "OpenMusicEventAppViewServer"),
-            .product(
-                name: "ComposableNotificationsServer",
-                package: "swift-composable-notifications"
-            ),
-            .product(name: "HummingbirdTesting", package: "hummingbird"),
-        ]),
+        ] + openMusicEventAppHostTestDependencies,
         exclude: ["__Snapshots__"]
     ),
     .testTarget(

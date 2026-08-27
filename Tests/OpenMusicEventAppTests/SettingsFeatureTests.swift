@@ -375,8 +375,8 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings requests notification permission and reloads the system status`() async throws {
         let database = try makePreparedDatabase()
-        let permissionWasRequested = Mutex(false)
-        let loadCount = Mutex(0)
+        let permissionWasRequested = TestMutex(false)
+        let loadCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: {
                 loadCount.withLock { $0 += 1 }
@@ -578,8 +578,8 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings opens system settings when denied notifications are managed`() async throws {
         let database = try makePreparedDatabase()
-        let settingsOpenCount = Mutex(0)
-        let requestCount = Mutex(0)
+        let settingsOpenCount = TestMutex(0)
+        let requestCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: { DevicePermissions(notifications: .denied) },
             openNotificationSettings: {
@@ -691,7 +691,7 @@ struct SettingsFeatureTests {
     @Test
     func appDelegateResumeReloadsSharedDevicePermissions() async throws {
         let database = try makePreparedDatabase()
-        let loadCount = Mutex(0)
+        let loadCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: {
                 loadCount.withLock { $0 += 1 }
@@ -1190,7 +1190,7 @@ struct AboutOpenMusicEventTests {
     @Test
     func liveContributorClientReadsPublicPaginatedRelationshipsAndHydratesProfiles() async throws {
         let appDID = try #require(DID("did:plc:openmusicevent"))
-        let requests = Mutex<[URL?]>([])
+        let requests = TestMutex<[URL?]>([])
         let profile = BlueskyActorProfile(
             did: "did:plc:alice",
             handle: "alice.dev",

@@ -482,7 +482,7 @@ struct NavigationTests {
     func navigationRequestInstallsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let installations = Mutex<[ATProto.URI]>([])
+        let installations = TestMutex<[ATProto.URI]>([])
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         let navigationTask = withDependencies {
@@ -551,7 +551,7 @@ struct NavigationTests {
             OMEEventInstallationProgress,
             any Error
         >.Continuation
-        let installationContinuation = Mutex<Continuation?>(nil)
+        let installationContinuation = TestMutex<Continuation?>(nil)
         let client = OMEEventInstallationClient(
             ensureInstalled: { uri in
                 throw OMEEventInstallationError.eventIsNotInstalled(uri)
@@ -617,7 +617,7 @@ struct NavigationTests {
             OMEEventInstallationProgress,
             any Error
         >.Continuation
-        let installationContinuations = Mutex<[String: Continuation]>([:])
+        let installationContinuations = TestMutex<[String: Continuation]>([:])
         let client = OMEEventInstallationClient(
             ensureInstalled: { uri in
                 throw OMEEventInstallationError.eventIsNotInstalled(uri)
@@ -697,7 +697,7 @@ struct NavigationTests {
             OMEEventInstallationProgress,
             any Error
         >.Continuation
-        let installationContinuations = Mutex<[Continuation]>([])
+        let installationContinuations = TestMutex<[Continuation]>([])
         let client = OMEEventInstallationClient(
             ensureInstalled: { uri in
                 throw OMEEventInstallationError.eventIsNotInstalled(uri)
@@ -2302,7 +2302,12 @@ struct NavigationTests {
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertEvent(
+                db,
+                id: eventID,
+                name: "Event One",
+                timeZone: timeZone
+            )
             try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
             try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
             try Self.insertPerformance(
@@ -4971,6 +4976,7 @@ struct NavigationTests {
         }
 
         await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.isPresented }
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -5142,15 +5148,12 @@ struct NavigationTests {
 
         $store.form.value.name.wrappedValue = "New Name"
         await store.send(.saveButtonTapped)?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
+        let contributor = try await waitForContributor(
+            in: database,
+            contributorID: contributorID,
+            eventID: eventID
+        ) {
+            $0.name == "New Name"
         }
 
         #expect(contributor.name == "New Name")
@@ -5416,15 +5419,12 @@ struct NavigationTests {
         #expect(editStore.form.value.name == "Old Name")
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
+        let contributor = try await waitForContributor(
+            in: database,
+            contributorID: contributorID,
+            eventID: eventID
+        ) {
+            $0.name == "New Name"
         }
 
         #expect(contributor.name == "New Name")
@@ -5484,6 +5484,13 @@ struct NavigationTests {
         }
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
+        _ = try await waitForContributor(
+            in: database,
+            contributorID: contributorID,
+            eventID: eventID
+        ) {
+            $0.name == "New Name"
+        }
         for _ in 0..<100 {
             if await viewObservationRecorder.values == ["invalidated"] {
                 break
@@ -5492,6 +5499,7 @@ struct NavigationTests {
         }
 
         #expect(await viewObservationRecorder.values == ["invalidated"])
+        await waitUntil { detailStore.contributor?.name == "New Name" }
         #expect(detailStore.contributor?.name == "New Name")
     }
 
@@ -5867,15 +5875,12 @@ struct NavigationTests {
 
         await store.send(.actorIdentityTapped(selectedIdentity))?.value
         await store.send(.saveButtonTapped)?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
+        let contributor = try await waitForContributor(
+            in: database,
+            contributorID: contributorID,
+            eventID: eventID
+        ) {
+            $0.did == selectedIdentity.did
         }
         let actors = try await database.read { db in
             try OMERecord.Performance.Contributors.fetchAll(db)
@@ -5940,15 +5945,12 @@ struct NavigationTests {
         #expect(store.imageURL == "https://example.com/alice-avatar.jpg")
 
         await store.send(.saveButtonTapped)?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorLocalID("alice-typeahead"),
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
+        let contributor = try await waitForContributor(
+            in: database,
+            contributorID: contributorLocalID("alice-typeahead"),
+            eventID: eventID
+        ) {
+            $0.did == selectedIdentity.did
         }
 
         #expect(contributor.did == selectedIdentity.did)
@@ -6217,6 +6219,7 @@ struct NavigationTests {
         }
 
         await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.isPresented }
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -6748,7 +6751,7 @@ struct NavigationTests {
     func communicationsViewerNotificationPromptRequestsPermissionAndThenDisappears() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let permissionWasRequested = Mutex(false)
+        let permissionWasRequested = TestMutex(false)
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
@@ -6843,7 +6846,7 @@ struct NavigationTests {
     func communicationsViewerNotificationPromptOpensSettingsWhenPermissionIsOff() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let settingsOpenCount = Mutex(0)
+        let settingsOpenCount = TestMutex(0)
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
@@ -6896,7 +6899,7 @@ struct NavigationTests {
             )
         }
 
-        let refreshCount = Mutex(0)
+        let refreshCount = TestMutex(0)
         let store = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
@@ -7060,7 +7063,7 @@ struct NavigationTests {
             )
         }
 
-        let refreshCount = Mutex(0)
+        let refreshCount = TestMutex(0)
         let store = withDependencies {
             $0.context = .test
             $0.defaultEventID = eventID
@@ -8217,6 +8220,38 @@ struct NavigationTests {
             "Condition was not satisfied within one second",
             sourceLocation: sourceLocation
         )
+    }
+
+    private func waitForContributor(
+        in database: any DatabaseWriter,
+        contributorID: OMERecord.ID<OMERecord.Contributor>,
+        eventID: OMERecord.Event.ID,
+        matching predicate: (OMERecord.Contributor) -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws -> OMERecord.Contributor {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        var lastContributor: OMERecord.Contributor?
+
+        while clock.now < deadline {
+            lastContributor = try await database.read { db in
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            }
+            if let lastContributor, predicate(lastContributor) {
+                return lastContributor
+            }
+            try await clock.sleep(for: .milliseconds(1))
+        }
+
+        Issue.record(
+            "Contributor did not reach the expected persisted state within one second",
+            sourceLocation: sourceLocation
+        )
+        return try #require(lastContributor, sourceLocation: sourceLocation)
     }
 
     private func waitForObservation(

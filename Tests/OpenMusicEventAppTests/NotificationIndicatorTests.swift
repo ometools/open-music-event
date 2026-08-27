@@ -325,7 +325,7 @@ struct NotificationIndicatorTests {
             )
         }
 
-        let replacements = Mutex<[Set<NotificationSubscription>]>([])
+        let replacements = TestMutex<[Set<NotificationSubscription>]>([])
         let store = withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
@@ -568,7 +568,7 @@ struct NotificationIndicatorTests {
                 postID: "welcome"
             )
         }
-        let badgeCounts = Mutex<[Int]>([])
+        let badgeCounts = TestMutex<[Int]>([])
         let store = withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
@@ -612,8 +612,8 @@ struct NotificationIndicatorTests {
                 defaultState: .subscribed
             )
         }
-        let badgeCounts = Mutex<[Int]>([])
-        let synchronizedEventIDs = Mutex<[OMERecord.Event.ID]>([])
+        let badgeCounts = TestMutex<[Int]>([])
+        let synchronizedEventIDs = TestMutex<[OMERecord.Event.ID]>([])
         let store = withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)

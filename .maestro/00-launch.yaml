@@ -1,4 +1,10 @@
 appId: ${APP_ID}
 ---
 - launchApp
+- extendedWaitUntil:
+    visible:
+      id: app.root
+    timeout: 30000
+- assertVisible:
+    id: app.root
 - takeScreenshot: .maestro/screenshots/00-launch-${MAESTRO_PLATFORM}

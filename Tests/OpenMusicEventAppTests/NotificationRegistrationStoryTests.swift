@@ -1,3 +1,4 @@
+#if os(macOS)
 import ATProtoOAuth
 import ComposableArchitecture2
 import ComposableNotifications
@@ -1128,3 +1129,4 @@ private func notificationDatabase(
         NotificationDatabase()
     }
 }
+#endif

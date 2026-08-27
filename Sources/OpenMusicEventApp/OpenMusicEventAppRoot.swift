@@ -589,6 +589,7 @@ public struct OpenMusicEventAppRootView: View {
             isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
             serviceEnvironmentSelected: serviceEnvironmentSelected
         )
+        .accessibilityIdentifier("app.root")
         .overlay {
             if let eventEntry = store.eventEntry {
                 EventEntryView(

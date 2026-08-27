@@ -2,6 +2,23 @@ import Foundation
 import IssueReporting
 import Testing
 
+final class TestMutex<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func withLock<Result>(
+        _ operation: (inout Value) throws -> Result
+    ) rethrows -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return try operation(&value)
+    }
+}
+
 @discardableResult
 @MainActor
 func expectReportedIssue(

@@ -87,7 +87,7 @@ struct TangledPullReviewClientTests {
         let eventID = testEventID("wicked-woods-2026")
         let ownerDID = try #require(DID("did:plc:owner"))
         let authorDID = try #require(DID("did:plc:author"))
-        let requests = Mutex<[URL?]>([])
+        let requests = TestMutex<[URL?]>([])
 
         let reviews = try await withDependencies {
             $0.tangledPullReviewListSource = .tangledXRPCWithConstellationBackfill
@@ -272,7 +272,7 @@ struct TangledPullReviewClientTests {
         let eventID = testEventID("wicked-woods-2026")
         let ownerDID = try #require(DID("did:plc:owner"))
         let authorDID = try #require(DID("did:plc:author"))
-        let requests = Mutex<[URL?]>([])
+        let requests = TestMutex<[URL?]>([])
 
         let reviews = try await withDependencies {
             $0.tangledPullReviewListSource = .constellationBackfill
@@ -439,8 +439,8 @@ struct TangledPullReviewClientTests {
             title: "Update Saturday schedule",
             uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
         )
-        let requests = Mutex([(url: URL?, body: Data?)]())
-        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+        let requests = TestMutex([(url: URL?, body: Data?)]())
+        let authorizedRequirements = TestMutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_783_453_261)
@@ -528,7 +528,7 @@ struct TangledPullReviewClientTests {
             accessToken: "workflow-access-token",
             refreshToken: "workflow-refresh-token"
         )
-        let selectedSession = Mutex(workflowSession)
+        let selectedSession = TestMutex(workflowSession)
         expectNoDifference(
             OAuth.authorizationStatus(
                 for: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement,
@@ -538,8 +538,8 @@ struct TangledPullReviewClientTests {
             .satisfied(workflowSession)
         )
         let now = Date(timeIntervalSince1970: 1_783_453_261)
-        let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
-        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+        let requests = TestMutex([(url: URL?, body: Data?, headers: HTTPFields)]())
+        let authorizedRequirements = TestMutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0.date = .constant(now)
@@ -848,8 +848,8 @@ struct TangledPullReviewClientTests {
             refreshToken: "proposal-only-refresh-token"
         )
         let authorDID = try #require(DID("did:plc:author"))
-        let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
-        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+        let requests = TestMutex([(url: URL?, body: Data?, headers: HTTPFields)]())
+        let authorizedRequirements = TestMutex([OAuth.AuthRequirement]())
 
         await #expect(throws: OAuth.AuthorizationRequired.self) {
             try await withDependencies {
@@ -1024,7 +1024,7 @@ struct TangledPullReviewClientTests {
             title: "Add Excision",
             uri: "at://did:plc:author/sh.tangled.repo.pull/3pull"
         )
-        let requests = Mutex([URL?]())
+        let requests = TestMutex([URL?]())
 
         let rawDiff = try await withDependencies {
             $0.defaultPort = 443
@@ -1143,8 +1143,8 @@ struct TangledPullReviewClientTests {
             title: "Update Saturday schedule",
             uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
         )
-        let requests = Mutex([(url: URL?, body: Data?)]())
-        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+        let requests = TestMutex([(url: URL?, body: Data?)]())
+        let authorizedRequirements = TestMutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0[XRPC.Client.self] = .liveValue

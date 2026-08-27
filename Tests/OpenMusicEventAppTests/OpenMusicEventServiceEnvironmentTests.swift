@@ -112,10 +112,29 @@ struct OpenMusicEventServiceEnvironmentTests {
 
     @Test @MainActor
     func `persisted app delegate restores the selected environment`() throws {
+        #if os(Android)
+        let userDefaults = UserDefaults.standard
+        let previousEnvironment = userDefaults.string(
+            forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
+        )
+        defer {
+            if let previousEnvironment {
+                userDefaults.set(
+                    previousEnvironment,
+                    forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
+                )
+            } else {
+                userDefaults.removeObject(
+                    forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
+                )
+            }
+        }
+        #else
         let suiteName = "OpenMusicEventServiceEnvironmentTests.persistedDelegate"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         userDefaults.removePersistentDomain(forName: suiteName)
         defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        #endif
         userDefaults.set(
             OpenMusicEventServiceEnvironment.staging.rawValue,
             forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
@@ -125,10 +144,14 @@ struct OpenMusicEventServiceEnvironmentTests {
             $0.context = .test
             try $0.bootstrapDatabase()
         } operation: {
+            #if os(Android)
+            OpenMusicEventAppDelegate.persisted(variant: .generic)
+            #else
             OpenMusicEventAppDelegate.persisted(
                 variant: .generic,
                 userDefaults: userDefaults
             )
+            #endif
         }
 
         expectNoDifference(appDelegate.serviceEnvironment, .staging)
@@ -264,9 +287,9 @@ struct OpenMusicEventServiceEnvironmentTests {
         dependencies.context = .test
         try dependencies.bootstrapDatabase()
         let database = dependencies.defaultDatabase
-        let oldSubscriptionReplacements = Mutex<[Set<NotificationSubscription>]>([])
-        let clearedServiceEnvironments = Mutex<[OpenMusicEventServiceEnvironment]>([])
-        let newDestinations = Mutex<[Push.Destination]>([])
+        let oldSubscriptionReplacements = TestMutex<[Set<NotificationSubscription>]>([])
+        let clearedServiceEnvironments = TestMutex<[OpenMusicEventServiceEnvironment]>([])
+        let newDestinations = TestMutex<[Push.Destination]>([])
         let oldNotificationsClient = NotificationsClient(
             registerDestination: { _ in },
             replaceSubscriptions: { subscriptions in

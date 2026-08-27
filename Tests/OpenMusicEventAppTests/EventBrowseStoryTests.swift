@@ -1,3 +1,4 @@
+#if os(macOS)
 import ATProto
 import ATProtoOAuth
 import BlueskyActorCache
@@ -41,7 +42,7 @@ struct EventBrowseStoryTests {
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
-        let appViewRequests = Mutex<[String]>([])
+        let appViewRequests = TestMutex<[String]>([])
 
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0)
@@ -186,7 +187,7 @@ struct EventBrowseStoryTests {
             .execute(database)
         }
 
-        let synchronizedEventIDs = Mutex<[OME.Event.ID]>([])
+        let synchronizedEventIDs = TestMutex<[OME.Event.ID]>([])
         let storage = OAuthSessionStorage(
             sessionStore: Shared(value: OAuth.SessionStore()),
             authFailureMessage: Shared(value: nil),
@@ -360,7 +361,7 @@ struct EventBrowseStoryTests {
         }
 
         let notificationVersion = "manual-wicked-woods-1"
-        let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+        let checkoutRequests = TestMutex<[TangledSourceCheckoutRequest]>([])
         let checkoutPause = EventBrowseCheckoutPause()
 
         try await withDependencies {
@@ -472,7 +473,7 @@ struct EventBrowseStoryTests {
                     delivery: .contentAvailable
                 )
             )
-            let notificationDidReturn = Mutex(false)
+            let notificationDidReturn = TestMutex(false)
             let notificationCompletion = Task { @MainActor in
                 await notificationTask?.value
                 notificationDidReturn.withLock { $0 = true }
@@ -663,7 +664,7 @@ struct EventBrowseStoryTests {
             .execute(database)
         }
 
-        let checkoutRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+        let checkoutRequests = TestMutex<[TangledSourceCheckoutRequest]>([])
 
         try await withDependencies {
             $0.context = .test
@@ -820,7 +821,7 @@ struct EventBrowseStoryTests {
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
-        let requests = Mutex<[HTTPRequest]>([])
+        let requests = TestMutex<[HTTPRequest]>([])
 
         let page = try await withDependencies {
             $0[XRPC.Client.self] = .liveValue
@@ -1207,7 +1208,7 @@ struct EventBrowseStoryTests {
             organizerID: organizerID,
             eventID: OME.ID<OME.Event>(rawValue: "2026")
         )
-        let installations = Mutex<[ATProto.URI]>([])
+        let installations = TestMutex<[ATProto.URI]>([])
         let store = withDependencies {
             $0.calendarEvents = CalendarEventsClient(
                 browse: { _ in CalendarEvent.Page(events: organizerEvents) },
@@ -1393,7 +1394,7 @@ struct EventBrowseStoryTests {
         let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
         let now = try #require(LocalDate("2026-08-13")).atStartOfDay(in: eventTimeZone)
         let eventEndDate = try #require(LocalDate("2026-08-10"))
-        let gitOperations = Mutex<[String]>([])
+        let gitOperations = TestMutex<[String]>([])
 
         let store = withDependencies {
             $0.context = .test
@@ -2124,3 +2125,4 @@ private func wickedWoodsSourceEvent(
         )
     )
 }
+#endif

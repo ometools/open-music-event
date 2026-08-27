@@ -24,10 +24,51 @@ Android support needs a practical acceptance loop. A small parity harness keeps 
 
 - `Scripts/android-smoke-build.sh` owns the local Skip checkout, SkipRunner build, package routes, cache fingerprints, and serialized Android compiler entry.
 - Its app build action enters Android packaging only through `SkipRunner gradle -p <app>/Android :app:assembleDebug` (or the corresponding release/bundle task). The generated SkipBridge task owns the native Swift package graph and compiler arguments.
-- Its `--tests` action runs `OpenMusicEventAppTests` through `skip android test --apk --testing-library testing`, which provides the JNI and Android application context that the bare device executable does not.
+- Its `--tests` action runs `OpenMusicEventAppTests` through `skip android test --apk --testing-library testing`, which provides the JNI and Android application context that the bare device executable does not. The test APK reuses the canonical debug app APK's DEX payload so bridged Kotlin and Java types are available alongside the native Swift test libraries.
+- The Fastlane `android_tests` lane builds the generated app first, then passes that exact APK into the instrumentation packaging step. A direct `--tests` invocation therefore requires a successful canonical app build in the same app root (or an explicit `OME_ANDROID_TEST_APP_APK`).
+- `SKIPLOCAL` is required for this local workflow. It identifies the canonical local `skipstone` package root used for dependency routing and SkipRunner source fingerprints. It defaults to `~/Developer/swift-packages/3rd-party/skip/skipstone`; set it explicitly when that checkout lives elsewhere.
+- `SKIP_COMMAND_OVERRIDE` is a separate executable seam. Use it only to validate an isolated SkipRunner change while leaving `SKIPLOCAL` pointed at the canonical package root. Once the runner fix lands upstream, omit the override and let the harness build the runner from `SKIPLOCAL`.
+- Android tests run serially by default because several database-backed stories are not process-global parallel safe. `OME_ANDROID_TEST_PARALLELISM` can raise the Swift Testing worker width after a test has proven isolation, and `OME_ANDROID_TEST_FILTER` selects a focused suite or test while diagnosing a failure.
 - Do not add a direct `skip android build --target ...` shortcut. That builds the source-package module rather than the generated Fuse app product graph.
 - Generated Gradle, Kotlin, and Swift package files are diagnostic evidence, never the durable edit surface.
 - Keep the SDK, SkipRunner, Gradle, SwiftPM, module, and generated-package caches workspace-specific and represented in the harness fingerprints.
+- Pin Gradle 9.4.1 or newer for the generated Android Gradle Plugin 9.2 build; Gradle 9.0.0 is no longer compatible.
+
+## Local Fastlane Commands
+
+Run these from the repository root. `Scripts/fastlane-local.sh` owns the repository-local Bundler environment; `fastlane/Fastfile` owns lane orchestration and policy.
+
+```sh
+export SKIPLOCAL="$HOME/Developer/swift-packages/3rd-party/skip/skipstone"
+export GRADLE_BIN=/path/to/gradle-9.4.1/bin/gradle
+
+Scripts/fastlane-local.sh ios_tests device:<booted-ios-simulator-udid>
+Scripts/fastlane-local.sh android_tests device:<android-emulator-serial>
+Scripts/fastlane-local.sh suite \
+  ios_device:<booted-ios-simulator-udid> \
+  android_device:<android-emulator-serial>
+Scripts/fastlane-local.sh ui_tests \
+  ios_device:<booted-ios-simulator-udid> \
+  android_device:<android-emulator-serial>
+```
+
+For a temporary isolated SkipRunner build, add:
+
+```sh
+export SKIP_COMMAND_OVERRIDE=/absolute/path/to/SkipRunner
+```
+
+The `suite` lane runs both platform test suites and reports either platform's failure after attempting both. The `ui_tests` lane first checks Maestro and both devices, builds and launches each app, then runs the same `.maestro/00-launch.yaml` flow on iOS and Android.
+
+## Current Local Proof
+
+Validated from the isolated `main@origin` Fastlane workspace on 2026-08-27:
+
+- iOS Simulator suite: 320 tests in 27 suites passed.
+- Android instrumentation suite: 322 tests in 28 suites passed with the default serial worker width.
+- Dual-platform UI lane: Android and iOS debug apps built, installed, and launched; Maestro 2.9.0 found `app.root` and captured the launch screenshot on both platforms.
+
+The Android instrumentation path currently uses an isolated SkipRunner build supplied through `SKIP_COMMAND_OVERRIDE`. Keep `SKIPLOCAL` pointed at the canonical local `skipstone` checkout until that runner work is reviewed and landed separately.
 
 ## Evidence Levels
 
