@@ -5,18 +5,17 @@ usage() {
   cat <<'USAGE'
 Usage: Scripts/android-smoke-build.sh [options]
 
-Builds the Android Skip/Fuse app through one stable lane.
+Builds the Android Skip/Fuse app through the generated Gradle app lane, or runs
+the app test target inside an Android instrumentation APK.
 
 Options:
-  --lane apk|module|both   Build lane to run. Default: apk.
-                          apk:    installable Android wrapper via skip gradle.
-                          module: native OpenMusicEventApp module via skip android build.
+  --tests                  Run OpenMusicEventAppTests in an instrumentation APK instead of building the app.
   --configuration NAME    Build configuration: debug or release. Default: debug.
   --artifact apk|bundle   Android wrapper artifact. Default: apk.
                           bundle produces an AAB and cannot be installed directly.
   --architectures LIST    Comma-separated Android Swift architectures.
                           Release default: aarch64,x86_64. Debug default: Skip automatic.
-  --install                Install the APK after an apk/both build.
+  --install                Install the APK after the app build.
   --launch                 Launch the app after install. Implies --install.
   --logs                   Dump focused logcat output after launch/install.
   --serial SERIAL          Android device serial. Default: ANDROID_SERIAL or emulator-5554.
@@ -29,14 +28,13 @@ Options:
                           Local ComposableWorkspace checkout. Default: the remote package.
   --dependencies-http-client PATH
                           Local HTTP client checkout. Default: the Android workspace route.
-  --target TARGET          Skip module target for --lane module. Default: OpenMusicEventApp.
   --smoke-root PATH        Stable cache/scratch root. External app roots get their own namespace.
   --compiler-lock PATH     Android compiler lock. Default: /private/tmp/woody-swift-compiler-android.lock.
   --skip-local PATH        Local skipstone checkout. Default: SKIPLOCAL or ~/Developer/swift-packages/3rd-party/skip/skipstone.
   --skip-command PATH      Local SkipRunner executable. Default: SKIP_COMMAND_OVERRIDE or SMOKE_ROOT/skipstone-build/debug/SkipRunner.
-  --adopt-build-config     Explicitly replace pinned build inputs after a successful apk/both build.
+  --adopt-build-config     Explicitly replace pinned build inputs after a successful app build.
   --gradle-bin PATH        Gradle executable. Default: GRADLE_BIN, then known /private/tmp installs.
-  --no-prebuild            Set SKIP_ANDROID_PREBUILD=0 for the apk lane.
+  --no-prebuild            Set SKIP_ANDROID_PREBUILD=0 for the app build.
   --dry-run                Print the resolved environment and commands without executing them.
   -h, --help               Show this help.
 
@@ -234,7 +232,7 @@ COMPILER_LANE_COMMAND=(env OME_ANDROID_COMPILER_LANE_ACTIVE=1 "$SCRIPT_PATH")
 if [[ $# -gt 0 ]]; then
   COMPILER_LANE_COMMAND+=("$@")
 fi
-LANE="apk"
+RUN_TESTS=0
 CONFIGURATION="debug"
 CONFIGURATION_EXPLICIT=0
 ARTIFACT="apk"
@@ -248,7 +246,7 @@ LAUNCH=0
 LOGS=0
 DRY_RUN=0
 ADOPT_BUILD_CONFIG=0
-MODULE_TARGET="OpenMusicEventApp"
+APP_MODULE_TARGET="OpenMusicEventApp"
 ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
 SMOKE_ROOT_EXPLICIT=0
 if [[ -n "${OME_ANDROID_SMOKE_ROOT+x}" ]]; then
@@ -299,10 +297,9 @@ DEPENDENCIES_HTTP_CLIENT_PATH="${OME_DEPENDENCIES_HTTP_CLIENT_PATH:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --lane)
-      [[ $# -ge 2 ]] || fail "--lane requires apk, module, or both"
-      LANE="$2"
-      shift 2
+    --tests)
+      RUN_TESTS=1
+      shift
       ;;
     --configuration)
       [[ $# -ge 2 ]] || fail "--configuration requires debug or release"
@@ -364,11 +361,6 @@ while [[ $# -gt 0 ]]; do
       DEPENDENCIES_HTTP_CLIENT_PATH="$2"
       shift 2
       ;;
-    --target)
-      [[ $# -ge 2 ]] || fail "--target requires a Skip target"
-      MODULE_TARGET="$2"
-      shift 2
-      ;;
     --smoke-root)
       [[ $# -ge 2 ]] || fail "--smoke-root requires a path"
       SMOKE_ROOT="$2"
@@ -419,11 +411,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$LANE" in
-  apk|module|both) ;;
-  *) fail "--lane must be apk, module, or both" ;;
-esac
-
 case "$ARTIFACT" in
   apk|bundle) ;;
   *) fail "--artifact must be apk or bundle" ;;
@@ -431,6 +418,14 @@ esac
 
 if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
   fail "Android app bundles cannot be installed directly; use --artifact apk"
+fi
+
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  [[ "$ARTIFACT" == "apk" ]] || fail "--tests cannot be combined with --artifact bundle"
+  [[ "$INSTALL" -eq 0 && "$LAUNCH" -eq 0 && "$LOGS" -eq 0 ]] \
+    || fail "--tests cannot be combined with --install, --launch, or --logs"
+  [[ "$ADOPT_BUILD_CONFIG" -eq 0 ]] \
+    || fail "--tests cannot adopt the app build configuration; run a successful app build instead"
 fi
 
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
@@ -549,7 +544,7 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
     fail "Android build config is incomplete (missing version): $NATIVE_BUILD_CONFIG_FILE"
   fi
   case "$BUILD_CONFIG_VERSION" in
-    2|3|4|5) ;;
+    2|3|4|5|6) ;;
     *) fail "unsupported Android build config version '$BUILD_CONFIG_VERSION': $NATIVE_BUILD_CONFIG_FILE" ;;
   esac
   for required_key in \
@@ -564,7 +559,7 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
     read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
       || fail "Android build config v$BUILD_CONFIG_VERSION is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
   done
-  if [[ "$BUILD_CONFIG_VERSION" == "3" || "$BUILD_CONFIG_VERSION" == "4" ]]; then
+  if [[ "$BUILD_CONFIG_VERSION" =~ ^(3|4|5|6)$ ]]; then
     for required_key in \
       app_root \
       skiplocal_resolved \
@@ -574,27 +569,31 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
       skip_sharing_swift_sharing_resolved
     do
       read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
-        || fail "Android build config v3 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+        || fail "Android build config v$BUILD_CONFIG_VERSION is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
     done
   fi
-  if [[ "$BUILD_CONFIG_VERSION" == "4" ]]; then
+  if [[ "$BUILD_CONFIG_VERSION" =~ ^(4|5|6)$ ]]; then
     for required_key in \
       ome_open_music_event_path \
       ome_open_music_event_path_resolved
     do
       read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
-        || fail "Android build config v4 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+        || fail "Android build config v$BUILD_CONFIG_VERSION is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
     done
   fi
-  if [[ "$BUILD_CONFIG_VERSION" == "5" ]]; then
+  if [[ "$BUILD_CONFIG_VERSION" =~ ^(5|6)$ ]]; then
     for required_key in \
       ome_open_music_event_path \
       ome_open_music_event_path_resolved \
       android_package_inputs_fingerprint
     do
       read_build_config_value "$required_key" "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
-        || fail "Android build config v5 is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
+        || fail "Android build config v$BUILD_CONFIG_VERSION is incomplete (missing $required_key): $NATIVE_BUILD_CONFIG_FILE"
     done
+  fi
+  if [[ "$BUILD_CONFIG_VERSION" == "6" ]]; then
+    read_build_config_value build_lane "$NATIVE_BUILD_CONFIG_FILE" >/dev/null \
+      || fail "Android build config v6 is incomplete (missing build_lane): $NATIVE_BUILD_CONFIG_FILE"
   fi
 
   BUILD_CONFIG_STATE="pinned v$BUILD_CONFIG_VERSION"
@@ -607,7 +606,7 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   apply_pinned_config_value ome_android_app_build OME_ANDROID_APP_BUILD "$OME_ANDROID_APP_BUILD_EXPLICIT"
 fi
 
-if [[ "${BUILD_CONFIG_VERSION:-0}" == "4" || "${BUILD_CONFIG_VERSION:-0}" == "5" ]]; then
+if [[ "${BUILD_CONFIG_VERSION:-0}" =~ ^(4|5|6)$ ]]; then
   check_pinned_config_value \
     ome_open_music_event_path \
     "${OME_OPEN_MUSIC_EVENT_PATH:-none}"
@@ -710,13 +709,12 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   check_pinned_config_value skip_dependency_root_resolved "$SKIP_DEPENDENCY_ROOT_RESOLVED"
   check_pinned_config_value skip_route_fingerprint "$SKIP_ROUTE_FINGERPRINT"
   check_pinned_config_value skip_sharing_swift_sharing_resolved "$SKIP_SHARING_SWIFT_SHARING_RESOLVED"
-  if [[ "${BUILD_CONFIG_VERSION:-0}" == "5" ]]; then
+  if [[ "${BUILD_CONFIG_VERSION:-0}" =~ ^(5|6)$ ]]; then
     check_pinned_config_value android_package_inputs_fingerprint "$ANDROID_PACKAGE_INPUTS_FINGERPRINT"
   fi
-fi
-
-if [[ "$ADOPT_BUILD_CONFIG" -eq 1 && "$LANE" == "module" ]]; then
-  echo "Build config adoption is not persisted by the module-only lane; an apk/both build must succeed to record it" >&2
+  if [[ "${BUILD_CONFIG_VERSION:-0}" == "6" ]]; then
+    check_pinned_config_value build_lane generated-gradle-fuse-app
+  fi
 fi
 
 if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
@@ -811,7 +809,7 @@ if [[ -z "$ANDROID_APPLICATION_ID" ]]; then
 fi
 [[ -n "$ANDROID_APPLICATION_ID" ]] || fail "could not determine Android application id from Skip.env"
 
-MODULE_SCRATCH_PATH="${SKIP_SCRATCH_PATH:-$SMOKE_ROOT/skip-android-build}"
+ANDROID_TEST_SCRATCH_PATH="${SKIP_SCRATCH_PATH:-$SMOKE_ROOT/skip-android-tests}"
 PACKAGE_RESOLUTION_CONFIG_FILE="${OME_ANDROID_PACKAGE_RESOLUTION_CONFIG_FILE:-$SMOKE_ROOT/android-package-resolution-config}"
 WORKSPACE_PACKAGE_RESOLVED="$APP_ROOT/Package.resolved"
 ANDROID_PACKAGE_RESOLVED="$SMOKE_ROOT/package-state/Package.resolved"
@@ -1084,11 +1082,15 @@ fi
 ensure_skip_command
 configure_nested_skip_command
 
-echo "Android smoke build"
+echo "Android smoke harness"
 echo "  wiring repo: $ROOT"
 echo "  app root:    $APP_ROOT"
 echo "  OME package: ${OME_OPEN_MUSIC_EVENT_PATH:-in-app-root}"
-echo "  lane:        $LANE"
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  echo "  action:      Android instrumentation tests"
+else
+  echo "  action:      generated Gradle/Fuse app build"
+fi
 echo "  configuration: $CONFIGURATION"
 echo "  artifact:    $ARTIFACT"
 echo "  architectures: ${ARCHITECTURES:-automatic}"
@@ -1126,15 +1128,17 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "  dry run:     yes"
 fi
 
-build_module() {
+run_android_tests() {
   ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
-  run "$SKIP_COMMAND_OVERRIDE" android build \
-    --package-path "$APP_ROOT" \
-    --scratch-path "$MODULE_SCRATCH_PATH" \
-    --configuration "$CONFIGURATION" \
+  run "$SKIP_COMMAND_OVERRIDE" android test \
+    --apk \
+    --testing-library testing \
+    --android-serial "$ANDROID_SERIAL" \
     --plain \
     --verbose \
-    --target "$MODULE_TARGET"
+    --package-path "$APP_ROOT" \
+    --scratch-path "$ANDROID_TEST_SCRATCH_PATH" \
+    --configuration "$CONFIGURATION"
 }
 
 # SwiftPM may rewrite Package.resolved without changing its contents. Fingerprint the generated
@@ -1151,7 +1155,8 @@ native_package_metadata_fingerprint() {
 
 native_build_config() {
   cat <<CONFIG
-version=5
+version=6
+build_lane=generated-gradle-fuse-app
 app_root=$APP_ROOT
 ome_open_music_event_path=${OME_OPEN_MUSIC_EVENT_PATH:-none}
 ome_open_music_event_path_resolved=${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-none}
@@ -1198,7 +1203,7 @@ native_android_dependency_projection_is_complete() {
 
 invalidate_stale_native_package_projections() {
   local generated_package
-  local projection_path="*/$MODULE_TARGET/destination/skipstone/$MODULE_TARGET/src/main/swift/Package.swift"
+  local projection_path="*/$APP_MODULE_TARGET/destination/skipstone/$APP_MODULE_TARGET/src/main/swift/Package.swift"
 
   while IFS= read -r -d '' generated_package; do
     if native_package_projection_is_fresh "$generated_package" \
@@ -1224,7 +1229,7 @@ invalidate_stale_native_package_projections() {
 verify_native_package_projections() {
   local generated_package
   local projection_count=0
-  local projection_path="*/$MODULE_TARGET/destination/skipstone/$MODULE_TARGET/src/main/swift/Package.swift"
+  local projection_path="*/$APP_MODULE_TARGET/destination/skipstone/$APP_MODULE_TARGET/src/main/swift/Package.swift"
 
   while IFS= read -r -d '' generated_package; do
     projection_count=$((projection_count + 1))
@@ -1310,7 +1315,7 @@ verify_skip_source_projections() {
       echo "No generated Android source projections found; the required prebuild must create them"
       return 0
     fi
-    fail "no generated Android source projections found for $MODULE_TARGET"
+    fail "no generated Android source projections found for $APP_MODULE_TARGET"
   fi
 
   if [[ "$stale_count" -gt 0 ]]; then
@@ -1468,7 +1473,8 @@ record_native_build_config() {
   fi
 }
 
-build_apk() {
+build_app() {
+  local -a build_command
   local gradle_task
 
   ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
@@ -1481,11 +1487,22 @@ build_apk() {
   else
     gradle_task=":app:assemble$CONFIGURATION_SUFFIX"
   fi
-  run "$SKIP_COMMAND_OVERRIDE" gradle \
-    -p "$APP_ROOT/Android" \
-    --no-daemon \
-    --init-script "$ANDROID_NAMESPACE_INIT_SCRIPT" \
+  build_command=(
+    "$SKIP_COMMAND_OVERRIDE" gradle
+    -p "$APP_ROOT/Android"
+    --no-daemon
+    --init-script "$ANDROID_NAMESPACE_INIT_SCRIPT"
     "$gradle_task"
+  )
+  [[ "${build_command[1]}" == "gradle" ]] \
+    || fail "Android app builds must invoke Skip Gradle"
+  [[ "${build_command[2]}" == "-p" && "${build_command[3]}" == "$APP_ROOT/Android" ]] \
+    || fail "Android app builds must use the generated app Gradle project"
+  [[ "${build_command[7]}" == ":app:assemble$CONFIGURATION_SUFFIX" || "${build_command[7]}" == ":app:bundle$CONFIGURATION_SUFFIX" ]] \
+    || fail "Android app builds must produce an APK or AAB from the app target"
+
+  echo "Verified canonical generated Gradle/Fuse app build command"
+  run "${build_command[@]}"
   if [[ "$DRY_RUN" -eq 0 ]]; then
     verify_native_package_projections
     verify_skip_source_projections after
@@ -1531,22 +1548,15 @@ artifact_path() {
 prepare_android_package_resolution
 invalidate_stale_package_resolution_state
 
-case "$LANE" in
-  module)
-    build_module
-    ;;
-  apk)
-    build_apk
-    ;;
-  both)
-    build_module
-    build_apk
-    ;;
-esac
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  run_android_tests
+else
+  build_app
+fi
 
 record_package_resolution_config
 
-if [[ "$DRY_RUN" -eq 0 && "$LANE" != "module" ]]; then
+if [[ "$DRY_RUN" -eq 0 && "$RUN_TESTS" -eq 0 ]]; then
   ARTIFACT_PATH="$(artifact_path)"
   [[ -n "$ARTIFACT_PATH" ]] || fail "no $CONFIGURATION $ARTIFACT artifact found"
   echo "Android artifact: $ARTIFACT_PATH"
