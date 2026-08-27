@@ -93,5 +93,6 @@ steps:
   - name: "Smoke check"
     command: |
       set -euo pipefail
-      curl -fsSI https://openmusicevent.app/
-      curl -fsSI https://openmusicevent.app/healthz
+      bash Scripts/appview-smoke.sh \
+        https://openmusicevent.app \
+        https://openmusicevent.app/.well-known/oauth-client-metadata.json
