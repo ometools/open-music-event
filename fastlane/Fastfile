@@ -1,8 +1,77 @@
-# This file contains the repository-level fastlane checks that do not need
+# This file contains repository-level Fastlane automation that does not need
 # App Store Connect, Play Console, signing, or release credentials.
+
+require "json"
+require "open3"
+
+opt_out_usage
 
 def repo_root
   File.expand_path("..", __dir__)
+end
+
+def compiler_lane
+  ENV.fetch(
+    "OME_SWIFT_COMPILER_LANE",
+    File.expand_path(
+      "~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh"
+    )
+  )
+end
+
+def run_compiler_lane(*command)
+  UI.user_error!("Swift compiler lane is unavailable at #{compiler_lane}") unless File.executable?(compiler_lane)
+
+  sh(
+    compiler_lane,
+    "--repo", repo_root,
+    "--wait",
+    "--priority", "interactive",
+    *command
+  )
+end
+
+def with_environment(values)
+  previous_values = values.to_h { |key, _value| [key, ENV[key]] }
+  values.each { |key, value| ENV[key] = value }
+  yield
+ensure
+  previous_values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+end
+
+def executable_available?(name)
+  ENV.fetch("PATH", "")
+    .split(File::PATH_SEPARATOR)
+    .any? { |directory| File.executable?(File.join(directory, name)) }
+end
+
+def booted_ios_device_id
+  output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "booted", "--json")
+  UI.user_error!("Unable to inspect iOS Simulators: #{error}") unless status.success?
+
+  devices = JSON.parse(output).fetch("devices").values.flatten
+  device = devices.find { |candidate| candidate["state"] == "Booted" }
+  UI.user_error!("No iOS Simulator is booted") unless device
+
+  device.fetch("udid")
+end
+
+def maestro_flow(options)
+  File.expand_path(options[:flow] || ".maestro/00-launch.yaml", repo_root)
+end
+
+def run_maestro(device:, app_id:, platform:, flow:)
+  with_environment(
+    "APP_ID" => app_id,
+    "MAESTRO_PLATFORM" => platform
+  ) do
+    sh("maestro", "--device", device, "test", flow)
+  end
+end
+
+def verify_maestro_device!(device)
+  _output, error, status = Open3.capture3("maestro", "--device", device, "hierarchy")
+  UI.user_error!("Maestro cannot connect to #{device}: #{error}") unless status.success?
 end
 
 desc "Run credential-free release readiness checks"
@@ -12,4 +81,96 @@ lane :check do
     sh("skip verify")
     sh("skip meta index")
   end
+end
+
+desc "Run the Swift package suite used by the iOS app"
+lane :ios_tests do
+  run_compiler_lane("swift-test", "--no-parallel")
+end
+
+desc "Run the Swift package suite natively on Android with Skip Fuse"
+lane :android_tests do |options|
+  device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  with_environment("OME_ANDROID_APP_BUILD" => "1") do
+    run_compiler_lane("skip", "android", "test", "--android-serial", device)
+  end
+end
+
+desc "Run the complete non-UI suite for the iOS app and Android"
+lane :suite do |options|
+  failures = []
+
+  begin
+    ios_tests
+  rescue StandardError => error
+    failures << "iOS package suite: #{error.message.lines.first.strip}"
+    UI.error(failures.last)
+  end
+
+  begin
+    android_tests(device: options[:android_device])
+  rescue StandardError => error
+    failures << "Android Fuse suite: #{error.message.lines.first.strip}"
+    UI.error(failures.last)
+  end
+
+  UI.user_error!(failures.join("\n")) unless failures.empty?
+end
+
+desc "Start the default headless Android emulator used by local tests"
+lane :start_android_emulator do |options|
+  name = options[:name] || ENV.fetch("OME_ANDROID_AVD", "Medium_Phone_API_36")
+  sh(
+    "skip", "android", "emulator", "launch",
+    "--name", name,
+    "--background",
+    "--headless"
+  )
+end
+
+desc "Verify the local tools and devices required for dual-platform UI tests"
+lane :ui_test_preflight do |options|
+  UI.user_error!("Maestro is unavailable. Install it with Homebrew before running UI tests.") unless executable_available?("maestro")
+  UI.user_error!("Maestro flow does not exist: #{maestro_flow(options)}") unless File.file?(maestro_flow(options))
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+
+  sh("maestro", "--version")
+  verify_maestro_device!(ios_device)
+  verify_maestro_device!(android_device)
+  UI.success("iOS UI test device: #{ios_device}")
+  UI.success("Android UI test device: #{android_device}")
+  UI.success("Maestro flow: #{maestro_flow(options)}")
+end
+
+desc "Build, install, and run the same Maestro flow on iOS and Android"
+lane :ui_tests do |options|
+  ui_test_preflight(options)
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
+  android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
+  flow = maestro_flow(options)
+
+  with_environment(
+    "ANDROID_SERIAL" => android_device,
+    "OME_ANDROID_APP_BUILD" => "1"
+  ) do
+    run_compiler_lane("skip", "app", "launch")
+  end
+
+  run_maestro(
+    device: ios_device,
+    app_id: ios_app_id,
+    platform: "ios",
+    flow: flow
+  )
+  run_maestro(
+    device: android_device,
+    app_id: android_app_id,
+    platform: "android",
+    flow: flow
+  )
 end

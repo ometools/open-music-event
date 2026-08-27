@@ -1,0 +1,4 @@
+appId: ${APP_ID}
+---
+- launchApp
+- takeScreenshot: .maestro/screenshots/00-launch-${MAESTRO_PLATFORM}
