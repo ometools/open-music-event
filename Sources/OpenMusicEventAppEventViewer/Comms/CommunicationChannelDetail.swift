@@ -365,6 +365,9 @@ public struct CommunicationChannelDetailView: View {
                 CommsPostComposerView(store: composerStore)
             }
         }
+        .accessibilityIdentifier(
+            "view.channel-detail.\(store.channelID.rawValue.rawValue)"
+        )
     }
 }
 
@@ -576,6 +579,7 @@ struct CommunicationChannelPostRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("button.communication-post.\(post.id.postID.rawValue)")
         .contextMenu {
             Button {
                 store.send(.markPostReadButtonTapped(post.id))

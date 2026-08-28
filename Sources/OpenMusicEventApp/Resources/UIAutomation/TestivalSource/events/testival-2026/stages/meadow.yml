@@ -1,5 +1,6 @@
 name: Meadow
 color: "0x00aaee"
-sortIndex: 1
+sortIndex: 0
 lineup:
 - artist-one
+- artist-two

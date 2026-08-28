@@ -63,6 +63,9 @@ struct ContributorDetailContentView: View {
                             }
                         }
                         .navigationLinkListRowStyle()
+                        .accessibilityIdentifier(
+                            "button.performance.\(row.performanceID.rawValue.rawValue)"
+                        )
                         .contextMenu {
                             PerformanceReactionMenuContent(
                                 performanceID: row.performance.id,

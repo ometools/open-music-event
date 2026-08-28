@@ -1,10 +1,52 @@
 date: "2026-08-01"
 customTitle: Saturday
-performances:
+scheduleItems:
+  workshop-grove:
+  - id: movement-workshop
+    kind: performance
+    title: Movement Workshop
+    description: A guided arrival practice for Testival attendees.
+    startTime: "17:00"
+    endTime: "18:30"
+    contributors:
+    - id: facilitator-four
+      role: facilitator
   meadow:
   - id: opening-set
+    kind: performance
     title: Opening Set
     startTime: "18:00"
     endTime: "19:00"
     contributors:
     - id: artist-one
+      role: musician
+  - id: collaborative-set
+    kind: performance
+    title: Collaborative Set
+    description: Music and live visuals meet in the Meadow.
+    startTime: "20:00"
+    endTime: "21:30"
+    contributors:
+    - id: artist-one
+      role: musician
+    - id: artist-two
+      billing: supporting
+      role: visual-artist
+  canopy:
+  - id: sunset-session
+    kind: performance
+    title: Sunset Session
+    startTime: "18:30"
+    endTime: "20:00"
+    contributors:
+    - id: artist-two
+      role: dj
+  - id: late-night-set
+    kind: performance
+    title: Late Night Set
+    description: A cross-midnight performance under the Canopy.
+    startTime: "23:30"
+    endTime: "01:00"
+    contributors:
+    - id: artist-three
+      role: musician

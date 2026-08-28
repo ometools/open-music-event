@@ -19,7 +19,11 @@ module UISnapshotComparator
     10-browse
     20-testival-detail
     30-testival-schedule
-    40-opening-set-detail
+    40-collaborative-set-detail
+    50-sunday-schedule
+    60-artist-two-detail
+    70-canopy-detail
+    80-safety-map
   ].freeze
   PLATFORMS = %w[ios android].freeze
 

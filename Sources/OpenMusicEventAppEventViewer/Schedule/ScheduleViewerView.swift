@@ -91,6 +91,7 @@ public struct ScheduleKindMenu: View {
             selectedModeLabel
                 .labelStyle(.iconOnly)
         }
+        .accessibilityIdentifier("menu.schedule-kind")
     }
 
     @ViewBuilder
@@ -104,6 +105,7 @@ public struct ScheduleKindMenu: View {
                 isSelected: store.scheduleKind == scheduleKind
             )
         }
+        .accessibilityIdentifier("button.schedule-kind.\(scheduleKind.rawValue)")
     }
 
     @ViewBuilder
@@ -224,7 +226,7 @@ public struct ScheduleViewerView: View {
 
     public var body: some View {
         content
-            .accessibilityIdentifier(
+            .scheduleAccessibilityIdentifier(
                 "view.schedule.\(store.eventID.eventID.rawValue.rawValue)"
             )
             .navigationTitle(navigationTitle)
@@ -265,6 +267,9 @@ public struct ScheduleViewerView: View {
                         Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
                             selectedScheduleID = schedule.id.scheduleID
                         }
+                        .accessibilityIdentifier(
+                            "button.schedule-day.\(schedule.id.scheduleID.rawValue.rawValue)"
+                        )
                     }
                 }
             }
@@ -406,5 +411,24 @@ public struct ScheduleViewerView: View {
             performanceID: destination.performanceID,
             animated: animated
         )
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func scheduleAccessibilityIdentifier(_ identifier: String) -> some View {
+        #if os(iOS) || os(macOS)
+        // Keep the screen marker beside the content. Applying the identifier to
+        // the whole screen makes SwiftUI's generated picker subviews inherit it.
+        overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Schedule"))
+                .accessibilityIdentifier(identifier)
+        }
+        #else
+        accessibilityIdentifier(identifier)
+        #endif
     }
 }

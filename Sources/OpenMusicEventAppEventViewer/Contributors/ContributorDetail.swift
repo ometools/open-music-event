@@ -268,5 +268,8 @@ public struct ContributorDetailView: View {
                 showsAuthoringControls: showsAuthoringControls
             )
         }
+        .accessibilityIdentifier(
+            "view.contributor-detail.\(store.contributorID.rawValue.rawValue)"
+        )
     }
 }

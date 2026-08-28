@@ -30,9 +30,22 @@ enum OpenMusicEventUIAutomationFixture {
     static let bundledFiles = [
         "calendar.yml",
         "events/testival-2026/event.yml",
+        "events/testival-2026/maps/main.yml",
+        "events/testival-2026/maps/public-map.png",
+        "events/testival-2026/maps/safety-map.png",
+        "events/testival-2026/stages/canopy.yml",
         "events/testival-2026/stages/meadow.yml",
+        "events/testival-2026/stages/workshop-grove.yml",
         "events/testival-2026/contributors/artist-one.md",
+        "events/testival-2026/contributors/artist-three.md",
+        "events/testival-2026/contributors/artist-two.md",
+        "events/testival-2026/contributors/facilitator-four.md",
         "events/testival-2026/schedules/saturday.yml",
+        "events/testival-2026/schedules/sunday.yml",
+        "events/testival-2026/channels/general.yml",
+        "events/testival-2026/channels/safety.yml",
+        "events/testival-2026/communications/general/channel-info.yaml",
+        "events/testival-2026/communications/general/welcome.md",
     ]
 
     static func sourceURL(bundle: Bundle = .module) throws -> URL {
@@ -47,8 +60,8 @@ enum OpenMusicEventUIAutomationFixture {
         try fileManager.createDirectory(at: sourceURL, withIntermediateDirectories: true)
 
         // Android exposes package resources as asset URLs, while SwiftPM flattens
-        // processed resources in the iOS bundle. Materialize the same five bundled
-        // files into a real directory so the normal source validator can traverse it.
+        // processed resources in the iOS bundle. Materialize the bundled source into
+        // a real directory so the normal source validator can traverse it.
         for relativePath in bundledFiles {
             let pathComponents = relativePath.split(separator: "/").map(String.init)
             guard let fileName = pathComponents.last else {

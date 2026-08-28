@@ -88,7 +88,11 @@ public struct SiteMapViewerView: View {
                     styleIdentity: store.selectedStyleIdentity
                 )
                 #else
-                SwiftUISiteMapZoomView(asset: asset, eventID: event.id)
+                SwiftUISiteMapZoomView(
+                    asset: asset,
+                    eventID: event.id,
+                    styleIdentity: store.selectedStyleIdentity
+                )
                     .id(store.selectedStyleIdentity)
                 #endif
             } else if store.event != nil {
@@ -117,7 +121,7 @@ public struct SiteMapViewerView: View {
                                 }
                             }
                             .accessibilityIdentifier(
-                                "site-map-style-\(style.id.rawValue.rawValue)"
+                                "button.site-map-style.\(style.id.rawValue.rawValue)"
                             )
                         }
                     } label: {
@@ -135,6 +139,9 @@ public struct SiteMapViewerView: View {
                 }
             }
         }
+        .accessibilityIdentifier(
+            "view.site-map.\(store.eventID.eventID.rawValue.rawValue)"
+        )
     }
 }
 
@@ -143,16 +150,25 @@ struct AndroidSiteMapZoomView: View {
     let asset: OME.ImageAsset
     let eventID: OMERecord.Event.ID
     let styleIdentity: String
+    @State var loadedStyleIdentity: String?
 
     var body: some View {
         ImageAssetAsyncImage(
             asset: asset,
             cacheContext: .init(eventID: eventID),
-            contentMode: .fit
+            contentMode: .fit,
+            onIntrinsicSizeLoaded: { _ in
+                loadedStyleIdentity = styleIdentity
+            }
         ) { reason in
             SiteMapImagePlaceholderView(reason: reason)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if loadedStyleIdentity == styleIdentity {
+                SiteMapLoadedAccessibilityMarker(styleIdentity: styleIdentity)
+            }
+        }
         .composeModifier {
             AndroidSiteMapZoomModifier(styleIdentity: styleIdentity)
         }
@@ -162,7 +178,9 @@ struct AndroidSiteMapZoomView: View {
 struct SwiftUISiteMapZoomView: View {
     let asset: OME.ImageAsset
     let eventID: OMERecord.Event.ID
+    let styleIdentity: String
     @State var intrinsicImageSize: CGSize?
+    @State var loadedStyleIdentity: String?
     @State var committedMagnification: CGFloat = 1
     @State var committedOffset: CGSize = .zero
     @GestureState var gestureState = SiteMapZoomGestureState()
@@ -197,6 +215,7 @@ struct SwiftUISiteMapZoomView: View {
                 contentMode: .fit,
                 onIntrinsicSizeLoaded: { size in
                     intrinsicImageSize = size
+                    loadedStyleIdentity = styleIdentity
                 }
             ) { reason in
                 SiteMapImagePlaceholderView(reason: reason)
@@ -244,6 +263,11 @@ struct SwiftUISiteMapZoomView: View {
                         )
                     }
             )
+            .overlay {
+                if loadedStyleIdentity == styleIdentity {
+                    SiteMapLoadedAccessibilityMarker(styleIdentity: styleIdentity)
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -408,6 +432,20 @@ struct AndroidSiteMapZoomModifier: ContentModifier {
     }
 }
 #endif
+
+struct SiteMapLoadedAccessibilityMarker: View {
+    let styleIdentity: String
+
+    var body: some View {
+        // The marker appears only after the shared image loader has decoded the
+        // selected map. UI automation can therefore distinguish a real map from
+        // the loading and failure placeholders without changing the visual UI.
+        Color.clear
+            .frame(width: 1, height: 1)
+            .accessibilityLabel("Loaded Site Map")
+            .accessibilityIdentifier("image.site-map.\(styleIdentity)")
+    }
+}
 
 struct SiteMapPlaceholderView: View {
     var body: some View {

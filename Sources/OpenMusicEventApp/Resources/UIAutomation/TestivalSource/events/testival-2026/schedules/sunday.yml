@@ -1,0 +1,24 @@
+date: "2026-08-02"
+customTitle: Sunday
+scheduleItems:
+  meadow:
+  - id: morning-set
+    kind: performance
+    title: Morning Set
+    startTime: "10:00"
+    endTime: "11:00"
+    contributors:
+    - id: artist-two
+      role: dj
+  canopy:
+  - id: closing-set
+    kind: performance
+    title: Closing Set
+    startTime: "19:00"
+    endTime: "20:30"
+    contributors:
+    - id: artist-three
+      role: musician
+    - id: artist-one
+      billing: supporting
+      role: musician

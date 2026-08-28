@@ -721,6 +721,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                                 systemName: feature.effectiveSystemImage.rawValue
                             )
                         }
+                        .accessibilityIdentifier("tab-feature.\(feature.id.rawValue)")
                     }
                     .tag(TabFeaturesSelection.feature(feature.value))
                     .tabFeatureBadge(feature.badgeValue)
@@ -740,6 +741,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                     } icon: {
                         MappedSystemImage(systemName: "ellipsis")
                     }
+                    .accessibilityIdentifier("tab-feature.more")
                 }
                 .tag(TabFeaturesSelection<Value>.more)
                 .tabFeatureBadge(resolved.overflowBadgeValue)
@@ -755,6 +757,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                                 systemName: searchTab.effectiveSystemImage.rawValue
                             )
                         }
+                        .accessibilityIdentifier("tab-feature.\(searchTab.id.rawValue)")
                     }
                     .tag(TabFeaturesSelection.feature(searchTab.value))
             }
@@ -831,6 +834,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("tab-feature.\(feature.id.rawValue)")
                 }
             }
             #if os(iOS) || os(macOS)
@@ -1187,6 +1191,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
                 badgeValue: feature.badgeValue
             )
         }
+        .accessibilityIdentifier("tab-feature.\(feature.id.rawValue)")
     }
 
     @ViewBuilder

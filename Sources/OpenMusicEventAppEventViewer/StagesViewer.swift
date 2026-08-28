@@ -582,6 +582,9 @@ public struct StagesViewerView: View {
                             StageRowView(stage: stage)
                         }
                         .navigationLinkListRowStyle()
+                        .accessibilityIdentifier(
+                            "button.stage.\(stage.id.stageID.rawValue.rawValue)"
+                        )
                     }
                     .onDelete { offsets in
                         deleteStages(at: offsets)
@@ -626,6 +629,9 @@ public struct StagesViewerView: View {
                 showsAuthoringControls: showsAuthoringControls
             )
         }
+        .accessibilityIdentifier(
+            "view.stages.\(store.eventID.eventID.rawValue.rawValue)"
+        )
     }
 
     func deleteStages(at offsets: IndexSet) {
@@ -1133,6 +1139,9 @@ public struct StageDetailView: View {
                 .navigationTitle("Stage")
             }
         }
+        .accessibilityIdentifier(
+            "view.stage-detail.\(store.stageID.rawValue.rawValue)"
+        )
     }
 }
 

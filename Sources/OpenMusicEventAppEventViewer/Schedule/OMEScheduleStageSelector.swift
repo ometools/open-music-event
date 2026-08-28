@@ -47,7 +47,17 @@ struct OMEScheduleStageSelector: View {
     #if os(iOS) || os(macOS)
     @available(iOS 26, macOS 26, *)
     var liquidGlassPicker: some View {
-        LiquidGlassSegmentedPicker(selection: $selectedStageID) {
+        LiquidGlassSegmentedPicker(
+            selection: $selectedStageID,
+            itemAccessibilityIdentifier: { stageID in
+                stageID.map {
+                    "button.schedule-stage.\($0.rawValue.rawValue)"
+                }
+            },
+            itemAccessibilityLabel: { stageID in
+                stages.first { $0.id.stageID == stageID }?.name
+            }
+        ) {
             ForEach(stages) { stage in
                 Label {
                     Text(stage.name)
@@ -109,6 +119,9 @@ struct OMEScheduleStageSelector: View {
                         .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(
+                        "button.schedule-stage.\(stage.id.stageID.rawValue.rawValue)"
+                    )
                     .accessibilityLabel(Text(stage.name))
                 }
             }
@@ -184,6 +197,9 @@ struct AndroidScheduleStagePickerItem: View {
             .frame(width: itemWidth)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(
+            "button.schedule-stage.\(stage.id.stageID.rawValue.rawValue)"
+        )
         .accessibilityLabel(Text(stage.name))
     }
 }

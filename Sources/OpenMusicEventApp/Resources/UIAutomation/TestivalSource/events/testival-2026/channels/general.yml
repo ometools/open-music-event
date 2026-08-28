@@ -1,0 +1,5 @@
+name: General
+description: Official Testival announcements and attendee updates.
+sortIndex: 0
+defaultNotificationState: subscribed
+notificationsRequired: false

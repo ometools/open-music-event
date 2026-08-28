@@ -466,6 +466,9 @@ public struct CommunicationsViewerView: View {
         } message: {
             Text("This removes the channel. Posts already published in it are not changed.")
         }
+        .accessibilityIdentifier(
+            "view.communications.\(store.eventID.eventID.rawValue.rawValue)"
+        )
     }
 }
 
@@ -482,6 +485,9 @@ struct CommunicationChannelListRow: View {
                 .portableContentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(
+            "button.channel.\(row.channel.id.channelID.rawValue.rawValue)"
+        )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             CommunicationChannelNotificationSwipeActions(store: store, row: row)
         }

@@ -184,5 +184,6 @@ public struct CommsPostDetailView: View {
                 }
             }
         }
+        .accessibilityIdentifier("view.communication-post.\(store.postID.postID.rawValue)")
     }
 }

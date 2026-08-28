@@ -263,6 +263,9 @@ public struct ContributorsViewerView: View {
                 showsAuthoringControls: showsAuthoringControls
             )
         }
+        .accessibilityIdentifier(
+            "view.contributors.\(store.eventID.eventID.rawValue.rawValue)"
+        )
     }
 
     func deleteContributors(at offsets: IndexSet) {
@@ -289,6 +292,9 @@ struct ContributorListButton: View {
             )
         }
         .navigationLinkListRowStyle()
+        .accessibilityIdentifier(
+            "button.contributor.\(row.contributorID.rawValue.rawValue)"
+        )
     }
 }
 

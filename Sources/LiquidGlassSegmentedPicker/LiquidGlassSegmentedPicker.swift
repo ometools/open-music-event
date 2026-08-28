@@ -17,6 +17,8 @@ public extension View {
 public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: View {
     @Binding var selection: PickerValue
     let content: Content
+    let itemAccessibilityIdentifier: (PickerValue) -> String?
+    let itemAccessibilityLabel: (PickerValue) -> String?
 
     @Namespace var namespace
     @State var capsuleState: CapsuleState = .idle
@@ -39,9 +41,13 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
 
     public init(
         selection: Binding<PickerValue>,
+        itemAccessibilityIdentifier: @escaping (PickerValue) -> String? = { _ in nil },
+        itemAccessibilityLabel: @escaping (PickerValue) -> String? = { _ in nil },
         @ViewBuilder content: () -> Content = { EmptyView() }
     ) {
         self._selection = selection
+        self.itemAccessibilityIdentifier = itemAccessibilityIdentifier
+        self.itemAccessibilityLabel = itemAccessibilityLabel
         self.content = content()
     }
 
@@ -119,51 +125,58 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
             ForEach(subviews: content) { subview in
                 let tag = subview.containerValues.tag(for: PickerValue.self) ?? subview.id as? PickerValue
                 let itemColor = subview.containerValues.pickerItemColor
+                let accessibilityIdentifier = tag.flatMap(itemAccessibilityIdentifier)
+                let accessibilityLabel = tag.flatMap(itemAccessibilityLabel)
                 let idleSelected = tag == selection
                     && capsuleState == .idle
                     && !dragState.isActive
                     && releasedCapsuleFrame == nil
 
                 itemContainer(tag, distributesItems: distributesItems) {
-                    VStack(spacing: 4) {
-                        if let tag {
-                            subview
-                                .labelStyle(.iconOnly)
-                                .padding(4)
-                                .frame(square: circleSize)
-                                .opacity(idleSelected ? 0.0 : 1.0)
-                                .foregroundStyle(itemColor)
-                                .background(frameReportingBackground(for: tag))
-                                .background(colorReportingBackground(for: tag, color: itemColor))
-                                .background {
-                                    if idleSelected {
-                                        Capsule()
-                                            .fill(itemColor)
-                                    }
-                                }
-                        } else {
-                            subview
-                                .labelStyle(.iconOnly)
-                                .foregroundStyle(itemColor)
-                        }
-
-                        if labelVisibility != .hidden {
-                            subview
-                                .font(.caption)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.78)
-                                .multilineTextAlignment(.center)
-                                .labelStyle(.titleOnly)
-                                .frame(width: itemWidth, height: labelHeight, alignment: .top)
-                        }
-                    }
-                    .frame(width: itemWidth)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         if let tag {
                             handleTap(for: tag)
                         }
+                    } label: {
+                        VStack(spacing: 4) {
+                            if let tag {
+                                subview
+                                    .labelStyle(.iconOnly)
+                                    .padding(4)
+                                    .frame(square: circleSize)
+                                    .opacity(idleSelected ? 0.0 : 1.0)
+                                    .foregroundStyle(itemColor)
+                                    .background(frameReportingBackground(for: tag))
+                                    .background(colorReportingBackground(for: tag, color: itemColor))
+                                    .background {
+                                        if idleSelected {
+                                            Capsule()
+                                                .fill(itemColor)
+                                        }
+                                    }
+                            } else {
+                                subview
+                                    .labelStyle(.iconOnly)
+                                    .foregroundStyle(itemColor)
+                            }
+
+                            if labelVisibility != .hidden {
+                                subview
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.78)
+                                    .multilineTextAlignment(.center)
+                                    .labelStyle(.titleOnly)
+                                    .frame(width: itemWidth, height: labelHeight, alignment: .top)
+                            }
+                        }
+                        .frame(width: itemWidth)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(tag == nil)
+                    .pickerAccessibilityLabel(accessibilityLabel)
+                    .pickerAccessibilityIdentifier(accessibilityIdentifier)
                 }
             }
         }
@@ -374,6 +387,24 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
 }
 
 private extension View {
+    @ViewBuilder
+    func pickerAccessibilityLabel(_ label: String?) -> some View {
+        if let label {
+            accessibilityLabel(Text(label))
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func pickerAccessibilityIdentifier(_ identifier: String?) -> some View {
+        if let identifier {
+            accessibilityIdentifier(identifier)
+        } else {
+            self
+        }
+    }
+
     func frame(square length: CGFloat) -> some View {
         frame(width: length, height: length)
     }
