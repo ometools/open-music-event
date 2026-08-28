@@ -365,6 +365,7 @@ let appViewDependencies: [Package.Dependency] = [
         branch: "main"
     ),
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
+    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(
