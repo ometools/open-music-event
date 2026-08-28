@@ -566,7 +566,7 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent {
     @Table("scheduleItems")
-    public struct ScheduleItem: Equatable, Sendable, Identifiable, TimelineRepresentable {
+    public struct ScheduleItem: Codable, Equatable, Sendable, Identifiable, TimelineRepresentable {
         @Selection public struct ID: Codable, Hashable, Sendable {
             public init(
                 organizerID: OME.Organizer.ID,
@@ -600,7 +600,7 @@ extension OpenMusicEvent.ScheduleItem {
     }
 
     @Table("scheduleItemPerformanceDetails")
-    public struct PerformanceDetails: Equatable, Sendable, Identifiable {
+    public struct PerformanceDetails: Codable, Equatable, Sendable, Identifiable {
         public var id: OME.ScheduleItem.ID
 
         @Column(as: [ExternalPlatform.Asset].JSONRepresentation.self)
@@ -608,7 +608,7 @@ extension OpenMusicEvent.ScheduleItem {
     }
 
     @Table("scheduleItemContributors")
-    public struct Contributor: Equatable, Sendable, Identifiable {
+    public struct Contributor: Codable, Equatable, Sendable, Identifiable {
         @Selection public struct ID: Codable, Hashable, Sendable {
             public init(
                 scheduleItemID: OME.ScheduleItem.ID,

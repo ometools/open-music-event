@@ -11,12 +11,15 @@ public extension OME {
             OpenMusicEventSourceProjection(
                 tableType: Calendar.self,
                 recordType: Calendar.sourceRecordType,
-                fileFamily: .calendar
+                fileFamily: .calendar,
+                title: { $0.name },
+                sourceRecord: { .calendar($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: WorkspaceRelationshipRecord.self,
                 recordType: WorkspaceRelationshipRecord.sourceRecordType,
-                fileFamily: .collaborator
+                fileFamily: .collaborator,
+                sourceRecord: { .relationship($0.relationship) }
             ),
         ]
     }
@@ -26,52 +29,71 @@ public extension OME {
             OpenMusicEventSourceProjection(
                 tableType: Event.self,
                 recordType: Event.sourceRecordType,
-                fileFamily: .event
+                fileFamily: .event,
+                title: { $0.name },
+                sourceRecord: { .event($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: Stage.self,
                 recordType: Stage.sourceRecordType,
-                fileFamily: .stage
+                fileFamily: .stage,
+                title: { $0.name },
+                sourceRecord: { .stage($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: Contributor.self,
                 recordType: Contributor.sourceRecordType,
-                fileFamily: .contributor
+                fileFamily: .contributor,
+                title: { $0.name },
+                sourceRecord: { .contributor($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: Schedule.self,
                 recordType: Schedule.sourceRecordType,
-                fileFamily: .schedule
+                fileFamily: .schedule,
+                title: { $0.customTitle },
+                sourceRecord: { .schedule($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: ScheduleItem.self,
                 recordType: ScheduleItem.sourceRecordType,
-                fileFamily: .schedule
+                fileFamily: .schedule,
+                title: { $0.title },
+                sourceRecord: { .scheduleItem($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: ScheduleItem.PerformanceDetails.self,
                 recordType: ScheduleItem.PerformanceDetails.sourceRecordType,
-                fileFamily: .schedule
+                fileFamily: .schedule,
+                sourceRecord: { .scheduleItemPerformanceDetails($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: ScheduleItem.Contributor.self,
                 recordType: ScheduleItem.Contributor.sourceRecordType,
-                fileFamily: .schedule
+                fileFamily: .schedule,
+                title: { $0.anonymousName },
+                sourceRecord: { .scheduleItemContributor($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: Channel.self,
                 recordType: Channel.sourceRecordType,
-                fileFamily: .channel
+                fileFamily: .channel,
+                title: { $0.name },
+                sourceRecord: { .channel($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: CommsPost.self,
                 recordType: CommsPost.sourceRecordType,
-                fileFamily: .communicationPost
+                fileFamily: .communicationPost,
+                title: { $0.title },
+                sourceRecord: { .communicationPost($0) }
             ),
             OpenMusicEventSourceProjection(
                 tableType: Poster.self,
                 recordType: Poster.sourceRecordType,
-                fileFamily: .poster
+                fileFamily: .poster,
+                title: { $0.title },
+                sourceRecord: { .poster($0) }
             ),
         ]
     }
@@ -110,6 +132,12 @@ public extension OME {
 }
 
 public struct OpenMusicEventSourceProjection {
+    struct PresentationRecordComparison: Sendable {
+        var title: String?
+        var before: OME.WorkspaceProposal.SourceRecord?
+        var after: OME.WorkspaceProposal.SourceRecord?
+    }
+
     public enum FileFamily: Equatable, Sendable {
         case calendar
         case collaborator
@@ -125,15 +153,39 @@ public struct OpenMusicEventSourceProjection {
     public var tableType: any SourceEditableTable.Type
     public var recordType: AnySourceEditableRecordType
     public var fileFamily: FileFamily
+    private var presentationRecordComparison: @Sendable (
+        AnySourceRecordComparison
+    ) -> PresentationRecordComparison?
 
-    public init(
-        tableType: any SourceEditableTable.Type,
+    public init<Table: SourceEditableTable>(
+        tableType: Table.Type,
         recordType: AnySourceEditableRecordType,
-        fileFamily: FileFamily
-    ) {
+        fileFamily: FileFamily,
+        title: @escaping @Sendable (Table.QueryOutput) -> String? = { _ in nil },
+        sourceRecord: @escaping @Sendable (
+            Table.QueryOutput
+        ) -> OME.WorkspaceProposal.SourceRecord
+    ) where Table.QueryOutput: Sendable {
         self.tableType = tableType
         self.recordType = recordType
         self.fileFamily = fileFamily
+        self.presentationRecordComparison = { comparison in
+            guard let comparison = comparison.as(Table.QueryOutput.self) else {
+                return nil
+            }
+            return PresentationRecordComparison(
+                title: comparison.right.flatMap(title)
+                    ?? comparison.left.flatMap(title),
+                before: comparison.left.map(sourceRecord),
+                after: comparison.right.map(sourceRecord)
+            )
+        }
+    }
+
+    func presentation(
+        for comparison: AnySourceRecordComparison
+    ) -> PresentationRecordComparison? {
+        presentationRecordComparison(comparison)
     }
 }
 

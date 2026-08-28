@@ -104,19 +104,22 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
     public var groups: [SourceChangeGroup]
     public var fieldComparisons: SourceFieldComparisons
     public var recordComparisons: SourceRecordComparisons
+    public var presentation: OME.WorkspaceProposal.Presentation
 
     public init(
         workspaceID: SourceWorkspace.ID,
         availability: Availability,
         groups: [SourceChangeGroup],
         fieldComparisons: SourceFieldComparisons = .empty,
-        recordComparisons: SourceRecordComparisons = .empty
+        recordComparisons: SourceRecordComparisons = .empty,
+        presentation: OME.WorkspaceProposal.Presentation = .empty
     ) {
         self.workspaceID = workspaceID
         self.availability = availability
         self.groups = groups
         self.fieldComparisons = fieldComparisons
         self.recordComparisons = recordComparisons
+        self.presentation = presentation
     }
 
     public var totalCount: Int { groups.reduce(0) { $0 + $1.totalCount } }
@@ -151,7 +154,8 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
                 availability: .available,
                 groups: summary.groups,
                 fieldComparisons: summary.fieldComparisons,
-                recordComparisons: summary.recordComparisons
+                recordComparisons: summary.recordComparisons,
+                presentation: try SourceChangePresentationRenderer().render(summary)
             )
         case let .unavailable(reason):
             return Self(

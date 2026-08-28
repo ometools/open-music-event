@@ -549,6 +549,61 @@ struct SourceChangeSummarySection: View {
     }
 }
 
+struct SourceChangePresentationSection: View {
+    let presentation: OME.WorkspaceProposal.Presentation
+    let emptyMessage: String
+
+    var body: some View {
+        Section("What changed") {
+            if presentation.totalCount == 0 {
+                Text(emptyMessage)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(presentation.groups.filter { !$0.records.isEmpty }) { group in
+                PortableDisclosureGroup {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(group.records) { record in
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    SourceChangeKindBadge(
+                                        kind: SourceRecordChangeKind(record.transition.kind)
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(record.title ?? group.displayName)
+                                        Text(group.displayName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+
+                                ForEach(record.changedFields, id: \.self) { field in
+                                    Text(field.sourceFieldTitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.displayName)
+                        Text(
+                            group.records.count == 1
+                                ? "1 change"
+                                : "\(group.records.count) changes"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct SourceChangeGroupDisclosure: View {
     let group: SourceChangeGroup
     let fieldComparisons: SourceFieldComparisons
@@ -1043,6 +1098,17 @@ extension SourceChangeValueView.Role {
 }
 
 extension SourceRecordChangeKind {
+    init(_ kind: OME.WorkspaceProposal.Presentation.Transition.Kind) {
+        switch kind {
+        case .added:
+            self = .added
+        case .modified:
+            self = .modified
+        case .deleted:
+            self = .deleted
+        }
+    }
+
     var backgroundStyle: Color {
         switch self {
         case .added:

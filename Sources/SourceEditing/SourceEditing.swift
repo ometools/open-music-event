@@ -400,9 +400,10 @@ public extension SourceEditableTable where QueryOutput: Sendable {
         in db: Database
     ) throws -> QueryOutput? {
         do {
+            let selectedColumnNames = TableColumns.writableColumns.flatMap(\._names)
             return try SQLQueryExpression<Self>(
                 """
-                SELECT *
+                SELECT \(columnNames(selectedColumnNames))
                 FROM \(qualifiedTable(tableName))
                 WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
                 LIMIT 1

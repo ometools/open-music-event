@@ -766,7 +766,10 @@ var applicationTargets: [Target] = [
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "GRDB", package: grdbPackageName),
+            .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
+            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
             .product(name: "SQLiteData", package: "sqlite-data"),
+            .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
         ]
     ),
     .testTarget(

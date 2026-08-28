@@ -164,7 +164,7 @@ public struct EventSourceProvenanceRecord: Equatable, Sendable, Identifiable {
 }
 
 @Table("sourceWorkspaceRelationships")
-public struct WorkspaceRelationshipRecord: Equatable, Sendable, Identifiable {
+public struct WorkspaceRelationshipRecord: Codable, Equatable, Sendable, Identifiable {
     @Selection public struct ID: Codable, Hashable, Sendable {
         public init(
             workspaceID: SourceWorkspace.ID,

@@ -7,7 +7,7 @@ import SQLiteData
 import Testing
 
 @Table("todos")
-private struct Todo: Equatable, Sendable, Identifiable, SourceEditableTable {
+private struct Todo: Codable, Equatable, Sendable, Identifiable, SourceEditableTable {
     @Column(primaryKey: true) var id: Int
     var listID: String
     var title: String

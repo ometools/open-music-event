@@ -190,10 +190,8 @@ public struct WorkspaceChangesView: View {
         Group {
             switch store.summary.availability {
             case .available:
-                SourceChangeSummarySection(
-                    groups: store.summary.groups,
-                    fieldComparisons: store.summary.fieldComparisons,
-                    recordComparisons: store.summary.recordComparisons,
+                SourceChangePresentationSection(
+                    presentation: store.summary.presentation,
                     emptyMessage: openProposal == nil
                         ? "No local changes."
                         : "No newer changes are waiting to be added to this proposal."

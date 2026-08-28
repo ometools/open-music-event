@@ -3,7 +3,7 @@ import SQLiteData
 import Tagged
 
 @Table("commsPosts")
-public struct CommsPost: Equatable, Sendable, Identifiable {
+public struct CommsPost: Codable, Equatable, Sendable, Identifiable {
     public enum PostIDTag {}
     public typealias PostID = Tagged<PostIDTag, String>
 
