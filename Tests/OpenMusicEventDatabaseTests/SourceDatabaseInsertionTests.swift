@@ -8,6 +8,7 @@ import GRDB
 @testable import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceControlClient
@@ -3339,6 +3340,199 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func `an exact default branch archive becomes the local patch base`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspace = SourceWorkspace(
+            organizerID: try #require(OME.Organizer.ID("did:plc:organizer")),
+            repository: "tangled.org/example/testival-source",
+            branch: "stored-branch"
+        )
+        let outputURL = directoryURL.appending(path: "repository")
+        let upstreamReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "upstream-revision")
+        )
+        let resolvedRepositories = Mutex<[TangledRepositoryReference]>([])
+        let archiveRequests = Mutex<[TangledSourceCheckoutRequest]>([])
+        let initializedURLs = Mutex<[URL]>([])
+        let stageRequests = Mutex<[StageRequest]>([])
+        let commitRequests = Mutex<[CommitRequest]>([])
+
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.initialize = { url in
+            initializedURLs.withLock { $0.append(url) }
+            return Repository(url: url)
+        }
+        sourceControl.stage = { request in
+            stageRequests.withLock { $0.append(request) }
+        }
+        sourceControl.commit = { request in
+            commitRequests.withLock { $0.append(request) }
+            return Commit(id: CommitID(rawValue: "local-base-revision"))
+        }
+
+        let checkout = try await withDependencies {
+            $0.sourceControl = sourceControl
+            $0.tangledDefaultBranch = TangledDefaultBranchClient { repository in
+                resolvedRepositories.withLock { $0.append(repository) }
+                return upstreamReference
+            }
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                archiveRequests.withLock { $0.append(request) }
+                let eventURL = request.outputURL.appending(
+                    path: "events/testival-2026/event.yml"
+                )
+                try FileManager.default.createDirectory(
+                    at: eventURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data("name: Testival".utf8).write(to: eventURL)
+                try Data("archive marker".utf8).write(
+                    to: request.outputURL.appending(path: ".source-marker")
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+        } operation: {
+            try await SourceWorkspaceCheckoutClient.liveValue.checkout(workspace, outputURL)
+        }
+
+        let tangledRepository = try TangledRepositoryReference(
+            sourceReference: workspace.repository
+        )
+        expectNoDifference(resolvedRepositories.withLock { $0 }, [tangledRepository])
+        let archiveRequest = try #require(archiveRequests.withLock { $0.first })
+        expectNoDifference(archiveRequest.repository, tangledRepository)
+        expectNoDifference(archiveRequest.ref, "upstream-revision")
+        expectNoDifference(archiveRequest.outputURL.path, outputURL.path)
+        expectNoDifference(
+            initializedURLs.withLock { $0.map(\.path) },
+            [outputURL.path]
+        )
+        let stageRequest = try #require(stageRequests.withLock { $0.first })
+        expectNoDifference(stageRequest.repository.url.path, outputURL.path)
+        expectNoDifference(
+            stageRequest.paths,
+            [
+                RepositoryPath(rawValue: ".source-marker"),
+                RepositoryPath(rawValue: "events/testival-2026/event.yml"),
+            ]
+        )
+        let commitRequest = try #require(commitRequests.withLock { $0.first })
+        expectNoDifference(commitRequest.repository.url.path, outputURL.path)
+        expectNoDifference(
+            commitRequest.message,
+            CommitMessage(rawValue: "Import source at upstream-revision")
+        )
+        expectNoDifference(
+            commitRequest.author,
+            Author(
+                name: PersonName(rawValue: "Open Music Event"),
+                email: EmailAddress(rawValue: "noreply@openmusicevent.app")
+            )
+        )
+        expectNoDifference(checkout.repository.url.path, outputURL.path)
+        expectNoDifference(
+            checkout.reference,
+            upstreamReference
+        )
+    }
+
+    @Test
+    func `unsupported archive properties preserve a preexisting workspace path`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspace = SourceWorkspace(
+            organizerID: try #require(OME.Organizer.ID("did:plc:organizer")),
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let outputURL = directoryURL.appending(path: "repository")
+        try FileManager.default.createDirectory(
+            at: outputURL,
+            withIntermediateDirectories: true
+        )
+        let sentinelURL = outputURL.appending(path: "keep-me.txt")
+        try Data("preexisting".utf8).write(to: sentinelURL)
+        let linkURL = outputURL.appending(path: "linked-source.yml")
+
+        await #expect(throws: (any Error).self) {
+            try await withDependencies {
+                $0.sourceControl = .unimplemented
+                $0.tangledDefaultBranch = TangledDefaultBranchClient { _ in
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "upstream-revision")
+                    )
+                }
+                $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                    try FileManager.default.createSymbolicLink(
+                        at: linkURL,
+                        withDestinationURL: sentinelURL
+                    )
+                    return TangledSourceCheckout(repositoryURL: request.outputURL)
+                }
+            } operation: {
+                try await SourceWorkspaceCheckoutClient.liveValue.checkout(
+                    workspace,
+                    outputURL
+                )
+            }
+        }
+
+        #expect(FileManager.default.fileExists(atPath: outputURL.path))
+        expectNoDifference(try Data(contentsOf: sentinelURL), Data("preexisting".utf8))
+        #expect(FileManager.default.fileExists(atPath: linkURL.path))
+    }
+
+    @Test
+    func `a failed fresh archive checkout removes only its owned output`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspace = SourceWorkspace(
+            organizerID: try #require(OME.Organizer.ID("did:plc:organizer")),
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let outputURL = directoryURL.appending(path: "repository")
+
+        await #expect(throws: (any Error).self) {
+            try await withDependencies {
+                $0.sourceControl = .unimplemented
+                $0.tangledDefaultBranch = TangledDefaultBranchClient { _ in
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "upstream-revision")
+                    )
+                }
+                $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                    try FileManager.default.createDirectory(
+                        at: request.outputURL,
+                        withIntermediateDirectories: true
+                    )
+                    let sentinelURL = request.outputURL.appending(path: "sentinel.txt")
+                    try Data("temporary".utf8).write(to: sentinelURL)
+                    try FileManager.default.createSymbolicLink(
+                        at: request.outputURL.appending(path: "linked-source.yml"),
+                        withDestinationURL: sentinelURL
+                    )
+                    return TangledSourceCheckout(repositoryURL: request.outputURL)
+                }
+            } operation: {
+                try await SourceWorkspaceCheckoutClient.liveValue.checkout(
+                    workspace,
+                    outputURL
+                )
+            }
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    @Test
     func `a published revision starts source authoring on main`() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -3395,21 +3589,28 @@ struct SourceDatabaseInsertionTests {
             $0.sourceControl = sourceControl
             $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
             $0.sourceWorkspaceStorage = storage
-            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient { request in
-                checkoutRefs.withLock { $0.append(request.ref) }
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                checkedOutWorkspace, outputURL in
+                checkoutRefs.withLock { $0.append(checkedOutWorkspace.defaultBranch) }
                 try FileManager.default.createDirectory(
-                    at: request.outputURL,
+                    at: outputURL,
                     withIntermediateDirectories: true
                 )
                 _ = try OpenMusicEventSourceRepositoryFileTree().write(
                     source,
-                    to: request.outputURL
+                    to: outputURL
                 )
-                return .init(repositoryURL: request.outputURL)
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "main-revision")
+                    )
+                )
             }
         } operation: {
             try await SourceWorkspacePreparationClient
-                .openMusicEvent { _, _ in CommitID(rawValue: "main-revision") }
+                .openMusicEvent { _, _ in CommitID(rawValue: "local-base-revision") }
                 .prepare(workspace)
         }
 
@@ -3423,6 +3624,359 @@ struct SourceDatabaseInsertionTests {
                 )
             )
         )
+    }
+
+    @Test
+    func `a published workspace refreshes from the exact default branch archive`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        let patchBaseURLs = Mutex<[URL?]>([])
+        let patchDatabaseIDs = Mutex<[ObjectIdentifier]>([])
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
+                SourcePatchGenerator { request in
+                    @Dependency(\.defaultDatabase) var activeDatabase
+                    patchBaseURLs.withLock { $0.append(request.baseRepositoryURL) }
+                    patchDatabaseIDs.withLock { $0.append(ObjectIdentifier(activeDatabase)) }
+                    return SourcePatch()
+                }
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(
+                        eventName: index == 1 ? "Before publish" : "After publish"
+                    ),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            expectNoDifference(prepared.context, .published(oldReference))
+
+            let reconciled = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    WorkspaceReconciliation(
+                        expected: prepared.context,
+                        destination: .published(branch: newReference.branch),
+                        observedRevision: newReference.revision
+                    )
+                )
+
+            expectNoDifference(reconciled, .published(newReference))
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            let recordedPatchBaseURLs = patchBaseURLs.withLock { $0 }
+            #expect(recordedPatchBaseURLs.count == 2)
+            #expect(recordedPatchBaseURLs[0] == nil)
+            #expect(recordedPatchBaseURLs[1] != nil)
+            expectNoDifference(
+                patchDatabaseIDs.withLock { $0 },
+                [
+                    ObjectIdentifier(prepared.source.referenceDatabase.database),
+                    ObjectIdentifier(database),
+                ]
+            )
+            let event = try await database.read { db in
+                try #require(
+                    try OME.Event.find(
+                        eventID(
+                            "testival-source-testival-2026",
+                            organizerID: organizerID
+                        )
+                    )
+                    .fetchOne(db)
+                )
+            }
+            expectNoDifference(event.name, "After publish")
+            let persisted = try await (
+                prepared.source.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspace.id).fetchOne(db)?.revision
+                },
+                database.read { db in
+                    (
+                        installation: try SourceWorkspaceInstallationRecord
+                            .find(workspace.id)
+                            .fetchOne(db)?.revision,
+                        selection: try SourceWorkspaceSelectionRecord
+                            .find(workspace.id)
+                            .fetchOne(db)
+                    )
+                }
+            )
+            expectNoDifference(persisted.0, Optional(newReference.revision.rawValue))
+            expectNoDifference(persisted.1.installation, Optional(newReference.revision.rawValue))
+            expectNoDifference(
+                persisted.1.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: newReference.branch.rawValue,
+                    revision: newReference.revision.rawValue
+                )
+            )
+            let installedSource = try OpenMusicEventSourceRepositoryFileTree()
+                .read(from: prepared.source.repositoryURL)
+                .output
+                .requiredValue
+            expectNoDifference(
+                installedSource.events.first?.components.event.name,
+                "After publish"
+            )
+            let temporaryRepositories = try FileManager.default.contentsOfDirectory(
+                at: prepared.source.repositoryURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.hasPrefix("repository-refresh-")
+                    || $0.lastPathComponent.hasPrefix("repository-backup-")
+            }
+            expectNoDifference(temporaryRepositories, [])
+        }
+    }
+
+    @Test
+    func `a branch name cannot select source without an exact immutable reference`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let reference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
+                SourcePatchGenerator { _ in SourcePatch() }
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, outputURL in
+                checkoutCount.withLock { $0 += 1 }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: reference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            await #expect(
+                throws: SourceWorkspaceDatabaseError
+                    .branchSelectionRequiresExactReference("preview")
+            ) {
+                _ = try await WorkspaceReferenceUpdateClient
+                    .openMusicEvent(resolveRevision: resolveRevision)
+                    .reconcile(
+                        prepared.source,
+                        workspace.id,
+                        WorkspaceReconciliation(
+                            expected: prepared.context,
+                            destination: .branch(
+                                branch: WorkspaceBranch(rawValue: "preview")
+                            )
+                        )
+                    )
+            }
+            expectNoDifference(checkoutCount.withLock { $0 }, 1)
+        }
+    }
+
+    @Test
+    func `a changed default branch leaves the installed workspace untouched`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let changedDefault = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "trunk"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
+                SourcePatchGenerator { _ in SourcePatch() }
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(eventName: index == 1 ? "Installed" : "Rejected"),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : changedDefault
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            await #expect(
+                throws: SourceWorkspaceDatabaseError.defaultBranchChanged(
+                    expected: "main",
+                    observed: "trunk"
+                )
+            ) {
+                _ = try await WorkspaceReferenceUpdateClient
+                    .openMusicEvent(resolveRevision: resolveRevision)
+                    .reconcile(
+                        prepared.source,
+                        workspace.id,
+                        WorkspaceReconciliation(
+                            expected: prepared.context,
+                            destination: .published(branch: oldReference.branch)
+                        )
+                    )
+            }
+
+            let installedSource = try OpenMusicEventSourceRepositoryFileTree()
+                .read(from: prepared.source.repositoryURL)
+                .output
+                .requiredValue
+            expectNoDifference(installedSource.events.first?.components.event.name, "Installed")
+            let persisted = try await (
+                prepared.source.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspace.id).fetchOne(db)?.revision
+                },
+                database.read { db in
+                    (
+                        installation: try SourceWorkspaceInstallationRecord
+                            .find(workspace.id)
+                            .fetchOne(db)?.revision,
+                        selection: try SourceWorkspaceSelectionRecord
+                            .find(workspace.id)
+                            .fetchOne(db)
+                    )
+                }
+            )
+            expectNoDifference(persisted.0, Optional(oldReference.revision.rawValue))
+            expectNoDifference(persisted.1.installation, Optional(oldReference.revision.rawValue))
+            expectNoDifference(
+                persisted.1.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: oldReference.branch.rawValue,
+                    revision: oldReference.revision.rawValue
+                )
+            )
+            let temporaryRepositories = try FileManager.default.contentsOfDirectory(
+                at: prepared.source.repositoryURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.hasPrefix("repository-refresh-")
+                    || $0.lastPathComponent.hasPrefix("repository-backup-")
+            }
+            expectNoDifference(temporaryRepositories, [])
+        }
     }
 
     @Test
@@ -3442,23 +3996,8 @@ struct SourceDatabaseInsertionTests {
             repository: "tangled.org/example/testival-source",
             branch: "main"
         )
-        let location = try storage.location(workspace.id)
-        try FileManager.default.createDirectory(
-            at: location.repositoryURL,
-            withIntermediateDirectories: true
-        )
-        _ = try OpenMusicEventSourceRepositoryFileTree().write(
-            makeSourceRepository(),
-            to: location.repositoryURL
-        )
-        try FileManager.default.createDirectory(
-            at: location.repositoryURL.appending(path: ".git"),
-            withIntermediateDirectories: true
-        )
-
-        let currentRevision = Mutex("old-revision")
         let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
-            CommitID(rawValue: currentRevision.withLock { $0 })
+            CommitID(rawValue: "local-base-revision")
         }
         var sourceControl = SourceControlClient.unimplemented
         sourceControl.open = { Repository(url: $0) }
@@ -3468,6 +4007,24 @@ struct SourceDatabaseInsertionTests {
             $0.sourceControl = sourceControl
             $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
             $0.sourceWorkspaceStorage = storage
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, outputURL in
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "main"),
+                        revision: WorkspaceRevision(rawValue: "old-revision")
+                    )
+                )
+            }
         } operation: {
             let preparation = SourceWorkspacePreparationClient.openMusicEvent(
                 resolveRevision: resolveRevision

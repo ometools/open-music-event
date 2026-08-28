@@ -47,6 +47,7 @@ struct TangledReplacementPatchGenerator: Sendable {
     func generate(
         repository: Repository,
         baseRevision: WorkspaceRevision,
+        baseCommit: CommitID,
         currentRevision: WorkspaceRevision
     ) async throws -> TangledReplacementPatch {
         @Dependency(\.sourceControl) var sourceControl
@@ -54,7 +55,7 @@ struct TangledReplacementPatchGenerator: Sendable {
             EmailPatchRequest(
                 repository: repository,
                 commit: CommitID(rawValue: currentRevision.rawValue),
-                baseCommit: CommitID(rawValue: baseRevision.rawValue)
+                baseCommit: baseCommit
             )
         )
         guard patchData.count <= limits.maxPatchBytes else {

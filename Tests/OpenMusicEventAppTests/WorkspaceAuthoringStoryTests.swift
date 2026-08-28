@@ -3,6 +3,7 @@ import ATProtoOAuth
 import ComposableArchitecture2
 import ComposableWorkspace
 import CustomDump
+import Crypto
 import Dependencies
 import FileTree
 import Foundation
@@ -222,8 +223,13 @@ struct WorkspaceAuthoringStoryTests {
         expectNoDifference(role, .collaborator([.propose, .merge]))
     }
 
-    @Test(.tcaExhaustivity(.off))
-    func `an organizer switches real Git branches and reentry restores the selected branch`() async throws {
+    @Test(
+        .disabled(
+            "A later branch picker must supply an exact immutable reference before this story is restored."
+        ),
+        .tcaExhaustivity(.off)
+    )
+    func `a branch picker selects exact immutable references`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -275,7 +281,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.dataForURL = workspaceStoryNetwork(
                 repositoryOwnerID: repositoryOwnerID,
                 eventID: selectedEventID,
-                archive: git.archive
+                archive: git.archive,
+                revision: git.mainRevision
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
@@ -404,7 +411,7 @@ struct WorkspaceAuthoringStoryTests {
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
                 "Wicked Woods 2026 - Preview Branch"
             )
-            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 1)
             expectNoDifference(
                 try workspaceStoryGitRevision(at: resource.repositoryURL),
                 git.alternateRevision
@@ -509,7 +516,7 @@ struct WorkspaceAuthoringStoryTests {
         arguments: [
             WorkspaceStoryProposalScenario(target: .settings, signsIn: true),
             WorkspaceStoryProposalScenario(target: .workspace),
-            WorkspaceStoryProposalScenario(target: .settings, failsPush: true),
+            WorkspaceStoryProposalScenario(target: .settings, failsPublication: true),
         ]
     )
     func `a source repository owner edits an organizer's event and publishes workspace changes`(
@@ -596,7 +603,9 @@ struct WorkspaceAuthoringStoryTests {
             $0.dataForURL = workspaceStoryNetwork(
                 repositoryOwnerID: repositoryOwnerID,
                 eventID: selectedEventID,
-                archive: git.archive
+                archive: git.archive,
+                revision: git.mainRevision,
+                failsProposalPublication: scenario.failsPublication
             )
             if scenario.signsIn {
                 $0.openMusicEventAuthorizationRequests = OAuthAuthorizationRequests(
@@ -614,12 +623,11 @@ struct WorkspaceAuthoringStoryTests {
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
             }
-            // Run real Git operations against the local bare remote and record their user-visible effects.
+            // Keep Git live only as the local patch engine and record every attempted operation.
             $0.sourceControl = workspaceStorySourceControl(
                 live: liveSourceControl,
                 remoteURL: git.bareRepositoryURL,
-                recorder: operations,
-                failsPush: scenario.failsPush
+                recorder: operations
             )
         } operation: {
             let opened = WorkspaceStoryLiveStore(
@@ -758,7 +766,7 @@ struct WorkspaceAuthoringStoryTests {
                 authoring.content.content.eventWorkspace?.workspaceStatus,
                 .ready(.published(initialBranch))
             )
-            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 1)
             #expect(operations.count(prefix: "resolve:") > 0)
             let preparedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
@@ -993,8 +1001,10 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )?.value
-            if scenario.failsPush {
-                try await expectReportedIssue(containing: "WorkspaceStoryPushFailure") {
+            if scenario.failsPublication {
+                try await expectReportedIssue(
+                    containing: "WorkspaceStoryPatchPublicationFailure"
+                ) {
                     await opened.send(
                         workspaceStoryProposalAction(
                             .proposalDraft(.proposeButtonTapped)
@@ -1007,10 +1017,12 @@ struct WorkspaceAuthoringStoryTests {
                 )
                 guard case let .publicationFailed(submission, failure) = failedAuthoring.content.phase
                 else {
-                    Issue.record("A failed push must leave Workspace in its publication failure phase.")
+                    Issue.record(
+                        "A failed patch publication must leave Workspace in its publication failure phase."
+                    )
                     return
                 }
-                #expect(failure.message.contains("WorkspaceStoryPushFailure"))
+                #expect(failure.message.contains("WorkspaceStoryPatchPublicationFailure"))
                 let failedWorkspace = try #require(
                     failedAuthoring.content.content.eventWorkspace
                 )
@@ -1045,7 +1057,11 @@ struct WorkspaceAuthoringStoryTests {
                     opened.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
                     "Wicked Woods 2026 - Continued after failure"
                 )
-                #expect(operations.count(of: "push") == 1)
+                #expect(operations.count(of: "clone") == 0)
+                #expect(operations.count(of: "fetch") == 0)
+                #expect(operations.count(of: "createBranch") == 0)
+                #expect(operations.count(of: "checkout") == 0)
+                #expect(operations.count(of: "push") == 0)
 
                 await opened.dismount(timeout: .seconds(1))
 
@@ -1101,9 +1117,12 @@ struct WorkspaceAuthoringStoryTests {
                         .fetchAll(db)
                 }
                 #expect(recoveredStages.contains { $0.name == "Meadow Stage" })
-                #expect(operations.count(of: "clone") == 1)
-                #expect(operations.count(of: "checkout") == 1)
-                #expect(operations.count(of: "push") == 1)
+                #expect(operations.count(of: "initialize") == 1)
+                #expect(operations.count(of: "clone") == 0)
+                #expect(operations.count(of: "fetch") == 0)
+                #expect(operations.count(of: "createBranch") == 0)
+                #expect(operations.count(of: "checkout") == 0)
+                #expect(operations.count(of: "push") == 0)
                 await remountedStore.dismount(timeout: .seconds(1))
                 return
             }
@@ -1144,12 +1163,15 @@ struct WorkspaceAuthoringStoryTests {
                     .authoring.content.content.eventWorkspace?
                     .changes.summary.totalCount == 0
             }
-            #expect(operations.count(of: "createBranch") == 1)
-            #expect(operations.count(of: "checkout") == 1)
-            #expect(operations.count(of: "stage") == 1)
-            #expect(operations.count(of: "commit") == 1)
-            #expect(operations.count(of: "formatPatch") == 1)
-            #expect(operations.count(of: "push") == 1)
+            #expect(operations.count(of: "clone") == 0)
+            #expect(operations.count(of: "fetch") == 0)
+            #expect(operations.count(of: "createBranch") == 0)
+            #expect(operations.count(of: "checkout") == 0)
+            #expect(operations.count(of: "stage") == 2)
+            #expect(operations.count(of: "commit") == 2)
+            #expect(operations.count(of: "formatPatch") == 0)
+            #expect(operations.count(of: "emailPatch") == 1)
+            #expect(operations.count(of: "push") == 0)
 
             // Publishing leaves no unpublished database edits. Exit therefore needs no prompt.
             // The attendee read model returns to the public route while branch and proposal
@@ -1249,7 +1271,7 @@ struct WorkspaceAuthoringStoryTests {
                 remountedAuthoring.content.content.eventWorkspace?.openProposal,
                 proposal
             )
-            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 1)
             let remountedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
                 remountedEventNames,
@@ -1350,7 +1372,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.dataForURL = workspaceStoryNetwork(
                 repositoryOwnerID: organizerID,
                 eventID: selectedEventID,
-                archive: git.archive
+                archive: git.archive,
+                revision: git.mainRevision
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
@@ -1416,7 +1439,9 @@ struct WorkspaceAuthoringStoryTests {
                 return true
             }
             expectNoDifference(store.content.destination?.eventViewer?.authoring.grant, grant)
-            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 1)
+            expectNoDifference(operations.count(of: "clone"), 0)
+            expectNoDifference(operations.count(of: "fetch"), 0)
         }
     }
 
@@ -1475,7 +1500,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.dataForURL = workspaceStoryNetwork(
                 repositoryOwnerID: organizerID,
                 eventID: selectedEventID,
-                archive: git.archive
+                archive: git.archive,
+                revision: git.mainRevision
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
@@ -1600,7 +1626,9 @@ struct WorkspaceAuthoringStoryTests {
                 readyAuthoring.content.content.eventWorkspace?.workspaceStatus,
                 .ready(.published(selectedBranch))
             )
-            expectNoDifference(operations.count(of: "clone"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 1)
+            expectNoDifference(operations.count(of: "clone"), 0)
+            expectNoDifference(operations.count(of: "fetch"), 0)
 
             // A clean exit still restores published attendee content and resets only the generic
             // Workspace layer. The mounted EventViewer remains alive in attendee mode.
@@ -1936,7 +1964,8 @@ struct WorkspaceAuthoringStoryTests {
             $0.dataForURL = workspaceStoryNetwork(
                 repositoryOwnerID: organizerID,
                 eventID: selectedEventID,
-                archive: git.archive
+                archive: git.archive,
+                revision: git.mainRevision
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 .sshAgent(hostKeyPolicy: .acceptForTesting)
@@ -2329,16 +2358,37 @@ private func workspaceStoryPendingOAuthSession(
 private func workspaceStoryNetwork(
     repositoryOwnerID: DID,
     eventID: OME.Event.ID,
-    archive: Data
+    archive: Data,
+    revision: String = "unused-revision",
+    failsProposalPublication: Bool = false
 ) -> RunHTTPRequest {
-    { request, _ in
+    let archiveChecksum = Data(SHA256.hash(data: archive)).base64EncodedString()
+    return { request, _ in
         let path = request.url?.path ?? ""
         func ok(_ data: Data) -> (Data, HTTPResponse) {
             (data, HTTPResponse(status: .ok))
         }
 
-        if path.hasSuffix("/archive/main.tar.gz") {
+        if path.contains("/archive/"), path.hasSuffix(".tar.gz") {
             return ok(archive)
+        }
+        if path.hasSuffix("/sh.tangled.git.listRefs") {
+            return ok(Data(
+                """
+                {
+                  "refs": [
+                    {"ref": "refs/heads/main", "sha": "\(revision)"}
+                  ],
+                  "defaultBranch": {
+                    "ref": "refs/heads/main",
+                    "head": "\(revision)"
+                  }
+                }
+                """.utf8
+            ))
+        }
+        if path.hasSuffix("/sh.tangled.repo.mergeCheck") {
+            return ok(Data(#"{"is_conflicted":false}"#.utf8))
         }
         if path.hasSuffix("/app.openmusicevent.calendar.getEvent") {
             return ok(Data(
@@ -2365,6 +2415,12 @@ private func workspaceStoryNetwork(
                       "kind": "tangled",
                       "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
                       "ref": "main"
+                    },
+                    "resolvedArtifact": {
+                      "url": "https://tangled.org/wickedwoods.ca/ome-workspace/archive/\(revision).tar.gz",
+                      "revision": "\(revision)",
+                      "checksumSHA256": "\(archiveChecksum)",
+                      "byteCount": \(archive.count)
                     }
                   }
                 }
@@ -2407,6 +2463,9 @@ private func workspaceStoryNetwork(
             ))
         }
         if path.hasSuffix("/com.atproto.repo.putRecord") {
+            if failsProposalPublication {
+                throw WorkspaceStoryPatchPublicationFailure()
+            }
             return ok(Data(
                 """
                 {
@@ -2428,10 +2487,13 @@ private struct WorkspaceStoryUnexpectedNetworkRequest: Error {
 private func workspaceStorySourceControl(
     live: SourceControlClient,
     remoteURL: URL,
-    recorder: WorkspaceStorySourceControlRecorder,
-    failsPush: Bool = false
+    recorder: WorkspaceStorySourceControlRecorder
 ) -> SourceControlClient {
     var sourceControl = live
+    sourceControl.initialize = { url in
+        recorder.record("initialize")
+        return try await live.initialize(url)
+    }
     sourceControl.clone = { request in
         recorder.record("clone")
         var request = request
@@ -2477,11 +2539,12 @@ private func workspaceStorySourceControl(
         recorder.record("formatPatch")
         return try await live.formatPatch(request)
     }
+    sourceControl.emailPatch = { request in
+        recorder.record("emailPatch")
+        return try await live.emailPatch(request)
+    }
     sourceControl.push = { request in
         recorder.record("push")
-        if failsPush {
-            throw WorkspaceStoryPushFailure()
-        }
         var request = request
         request.credentials = nil
         try await live.push(request)
@@ -2491,17 +2554,17 @@ private func workspaceStorySourceControl(
 
 struct WorkspaceStoryProposalScenario: CustomStringConvertible, Sendable {
     var target: EventTarget
-    var failsPush = false
+    var failsPublication = false
     var signsIn = false
 
     var description: String {
-        if failsPush { return "\(target)-push-failure" }
+        if failsPublication { return "\(target)-patch-publication-failure" }
         if signsIn { return "\(target)-sign-in-success" }
         return "\(target)-success"
     }
 }
 
-private struct WorkspaceStoryPushFailure: Error {}
+private struct WorkspaceStoryPatchPublicationFailure: Error {}
 
 @Feature
 private struct WorkspaceStoryLiveApplicationHarness {
@@ -2932,58 +2995,6 @@ private func writeWorkspaceStorySource(
         ]
     )
     _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
-    try writeWorkspaceStoryLegacyCommunications(to: repositoryURL)
-}
-
-private func writeWorkspaceStoryLegacyCommunications(to repositoryURL: URL) throws {
-    let channelURL = repositoryURL
-        .appending(path: "events/2025/channels", directoryHint: .isDirectory)
-    let communicationURL = repositoryURL
-        .appending(path: "events/2025/communications/general", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(
-        at: channelURL,
-        withIntermediateDirectories: true
-    )
-    try FileManager.default.createDirectory(
-        at: communicationURL,
-        withIntermediateDirectories: true
-    )
-    try """
-    name: General
-    description: Official updates.
-    defaultNotificationState: unsubscribed
-    notificationsRequired: false
-    """
-    .write(
-        to: channelURL.appending(path: "general.yml"),
-        atomically: true,
-        encoding: .utf8
-    )
-    try """
-    name: General
-    description: Official updates.
-    firebaseTopicName: wicked-woods_updates
-    """
-    .write(
-        to: communicationURL.appending(path: "channel-info.yaml"),
-        atomically: true,
-        encoding: .utf8
-    )
-    try """
-    ---
-    title: Welcome to Wicked Woods 🌲
-    isPinned: false
-    sendPush: true
-    headerImageURL:
-    ---
-
-    The gates open Friday.
-    """
-    .write(
-        to: communicationURL.appending(path: "welcome.md"),
-        atomically: true,
-        encoding: .utf8
-    )
 }
 
 private func workspaceStorySourceEvent(

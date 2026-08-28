@@ -6,9 +6,14 @@ import OpenMusicEventSource
 import SourceEditing
 
 public struct SourceWorkspacePatchRequest: Equatable, Sendable {
+    public var baseRepositoryURL: URL?
     public var workspace: SourceWorkspace
 
-    public init(workspace: SourceWorkspace) {
+    public init(
+        workspace: SourceWorkspace,
+        baseRepositoryURL: URL? = nil
+    ) {
+        self.baseRepositoryURL = baseRepositoryURL
         self.workspace = workspace
     }
 }
@@ -43,7 +48,7 @@ public extension SourcePatchGenerator where Request == SourceWorkspacePatchReque
                 @Dependency(\.sourceWorkspaceStorage) var storage
                 let location = try storage.location(request.workspace.id)
                 return SourcePatchLocation(
-                    repositoryURL: location.repositoryURL,
+                    repositoryURL: request.baseRepositoryURL ?? location.repositoryURL,
                     relativePath: nil,
                     remote: SourcePatchLocation.Remote(
                         kind: OME.SourceDatabaseInsertion.SourceKind.tangled.rawValue,

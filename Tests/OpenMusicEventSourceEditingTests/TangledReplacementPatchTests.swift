@@ -37,6 +37,7 @@ struct TangledReplacementPatchTests {
             try await TangledReplacementPatchGenerator().generate(
                 repository: repository,
                 baseRevision: WorkspaceRevision(rawValue: "base-revision"),
+                baseCommit: CommitID(rawValue: "local-base-revision"),
                 currentRevision: WorkspaceRevision(rawValue: "current-revision")
             )
         }
@@ -48,6 +49,7 @@ struct TangledReplacementPatchTests {
             try await TangledReplacementPatchGenerator().generate(
                 repository: repository,
                 baseRevision: WorkspaceRevision(rawValue: "base-revision"),
+                baseCommit: CommitID(rawValue: "local-base-revision"),
                 currentRevision: WorkspaceRevision(rawValue: "current-revision")
             )
         }
@@ -58,12 +60,12 @@ struct TangledReplacementPatchTests {
                 EmailPatchRequest(
                     repository: repository,
                     commit: "current-revision",
-                    baseCommit: "base-revision"
+                    baseCommit: "local-base-revision"
                 ),
                 EmailPatchRequest(
                     repository: repository,
                     commit: "current-revision",
-                    baseCommit: "base-revision"
+                    baseCommit: "local-base-revision"
                 ),
             ]
         )
@@ -105,6 +107,7 @@ struct TangledReplacementPatchTests {
                 .generate(
                     repository: repository,
                     baseRevision: WorkspaceRevision(rawValue: "base-revision"),
+                    baseCommit: CommitID(rawValue: "local-base-revision"),
                     currentRevision: WorkspaceRevision(rawValue: "current-revision")
                 )
             }
@@ -129,6 +132,7 @@ struct TangledReplacementPatchTests {
                 .generate(
                     repository: repository,
                     baseRevision: WorkspaceRevision(rawValue: "base-revision"),
+                    baseCommit: CommitID(rawValue: "local-base-revision"),
                     currentRevision: WorkspaceRevision(rawValue: "current-revision")
                 )
             }

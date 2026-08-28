@@ -16,13 +16,61 @@ public typealias SourceWorkspaceRevisionResolver = @Sendable (
 
 struct SourceWorkspaceCheckoutClient: Sendable {
     var checkout: @Sendable (
-        TangledSourceCheckoutRequest
-    ) async throws -> TangledSourceCheckout
+        _ workspace: SourceWorkspace,
+        _ outputURL: URL
+    ) async throws -> SourceWorkspaceCheckout
+}
+
+struct SourceWorkspaceCheckout: Equatable, Sendable {
+    var repository: Repository
+    var reference: WorkspaceBranchReference
 }
 
 extension SourceWorkspaceCheckoutClient: DependencyKey {
     static var liveValue: Self {
-        Self(checkout: TangledSourceCheckoutClient.git.checkout)
+        Self { workspace, outputURL in
+            @Dependency(\.sourceControl) var sourceControl
+            @Dependency(\.tangledDefaultBranch) var defaultBranch
+            @Dependency(\.tangledSourceCheckout) var sourceCheckout
+
+            let outputExisted = FileManager.default.fileExists(atPath: outputURL.path)
+            var completed = false
+            defer {
+                if !outputExisted && !completed {
+                    try? FileManager.default.removeItem(at: outputURL)
+                }
+            }
+            let sourceReference = try TangledRepositoryReference(
+                sourceReference: workspace.repository
+            )
+            let reference = try await defaultBranch.resolve(sourceReference)
+            _ = try await sourceCheckout.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: sourceReference,
+                    ref: reference.revision.rawValue,
+                    outputURL: outputURL
+                )
+            )
+            let paths = try archiveRepositoryPaths(at: outputURL)
+            let repository = try await sourceControl.initialize(outputURL)
+            try await sourceControl.stage(
+                StageRequest(repository: repository, paths: paths)
+            )
+            _ = try await sourceControl.commit(
+                CommitRequest(
+                    repository: repository,
+                    message: CommitMessage(
+                        rawValue: "Import source at \(reference.revision.rawValue)"
+                    ),
+                    author: Author(
+                        name: PersonName(rawValue: "Open Music Event"),
+                        email: EmailAddress(rawValue: "noreply@openmusicevent.app")
+                    )
+                )
+            )
+            completed = true
+            return SourceWorkspaceCheckout(repository: repository, reference: reference)
+        }
     }
 
     static var testValue: Self { liveValue }
@@ -57,24 +105,66 @@ public extension WorkspaceReferenceUpdateClient {
                 guard source.applicationDatabaseID == ObjectIdentifier(mainDatabase) else {
                     throw SourceWorkspaceDatabaseError.applicationDatabaseMismatch(workspaceID)
                 }
-                let revision = try await resolveRevision(
-                    Repository(url: source.repositoryURL),
-                    RefName(rawValue: "HEAD")
-                )
-                guard revision.rawValue == proposal.target.revision.rawValue else {
-                    throw SourceWorkspaceDatabaseError.unexpectedRevision(
-                        expected: proposal.target.revision.rawValue,
-                        observed: revision.rawValue
-                    )
-                }
                 guard submission.proposalTarget == proposal.target else {
                     throw SourceWorkspaceDatabaseError.proposalTargetMismatch(proposal.id)
                 }
-                try await saveWorkspaceSelection(
+                let referenceRevision = try source.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspaceID).fetchOne(db)?.revision
+                }
+                let persisted = try await mainDatabase.read { db in
+                    (
+                        installation: try SourceWorkspaceInstallationRecord
+                            .find(workspaceID)
+                            .fetchOne(db),
+                        selection: try SourceWorkspaceSelectionRecord
+                            .find(workspaceID)
+                            .fetchOne(db)
+                    )
+                }
+                let selectedReference = persisted.selection.map {
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: $0.branch),
+                        revision: WorkspaceRevision(rawValue: $0.revision)
+                    )
+                }
+                guard referenceRevision == proposal.target.revision.rawValue,
+                      persisted.installation?.revision == proposal.target.revision.rawValue,
+                      selectedReference == proposal.target
+                else {
+                    throw SourceWorkspaceDatabaseError.persistedProposalTargetMismatch(
+                        expected: proposal.target,
+                        observed: selectedReference
+                    )
+                }
+                @Dependency(\.sourcePatchApplier) var patchApplier
+                @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+                let proposedTree = try materializer.materialize(
+                    source.repositoryURL,
+                    nil
+                )
+                defer {
+                    try? FileManager.default.removeItem(
+                        at: proposedTree.workingRepositoryURL
+                    )
+                }
+                try patchApplier.apply(
+                    submission.changes,
+                    proposedTree.workingRepositoryURL
+                )
+                let proposedInsertion = try sourceInsertion(
+                    workspace: source.workspace,
+                    repositoryURL: proposedTree.workingRepositoryURL
+                )
+                try await proposedInsertion.replaceSourceWorkspace(
+                    source.workspace,
                     branch: proposal.target.branch.rawValue,
-                    revision: revision.rawValue,
+                    revision: proposal.target.revision.rawValue,
+                    in: source.referenceDatabase.database
+                )
+                try await saveReferenceRevision(
+                    proposal.target.revision.rawValue,
                     workspaceID: workspaceID,
-                    database: mainDatabase
+                    database: source.referenceDatabase.database
                 )
                 try await SourceWorkspaceOpenProposalStore(database: mainDatabase)
                     .save(proposal, workspaceID: workspaceID)
@@ -88,9 +178,9 @@ public extension WorkspaceReferenceUpdateClient {
                 }
                 @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self)
                 var patchGenerator
-                @Dependency(\.sourceControl) var sourceControl
                 @Dependency(\.sourcePatchApplier) var patchApplier
                 @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+                @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
 
                 let proposalStore = SourceWorkspaceOpenProposalStore(database: mainDatabase)
                 let persistedProposal = try proposalStore.load(workspaceID)
@@ -107,27 +197,42 @@ public extension WorkspaceReferenceUpdateClient {
                     // even if selecting or refreshing its target branch subsequently fails.
                     try await proposalStore.save(nil, workspaceID: workspaceID)
                 }
-                let currentChanges = try await patchGenerator.generate(
-                    SourceWorkspacePatchRequest(workspace: source.workspace)
-                )
                 let expectedReference = reconciliation.expected.selectedReference
                 let destinationBranch = reconciliation.destination.editingBranch
-                let switchesBranch = destinationBranch != expectedReference.branch
-                guard !switchesBranch || currentChanges.isEmpty else {
-                    throw SourceWorkspaceDatabaseError.localChangesPreventBranchSwitch(
-                        expectedReference.branch.rawValue,
-                        destinationBranch.rawValue
-                    )
-                }
                 let repository = Repository(url: source.repositoryURL)
-                let startingRevision = try await resolveRevision(
+                _ = try await resolveRevision(
                     repository,
                     RefName(rawValue: "HEAD")
                 )
-                guard startingRevision.rawValue == expectedReference.revision.rawValue else {
-                    throw SourceWorkspaceDatabaseError.unexpectedRevision(
-                        expected: expectedReference.revision.rawValue,
-                        observed: startingRevision.rawValue
+                let referenceDatabase = source.referenceDatabase
+                let referenceRevision = try referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspaceID).fetchOne(db)?.revision
+                }
+                let persisted = try await mainDatabase.read { db in
+                    (
+                        installation: try SourceWorkspaceInstallationRecord
+                            .find(workspaceID)
+                            .fetchOne(db),
+                        selection: try SourceWorkspaceSelectionRecord
+                            .find(workspaceID)
+                            .fetchOne(db)
+                    )
+                }
+                let selectedReference = persisted.selection.map {
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: $0.branch),
+                        revision: WorkspaceRevision(rawValue: $0.revision)
+                    )
+                }
+                guard referenceRevision == expectedReference.revision.rawValue,
+                      persisted.installation?.revision == expectedReference.revision.rawValue,
+                      selectedReference == expectedReference
+                else {
+                    throw SourceWorkspaceDatabaseError.persistedReconciliationReferenceMismatch(
+                        expected: expectedReference,
+                        observed: selectedReference,
+                        referenceRevision: referenceRevision,
+                        installationRevision: persisted.installation?.revision
                     )
                 }
 
@@ -148,6 +253,22 @@ public extension WorkspaceReferenceUpdateClient {
                     return .proposal(proposal)
                 }
 
+                guard case .published = reconciliation.destination else {
+                    throw SourceWorkspaceDatabaseError.branchSelectionRequiresExactReference(
+                        destinationBranch.rawValue
+                    )
+                }
+
+                // The archive repository remains the upstream replacement-patch base after a
+                // proposal is published. Reconstruct the accepted proposal-round baseline from
+                // its database, then ask Git for only the unpublished delta beyond that baseline.
+                let referenceChanges = try await withDependencies {
+                    $0.defaultDatabase = referenceDatabase.database
+                } operation: {
+                    try await patchGenerator.generate(
+                        SourceWorkspacePatchRequest(workspace: source.workspace)
+                    )
+                }
                 let previousReferenceTree = try materializer.materialize(
                     source.repositoryURL,
                     nil
@@ -157,17 +278,36 @@ public extension WorkspaceReferenceUpdateClient {
                         at: previousReferenceTree.workingRepositoryURL
                     )
                 }
+                if !referenceChanges.isEmpty {
+                    try patchApplier.apply(
+                        referenceChanges,
+                        previousReferenceTree.workingRepositoryURL
+                    )
+                }
                 let previousReferenceInsertion = try sourceInsertion(
                     workspace: source.workspace,
                     repositoryURL: previousReferenceTree.workingRepositoryURL
                 )
+                let currentChanges = try await patchGenerator.generate(
+                    SourceWorkspacePatchRequest(
+                        workspace: source.workspace,
+                        baseRepositoryURL: previousReferenceTree.workingRepositoryURL
+                    )
+                )
+                let switchesBranch = destinationBranch != expectedReference.branch
+                guard !switchesBranch || currentChanges.isEmpty else {
+                    throw SourceWorkspaceDatabaseError.localChangesPreventBranchSwitch(
+                        expectedReference.branch.rawValue,
+                        destinationBranch.rawValue
+                    )
+                }
                 let previousWorkingInsertion: OME.SourceDatabaseInsertion
                 var previousWorkingTree: SourceWorkingTree?
                 if currentChanges.isEmpty {
                     previousWorkingInsertion = previousReferenceInsertion
                 } else {
                     let workingTree = try materializer.materialize(
-                        source.repositoryURL,
+                        previousReferenceTree.workingRepositoryURL,
                         nil
                     )
                     previousWorkingTree = workingTree
@@ -187,32 +327,32 @@ public extension WorkspaceReferenceUpdateClient {
                         )
                     }
                 }
-                let referenceDatabase = source.referenceDatabase
+                let preparedRepositoryURL = source.repositoryURL
+                    .deletingLastPathComponent()
+                    .appending(path: "repository-refresh-\(UUID().uuidString)")
+                defer { try? FileManager.default.removeItem(at: preparedRepositoryURL) }
                 do {
-                    _ = try await TangledSourceCheckoutClient.git.checkout(
-                        TangledSourceCheckoutRequest(
-                            repository: try TangledRepositoryReference(
-                                sourceReference: source.workspace.repository
-                            ),
-                            ref: destinationBranch.rawValue,
-                            outputURL: source.repositoryURL
+                    let refreshed = try await checkout.checkout(
+                        source.workspace,
+                        preparedRepositoryURL
+                    )
+                    guard refreshed.reference.branch == destinationBranch else {
+                        throw SourceWorkspaceDatabaseError.defaultBranchChanged(
+                            expected: destinationBranch.rawValue,
+                            observed: refreshed.reference.branch.rawValue
                         )
-                    )
-                    let revision = try await resolveRevision(
-                        repository,
-                        RefName(rawValue: "HEAD")
-                    )
+                    }
                     if let observedRevision = reconciliation.observedRevision,
-                       observedRevision.rawValue != revision.rawValue {
+                       observedRevision != refreshed.reference.revision {
                         throw SourceWorkspaceDatabaseError.unexpectedRevision(
                             expected: observedRevision.rawValue,
-                            observed: revision.rawValue
+                            observed: refreshed.reference.revision.rawValue
                         )
                     }
 
                     let referenceInsertion = try sourceInsertion(
                         workspace: source.workspace,
-                        repositoryURL: source.repositoryURL
+                        repositoryURL: preparedRepositoryURL
                     )
                     let workingInsertion: OME.SourceDatabaseInsertion
                     var workingTree: SourceWorkingTree?
@@ -220,7 +360,7 @@ public extension WorkspaceReferenceUpdateClient {
                         workingInsertion = referenceInsertion
                     } else {
                         let materialized = try materializer.materialize(
-                            source.repositoryURL,
+                            preparedRepositoryURL,
                             nil
                         )
                         workingTree = materialized
@@ -244,53 +384,35 @@ public extension WorkspaceReferenceUpdateClient {
                     try await referenceInsertion.replaceSourceWorkspace(
                         source.workspace,
                         branch: destinationBranch.rawValue,
-                        revision: revision.rawValue,
+                        revision: refreshed.reference.revision.rawValue,
                         in: referenceDatabase.database
                     )
                     try await saveReferenceRevision(
-                        revision.rawValue,
+                        refreshed.reference.revision.rawValue,
                         workspaceID: workspaceID,
                         database: referenceDatabase.database
                     )
                     try await workingInsertion.replaceSourceWorkspace(
                         source.workspace,
                         branch: destinationBranch.rawValue,
-                        revision: revision.rawValue,
+                        revision: refreshed.reference.revision.rawValue,
                         in: mainDatabase
                     )
                     try await saveWorkspaceSelection(
                         branch: destinationBranch.rawValue,
-                        revision: revision.rawValue,
+                        revision: refreshed.reference.revision.rawValue,
                         workspaceID: workspaceID,
                         database: mainDatabase
                     )
-                    let reference = WorkspaceBranchReference(
-                        branch: destinationBranch,
-                        revision: WorkspaceRevision(rawValue: revision.rawValue)
+                    let backupRepositoryURL = try replaceRepository(
+                        at: source.repositoryURL,
+                        with: preparedRepositoryURL
                     )
-                    switch reconciliation.destination {
-                    case .branch:
-                        return .branch(reference)
-                    case .published:
-                        return .published(reference)
-                    case .proposal:
-                        preconditionFailure("Proposal reconciliation returns before branch refresh.")
-                    }
+                    try? FileManager.default.removeItem(at: backupRepositoryURL)
+                    return .published(refreshed.reference)
                 } catch {
                     let reconciliationError = error
                     var rollbackFailures: [String] = []
-                    do {
-                        try await sourceControl.checkout(
-                            CheckoutRequest(
-                                repository: repository,
-                                ref: RefName(
-                                    rawValue: expectedReference.revision.rawValue
-                                )
-                            )
-                        )
-                    } catch {
-                        rollbackFailures.append("Git: \(String(describing: error))")
-                    }
                     do {
                         try await previousReferenceInsertion.replaceSourceWorkspace(
                             source.workspace,
@@ -344,6 +466,7 @@ private func prepareOpenMusicEventSourceWorkspace(
     resolveRevision: @escaping SourceWorkspaceRevisionResolver
 ) async throws -> WorkspacePreparation<SourceWorkspaceResource> {
     @Dependency(\.defaultDatabase) var mainDatabase
+    @Dependency(\.eventWorkspaceResetter) var workspaceResetter
     @Dependency(\.sourceControl) var sourceControl
     @Dependency(\.sourceWorkspaceStorage) var storage
     @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
@@ -367,41 +490,52 @@ private func prepareOpenMusicEventSourceWorkspace(
         )
     }
     let installedRevision = persisted.installation?.revision
-    let requestedBranch = persisted.selection?.branch
-        ?? persisted.openProposal?.target.branch.rawValue
-        ?? workspace.defaultBranch
-
+    let repositoryPathExisted = FileManager.default.fileExists(
+        atPath: location.repositoryURL.path
+    )
     let repositoryExists = isGitRepository(location.repositoryURL)
     guard repositoryExists || (referenceRevision == nil && installedRevision == nil) else {
         throw SourceWorkspaceDatabaseError.repositoryMissing(workspace.id)
     }
+    var freshRepositoryHasDurableReference = repositoryExists
+    defer {
+        if !repositoryPathExisted && !freshRepositoryHasDurableReference {
+            try? FileManager.default.removeItem(at: location.repositoryURL)
+        }
+    }
 
     let repository: Repository
+    let selectedReference: WorkspaceBranchReference
     if repositoryExists {
         repository = try await sourceControl.open(location.repositoryURL)
-    } else {
-        _ = try await checkout.checkout(
-            TangledSourceCheckoutRequest(
-                repository: try TangledRepositoryReference(
-                    sourceReference: workspace.repository
-                ),
-                ref: requestedBranch,
-                outputURL: location.repositoryURL
+        guard let persistedRevision = referenceRevision ?? installedRevision else {
+            throw SourceWorkspaceDatabaseError.upstreamReferenceMissing(workspace.id)
+        }
+        if let selection = persisted.selection {
+            selectedReference = WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: selection.branch),
+                revision: WorkspaceRevision(rawValue: persistedRevision)
             )
-        )
-        repository = try await sourceControl.open(location.repositoryURL)
+        } else if let proposal = persisted.openProposal,
+                  proposal.target.revision.rawValue == persistedRevision {
+            selectedReference = proposal.target
+        } else {
+            selectedReference = WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+                revision: WorkspaceRevision(rawValue: persistedRevision)
+            )
+        }
+    } else {
+        let checkedOut = try await checkout.checkout(workspace, location.repositoryURL)
+        repository = checkedOut.repository
+        selectedReference = checkedOut.reference
     }
 
-    let revision = try await resolveRevision(repository, RefName(rawValue: "HEAD"))
-    let selectedBranch: String
-    if let selection = persisted.selection {
-        selectedBranch = selection.branch
-    } else if persisted.openProposal?.target.revision.rawValue == revision.rawValue {
-        selectedBranch = persisted.openProposal?.target.branch.rawValue ?? workspace.defaultBranch
-    } else {
-        selectedBranch = workspace.defaultBranch
-    }
-    let selectedRevision = revision.rawValue
+    // The local commit identifies the imported archive only inside the patch engine. Tangled's
+    // default-branch head remains the durable upstream identity used by Workspace and proposals.
+    _ = try await resolveRevision(repository, RefName(rawValue: "HEAD"))
+    let selectedBranch = selectedReference.branch.rawValue
+    let selectedRevision = selectedReference.revision.rawValue
 
     switch (referenceRevision, installedRevision) {
     case (nil, nil):
@@ -412,38 +546,52 @@ private func prepareOpenMusicEventSourceWorkspace(
         try await insertion.replaceSourceWorkspace(
             workspace,
             branch: selectedBranch,
-            revision: revision.rawValue,
+            revision: selectedRevision,
             in: referenceDatabase.database
         )
         try await saveReferenceRevision(
-            revision.rawValue,
+            selectedRevision,
             workspaceID: workspace.id,
             database: referenceDatabase.database
         )
+        freshRepositoryHasDurableReference = true
         try await insertion.replaceSourceWorkspace(
             workspace,
             branch: selectedBranch,
-            revision: revision.rawValue,
+            revision: selectedRevision,
             in: mainDatabase
         )
 
     case let (.some(referenceRevision), nil)
-        where referenceRevision == revision.rawValue:
-        // Resume a first preparation interrupted after the immutable reference was installed.
-        let insertion = try sourceInsertion(
-            workspace: workspace,
-            repositoryURL: location.repositoryURL
-        )
-        try await insertion.replaceSourceWorkspace(
-            workspace,
-            branch: selectedBranch,
-            revision: revision.rawValue,
-            in: mainDatabase
-        )
+        where referenceRevision == selectedRevision:
+        if persisted.selection != nil {
+            // Authoring exit restores published content and removes only the active installation.
+            // Reentry restores the accepted proposal-round baseline without changing the upstream
+            // archive repository that anchors complete replacement patches.
+            try workspaceResetter.resetWorkspace(workspace, referenceDatabase)
+            try await saveWorkspaceSelection(
+                branch: selectedBranch,
+                revision: selectedRevision,
+                workspaceID: workspace.id,
+                database: mainDatabase
+            )
+        } else {
+            // Resume a first preparation interrupted after the immutable reference was installed.
+            let insertion = try sourceInsertion(
+                workspace: workspace,
+                repositoryURL: location.repositoryURL
+            )
+            try await insertion.replaceSourceWorkspace(
+                workspace,
+                branch: selectedBranch,
+                revision: selectedRevision,
+                in: mainDatabase
+            )
+        }
 
     case let (.some(referenceRevision), .some(installedRevision))
-        where referenceRevision == revision.rawValue
-            && installedRevision == revision.rawValue:
+        where referenceRevision == selectedRevision
+            && installedRevision == selectedRevision:
         // A settled workspace is reopened exactly as persisted. Reentry never installs source.
         break
 
@@ -453,7 +601,7 @@ private func prepareOpenMusicEventSourceWorkspace(
     case let (referenceRevision, installedRevision):
         throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
             workspaceID: workspace.id,
-            repositoryRevision: revision.rawValue,
+            repositoryRevision: selectedRevision,
             referenceRevision: referenceRevision,
             installationRevision: installedRevision
         )
@@ -476,10 +624,7 @@ private func prepareOpenMusicEventSourceWorkspace(
         )
     }
 
-    let reference = WorkspaceBranchReference(
-        branch: WorkspaceBranch(rawValue: selectedBranch),
-        revision: WorkspaceRevision(rawValue: selectedRevision)
-    )
+    let reference = selectedReference
     let context: WorkspaceEditingContext
     if persisted.openProposal?.target == reference,
        let proposal = persisted.openProposal {
@@ -566,14 +711,50 @@ private func isGitRepository(_ repositoryURL: URL) -> Bool {
     )
 }
 
+private func replaceRepository(at repositoryURL: URL, with replacementURL: URL) throws -> URL {
+    let fileManager = FileManager.default
+    let backupURL = repositoryURL
+        .deletingLastPathComponent()
+        .appending(path: "repository-backup-\(UUID().uuidString)")
+    try fileManager.moveItem(at: repositoryURL, to: backupURL)
+    do {
+        try fileManager.moveItem(at: replacementURL, to: repositoryURL)
+    } catch {
+        let replacementError = error
+        do {
+            try fileManager.moveItem(at: backupURL, to: repositoryURL)
+        } catch {
+            throw SourceWorkspaceRepositoryReplacementError.restoreFailed(
+                replacement: String(describing: replacementError),
+                restoration: String(describing: error),
+                backupPath: backupURL.path
+            )
+        }
+        throw replacementError
+    }
+    return backupURL
+}
+
 enum SourceWorkspaceDatabaseError: Error, Equatable {
     case applicationDatabaseMismatch(SourceWorkspace.ID)
+    case branchSelectionRequiresExactReference(String)
+    case defaultBranchChanged(expected: String, observed: String)
     case localChangesPreventBranchSwitch(String, String)
+    case persistedReconciliationReferenceMismatch(
+        expected: WorkspaceBranchReference,
+        observed: WorkspaceBranchReference?,
+        referenceRevision: String?,
+        installationRevision: String?
+    )
     case persistedRevisionMismatch(
         workspaceID: SourceWorkspace.ID,
         repositoryRevision: String,
         referenceRevision: String?,
         installationRevision: String?
+    )
+    case persistedProposalTargetMismatch(
+        expected: WorkspaceBranchReference,
+        observed: WorkspaceBranchReference?
     )
     case proposalContextMismatch(WorkspaceProposalID?)
     case proposalRevisionRequiresRefresh(expected: String, observed: String)
@@ -589,6 +770,56 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
         persistedRevision: String
     )
     case unexpectedRevision(expected: String, observed: String)
+    case upstreamReferenceMissing(SourceWorkspace.ID)
+}
+
+private enum SourceWorkspaceRepositoryReplacementError: Error, Equatable {
+    case restoreFailed(replacement: String, restoration: String, backupPath: String)
+}
+
+private enum SourceWorkspaceArchiveError: Error, Equatable {
+    case cannotEnumerate(String)
+    case containsGitMetadata
+    case unsupportedEntry(String)
+}
+
+private func archiveRepositoryPaths(at repositoryURL: URL) throws -> [RepositoryPath] {
+    let resourceKeys: Set<URLResourceKey> = [
+        .isDirectoryKey,
+        .isRegularFileKey,
+        .isSymbolicLinkKey,
+    ]
+    guard let enumerator = FileManager.default.enumerator(
+        at: repositoryURL,
+        includingPropertiesForKeys: Array(resourceKeys)
+    ) else {
+        throw SourceWorkspaceArchiveError.cannotEnumerate(repositoryURL.path)
+    }
+    let rootPath = repositoryURL.standardizedFileURL.path
+    let pathPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+    var paths: [RepositoryPath] = []
+    for case let fileURL as URL in enumerator {
+        let candidatePath = fileURL.standardizedFileURL.path
+        guard candidatePath.hasPrefix(pathPrefix) else {
+            throw SourceWorkspaceArchiveError.unsupportedEntry(candidatePath)
+        }
+        let relativePath = String(candidatePath.dropFirst(pathPrefix.count))
+        if relativePath == ".git" || relativePath.hasPrefix(".git/") {
+            throw SourceWorkspaceArchiveError.containsGitMetadata
+        }
+        let values = try fileURL.resourceValues(forKeys: resourceKeys)
+        if values.isSymbolicLink == true {
+            throw SourceWorkspaceArchiveError.unsupportedEntry(relativePath)
+        }
+        if values.isDirectory == true {
+            continue
+        }
+        guard values.isRegularFile == true else {
+            throw SourceWorkspaceArchiveError.unsupportedEntry(relativePath)
+        }
+        paths.append(RepositoryPath(rawValue: relativePath))
+    }
+    return paths.sorted { $0.rawValue < $1.rawValue }
 }
 
 private extension WorkspaceEditingContextDestination {

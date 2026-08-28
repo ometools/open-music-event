@@ -8,6 +8,52 @@ import TangledLexicon
 import TangledXRPC
 import XRPCClient
 
+public struct TangledDefaultBranchClient: Sendable {
+    public var resolve: @Sendable (
+        _ repository: TangledRepositoryReference
+    ) async throws -> WorkspaceBranchReference
+
+    public init(
+        resolve: @escaping @Sendable (
+            _ repository: TangledRepositoryReference
+        ) async throws -> WorkspaceBranchReference
+    ) {
+        self.resolve = resolve
+    }
+}
+
+extension TangledDefaultBranchClient: DependencyKey {
+    public static var liveValue: Self {
+        Self { repository in
+            let target = try await repository.resolvedTangledRepositoryTarget()
+            @Dependency(XRPC.Client.self) var xrpcClient
+            return try tangledDefaultBranch(
+                try await xrpcClient.tangledListRefs(
+                    repo: target.repositoryDID,
+                    knotHost: target.knotHost
+                )
+            )
+        }
+    }
+
+    public static var testValue: Self {
+        Self { _ in
+            throw TangledDefaultBranchClientError.unimplemented
+        }
+    }
+}
+
+public extension DependencyValues {
+    var tangledDefaultBranch: TangledDefaultBranchClient {
+        get { self[TangledDefaultBranchClient.self] }
+        set { self[TangledDefaultBranchClient.self] = newValue }
+    }
+}
+
+private enum TangledDefaultBranchClientError: Error {
+    case unimplemented
+}
+
 struct TangledPatchOnlyProposalTarget: Codable, Equatable, Sendable {
     var repositoryDID: DID
     var repositoryOwnerDID: DID
@@ -172,7 +218,7 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
             TangledPatchOnlyProposalMergeCheckRequest(
                 target: request.target,
                 patch: request.patch.patchText,
-                branch: initialBranch.name
+                branch: initialBranch.branch.rawValue
             )
         )
         if let rejection = mergeCheckRejection(mergeCheck) {
@@ -183,10 +229,10 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
             for: request.target,
             expectedRevision: request.patch.baseRevision
         )
-        guard finalBranch.name == initialBranch.name else {
+        guard finalBranch.branch == initialBranch.branch else {
             throw TangledPatchOnlyProposalPublisherError.defaultBranchChanged(
-                expected: initialBranch.name,
-                observed: finalBranch.name
+                expected: initialBranch.branch.rawValue,
+                observed: finalBranch.branch.rawValue
             )
         }
 
@@ -199,9 +245,9 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
                     observed: snapshot.record.target.repo
                 )
             }
-            guard snapshot.record.target.branch == initialBranch.name else {
+            guard snapshot.record.target.branch == initialBranch.branch.rawValue else {
                 throw TangledPatchOnlyProposalPublisherError.proposalTargetBranchChanged(
-                    expected: initialBranch.name,
+                    expected: initialBranch.branch.rawValue,
                     observed: snapshot.record.target.branch
                 )
             }
@@ -220,10 +266,10 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
             for: request.target,
             expectedRevision: request.patch.baseRevision
         )
-        guard publicationBranch.name == initialBranch.name else {
+        guard publicationBranch.branch == initialBranch.branch else {
             throw TangledPatchOnlyProposalPublisherError.defaultBranchChanged(
-                expected: initialBranch.name,
-                observed: publicationBranch.name
+                expected: initialBranch.branch.rawValue,
+                observed: publicationBranch.branch.rawValue
             )
         }
         let round = TangledPullRecord.Round(
@@ -233,7 +279,7 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
         var record = existing?.record ?? TangledPullRecord(
             target: TangledPullRecord.Target(
                 repo: request.target.repositoryDID,
-                branch: initialBranch.name
+                branch: initialBranch.branch.rawValue
             ),
             title: request.title,
             body: request.body,
@@ -256,46 +302,18 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
 }
 
 private extension TangledPatchOnlyProposalPublisher {
-    struct DefaultBranch: Equatable, Sendable {
-        var name: String
-        var revision: WorkspaceRevision
-    }
-
     func defaultBranch(
         for target: TangledPatchOnlyProposalTarget,
         expectedRevision: WorkspaceRevision
-    ) async throws -> DefaultBranch {
-        let output = try await transport.listRefs(target)
-        guard let defaultBranch = output.defaultBranch else {
-            throw TangledPatchOnlyProposalPublisherError.missingDefaultBranch
-        }
-        let name = try normalizedDefaultBranch(defaultBranch.ref)
-        guard let rawHead = defaultBranch.head?.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ), !rawHead.isEmpty else {
-            throw TangledPatchOnlyProposalPublisherError.missingDefaultBranchHead(
-                defaultBranch.ref
-            )
-        }
-        let revision = WorkspaceRevision(rawValue: rawHead)
-        guard revision == expectedRevision else {
+    ) async throws -> WorkspaceBranchReference {
+        let branch = try tangledDefaultBranch(try await transport.listRefs(target))
+        guard branch.revision == expectedRevision else {
             throw TangledPatchOnlyProposalPublisherError.defaultBranchAdvanced(
                 expected: expectedRevision,
-                observed: revision
+                observed: branch.revision
             )
         }
-        return DefaultBranch(name: name, revision: revision)
-    }
-
-    func normalizedDefaultBranch(_ ref: String) throws -> String {
-        let ref = ref.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = ref.hasPrefix("refs/heads/")
-            ? String(ref.dropFirst("refs/heads/".count))
-            : ref
-        guard !name.isEmpty, name != "HEAD" else {
-            throw TangledPatchOnlyProposalPublisherError.invalidDefaultBranchRef(ref)
-        }
-        return name
+        return branch
     }
 
     func mergeCheckRejection(_ output: TangledMergeCheckOutput) -> String? {
@@ -314,4 +332,30 @@ private extension TangledPatchOnlyProposalPublisher {
         .joined(separator: ", ") ?? ""
         return conflicts.isEmpty ? "Patch has conflicts." : conflicts
     }
+}
+
+private func tangledDefaultBranch(
+    _ output: TangledListRefsOutput
+) throws -> WorkspaceBranchReference {
+    guard let defaultBranch = output.defaultBranch else {
+        throw TangledPatchOnlyProposalPublisherError.missingDefaultBranch
+    }
+    let rawRef = defaultBranch.ref.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = rawRef.hasPrefix("refs/heads/")
+        ? String(rawRef.dropFirst("refs/heads/".count))
+        : rawRef
+    guard !name.isEmpty, name != "HEAD" else {
+        throw TangledPatchOnlyProposalPublisherError.invalidDefaultBranchRef(rawRef)
+    }
+    guard let rawHead = defaultBranch.head?.trimmingCharacters(
+        in: .whitespacesAndNewlines
+    ), !rawHead.isEmpty else {
+        throw TangledPatchOnlyProposalPublisherError.missingDefaultBranchHead(
+            defaultBranch.ref
+        )
+    }
+    return WorkspaceBranchReference(
+        branch: WorkspaceBranch(rawValue: name),
+        revision: WorkspaceRevision(rawValue: rawHead)
+    )
 }

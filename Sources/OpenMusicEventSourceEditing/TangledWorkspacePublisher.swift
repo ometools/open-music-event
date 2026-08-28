@@ -150,10 +150,10 @@ private extension TangledWorkspacePublisher {
         }
         let repository = try await sourceControl.open(workingTree.workingRepositoryURL)
         let target = submission.proposalTarget
-        try await sourceControl.checkout(
-            CheckoutRequest(
+        let baseCommit = try await sourceControl.resolveRevision(
+            ResolveRevisionRequest(
                 repository: repository,
-                ref: RefName(rawValue: target.revision.rawValue)
+                ref: RefName(rawValue: "HEAD")
             )
         )
         try patchApplier.apply(
@@ -181,6 +181,7 @@ private extension TangledWorkspacePublisher {
         return try await patchGenerator.generate(
             repository: repository,
             baseRevision: target.revision,
+            baseCommit: baseCommit,
             currentRevision: WorkspaceRevision(rawValue: commit.id.rawValue)
         )
     }

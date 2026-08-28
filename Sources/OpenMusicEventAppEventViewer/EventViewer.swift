@@ -150,7 +150,6 @@ public struct EventViewer {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
-    @Dependency(SourceWorkspaceFetchClient.self) var sourceWorkspaceFetch
     @Dependency(\.uuid) var uuid
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
     var workspace
@@ -893,12 +892,6 @@ public struct EventViewer {
         guard var eventWorkspace = preparedEventWorkspace else { return }
         eventWorkspace.selectedPage = selectedPage
         state.eventWorkspace = eventWorkspace
-        let sourceWorkspaceFetch = sourceWorkspaceFetch
-        store.addTask {
-            await withErrorReporting {
-                try await sourceWorkspaceFetch.fetch(source)
-            }
-        }
     }
 
     public var body: some Feature {
@@ -1038,10 +1031,12 @@ public struct EventViewer {
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
+                    let summary = state.eventWorkspace?.changes.$summary
                     state.eventWorkspace?.changes.proposalDraft = nil
                     state.eventWorkspace?.selectedPage = .proposals
                     state.eventWorkspace?.reviews.pendingCreatedReviewID = proposal.id.rawValue
                     store.addTask {
+                        try await summary?.load()
                         try store.send(
                             .eventWorkspace(.reviews(.refreshButtonTapped))
                         )

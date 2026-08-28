@@ -306,6 +306,7 @@ struct TangledSourceCloneTests {
                 )
             }
             $0.sourceControl = SourceControlClient(
+                initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
                     let attempt = cloneAttempts.withLock { attempts in
@@ -406,6 +407,7 @@ struct TangledSourceCloneTests {
 
         let checkout = try await withDependencies {
             $0.sourceControl = SourceControlClient(
+                initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
                     return Repository(url: request.destinationURL)
@@ -523,6 +525,7 @@ struct TangledSourceCloneTests {
                 )
             }
             $0.sourceControl = SourceControlClient(
+                initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
                     return Repository(url: request.destinationURL)
