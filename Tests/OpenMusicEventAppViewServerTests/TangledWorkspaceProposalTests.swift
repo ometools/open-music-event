@@ -1,4 +1,5 @@
 import ATProto
+import AppViewIndex
 import CustomDump
 import Dependencies
 import Foundation
@@ -10,6 +11,7 @@ import HummingbirdTesting
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData
+import TangledLexicon
 import Testing
 
 @testable import OpenMusicEventAppViewServer
@@ -92,34 +94,37 @@ struct TangledWorkspaceProposalTests {
       proposal,
       TangledWorkspaceProposal(
         id: Self.pullURI,
-        discoveryDeliveryID: .init(rawValue: Self.deliveryID),
-        watchID: Self.watch.id,
-        webhook: TangledPullCreated.Webhook(
-          canonicalSource: Self.watch.canonicalSource.reference,
-          repository: TangledPullCreated.Webhook.Repository(
-            host: Self.repository.host,
-            port: Self.repository.port,
-            owner: Self.repository.owner,
-            ownerDID: try #require(DID(Self.repositoryOwnerDID)),
-            name: Self.repository.repository
+        webhook: TangledWorkspaceProposal.WebhookObservation(
+          deliveryID: .init(rawValue: Self.deliveryID),
+          watchID: Self.watch.id,
+          value: TangledPullCreated.Webhook(
+            canonicalSource: Self.watch.canonicalSource.reference,
+            repository: TangledPullCreated.Webhook.Repository(
+              host: Self.repository.host,
+              port: Self.repository.port,
+              owner: Self.repository.owner,
+              ownerDID: try #require(DID(Self.repositoryOwnerDID)),
+              name: Self.repository.repository
+            ),
+            pullNumber: 4,
+            authorDID: try #require(DID(Self.pullAuthorDID)),
+            title: "Add artist detail previews",
+            body: "Carries the old and new artist values.",
+            targetBranch: "main",
+            source: TangledPullCreated.Webhook.Source(
+              branch: "artist-preview",
+              revision: "2222222222222222222222222222222222222222",
+              repositoryDID: nil
+            ),
+            roundNumber: 0,
+            state: "open",
+            pageURL: Self.pageURL,
+            patchURL: Self.patchURL,
+            createdAt: "2026-08-24T20:00:00Z"
           ),
-          pullNumber: 4,
-          authorDID: try #require(DID(Self.pullAuthorDID)),
-          title: "Add artist detail previews",
-          body: "Carries the old and new artist values.",
-          targetBranch: "main",
-          source: TangledPullCreated.Webhook.Source(
-            branch: "artist-preview",
-            revision: "2222222222222222222222222222222222222222",
-            repositoryDID: nil
-          ),
-          roundNumber: 0,
-          state: "open",
-          pageURL: Self.pageURL,
-          patchURL: Self.patchURL,
-          createdAt: "2026-08-24T20:00:00Z"
+          observedAt: Self.receivedAt
         ),
-        observedAt: Self.receivedAt
+        record: nil
       )
     )
     let pullPageRequestCount = await pullPageRequests.requestCount
@@ -128,6 +133,254 @@ struct TangledWorkspaceProposalTests {
     expectNoDifference(pullPageRequestCount, 1)
     expectNoDifference(inboxCount, 1)
     expectNoDifference(proposalCount, 1)
+  }
+
+  @Test
+  func `Jetstream enriches the webhook proposal without replacing its observation`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let indexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let webhookProposal = try Self.webhookProposal()
+
+    // The webhook creates the proposal immediately with its delivery and physical-watch facts.
+    _ = try await store.recordWorkspaceProposal(
+      id: webhookProposal.id,
+      webhook: try #require(webhookProposal.webhook)
+    )
+
+    // Jetstream later supplies the content-addressed pull record for the same exact URI.
+    let record = try Self.pullRecord(title: "Add artist detail previews")
+    let version = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: ATProto.CID("bafyreipullone"),
+      value: JSONEncoder().encode(record),
+      sequence: 100
+    )
+    let outcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(version)).outcome
+    }
+    expectNoDifference(outcome, .created)
+
+    let hydrated = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      hydrated,
+      TangledWorkspaceProposal(
+        id: Self.pullURI,
+        webhook: webhookProposal.webhook,
+        record: .present(
+          cid: ATProto.CID("bafyreipullone"),
+          sequence: 100,
+          value: record
+        )
+      )
+    )
+
+    // Replaying the same Jetstream version does not re-project or disturb the webhook fields.
+    let replayOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(version)).outcome
+    }
+    expectNoDifference(replayOutcome, .replay)
+    let replayed = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(replayed, hydrated)
+  }
+
+  @Test
+  func `a Jetstream rebuild and a later webhook converge on the same proposal row`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let indexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let record = try Self.pullRecord(title: "Rebuilt artist detail previews")
+    let version = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: ATProto.CID("bafyreipullrebuilt"),
+      value: JSONEncoder().encode(record),
+      sequence: 200
+    )
+
+    // Replaying Jetstream alone is sufficient to reconstruct the proposal identity and record.
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(version))
+    }
+    let rebuilt = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      rebuilt,
+      TangledWorkspaceProposal(
+        id: Self.pullURI,
+        webhook: nil,
+        record: .present(
+          cid: ATProto.CID("bafyreipullrebuilt"),
+          sequence: 200,
+          value: record
+        )
+      )
+    )
+
+    // A delayed webhook hydrates its source-owned fields without replacing the rebuilt record.
+    let webhookProposal = try Self.webhookProposal()
+    _ = try await store.recordWorkspaceProposal(
+      id: webhookProposal.id,
+      webhook: try #require(webhookProposal.webhook)
+    )
+    let unified = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      unified,
+      TangledWorkspaceProposal(
+        id: Self.pullURI,
+        webhook: webhookProposal.webhook,
+        record: rebuilt.record
+      )
+    )
+
+    // A later record tombstone remains authoritative without erasing webhook history.
+    let deletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      sequence: 201
+    )
+    let deleteOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.delete(deletion)).outcome
+    }
+    expectNoDifference(deleteOutcome, .deleted)
+    let deleted = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      deleted,
+      TangledWorkspaceProposal(
+        id: Self.pullURI,
+        webhook: webhookProposal.webhook,
+        record: .deleted(sequence: 201)
+      )
+    )
+  }
+
+  @Test
+  func `Jetstream does not project pulls for an unwatched target`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let indexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let unrelatedRecord = TangledPullRecord(
+      target: TangledPullRecord.Target(
+        repo: DID("did:plc:another-repository")!,
+        branch: "main"
+      ),
+      title: "Unrelated proposal",
+      rounds: [
+        TangledPullRecord.Round(
+          patchBlob: ATProto.Blob(
+            ref: "bafkreiunrelatedpatch",
+            mimeType: "application/gzip",
+            size: 99
+          ),
+          createdAt: "2026-08-24T20:00:00Z"
+        )
+      ],
+      createdAt: "2026-08-24T20:00:00Z"
+    )
+    let unrelatedURI = ATProto.URI(
+      "at://did:plc:another-author/sh.tangled.repo.pull/unrelated"
+    )!
+    let version = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: unrelatedURI,
+      cid: ATProto.CID("bafyreiunrelatedpull"),
+      value: JSONEncoder().encode(unrelatedRecord),
+      sequence: 300
+    )
+
+    // The general AppView index may retain the raw record, but it is not an OME proposal.
+    let outcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(version)).outcome
+    }
+    expectNoDifference(outcome, .created)
+    let proposal = try await store.workspaceProposal(id: unrelatedURI)
+    expectNoDifference(proposal, nil)
+  }
+
+  @Test
+  func `the unified hydration migration preserves existing webhook proposals`() throws {
+    let database = try DatabaseQueue()
+    let proposal = try Self.webhookProposal()
+    let webhook = try #require(proposal.webhook)
+    let tableName = TangledWorkspaceProposalRow.tableName
+
+    // This is the exact proposal schema already deployed before Jetstream hydration existed.
+    var legacyMigrator = DatabaseMigrator()
+    legacyMigrator.registerMigration("Create Workspace proposals") { database in
+      try #sql(
+        """
+        CREATE TABLE \(quote: tableName) (
+          "uri" TEXT PRIMARY KEY NOT NULL,
+          "discoveryDeliveryID" TEXT NOT NULL,
+          "watchID" TEXT NOT NULL,
+          "pullNumber" INTEGER NOT NULL,
+          "state" TEXT NOT NULL,
+          "webhook" BLOB NOT NULL,
+          "observedAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(database)
+      try #sql(
+        """
+        CREATE UNIQUE INDEX "workspaceProposals_discoveryDeliveryID"
+        ON \(quote: tableName) ("discoveryDeliveryID")
+        """
+      )
+      .execute(database)
+    }
+    try legacyMigrator.migrate(database)
+    try database.write { database in
+      try #sql(
+        """
+        INSERT INTO \(quote: tableName) (
+          "uri",
+          "discoveryDeliveryID",
+          "watchID",
+          "pullNumber",
+          "state",
+          "webhook",
+          "observedAt"
+        ) VALUES (
+          \(bind: proposal.id.description),
+          \(bind: webhook.deliveryID.rawValue),
+          \(bind: webhook.watchID.rawValue),
+          \(bind: webhook.value.pullNumber),
+          \(bind: webhook.value.state),
+          \(bind: JSONEncoder().encode(webhook.value)),
+          \(bind: webhook.observedAt)
+        )
+        """
+      )
+      .execute(database)
+    }
+
+    // The new migration changes storage shape without changing the observed proposal.
+    var migrator = DatabaseMigrator()
+    TangledWorkspaceProposalSchema.registerMigration(into: &migrator)
+    try migrator.migrate(database)
+    let migrated = try database.read { database in
+      try TangledWorkspaceProposalRow.find(proposal.id.description)
+        .fetchOne(database)
+        .map { try $0.proposal() }
+    }
+    expectNoDifference(migrated, proposal)
   }
 
   @Test
@@ -288,6 +541,69 @@ extension TangledWorkspaceProposalTests {
       repositoryRecordKey: .init(rawValue: "wicked-woods-source")
     )
   )
+
+  fileprivate static func webhookProposal() throws -> TangledWorkspaceProposal {
+    TangledWorkspaceProposal(
+      id: pullURI,
+      webhook: TangledWorkspaceProposal.WebhookObservation(
+        deliveryID: .init(rawValue: deliveryID),
+        watchID: watch.id,
+        value: TangledPullCreated.Webhook(
+          canonicalSource: watch.canonicalSource.reference,
+          repository: TangledPullCreated.Webhook.Repository(
+            host: repository.host,
+            port: repository.port,
+            owner: repository.owner,
+            ownerDID: try #require(DID(repositoryOwnerDID)),
+            name: repository.repository
+          ),
+          pullNumber: 4,
+          authorDID: try #require(DID(pullAuthorDID)),
+          title: "Add artist detail previews",
+          body: "Carries the old and new artist values.",
+          targetBranch: "main",
+          source: TangledPullCreated.Webhook.Source(
+            branch: "artist-preview",
+            revision: "2222222222222222222222222222222222222222",
+            repositoryDID: nil
+          ),
+          roundNumber: 0,
+          state: "open",
+          pageURL: pageURL,
+          patchURL: patchURL,
+          createdAt: "2026-08-24T20:00:00Z"
+        ),
+        observedAt: receivedAt
+      ),
+      record: nil
+    )
+  }
+
+  fileprivate static func pullRecord(title: String) throws -> TangledPullRecord {
+    TangledPullRecord(
+      target: TangledPullRecord.Target(
+        repo: try #require(DID(repositoryOwnerDID)),
+        branch: "main"
+      ),
+      title: title,
+      body: "Carries the old and new artist values.",
+      rounds: [
+        TangledPullRecord.Round(
+          patchBlob: ATProto.Blob(
+            ref: "bafkreipatch",
+            mimeType: "application/gzip",
+            size: 123
+          ),
+          createdAt: "2026-08-24T20:00:00Z"
+        )
+      ],
+      source: TangledPullRecord.Source(
+        branch: "artist-preview",
+        repo: DID(pullAuthorDID)!
+      ),
+      createdAt: "2026-08-24T20:00:00Z"
+    )
+  }
 
   fileprivate static func pullCreatedPayload(pageURL: URL = pageURL) -> Data {
     Data(

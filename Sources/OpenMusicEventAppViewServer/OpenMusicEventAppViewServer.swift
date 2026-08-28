@@ -44,6 +44,7 @@ public enum OpenMusicEventAppViewServer {
                 OpenMusicEventAppViewIngestion(
                     store: store,
                     configuration: ingestion,
+                    tangledWebhookConfiguration: configuration.tangledWebhook,
                     client: hydrantClient ?? .hummingbird()
                 )
             )

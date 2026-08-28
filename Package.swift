@@ -1154,6 +1154,7 @@ let appViewTargets: [Target] = [
             .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "Tagged", package: "swift-tagged"),
+            .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],

@@ -77,13 +77,20 @@ extension OpenMusicEventAppViewStore {
         }
     }
 
-    var communityCalendarEventIndexer: AppViewRecordIndexer {
+    func appViewRecordIndexer(
+        tangledWebhookConfiguration: TangledWebhookConfiguration?
+    ) -> AppViewRecordIndexer {
         AppViewRecordIndexer {
             AppViewRecordIndex<Community.CalendarEvent>(
                 collection: Community.CalendarEvent.nsid
             )
             .project { mutation, database in
                 try CommunityCalendarEventProjection.apply(mutation, in: database)
+            }
+            if let tangledWebhookConfiguration {
+                tangledWorkspaceProposalRecordIndex(
+                    configuration: tangledWebhookConfiguration
+                )
             }
         }
     }

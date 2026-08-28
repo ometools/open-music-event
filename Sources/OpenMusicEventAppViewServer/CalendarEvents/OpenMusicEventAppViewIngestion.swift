@@ -10,15 +10,18 @@ public struct OpenMusicEventAppViewIngestion: Service {
     public init(
         store: OpenMusicEventAppViewStore,
         configuration: AppViewIngestionConfiguration,
+        tangledWebhookConfiguration: TangledWebhookConfiguration? = nil,
         client: HydrantClient = .hummingbird()
     ) {
         self.store = store
         self.configuration = configuration
+        self.tangledWebhookConfiguration = tangledWebhookConfiguration
         self.client = client
     }
 
     public var store: OpenMusicEventAppViewStore
     public var configuration: AppViewIngestionConfiguration
+    public var tangledWebhookConfiguration: TangledWebhookConfiguration?
     public var client: HydrantClient
 
     public func run() async throws {
@@ -40,7 +43,9 @@ public struct OpenMusicEventAppViewIngestion: Service {
         } operation: {
             try await AppViewIngest(
                 provider: provider,
-                indexer: store.communityCalendarEventIndexer
+                indexer: store.appViewRecordIndexer(
+                    tangledWebhookConfiguration: tangledWebhookConfiguration
+                )
             )
             .run()
         }
