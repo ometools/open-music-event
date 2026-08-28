@@ -159,9 +159,7 @@ public struct WorkspaceProposalDraftView: View {
             "Preparing proposal"
         case let .publishing(submission):
             switch submission.step {
-            case .pushCommit:
-                "Pushing the source branch"
-            case .recordProposal:
+            case .publishProposal:
                 "Publishing the proposal"
             case .updateReference:
                 "Refreshing the source branch"

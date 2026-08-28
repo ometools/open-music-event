@@ -157,7 +157,7 @@ public struct EventWorkspace {
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.requestedBranch)
                     )
-                    guard requestedBranch != currentBranch.branch else { return }
+                    guard requestedBranch != currentBranch.selectedBranch else { return }
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceBranchRequested.self,
@@ -325,8 +325,7 @@ struct WorkspaceOverviewSection: View {
             "Preparing proposal"
         case let .publishing(submission):
             switch submission.step {
-            case .pushCommit: "Pushing the source branch"
-            case .recordProposal: "Publishing the proposal"
+            case .publishProposal: "Publishing the proposal"
             case .updateReference: "Refreshing the source branch"
             }
         case .reconciling:
@@ -366,8 +365,8 @@ struct WorkspaceOverviewSection: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                if let branch = phase.branch {
-                    WorkspaceBranchNameView(branch: branch.branch.rawValue)
+                if let context = phase.editingContext {
+                    WorkspaceBranchNameView(branch: context.selectedBranch.rawValue)
                 } else {
                     Text("The workspace is not currently prepared.")
                     WorkspaceBranchNameView(branch: workspace.defaultBranch)
@@ -379,10 +378,16 @@ struct WorkspaceOverviewSection: View {
                     Text("Tracked proposal")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    WorkspaceBranchRelationshipView(
-                        source: openProposal.source.branch.rawValue,
-                        target: openProposal.target.branch.rawValue
-                    )
+                    LabeledContent("Proposal revision") {
+                        Text(openProposal.revision.rawValue)
+                            .font(.body.monospaced())
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("Target branch") {
+                        Text(openProposal.target.branch.rawValue)
+                            .font(.body.monospaced())
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
 
@@ -393,7 +398,7 @@ struct WorkspaceOverviewSection: View {
 
                 switch summary.availability {
                 case .available:
-                    if openProposal?.source == phase.branch {
+                    if openProposal?.id == phase.proposal?.id {
                         Text("Previously submitted changes are in the open proposal.")
                         Text(changeCount == 1
                             ? "1 newer local change is waiting to be added."
@@ -425,7 +430,7 @@ struct WorkspaceOverviewSection: View {
                 } else if let stoppedMessage {
                     Text(stoppedMessage)
                 } else if case .available = summary.availability,
-                          let branch = phase.branch
+                          let context = phase.editingContext
                 {
                     if changeCount > 0 {
                         if openProposal == nil {
@@ -436,7 +441,7 @@ struct WorkspaceOverviewSection: View {
                             } else {
                                 Text("Your local changes are waiting, but you do not have permission to create a proposal.")
                             }
-                        } else if openProposal?.source == branch {
+                        } else if openProposal?.id == phase.proposal?.id {
                             if canPropose {
                                 Button("Update Proposal", action: propose)
                                     .buttonStyle(.borderedProminent)
@@ -447,7 +452,7 @@ struct WorkspaceOverviewSection: View {
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
                         } else {
-                            Text("These changes belong to \(branch.branch.rawValue). Switch to \(openProposal?.source.branch.rawValue ?? "the tracked proposal's source branch") to update the tracked proposal.")
+                            Text("These changes belong to \(context.selectedBranch.rawValue). Return to the tracked proposal to update it.")
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
                         }

@@ -133,6 +133,24 @@ public struct SourceWorkspaceOpenProposalStore: Sendable {
     }
 }
 
+/// The durable Git transport checkpoint for a workspace proposal publication.
+///
+/// `ComposableWorkspace` treats a proposal revision as opaque. OME still creates and pushes a
+/// temporary Git commit to produce Tangled's patch blob, so that transport-specific state remains
+/// durable here without leaking back into the workspace domain.
+public struct SourceWorkspacePublicationCommit: Codable, Equatable, Sendable {
+    public var parentRevision: WorkspaceRevision
+    public var source: WorkspaceBranchReference
+
+    public init(
+        parentRevision: WorkspaceRevision,
+        source: WorkspaceBranchReference
+    ) {
+        self.parentRevision = parentRevision
+        self.source = source
+    }
+}
+
 /// A durable publication that created a local commit but has not yet settled the workspace.
 ///
 /// Source preparation uses this checkpoint to distinguish an interrupted publication from an
@@ -140,11 +158,11 @@ public struct SourceWorkspaceOpenProposalStore: Sendable {
 /// branch while preparation restores the settled editing revision.
 public struct SourceWorkspacePublicationCheckpoint: Equatable, Sendable {
     public var submission: WorkspaceSubmission<SourcePatch>
-    public var commit: WorkspaceCommit
+    public var commit: SourceWorkspacePublicationCommit
 
     public init(
         submission: WorkspaceSubmission<SourcePatch>,
-        commit: WorkspaceCommit
+        commit: SourceWorkspacePublicationCommit
     ) {
         self.submission = submission
         self.commit = commit
@@ -253,19 +271,19 @@ struct WorkspacePublicationPersistence: Sendable {
     func pushedCommit(
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
-    ) throws -> WorkspaceCommit? {
+    ) throws -> SourceWorkspacePublicationCommit? {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try database.read { db in
             guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
                   record.pushedSubmissionID == submissionID,
                   let data = record.commitData
             else { return nil }
-            return try decode(WorkspaceCommit.self, from: data)
+            return try decode(SourceWorkspacePublicationCommit.self, from: data)
         }
     }
 
     func savePushedCommit(
-        _ commit: WorkspaceCommit,
+        _ commit: SourceWorkspacePublicationCommit,
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
@@ -281,26 +299,26 @@ struct WorkspacePublicationPersistence: Sendable {
         }
     }
 
-    func mutation(
+    func publishedProposal(
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
-    ) throws -> WorkspaceProposalMutation? {
+    ) throws -> WorkspaceProposal? {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try database.read { db in
             guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
                   record.recordedSubmissionID == submissionID,
                   let data = record.mutationData
             else { return nil }
-            return try decode(WorkspaceProposalMutation.self, from: data)
+            return try? decode(WorkspaceProposal.self, from: data)
         }
     }
 
-    func saveMutation(
-        _ mutation: WorkspaceProposalMutation,
+    func savePublishedProposal(
+        _ proposal: WorkspaceProposal,
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
-        let data = try encode(mutation)
+        let data = try encode(proposal)
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         try await database.write { db in
             try ensureRecord(workspaceID, in: db)

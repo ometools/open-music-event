@@ -775,7 +775,6 @@ private func makeEventSettingsAuthoringExitFixture(
                     .environment(
                         WorkspaceContext<SourceWorkspaceResource, SourcePatch>(
                             phase: SharedReader(value: .inactive),
-                            openProposal: SharedReader(value: nil),
                             source: SharedReader(value: resource)
                         )
                     )

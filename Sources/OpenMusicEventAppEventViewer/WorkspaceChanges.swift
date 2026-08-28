@@ -94,16 +94,17 @@ public struct WorkspaceChanges {
             case .proposalActionButtonTapped:
                 guard state.canPropose,
                       state.changeCount > 0,
-                      case let .ready(branch) = workspace.phase.wrappedValue
+                      case let .ready(context) = workspace.phase.wrappedValue
                 else { return }
                 if workspace.openProposal.wrappedValue == nil {
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        targetBranch: branch.branch.rawValue,
+                        targetBranch: context.selectedBranch.rawValue,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
                     )
-                } else if workspace.openProposal.wrappedValue?.source == branch {
+                } else if workspace.openProposal.wrappedValue?.id
+                    == workspace.phase.wrappedValue.proposal?.id {
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceProposalUpdateRequested.self,

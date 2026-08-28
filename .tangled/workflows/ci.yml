@@ -35,7 +35,8 @@ steps:
           apt-get install -y --no-install-recommends libgit2-dev libsqlite3-dev pkg-config
           rm -rf /var/lib/apt/lists/*
           rm -rf .build "$HOME/.cache/org.swift.swiftpm" "$HOME/.swiftpm"
-          rm -f Package.resolved
+
+          # Validate the committed dependency graph instead of selecting new transitive releases.
 
           printf "machine github.com\nlogin x-access-token\npassword %s\n" "$GITHUB_TOKEN" > ~/.netrc
           chmod 600 ~/.netrc

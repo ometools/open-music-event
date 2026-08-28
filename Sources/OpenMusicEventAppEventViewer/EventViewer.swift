@@ -1026,7 +1026,7 @@ public struct EventViewer {
                     installPreparedSource(source, state: &state)
                 }
                 .onChange(
-                    of: workspace.phase.wrappedValue.branch?.revision,
+                    of: workspace.phase.wrappedValue.editingContext?.revision,
                     initial: true
                 ) { oldRevision, revision, state in
                     guard oldRevision != revision,

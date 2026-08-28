@@ -305,7 +305,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             let workspace = preparedAuthoring.context
             let resource = try #require(preparedAuthoring.content.source)
-            guard case let .ready(initialBranch) = preparedAuthoring.content.phase else {
+            guard case let .ready(.published(initialBranch)) = preparedAuthoring.content.phase else {
                 Issue.record("Authoring must initially select the configured branch.")
                 return
             }
@@ -332,7 +332,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(selectedAlternate)
+                .ready(.branch(selectedAlternate))
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -393,7 +393,7 @@ struct WorkspaceAuthoringStoryTests {
             )?.value
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(selectedAlternate)
+                .ready(.branch(selectedAlternate))
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -420,7 +420,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(selectedMain)
+                .ready(.branch(selectedMain))
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -449,10 +449,14 @@ struct WorkspaceAuthoringStoryTests {
                 Issue.record("A malformed branch must fail without becoming selected.")
                 return
             }
-            expectNoDifference(reconciliation.expected, selectedMain)
+            expectNoDifference(reconciliation.expected, .branch(selectedMain))
             expectNoDifference(
-                reconciliation.branch.rawValue,
-                WorkspaceStoryGitFixture.malformedBranch
+                reconciliation.destination,
+                .branch(
+                    branch: WorkspaceBranch(
+                        rawValue: WorkspaceStoryGitFixture.malformedBranch
+                    )
+                )
             )
             expectNoDifference(
                 try workspaceStoryGitRevision(at: resource.repositoryURL),
@@ -748,7 +752,7 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case let .ready(initialBranch) = authoring.content.phase else {
+            guard case let .ready(.published(initialBranch)) = authoring.content.phase else {
                 Issue.record("First preparation must select the configured branch.")
                 return
             }
@@ -756,7 +760,7 @@ struct WorkspaceAuthoringStoryTests {
             #expect(authoring.content.content.eventWorkspace != nil)
             expectNoDifference(
                 authoring.content.content.eventWorkspace?.workspaceStatus,
-                .ready(initialBranch)
+                .ready(.published(initialBranch))
             )
             expectNoDifference(operations.count(of: "clone"), 1)
             #expect(operations.count(prefix: "resolve:") > 0)
@@ -1126,17 +1130,17 @@ struct WorkspaceAuthoringStoryTests {
                     .authoring.content.content.eventWorkspace?
                     .openProposal
             )
-            guard case let .ready(recordedBranch) = opened.state.content.destination?.eventViewer?
-                .authoring.content.phase,
-                recordedBranch == proposal.source
+            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.destination?
+                .eventViewer?.authoring.content.phase,
+                recordedProposal == proposal
             else {
-                Issue.record("Creating the proposal must select its source branch.")
+                Issue.record("Creating the proposal must select its proposal context.")
                 return
             }
             expectNoDifference(
                 opened.state.content.destination?.eventViewer?.authoring.content.content
                     .eventWorkspace?.workspaceStatus,
-                .ready(proposal.source)
+                .ready(.proposal(proposal))
             )
             let settledSummary = try await database.read { db in
                 try SourceWorkspaceEditSummary.query(
@@ -1192,13 +1196,11 @@ struct WorkspaceAuthoringStoryTests {
                         .fetch(db)
                 )
             }
+            #expect(exitedWorkspaceState.selection?.id == workspace.id)
+            #expect(exitedWorkspaceState.selection?.branch.hasPrefix("ome/proposal-") == true)
             expectNoDifference(
-                exitedWorkspaceState.selection,
-                SourceWorkspaceSelectionRecord(
-                    id: workspace.id,
-                    branch: proposal.source.branch.rawValue,
-                    revision: proposal.source.revision.rawValue
-                )
+                exitedWorkspaceState.selection?.revision,
+                proposal.revision.rawValue
             )
             expectNoDifference(exitedWorkspaceState.proposal, proposal)
 
@@ -1232,8 +1234,8 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case let .ready(branch) = authoring.content.phase,
-                          branch == proposal.source
+                          case let .ready(.proposal(remountedProposal)) = authoring.content.phase,
+                          remountedProposal == proposal
                     else { return false }
                     return true
                 }
@@ -1253,10 +1255,10 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case let .ready(remountedBranch) = remountedAuthoring.content.phase,
-                  remountedBranch == proposal.source
+            guard case let .ready(.proposal(remountedProposal)) = remountedAuthoring.content.phase,
+                  remountedProposal == proposal
             else {
-                Issue.record("Reentry after confirmed exit must restore the selected branch.")
+                Issue.record("Reentry after confirmed exit must restore the proposal context.")
                 return
             }
             expectNoDifference(
@@ -1603,7 +1605,7 @@ struct WorkspaceAuthoringStoryTests {
                 workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
             )?.value
             let readyAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
-            guard case let .ready(selectedBranch) = readyAuthoring.content.phase else {
+            guard case let .ready(selectedContext) = readyAuthoring.content.phase else {
                 Issue.record("Workspace retry must establish the selected branch.")
                 return
             }
@@ -1612,7 +1614,7 @@ struct WorkspaceAuthoringStoryTests {
             #expect(readyAuthoring.content.content.installedFeatures.contains(.workspace))
             expectNoDifference(
                 readyAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                .ready(selectedBranch)
+                .ready(selectedContext)
             )
             expectNoDifference(operations.count(of: "clone"), 1)
 
@@ -1633,8 +1635,8 @@ struct WorkspaceAuthoringStoryTests {
             let retainedSelection = try await database.read { db in
                 try SourceWorkspaceSelectionRecord.find(exitedWorkspaceID).fetchOne(db)
             }
-            expectNoDifference(retainedSelection?.branch, selectedBranch.branch.rawValue)
-            expectNoDifference(retainedSelection?.revision, selectedBranch.revision.rawValue)
+            expectNoDifference(retainedSelection?.branch, selectedContext.selectedBranch.rawValue)
+            expectNoDifference(retainedSelection?.revision, selectedContext.revision.rawValue)
             await opened.dismount(timeout: .seconds(1))
         }
     }
@@ -1775,9 +1777,11 @@ struct WorkspaceAuthoringStoryTests {
                 requestedWorkspace in
                 #expect(requestedWorkspace == workspace)
                 return WorkspacePreparation(
-                    branch: WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
-                        revision: WorkspaceRevision(rawValue: "authoring-revision")
+                    context: .published(
+                        WorkspaceBranchReference(
+                            branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+                            revision: WorkspaceRevision(rawValue: "authoring-revision")
+                        )
                     ),
                     source: resource
                 )

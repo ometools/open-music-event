@@ -330,7 +330,6 @@ public struct WorkspaceReviewDetail {
 
             case .mergeButtonTapped:
                 guard state.canMerge,
-                      let targetBranch = state.targetBranch,
                       !state.operation.isRunning
                 else { return }
                 let request = OpenMusicEventTangledPullReviewMergeRequest(
@@ -353,10 +352,7 @@ public struct WorkspaceReviewDetail {
                     do {
                         let reconciliation = try store.post(
                             key: WorkspaceProposalMerged.self,
-                            value: WorkspaceMergedProposal(
-                                proposalID: WorkspaceProposalID(rawValue: review.id),
-                                targetBranch: targetBranch
-                            )
+                            value: WorkspaceProposalID(rawValue: review.id)
                         )
                         await reconciliation?.value
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)

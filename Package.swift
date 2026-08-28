@@ -260,7 +260,7 @@ let swiftSharingDependency: Package.Dependency = isAndroidAppBuild
     )
     : .package(
         url: "https://github.com/pointfreeco/swift-sharing",
-        from: "2.8.1",
+        exact: "2.9.1",
         traits: sharingTraits
     )
 let jwsetKitDependency: Package.Dependency = .package(
@@ -281,6 +281,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
+    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.2"),
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(

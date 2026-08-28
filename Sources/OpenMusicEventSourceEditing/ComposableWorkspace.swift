@@ -70,6 +70,24 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
     }
 }
 
+public extension WorkspaceContext
+where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
+    var openProposal: SharedReader<WorkspaceProposal?> {
+        phase.proposal
+    }
+}
+
+public extension WorkspaceEditingContext {
+    var revision: WorkspaceRevision {
+        switch self {
+        case let .branch(reference), let .published(reference):
+            reference.revision
+        case let .proposal(proposal):
+            proposal.revision
+        }
+    }
+}
+
 public extension ComposableWorkspace.WorkspaceClient
 where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
     static var openMusicEvent: Self {
@@ -89,7 +107,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     submission,
                     proposal
                 )
-                return proposal.source
+                return .proposal(proposal)
             },
             captureChanges: { source, workspaceID, request in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
@@ -123,8 +141,8 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                 )
                 return prepared
             },
-            pushCommit: { source, workspaceID, submission in
-                try await publisher.pushCommit(
+            publishProposal: { source, workspaceID, submission in
+                try await publisher.publishProposal(
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     persistence: persistence
@@ -135,14 +153,6 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     source,
                     SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     reconciliation
-                )
-            },
-            recordProposal: { source, workspaceID, submission, commit in
-                try await publisher.recordProposal(
-                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    submission: submission,
-                    commit: commit,
-                    persistence: persistence
                 )
             },
             removeSubmission: { source, workspaceID, submissionID in

@@ -1,5 +1,5 @@
 {
-  "originHash" : "617c7c151f98fe23a21302cdacdbab4146d9e7ac245ce82c0326b44a37c6caf1",
+  "originHash" : "623f53e66eef4a923458e84ebe7cab21bd566f34232a013e138b98eb6f0c9431",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/combine-schedulers",
       "state" : {
-        "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
-        "version" : "1.2.0"
+        "revision" : "9fa31f4403da54855f1e2aeaeff478f4f0e40b13",
+        "version" : "1.0.2"
       }
     },
     {
@@ -448,7 +448,7 @@
       "location" : "https://source.woody.fm/swift-composable-workspace",
       "state" : {
         "branch" : "main",
-        "revision" : "9cdd9fc801bf6608e85495c0ede696ef2e26d641"
+        "revision" : "1983072e5a1b59c57ee0fce96ec7ba672d0c65bd"
       }
     },
     {

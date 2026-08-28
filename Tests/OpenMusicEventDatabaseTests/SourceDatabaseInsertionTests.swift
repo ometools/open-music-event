@@ -3302,10 +3302,7 @@ struct SourceDatabaseInsertionTests {
 
             let proposal = WorkspaceProposal(
                 id: WorkspaceProposalID(rawValue: "proposal-1"),
-                source: WorkspaceBranchReference(
-                    branch: WorkspaceBranch(rawValue: "proposal/testival"),
-                    revision: WorkspaceRevision(rawValue: "new-revision")
-                ),
+                revision: WorkspaceRevision(rawValue: "new-revision"),
                 target: WorkspaceBranchReference(
                     branch: WorkspaceBranch(rawValue: "main"),
                     revision: WorkspaceRevision(rawValue: "old-revision")
@@ -3334,14 +3331,7 @@ struct SourceDatabaseInsertionTests {
             expectNoDifference(persistedRevisions.1, "new-revision")
 
             let reopened = try await preparation.prepare(workspace)
-            expectNoDifference(
-                reopened.branch,
-                WorkspaceBranchReference(
-                    branch: WorkspaceBranch(rawValue: "proposal/testival"),
-                    revision: WorkspaceRevision(rawValue: "new-revision")
-                )
-            )
-            expectNoDifference(reopened.openProposal, proposal)
+            expectNoDifference(reopened.context, .proposal(proposal))
             #expect(reopened.source.workspace == workspace)
 
             try await database.write { db in
