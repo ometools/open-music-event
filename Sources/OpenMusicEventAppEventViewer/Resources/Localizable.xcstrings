@@ -444,19 +444,17 @@
     "Enter a proposal title." : {
 
     },
+    "Enter one emoji." : {
+
+    },
     "Enter the workspace to prepare it." : {
 
     },
     "Enter Workspace" : {
       "comment" : "Button that enters the event editing workspace"
-
     },
     "Entering workspace" : {
       "comment" : "Progress shown while source workspace access starts"
-
-    },
-    "Enter one emoji." : {
-
     },
     "Error Handling" : {
 
@@ -468,7 +466,7 @@
 
     },
     "Event Policies" : {
-
+      "comment" : "Button that opens the event policy editor"
     },
     "Event Settings" : {
 
@@ -532,19 +530,15 @@
     },
     "Leave and Delete Changes" : {
       "comment" : "Destructive confirmation that leaves the workspace and deletes local edits"
-
     },
     "Leave Workspace" : {
       "comment" : "Button that leaves the event editing workspace"
-
     },
     "Leaving the workspace restores Published content and permanently deletes unpublished changes on this device." : {
       "comment" : "Warning shown before leaving a workspace with unpublished edits"
-
     },
     "Leaving workspace" : {
       "comment" : "Progress shown while workspace access and local edits are removed"
-
     },
     "Lineup" : {
 
@@ -719,7 +713,6 @@
     },
     "Not prepared" : {
       "comment" : "Workspace state before its source is ready"
-
     },
     "Not set" : {
 
@@ -1038,7 +1031,6 @@
     },
     "Restoring workspace" : {
       "comment" : "Progress shown while saved workspace access is restored"
-
     },
     "Retry" : {
 
@@ -1110,7 +1102,7 @@
 
     },
     "Send Test Error" : {
-
+      "comment" : "Developer button that reports a test error"
     },
     "Set as primary" : {
 
@@ -1383,7 +1375,7 @@
       "comment" : "Label for the organizer's current editing context"
     },
     "Workspace" : {
-
+      "comment" : "Settings section for entering or leaving the event workspace"
     },
     "Workspace preparation stopped, so changes cannot currently be compared." : {
 
