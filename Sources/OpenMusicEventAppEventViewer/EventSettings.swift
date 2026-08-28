@@ -284,32 +284,92 @@ public struct EventSettingsView: View {
         Form {
             switch authoringPhase {
             case .some(.entering):
-                Section("Authoring") {
-                    ProgressView("Authorizing source access")
+                Section {
+                    ProgressView {
+                        Text(
+                            "Entering workspace",
+                            bundle: .module,
+                            comment: "Progress shown while source workspace access starts"
+                        )
+                    }
+                } header: {
+                    Text(
+                        "Workspace",
+                        bundle: .module,
+                        comment: "Settings section for entering or leaving the event workspace"
+                    )
                 }
 
             case .some(.restoring):
-                Section("Authoring") {
-                    ProgressView("Restoring source access")
+                Section {
+                    ProgressView {
+                        Text(
+                            "Restoring workspace",
+                            bundle: .module,
+                            comment: "Progress shown while saved workspace access is restored"
+                        )
+                    }
+                } header: {
+                    Text(
+                        "Workspace",
+                        bundle: .module,
+                        comment: "Settings section for entering or leaving the event workspace"
+                    )
                 }
 
             case .some(.exiting):
-                Section("Authoring") {
-                    ProgressView("Exiting authoring")
+                Section {
+                    ProgressView {
+                        Text(
+                            "Leaving workspace",
+                            bundle: .module,
+                            comment: "Progress shown while workspace access and local edits are removed"
+                        )
+                    }
+                } header: {
+                    Text(
+                        "Workspace",
+                        bundle: .module,
+                        comment: "Settings section for entering or leaving the event workspace"
+                    )
                 }
 
             case .some(.active):
-                Section("Authoring") {
-                    Button("Exit Authoring") {
+                Section {
+                    Button {
                         store.send(.exitAuthoringButtonTapped)
+                    } label: {
+                        Text(
+                            "Leave Workspace",
+                            bundle: .module,
+                            comment: "Button that leaves the event editing workspace"
+                        )
                     }
+                } header: {
+                    Text(
+                        "Workspace",
+                        bundle: .module,
+                        comment: "Settings section for entering or leaving the event workspace"
+                    )
                 }
 
             case .some(.inactive(.eligible)):
-                Section("Authoring") {
-                    Button("Enter Authoring") {
+                Section {
+                    Button {
                         store.send(.enterAuthoringButtonTapped)
+                    } label: {
+                        Text(
+                            "Enter Workspace",
+                            bundle: .module,
+                            comment: "Button that enters the event editing workspace"
+                        )
                     }
+                } header: {
+                    Text(
+                        "Workspace",
+                        bundle: .module,
+                        comment: "Settings section for entering or leaving the event workspace"
+                    )
                 }
 
             case .some(.inactive), .none:
@@ -404,7 +464,15 @@ public struct EventSettingsView: View {
                     Button {
                         store.send(.eventPoliciesButtonTapped)
                     } label: {
-                        Label("Event Policies", systemImage: "slider.horizontal.3")
+                        Label {
+                            Text(
+                                "Event Policies",
+                                bundle: .module,
+                                comment: "Button that opens the event policy editor"
+                            )
+                        } icon: {
+                            MappedSystemImage(systemName: "slider.horizontal.3")
+                        }
                     }
                 }
 
@@ -412,7 +480,15 @@ public struct EventSettingsView: View {
                     Button {
                         store.send(.testErrorButtonTapped)
                     } label: {
-                        Label("Send Test Error", systemImage: "exclamationmark.triangle")
+                        Label {
+                            Text(
+                                "Send Test Error",
+                                bundle: .module,
+                                comment: "Developer button that reports a test error"
+                            )
+                        } icon: {
+                            MappedSystemImage(systemName: "exclamationmark.triangle")
+                        }
                     }
                 }
             }
@@ -425,11 +501,17 @@ public struct EventSettingsView: View {
                 action: \.destination
             ).exitAuthoringConfirmation.isPresented
         ) {
-            Button("Exit and Delete Changes", role: .destructive) {
+            Button(role: .destructive) {
                 store.send(
                     .destination(
                         .exitAuthoringConfirmation(.exitAndDeleteButtonTapped)
                     )
+                )
+            } label: {
+                Text(
+                    "Leave and Delete Changes",
+                    bundle: .module,
+                    comment: "Destructive confirmation that leaves the workspace and deletes local edits"
                 )
             }
             Button("Keep Editing", role: .cancel) {
@@ -441,7 +523,9 @@ public struct EventSettingsView: View {
             }
         } message: {
             Text(
-                "Exiting authoring restores Published content and permanently deletes unpublished changes on this device."
+                "Leaving the workspace restores Published content and permanently deletes unpublished changes on this device.",
+                bundle: .module,
+                comment: "Warning shown before leaving a workspace with unpublished edits"
             )
         }
     }

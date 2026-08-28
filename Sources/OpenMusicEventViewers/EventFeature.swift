@@ -210,7 +210,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         case .settings:
             "gearshape"
         case .workspace:
-            "tray.full"
+            "folder"
         case .search:
             "magnifyingglass"
         case .about:

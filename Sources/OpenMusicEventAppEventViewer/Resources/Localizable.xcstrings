@@ -30,12 +30,6 @@
     "%lld comments" : {
 
     },
-    "%lld local changes have not been proposed." : {
-
-    },
-    "%lld newer local changes are waiting to be added." : {
-
-    },
     "%lld rendered changes" : {
 
     },
@@ -43,12 +37,6 @@
 
     },
     "1 comment" : {
-
-    },
-    "1 local change has not been proposed." : {
-
-    },
-    "1 newer local change is waiting to be added." : {
 
     },
     "1 rendered change" : {
@@ -165,12 +153,6 @@
     "Author ID" : {
 
     },
-    "Authoring" : {
-
-    },
-    "Authorizing source access" : {
-
-    },
     "Auto" : {
 
     },
@@ -189,8 +171,8 @@
     "Bluesky Actor Profile" : {
 
     },
-    "Branch name" : {
-
+    "Branch" : {
+      "comment" : "Editable source branch name in the workspace switcher"
     },
     "Branches" : {
 
@@ -211,12 +193,6 @@
 
     },
     "Category" : {
-
-    },
-    "Change location cannot currently be calculated." : {
-
-    },
-    "Change location will be available after the workspace is prepared." : {
 
     },
     "Changes" : {
@@ -288,9 +264,6 @@
     "Contact Numbers" : {
 
     },
-    "Continue editing. There are no local changes waiting to be proposed." : {
-
-    },
     "Contributor" : {
 
     },
@@ -328,9 +301,6 @@
 
     },
     "Critical Alerts appear on the Lock Screen and play a sound even if a Focus is on or iPhone is muted." : {
-
-    },
-    "Current branch" : {
 
     },
     "Current DID" : {
@@ -474,10 +444,15 @@
     "Enter a proposal title." : {
 
     },
-    "Enter Authoring" : {
+    "Enter the workspace to prepare it." : {
 
     },
-    "Enter authoring to prepare this workspace." : {
+    "Enter Workspace" : {
+      "comment" : "Button that enters the event editing workspace"
+
+    },
+    "Entering workspace" : {
+      "comment" : "Progress shown while source workspace access starts"
 
     },
     "Enter one emoji." : {
@@ -505,18 +480,6 @@
 
     },
     "Exit" : {
-
-    },
-    "Exit and Delete Changes" : {
-
-    },
-    "Exit Authoring" : {
-
-    },
-    "Exiting authoring" : {
-
-    },
-    "Exiting authoring restores Published content and permanently deletes unpublished changes on this device." : {
 
     },
     "Explore" : {
@@ -565,6 +528,22 @@
 
     },
     "Latitude" : {
+
+    },
+    "Leave and Delete Changes" : {
+      "comment" : "Destructive confirmation that leaves the workspace and deletes local edits"
+
+    },
+    "Leave Workspace" : {
+      "comment" : "Button that leaves the event editing workspace"
+
+    },
+    "Leaving the workspace restores Published content and permanently deletes unpublished changes on this device." : {
+      "comment" : "Warning shown before leaving a workspace with unpublished edits"
+
+    },
+    "Leaving workspace" : {
+      "comment" : "Progress shown while workspace access and local edits are removed"
 
     },
     "Lineup" : {
@@ -699,13 +678,7 @@
     "No Events" : {
 
     },
-    "No local changes." : {
-
-    },
     "No locations have been added to this event yet." : {
-
-    },
-    "No newer changes are waiting to be added to this proposal." : {
 
     },
     "No notification settings are available for this event yet." : {
@@ -742,6 +715,10 @@
 
     },
     "No stages match your search." : {
+
+    },
+    "Not prepared" : {
+      "comment" : "Workspace state before its source is ready"
 
     },
     "Not set" : {
@@ -888,9 +865,6 @@
     "Preview" : {
 
     },
-    "Previously submitted changes are in the open proposal." : {
-
-    },
     "Primary" : {
 
     },
@@ -915,6 +889,9 @@
     "Proposal changes could not be rendered" : {
 
     },
+    "Proposal in review" : {
+      "comment" : "Organizer label for editing an existing proposal"
+    },
     "Proposal publication is unavailable. Your local changes are preserved." : {
 
     },
@@ -935,6 +912,9 @@
     },
     "Publication" : {
 
+    },
+    "Published" : {
+      "comment" : "Organizer label for the publicly released event source"
     },
     "Publishing the proposal" : {
 
@@ -1056,7 +1036,8 @@
     "Resetting changes" : {
 
     },
-    "Restoring source access" : {
+    "Restoring workspace" : {
+      "comment" : "Progress shown while saved workspace access is restored"
 
     },
     "Retry" : {
@@ -1121,6 +1102,9 @@
     },
     "Selected" : {
 
+    },
+    "Selected branch" : {
+      "comment" : "Organizer label for a manually selected technical branch\nTechnical detail label for the mounted source branch"
     },
     "Selected schedule" : {
 
@@ -1224,11 +1208,8 @@
     "Submitted by" : {
 
     },
-    "Switch branch" : {
-
-    },
-    "Switch Branch" : {
-
+    "Switch" : {
+      "comment" : "Button that switches to the entered source branch"
     },
     "System icon" : {
 
@@ -1278,27 +1259,17 @@
     "The workspace changed while you were editing. Publication is unavailable until it is refreshed." : {
 
     },
-    "The workspace is not currently prepared." : {
-
-    },
     "The workspace source does not match the app’s data model." : {
 
     },
     "There are no posts in this channel yet." : {
 
     },
-    "These changes belong to %@. Switch to %@ to update the tracked proposal." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "These changes belong to %1$@. Switch to %2$@ to update the tracked proposal."
-          }
-        }
-      }
-    },
     "They will no longer be able to propose or merge changes in this workspace." : {
 
+    },
+    "This branch is not associated with Published or a known proposal. Your local changes are preserved, but they cannot be proposed from here." : {
+      "comment" : "Explains why changes on a manually selected branch cannot be proposed"
     },
     "This calendar could not be loaded." : {
 
@@ -1363,9 +1334,6 @@
     "Title" : {
 
     },
-    "Tracked proposal" : {
-
-    },
     "Try Again" : {
 
     },
@@ -1411,16 +1379,10 @@
     "What is this channel for?" : {
 
     },
-    "What should I do next?" : {
-
-    },
-    "Where are my changes?" : {
-
+    "Working from" : {
+      "comment" : "Label for the organizer's current editing context"
     },
     "Workspace" : {
-
-    },
-    "Workspace overview" : {
 
     },
     "Workspace preparation stopped, so changes cannot currently be compared." : {

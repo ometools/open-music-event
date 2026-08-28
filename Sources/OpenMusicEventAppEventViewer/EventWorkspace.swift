@@ -206,7 +206,6 @@ public struct EventWorkspace {
 
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<EventWorkspace>) {
         self.store = store
@@ -220,42 +219,6 @@ public struct EventWorkspaceView: View {
         )
 
         List {
-            WorkspaceOverviewSection(
-                workspace: store.workspace,
-                eventID: store.eventID,
-                phase: store.workspacePhase,
-                summary: changesStore.summary,
-                openProposal: store.openProposal,
-                canPropose: store.authoringAccess.canPropose,
-                propose: { changesStore.send(.proposalActionButtonTapped) },
-                viewProposal: { store.send(.viewProposalButtonTapped) }
-            )
-
-            Section("Switch branch") {
-                TextField("Branch name", text: $store.requestedBranch)
-                    .autocorrectionDisabled()
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("workspace.branch.name")
-                Button("Switch Branch") {
-                    store.send(.switchBranchButtonTapped)
-                }
-                .disabled(
-                    !store.workspaceIsReady
-                        || store.changeCount != nil
-                        || store.requestedBranch.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ).isEmpty
-                )
-                .accessibilityIdentifier("workspace.branch.switch")
-                if store.changeCount != nil {
-                    Text("Create a proposal or reset your local changes before switching branches.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             if pages.count > 1 {
                 Section {
                     Picker("Workspace section", selection: $store.selectedPage) {
@@ -270,10 +233,105 @@ public struct EventWorkspaceView: View {
 
             switch store.selectedPage {
             case .changes:
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(
+                                "Working from",
+                                bundle: .module,
+                                comment: "Label for the organizer's current editing context"
+                            )
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            switch store.editingContext {
+                            case .published:
+                                Text(
+                                    "Published",
+                                    bundle: .module,
+                                    comment: "Organizer label for the publicly released event source"
+                                )
+                            case .proposal:
+                                Text(
+                                    "Proposal in review",
+                                    bundle: .module,
+                                    comment: "Organizer label for editing an existing proposal"
+                                )
+                            case .branch:
+                                Text(
+                                    "Selected branch",
+                                    bundle: .module,
+                                    comment: "Organizer label for a manually selected technical branch"
+                                )
+                            case nil:
+                                Text(
+                                    "Not prepared",
+                                    bundle: .module,
+                                    comment: "Workspace state before its source is ready"
+                                )
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        HStack {
+                            TextField(
+                                String(
+                                    localized: "Branch",
+                                    bundle: .module,
+                                    comment: "Editable source branch name in the workspace switcher"
+                                ),
+                                text: $store.requestedBranch
+                            )
+                                .autocorrectionDisabled()
+                                #if !os(macOS)
+                                .textInputAutocapitalization(.never)
+                                #endif
+                                .accessibilityIdentifier("workspace.branch.name")
+                            Button {
+                                store.send(.switchBranchButtonTapped)
+                            } label: {
+                                Text(
+                                    "Switch",
+                                    bundle: .module,
+                                    comment: "Button that switches to the entered source branch"
+                                )
+                            }
+                            .disabled(
+                                !store.workspaceIsReady
+                                    || store.changeCount != nil
+                                    || store.requestedBranch.trimmingCharacters(
+                                        in: .whitespacesAndNewlines
+                                    ).isEmpty
+                                    || SourceWorkspace.normalizedBranch(store.requestedBranch)
+                                        == store.editingContext?.selectedBranch.rawValue
+                            )
+                            .accessibilityIdentifier("workspace.branch.switch")
+                        }
+
+                        if store.changeCount != nil {
+                            Text("Create a proposal or reset your local changes before switching branches.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 WorkspaceChangesView(
                     store: changesStore,
-                    workspacePhase: store.workspacePhase,
-                    openProposal: store.openProposal
+                    workspacePhase: store.workspacePhase
+                )
+
+                WorkspaceProposalStatusSection(
+                    workspace: store.workspace,
+                    eventID: store.eventID,
+                    phase: store.workspacePhase,
+                    summary: changesStore.summary,
+                    openProposal: store.openProposal,
+                    canPropose: store.authoringAccess.canPropose,
+                    propose: { changesStore.send(.proposalActionButtonTapped) },
+                    viewProposal: { store.send(.viewProposalButtonTapped) }
                 )
 
             case .collaborators:
@@ -292,7 +350,7 @@ public struct EventWorkspaceView: View {
     }
 }
 
-struct WorkspaceOverviewSection: View {
+struct WorkspaceProposalStatusSection: View {
     let workspace: SourceWorkspace
     let eventID: OME.Event.ID
     let phase: WorkspacePhase<SourcePatch>
@@ -307,6 +365,8 @@ struct WorkspaceOverviewSection: View {
         summary.groups.reduce(0) { $0 + $1.totalCount }
     }
 
+    var editingContext: WorkspaceEditingContext? { phase.editingContext }
+
     var publicationIsActive: Bool {
         switch phase {
         case .capturingSubmission, .publishing:
@@ -318,7 +378,6 @@ struct WorkspaceOverviewSection: View {
             false
         }
     }
-
     var progressTitle: String? {
         switch phase {
         case .capturingSubmission:
@@ -352,136 +411,111 @@ struct WorkspaceOverviewSection: View {
         case .stale:
             "The workspace changed while you were editing. Publication is unavailable until it is refreshed."
         case .inactive:
-            "Enter authoring to prepare this workspace."
+            "Enter the workspace to prepare it."
         case .capturingSubmission, .preparingSource, .publishing, .ready, .reconciling:
             nil
         }
     }
 
     var body: some View {
-        Section("Workspace overview") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Current branch")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                if let context = phase.editingContext {
-                    WorkspaceBranchNameView(branch: context.selectedBranch.rawValue)
-                } else {
-                    Text("The workspace is not currently prepared.")
-                    WorkspaceBranchNameView(branch: workspace.defaultBranch)
-                }
-            }
-
-            if let openProposal {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tracked proposal")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    LabeledContent("Proposal revision") {
-                        Text(openProposal.revision.rawValue)
-                            .font(.body.monospaced())
-                            .multilineTextAlignment(.trailing)
-                    }
-                    LabeledContent("Target branch") {
-                        Text(openProposal.target.branch.rawValue)
-                            .font(.body.monospaced())
-                            .multilineTextAlignment(.trailing)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Where are my changes?")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                switch summary.availability {
-                case .available:
-                    if openProposal?.id == phase.proposal?.id {
-                        Text("Previously submitted changes are in the open proposal.")
-                        Text(changeCount == 1
-                            ? "1 newer local change is waiting to be added."
-                            : "\(changeCount) newer local changes are waiting to be added.")
-                    } else {
-                        Text(changeCount == 1
-                            ? "1 local change has not been proposed."
-                            : "\(changeCount) local changes have not been proposed.")
-                    }
-                case .workspaceNeedsPreparation:
-                    Text("Change location will be available after the workspace is prepared.")
-                case .unavailable:
-                    Text("Change location cannot currently be calculated.")
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("What should I do next?")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                if let progressTitle {
+        Group {
+            if let progressTitle {
+                Section {
                     HStack(spacing: 10) {
                         ProgressView()
                         Text(progressTitle)
                     }
                     .portableAccessibilityElement()
                     .accessibilityIdentifier("workspace.publication.progress")
-                } else if let stoppedMessage {
+                }
+            } else if let stoppedMessage {
+                Section {
                     Text(stoppedMessage)
-                } else if case .available = summary.availability,
-                          let context = phase.editingContext
-                {
-                    if changeCount > 0 {
-                        if openProposal == nil {
-                            if canPropose {
-                                Button("Create Proposal", action: propose)
-                                    .buttonStyle(.borderedProminent)
-                                    .accessibilityIdentifier("workspace.proposal.create")
-                            } else {
-                                Text("Your local changes are waiting, but you do not have permission to create a proposal.")
-                            }
-                        } else if openProposal?.id == phase.proposal?.id {
-                            if canPropose {
-                                Button("Update Proposal", action: propose)
-                                    .buttonStyle(.borderedProminent)
-                                    .accessibilityIdentifier("workspace.proposal.update")
-                            } else {
-                                Text("Newer local changes are waiting, but you do not have permission to update this proposal.")
-                            }
+                }
+            } else if case .available = summary.availability,
+                      let editingContext,
+                      changeCount > 0
+            {
+                Section {
+                    switch editingContext {
+                    case .published:
+                        if openProposal != nil {
+                            Text("These changes are based on Published. Return to the tracked proposal to update it.")
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
+                        } else if canPropose {
+                            Button("Create Proposal", action: propose)
+                                .buttonStyle(.borderedProminent)
+                                .accessibilityIdentifier("workspace.proposal.create")
                         } else {
-                            Text("These changes belong to \(context.selectedBranch.rawValue). Return to the tracked proposal to update it.")
+                            Text("Your local changes are waiting, but you do not have permission to create a proposal.")
+                        }
+                    case .proposal:
+                        if canPropose {
+                            Button("Update Proposal", action: propose)
+                                .buttonStyle(.borderedProminent)
+                                .accessibilityIdentifier("workspace.proposal.update")
+                        } else {
+                            Text("Newer local changes are waiting, but you do not have permission to update this proposal.")
+                        }
+                        Button("View Proposal", action: viewProposal)
+                            .accessibilityIdentifier("workspace.proposal.view")
+                    case .branch:
+                        Text(
+                            "This branch is not associated with Published or a known proposal. Your local changes are preserved, but they cannot be proposed from here.",
+                            bundle: .module,
+                            comment: "Explains why changes on a manually selected branch cannot be proposed"
+                        )
+                        if openProposal != nil {
                             Button("View Proposal", action: viewProposal)
                                 .accessibilityIdentifier("workspace.proposal.view")
                         }
-                    } else if openProposal != nil {
-                        Button("View Proposal", action: viewProposal)
-                            .accessibilityIdentifier("workspace.proposal.view")
-                    } else {
-                        Text("Continue editing. There are no local changes waiting to be proposed.")
                     }
+                }
+            } else if openProposal != nil {
+                Section {
+                    Button("View Proposal", action: viewProposal)
+                        .accessibilityIdentifier("workspace.proposal.view")
                 }
             }
 
             if showsTechnicalDetails {
-                PortableDisclosureGroup("Technical Details") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
-                        WorkspaceTechnicalValueView(label: "Default branch", value: workspace.defaultBranch)
-                        WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
-                        WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
-                        if let proposal = openProposal {
-                            WorkspaceTechnicalValueView(label: "Open proposal", value: proposal.id.rawValue)
+                Section {
+                    PortableDisclosureGroup("Technical Details") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
+                            WorkspaceTechnicalValueView(label: "Default branch", value: workspace.defaultBranch)
+                            WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
+                            WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
+                            if let editingContext {
+                                WorkspaceTechnicalValueView(
+                                    label: String(
+                                        localized: "Selected branch",
+                                        bundle: .module,
+                                        comment: "Technical detail label for the mounted source branch"
+                                    ),
+                                    value: editingContext.selectedBranch.rawValue
+                                )
+                            }
+                            if let proposal = openProposal {
+                                WorkspaceTechnicalValueView(label: "Open proposal", value: proposal.id.rawValue)
+                                WorkspaceTechnicalValueView(
+                                    label: "Proposal revision",
+                                    value: proposal.revision.rawValue
+                                )
+                                WorkspaceTechnicalValueView(
+                                    label: "Target branch",
+                                    value: proposal.target.branch.rawValue
+                                )
+                            }
+                            if let failure = phase.failure {
+                                WorkspaceTechnicalValueView(label: "Diagnostic", value: failure.message)
+                            }
                         }
-                        if let failure = phase.failure {
-                            WorkspaceTechnicalValueView(label: "Diagnostic", value: failure.message)
-                        }
+                        .padding(.top, 8)
                     }
-                    .padding(.top, 8)
+                    .font(.caption)
                 }
-                .font(.caption)
             }
         }
     }

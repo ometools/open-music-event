@@ -96,15 +96,15 @@ public struct WorkspaceChanges {
                       state.changeCount > 0,
                       case let .ready(context) = workspace.phase.wrappedValue
                 else { return }
-                if workspace.openProposal.wrappedValue == nil {
+                switch context {
+                case let .published(branch):
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        targetBranch: context.selectedBranch.rawValue,
+                        targetBranch: branch.branch.rawValue,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
                     )
-                } else if workspace.openProposal.wrappedValue?.id
-                    == workspace.phase.wrappedValue.proposal?.id {
+                case .proposal:
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceProposalUpdateRequested.self,
@@ -112,6 +112,8 @@ public struct WorkspaceChanges {
                         )
                         await task?.value
                     }
+                case .branch:
+                    break
                 }
 
             case .resetChangesButtonTapped:
@@ -173,30 +175,29 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
     let workspacePhase: WorkspacePhase<SourcePatch>
-    let openProposal: WorkspaceProposal?
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
     public init(
         store: StoreOf<WorkspaceChanges>,
-        workspacePhase: WorkspacePhase<SourcePatch>,
-        openProposal: WorkspaceProposal?
+        workspacePhase: WorkspacePhase<SourcePatch>
     ) {
         self.store = store
         self.workspacePhase = workspacePhase
-        self.openProposal = openProposal
     }
 
     public var body: some View {
         Group {
             switch store.summary.availability {
             case .available:
-                SourceChangePresentationSection(
-                    presentation: store.summary.presentation,
-                    emptyMessage: openProposal == nil
-                        ? "No local changes."
-                        : "No newer changes are waiting to be added to this proposal."
-                )
+                if store.changeCount > 0 {
+                    SourceChangeSummarySection(
+                        groups: store.summary.groups,
+                        fieldComparisons: store.summary.fieldComparisons,
+                        recordComparisons: store.summary.recordComparisons,
+                        emptyMessage: "No local changes."
+                    )
+                }
 
             case .workspaceNeedsPreparation:
                 Section("What changed") {

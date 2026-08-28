@@ -738,7 +738,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                     Label {
                         Text("More")
                     } icon: {
-                        MappedSystemImage(systemName: "ellipsis")
+                        MappedSystemImage(systemName: "list.bullet")
                     }
                 }
                 .tag(TabFeaturesSelection<Value>.more)
@@ -777,7 +777,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             }
 
             if showsMore {
-                Tab("More", systemImage: "ellipsis", value: TabFeaturesSelection.more) {
+                Tab("More", systemImage: "list.bullet", value: TabFeaturesSelection.more) {
                     TabFeaturesMoreView(
                         path: resolvedMorePath,
                         metadata: metadata(for:),
