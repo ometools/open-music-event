@@ -1,4 +1,4 @@
-# This Fastfile owns local, credential-free automation for OpenMusicEvent.
+# This Fastfile owns credential-free build and test automation for OpenMusicEvent.
 # Store uploads, signing, and release credentials belong to the platform-specific
 # Fastfiles under Darwin/ and Android/.
 #
@@ -12,14 +12,16 @@
 # - Calling one lane from another composes a larger workflow.
 #
 # Helpers come first so each lane reads as a short workflow built from named
-# operations. Run lanes through the repository's pinned Fastlane bundle:
+# operations. Local runs use the repository's pinned Fastlane bundle:
 #
 #   Scripts/fastlane-local.sh suite ios_device:<udid> android_device:<serial>
+#
+# CI can install the same bundle and invoke `bundle exec fastlane <lane>`.
 
 require "json"
 require "open3"
 
-# Keep local runs out of Fastlane's anonymous usage reporting.
+# Keep these runs out of Fastlane's anonymous usage reporting.
 opt_out_usage
 
 # =============================================================================
@@ -28,6 +30,15 @@ opt_out_usage
 
 def repo_root
   File.expand_path("..", __dir__)
+end
+
+# CI and local shells may invoke Fastlane from different directories. Keep every
+# repository command anchored at the checkout root without wrapping the command
+# in machine-specific scheduling infrastructure.
+def run_in_repo(*command)
+  Dir.chdir(repo_root) do
+    sh(*command)
+  end
 end
 
 # Temporarily set environment variables for one operation, then restore the
@@ -50,31 +61,9 @@ end
 # Swift, Skip, and Android command ownership
 # =============================================================================
 
-def compiler_lane
-  ENV.fetch(
-    "OME_SWIFT_COMPILER_LANE",
-    File.expand_path(
-      "~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh"
-    )
-  )
-end
-
-# Every command sent through this helper enters the shared compiler queue. Passing
-# one argument per shell word avoids constructing a fragile command string.
-def run_compiler_lane(*command)
-  UI.user_error!("Swift compiler lane is unavailable at #{compiler_lane}") unless File.executable?(compiler_lane)
-
-  sh(
-    compiler_lane,
-    "--repo", repo_root,
-    "--wait",
-    "--priority", "interactive",
-    *command
-  )
-end
-
-# SKIPLOCAL names the canonical Skipstone source checkout. It is deliberately
-# separate from SKIP_COMMAND_OVERRIDE, which may select an isolated SkipRunner.
+# SKIPLOCAL names the canonical Skipstone source checkout. CI should set it to
+# the checkout prepared for the job. It is deliberately separate from
+# SKIP_COMMAND_OVERRIDE, which may select an isolated SkipRunner.
 def skiplocal
   File.expand_path(
     ENV.fetch(
@@ -87,8 +76,8 @@ end
 def run_local_skip(*arguments)
   UI.user_error!("SKIPLOCAL is unavailable at #{skiplocal}") unless File.directory?(skiplocal)
 
-  run_compiler_lane(
-    "swift-run",
+  run_in_repo(
+    "swift", "run",
     "--package-path", skiplocal,
     "SkipRunner",
     *arguments
@@ -100,16 +89,11 @@ def android_harness
 end
 
 # Fastlane chooses the workflow. The harness owns the generated Gradle project,
-# APK selection, local package routing, and the Android compiler lock.
+# APK selection, local package routing, and Android build caches.
 def run_android_harness(*arguments)
   UI.user_error!("Android harness is unavailable at #{android_harness}") unless File.executable?(android_harness)
 
-  with_environment(
-    "SWIFT_COMPILER_WAIT" => "1",
-    "SWIFT_COMPILER_PRIORITY" => "interactive"
-  ) do
-    sh(android_harness, *arguments)
-  end
+  run_in_repo(android_harness, *arguments)
 end
 
 # =============================================================================
@@ -137,7 +121,7 @@ def build_install_launch_ios(device:, app_id:)
     "SKIP_ACTION" => "none",
     "OME_ANDROID_APP_BUILD" => nil
   ) do
-    run_compiler_lane(
+    run_in_repo(
       "xcodebuild",
       "-workspace", File.join(repo_root, "Project.xcworkspace"),
       "-scheme", "OpenMusicEvent App",
@@ -191,16 +175,14 @@ end
 # `desc` appears in `fastlane lanes` and documents the next lane.
 desc "Run credential-free release readiness checks"
 lane :check do
-  Dir.chdir(repo_root) do
-    run_compiler_lane("swift-run", "ome-release-check")
-    run_local_skip("verify")
-    run_local_skip("meta", "index")
-  end
+  run_in_repo("swift", "run", "ome-release-check")
+  run_local_skip("verify")
+  run_local_skip("meta", "index")
 end
 
 desc "Run the complete Swift package suite on the macOS host"
 lane :host_tests do
-  run_compiler_lane("swift-test", "--no-parallel")
+  run_in_repo("swift", "test", "--no-parallel")
 end
 
 desc "Run OpenMusicEventAppTests on an iOS Simulator"
@@ -214,7 +196,7 @@ lane :ios_tests do |options|
     "SKIP_ACTION" => "none",
     "OME_ANDROID_APP_BUILD" => nil
   ) do
-    run_compiler_lane(
+    run_in_repo(
       "xcodebuild",
       "-workspace", File.join(repo_root, "Project.xcworkspace"),
       "-scheme", "OpenMusicEventAppTests",

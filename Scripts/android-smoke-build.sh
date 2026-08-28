@@ -29,7 +29,6 @@ Options:
   --dependencies-http-client PATH
                           Local HTTP client checkout. Default: the Android workspace route.
   --smoke-root PATH        Stable cache/scratch root. External app roots get their own namespace.
-  --compiler-lock PATH     Android compiler lock. Default: /private/tmp/woody-swift-compiler-android.lock.
   --skip-local PATH        Local skipstone checkout. Default: SKIPLOCAL or ~/Developer/swift-packages/3rd-party/skip/skipstone.
   --skip-command PATH      Local SkipRunner executable. Default: SKIP_COMMAND_OVERRIDE or SMOKE_ROOT/skipstone-build/debug/SkipRunner.
   --adopt-build-config     Explicitly replace pinned build inputs after a successful app build.
@@ -47,11 +46,10 @@ Environment overrides:
   OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_WORKSPACE_PATH,
   OME_DEPENDENCIES_HTTP_CLIENT_PATH,
   OME_ANDROID_TEST_APP_APK, OME_ANDROID_TEST_FILTER, OME_ANDROID_TEST_PARALLELISM,
-  OME_ANDROID_COMPILER_LOCK_FILE,
   OME_ANDROID_SKIPSTONE_BUILD_ROOT,
   OME_ANDROID_NATIVE_BUILD_CONFIG_FILE, OME_ANDROID_PACKAGE_RESOLUTION_CONFIG_FILE,
   OME_ANDROID_ARCHITECTURES,
-  SWIFT_COMPILER_LANE_SCRIPT, ANDROID_SERIAL, ANDROID_APPLICATION_ID, LOGCAT_FILTERS.
+  ANDROID_SERIAL, ANDROID_APPLICATION_ID, LOGCAT_FILTERS.
 USAGE
 }
 
@@ -228,11 +226,6 @@ run() {
 
 ROOT="$(repo_root)"
 APP_ROOT="$ROOT"
-SCRIPT_PATH="$ROOT/Scripts/android-smoke-build.sh"
-COMPILER_LANE_COMMAND=(env OME_ANDROID_COMPILER_LANE_ACTIVE=1 "$SCRIPT_PATH")
-if [[ $# -gt 0 ]]; then
-  COMPILER_LANE_COMMAND+=("$@")
-fi
 RUN_TESTS=0
 CONFIGURATION="debug"
 CONFIGURATION_EXPLICIT=0
@@ -254,9 +247,6 @@ if [[ -n "${OME_ANDROID_SMOKE_ROOT+x}" ]]; then
   SMOKE_ROOT_EXPLICIT=1
 fi
 SMOKE_ROOT="${OME_ANDROID_SMOKE_ROOT:-/private/tmp/ome-android-smoke}"
-COMPILER_LOCK_FILE="${OME_ANDROID_COMPILER_LOCK_FILE:-/private/tmp/woody-swift-compiler-android.lock}"
-COMPILER_LANE_SCRIPT="${SWIFT_COMPILER_LANE_SCRIPT:-${HOME}/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh}"
-COMPILER_LANE_ACTIVE="${OME_ANDROID_COMPILER_LANE_ACTIVE:-0}"
 SKIP_ANDROID_PREBUILD="${SKIP_ANDROID_PREBUILD:-1}"
 GRADLE_BIN="${GRADLE_BIN:-}"
 SKIPLOCAL_EXPLICIT=0
@@ -368,11 +358,6 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || fail "--smoke-root requires a path"
       SMOKE_ROOT="$2"
       SMOKE_ROOT_EXPLICIT=1
-      shift 2
-      ;;
-    --compiler-lock)
-      [[ $# -ge 2 ]] || fail "--compiler-lock requires a path"
-      COMPILER_LOCK_FILE="$2"
       shift 2
       ;;
     --skip-local)
@@ -720,24 +705,6 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   fi
   if [[ "${BUILD_CONFIG_VERSION:-0}" == "6" ]]; then
     check_pinned_config_value build_lane generated-gradle-fuse-app
-  fi
-fi
-
-if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
-  [[ -x "$COMPILER_LANE_SCRIPT" ]] || fail "compiler lane script is not executable: $COMPILER_LANE_SCRIPT"
-
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    "$COMPILER_LANE_SCRIPT" \
-      --repo "$APP_ROOT" \
-      --lock-file "$COMPILER_LOCK_FILE" \
-      --dry-run \
-      exec "${COMPILER_LANE_COMMAND[@]}"
-    COMPILER_LANE_ACTIVE=1
-  else
-    exec "$COMPILER_LANE_SCRIPT" \
-      --repo "$APP_ROOT" \
-      --lock-file "$COMPILER_LOCK_FILE" \
-      exec "${COMPILER_LANE_COMMAND[@]}"
   fi
 fi
 
@@ -1101,7 +1068,6 @@ echo "  configuration: $CONFIGURATION"
 echo "  artifact:    $ARTIFACT"
 echo "  architectures: ${ARCHITECTURES:-automatic}"
 echo "  build config: $NATIVE_BUILD_CONFIG_FILE ($BUILD_CONFIG_STATE)"
-echo "  compiler lock: $COMPILER_LOCK_FILE"
 echo "  skip runner: $SKIP_RUNNER_COMMAND"
 echo "  runner state: $SKIP_RUNNER_STATE"
 echo "  runner provenance: $SKIP_RUNNER_PROVENANCE_FILE"
