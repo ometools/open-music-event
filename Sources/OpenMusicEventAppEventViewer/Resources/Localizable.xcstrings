@@ -909,12 +909,6 @@
     "Published" : {
       "comment" : "Organizer label for the publicly released event source"
     },
-    "Publishing the proposal" : {
-
-    },
-    "Pushing the source branch" : {
-
-    },
     "Quiet" : {
       "comment" : "Notification permission status when notifications are delivered provisionally or quietly"
     },
@@ -949,9 +943,6 @@
 
     },
     "Refresh proposals" : {
-
-    },
-    "Refreshing the source branch" : {
 
     },
     "Refreshing workspace" : {
