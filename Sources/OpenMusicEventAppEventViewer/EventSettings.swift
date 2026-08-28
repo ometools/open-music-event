@@ -464,15 +464,7 @@ public struct EventSettingsView: View {
                     Button {
                         store.send(.eventPoliciesButtonTapped)
                     } label: {
-                        Label {
-                            Text(
-                                "Event Policies",
-                                bundle: .module,
-                                comment: "Button that opens the event policy editor"
-                            )
-                        } icon: {
-                            MappedSystemImage(systemName: "slider.horizontal.3")
-                        }
+                        Label("Event Policies", systemImage: "slider.horizontal.3")
                     }
                 }
 
@@ -480,15 +472,7 @@ public struct EventSettingsView: View {
                     Button {
                         store.send(.testErrorButtonTapped)
                     } label: {
-                        Label {
-                            Text(
-                                "Send Test Error",
-                                bundle: .module,
-                                comment: "Developer button that reports a test error"
-                            )
-                        } icon: {
-                            MappedSystemImage(systemName: "exclamationmark.triangle")
-                        }
+                        Label("Send Test Error", systemImage: "exclamationmark.triangle")
                     }
                 }
             }

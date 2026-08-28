@@ -11,9 +11,9 @@ public struct ScheduleDivision: Hashable, Identifiable, Sendable {
     public var systemImage: String {
         switch category?.rawValue {
         case nil:
-            return "calendar.day.timeline.leading"
+            return "calendar"
         case "workshop":
-            return "hammer"
+            return "figure.mind.and.body"
         case "discussions":
             return "bubble.left.and.bubble.right"
         default:

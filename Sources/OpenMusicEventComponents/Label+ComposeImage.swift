@@ -118,16 +118,10 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.ViewTimeline
         case "checkmark.circle", "checkmark-circle":
             imageVector = Icons.Outlined.CheckCircle
-        case "exclamationmark.triangle":
-            imageVector = Icons.Outlined.Warning
         case "ellipsis":
             imageVector = Icons.Outlined.MoreHoriz
         case "figure.mind.and.body":
             imageVector = Icons.Outlined.SelfImprovement
-        case "folder":
-            imageVector = Icons.Outlined.Folder
-        case "hammer":
-            imageVector = Icons.Outlined.Build
         case "info.circle":
             imageVector = Icons.Outlined.Info
         case "list.bullet":
@@ -160,8 +154,6 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.ViewColumn
         case "square.grid.2x2":
             imageVector = Icons.Outlined.GridView
-        case "slider.horizontal.3":
-            imageVector = Icons.Outlined.Tune
         case "tag":
             imageVector = Icons.Outlined.Sell
         case "tray.full":

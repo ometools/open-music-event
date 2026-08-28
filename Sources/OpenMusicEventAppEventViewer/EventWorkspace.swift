@@ -233,6 +233,17 @@ public struct EventWorkspaceView: View {
 
             switch store.selectedPage {
             case .changes:
+                WorkspaceProposalStatusSection(
+                    workspace: store.workspace,
+                    eventID: store.eventID,
+                    phase: store.workspacePhase,
+                    summary: changesStore.summary,
+                    openProposal: store.openProposal,
+                    canPropose: store.authoringAccess.canPropose,
+                    propose: { changesStore.send(.proposalActionButtonTapped) },
+                    viewProposal: { store.send(.viewProposalButtonTapped) }
+                )
+
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .firstTextBaseline) {
@@ -321,17 +332,6 @@ public struct EventWorkspaceView: View {
                 WorkspaceChangesView(
                     store: changesStore,
                     workspacePhase: store.workspacePhase
-                )
-
-                WorkspaceProposalStatusSection(
-                    workspace: store.workspace,
-                    eventID: store.eventID,
-                    phase: store.workspacePhase,
-                    summary: changesStore.summary,
-                    openProposal: store.openProposal,
-                    canPropose: store.authoringAccess.canPropose,
-                    propose: { changesStore.send(.proposalActionButtonTapped) },
-                    viewProposal: { store.send(.viewProposalButtonTapped) }
                 )
 
             case .collaborators:
