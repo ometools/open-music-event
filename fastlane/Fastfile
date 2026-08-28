@@ -100,6 +100,20 @@ end
 # iOS Simulator helpers
 # =============================================================================
 
+# Android uses SKIPLOCAL to route through the checked-out Skip packages. Keep
+# that route out of iOS operations so xcodebuild resolves the normal iOS package
+# graph and does not rewrite Package.resolved before the Android lane runs.
+def with_ios_environment
+  with_environment(
+    "SKIPLOCAL" => nil,
+    "SKIP_PLUGIN_DISABLED" => "",
+    "SKIP_ACTION" => "none",
+    "OME_ANDROID_APP_BUILD" => nil
+  ) do
+    yield
+  end
+end
+
 def booted_ios_device_id
   output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "booted", "--json")
   UI.user_error!("Unable to inspect iOS Simulators: #{error}") unless status.success?
@@ -116,11 +130,7 @@ def ios_ui_derived_data_path
 end
 
 def build_install_launch_ios(device:, app_id:)
-  with_environment(
-    "SKIP_PLUGIN_DISABLED" => "",
-    "SKIP_ACTION" => "none",
-    "OME_ANDROID_APP_BUILD" => nil
-  ) do
+  with_ios_environment do
     run_in_repo(
       "xcodebuild",
       "-workspace", File.join(repo_root, "Project.xcworkspace"),
@@ -191,11 +201,7 @@ lane :ios_tests do |options|
   # convenient for repeated runs; otherwise we use the first booted Simulator.
   device = options[:device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
 
-  with_environment(
-    "SKIP_PLUGIN_DISABLED" => "",
-    "SKIP_ACTION" => "none",
-    "OME_ANDROID_APP_BUILD" => nil
-  ) do
+  with_ios_environment do
     run_in_repo(
       "xcodebuild",
       "-workspace", File.join(repo_root, "Project.xcworkspace"),
@@ -286,7 +292,14 @@ lane :ui_tests do |options|
   android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
   flow = maestro_flow(options)
 
-  run_android_harness("--launch", "--serial", android_device)
+  android_arguments = ["--launch", "--serial", android_device]
+
+  # `all_tests` has already built and validated the canonical APK. In that
+  # composed lane, reuse its generated projections and native build products.
+  # The Android harness still verifies them and fails if anything is stale.
+  android_arguments << "--no-prebuild" if options[:reuse_android_build]
+
+  run_android_harness(*android_arguments)
   build_install_launch_ios(device: ios_device, app_id: ios_app_id)
 
   run_maestro(
@@ -300,5 +313,27 @@ lane :ui_tests do |options|
     app_id: android_app_id,
     platform: "android",
     flow: flow
+  )
+end
+
+desc "Run both platform suites, then the shared UI smoke flow"
+lane :all_tests do |options|
+  # This is the one-command path for a local machine or CI job that has both
+  # simulators available. A failing non-UI suite stops the UI phase.
+  suite(
+    ios_device: options[:ios_device],
+    android_device: options[:android_device]
+  )
+
+  # android_tests produced the exact APK that the UI smoke needs, so tell the
+  # UI lane to take the harness's guarded incremental path instead of running
+  # Skip's full Android prebuild a second time.
+  ui_tests(
+    ios_device: options[:ios_device],
+    android_device: options[:android_device],
+    ios_app_id: options[:ios_app_id],
+    android_app_id: options[:android_app_id],
+    flow: options[:flow],
+    reuse_android_build: true
   )
 end

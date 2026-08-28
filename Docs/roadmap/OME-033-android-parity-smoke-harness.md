@@ -50,6 +50,9 @@ Scripts/fastlane-local.sh suite \
 Scripts/fastlane-local.sh ui_tests \
   ios_device:<booted-ios-simulator-udid> \
   android_device:<android-emulator-serial>
+Scripts/fastlane-local.sh all_tests \
+  ios_device:<booted-ios-simulator-udid> \
+  android_device:<android-emulator-serial>
 ```
 
 For a temporary isolated SkipRunner build, add:
@@ -58,7 +61,7 @@ For a temporary isolated SkipRunner build, add:
 export SKIP_COMMAND_OVERRIDE=/absolute/path/to/SkipRunner
 ```
 
-The `suite` lane runs both platform test suites and reports either platform's failure after attempting both. The `ui_tests` lane first checks Maestro and both devices, builds and launches each app, then runs the same `.maestro/00-launch.yaml` flow on iOS and Android.
+The `suite` lane runs both platform test suites and reports either platform's failure after attempting both. The standalone `ui_tests` lane first checks Maestro and both devices, builds and launches each app, then runs the same `.maestro/00-launch.yaml` flow on iOS and Android. `all_tests` composes those lanes and takes the guarded Android `--no-prebuild` path for its UI phase, reusing the canonical APK produced by `android_tests` instead of repeating the full Skip prebuild.
 
 ## Current Local Proof
 
