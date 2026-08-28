@@ -350,6 +350,20 @@ let appViewDependencies: [Package.Dependency] = [
     appViewComposableAtmosphereDependency,
     tca26Dependency,
     composableNotificationsDependency,
+    swiftSharingDependency,
+    .package(
+        url: "https://source.woody.fm/composable-atmosphere-constellation",
+        branch: "main"
+    ),
+    .package(
+        url: "https://source.woody.fm/composable-atmosphere-tangled",
+        branch: "main"
+    ),
+    .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
+    .package(
+        url: "https://source.woody.fm/swift-dependencies-source-control-client",
+        branch: "main"
+    ),
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
@@ -370,6 +384,7 @@ let appViewDependencies: [Package.Dependency] = [
         traits: ["StructuredQueriesTagged"]
     ),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
@@ -416,17 +431,15 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "Tar", package: "swift-tar"),
 ]
 
-if packageBuild != .appView {
-    openMusicEventSourceCloneDependencies.append(contentsOf: [
-        .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
-        .product(name: "Crypto", package: "swift-crypto"),
-        .product(name: "Sharing", package: "swift-sharing"),
-        .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
-        .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-        .product(name: "Tagged", package: "swift-tagged"),
-        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-    ])
-}
+openMusicEventSourceCloneDependencies.append(contentsOf: [
+    .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+    .product(name: "Crypto", package: "swift-crypto"),
+    .product(name: "Sharing", package: "swift-sharing"),
+    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+    .product(name: "Tagged", package: "swift-tagged"),
+    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+])
 
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
@@ -525,18 +538,7 @@ let openMusicEventLexiconTestTarget = Target.testTarget(
 
 let openMusicEventSourceCloneTarget = Target.target(
     name: "OpenMusicEventSourceClone",
-    dependencies: openMusicEventSourceCloneDependencies,
-    exclude: packageBuild == .appView
-        ? [
-            "ATProtoRepoDescription.swift",
-            "TangledLexicon.swift",
-            "TangledOAuthScopes.swift",
-            "TangledSSHCredentialsClient.swift",
-        ]
-        : [],
-    swiftSettings: packageBuild == .appView
-        ? [.define("OME_SOURCE_ARCHIVE_ONLY")]
-        : []
+    dependencies: openMusicEventSourceCloneDependencies
 )
 
 let openMusicEventSourceTarget = Target.target(
@@ -1119,10 +1121,13 @@ let appViewTargets: [Target] = [
     .target(
         name: "OpenMusicEventAppViewServer",
         dependencies: [
+            "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
             "OpenMusicEventSource",
             "OpenMusicEventSourceClone",
+            "OpenMusicEventSourceEditing",
+            "SourceEditing",
             .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
@@ -1138,6 +1143,7 @@ let appViewTargets: [Target] = [
             ),
             .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "Dependencies", package: "swift-dependencies"),
+            .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
@@ -1176,6 +1182,9 @@ let appViewTargets: [Target] = [
         name: "OpenMusicEventAppViewServerTests",
         dependencies: [
             "OpenMusicEventAppViewServer",
+            "OpenMusicEventLexicon",
+            "OpenMusicEventSourceEditing",
+            "SourceEditing",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
@@ -1183,6 +1192,8 @@ let appViewTargets: [Target] = [
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
+            .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
+            .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
         ],
         resources: [
             .copy("Resources/Site"),
@@ -1230,6 +1241,15 @@ case .appView:
         openMusicEventSourceCloneTarget,
         openMusicEventSourceTarget,
     ]
+        + applicationTargets.filter {
+            [
+                "ErrorHandling",
+                "OpenMusicEventDatabase",
+                "OpenMusicEventSourceEditing",
+                "SourceEditing",
+            ]
+            .contains($0.name)
+        }
         + appViewTargets
 }
 
