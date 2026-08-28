@@ -1,0 +1,9 @@
+name: Testival 2026
+description: A small, deterministic festival for testing the attendee experience.
+startDate: "2026-08-01"
+endDate: "2026-08-03"
+status: scheduled
+mode: community.lexicon.calendar.event#inperson
+locations:
+- address: 1 Fixture Road
+timeZone: America/Denver

@@ -223,37 +223,45 @@ extension OpenMusicEventServiceEnvironment {
 extension OME {
     public static func prepareDependencies(
         _ dependencies: inout DependencyValues,
-        environment: OpenMusicEventServiceEnvironment = .production
+        environment: OpenMusicEventServiceEnvironment = .production,
+        uiAutomation: Bool = false
     ) throws {
         try dependencies.bootstrapDatabase(environment: environment)
 
         prepareDependencies(
             &dependencies,
             database: dependencies.defaultDatabase,
-            environment: environment
+            environment: environment,
+            uiAutomation: uiAutomation
         )
     }
 
     public static func preparePersistedServiceEnvironmentDependencies(
-        _ dependencies: inout DependencyValues
+        _ dependencies: inout DependencyValues,
+        uiAutomation: Bool = false
     ) throws {
         try prepareDependencies(
             &dependencies,
-            environment: OpenMusicEventServiceEnvironment.persisted()
+            environment: OpenMusicEventServiceEnvironment.persisted(),
+            uiAutomation: uiAutomation
         )
     }
 
     public static func prepareDependencies(
         _ dependencies: inout DependencyValues,
         database: any DatabaseWriter,
-        environment: OpenMusicEventServiceEnvironment = .production
+        environment: OpenMusicEventServiceEnvironment = .production,
+        uiAutomation: Bool = false
     ) {
         dependencies.defaultDatabase = database
         dependencies.openMusicEventServiceEnvironment = environment
-        dependencies.calendarEvents = .openMusicEventAndAtmo(
-            database: database,
-            appViewHost: environment.appViewHost
-        )
+        dependencies.openMusicEventUIAutomation = uiAutomation
+        dependencies.calendarEvents = uiAutomation
+            ? .uiAutomation(database: database)
+            : .openMusicEventAndAtmo(
+                database: database,
+                appViewHost: environment.appViewHost
+            )
         dependencies.workspaceProposalClient = .openMusicEvent(
             appViewHost: environment.appViewHost
         )
@@ -607,14 +615,20 @@ struct OpenMusicEventApplicationRuntime {
         restoresSelectedEvent: Bool
     ) throws -> OpenMusicEventApplicationRuntime {
         return try withDependencies {
+            let uiAutomation = $0.openMusicEventUIAutomation
             if bootstrapsDatabase {
-                try OME.prepareDependencies(&$0, environment: environment)
+                try OME.prepareDependencies(
+                    &$0,
+                    environment: environment,
+                    uiAutomation: uiAutomation
+                )
             } else {
                 let database = $0.defaultDatabase
                 OME.prepareDependencies(
                     &$0,
                     database: database,
-                    environment: environment
+                    environment: environment,
+                    uiAutomation: uiAutomation
                 )
             }
             let appConfiguration = variant.appConfiguration
@@ -705,13 +719,14 @@ struct OpenMusicEventApplicationRuntime {
         variant: OpenMusicEventAppVariant,
         environment: OpenMusicEventServiceEnvironment = .production
     ) {
+        @Dependency(\.openMusicEventUIAutomation) var uiAutomation
         self.variant = variant
         self.serviceEnvironment = environment
         self.runtime = try! OpenMusicEventApplicationRootView.makeRuntime(
             variant: variant,
             environment: environment,
             bootstrapsDatabase: false,
-            restoresSelectedEvent: true
+            restoresSelectedEvent: !uiAutomation
         )
     }
 
@@ -1009,8 +1024,15 @@ struct OpenMusicEventApplicationRuntime {
     private init() {}
 
     /* SKIP @bridge */public static func prepareDependencies() {
+        prepareDependencies(uiAutomation: false)
+    }
+
+    /* SKIP @bridge */public static func prepareDependencies(uiAutomation: Bool) {
         try! Dependencies.prepareDependencies {
-            try OME.preparePersistedServiceEnvironmentDependencies(&$0)
+            try OME.preparePersistedServiceEnvironmentDependencies(
+                &$0,
+                uiAutomation: uiAutomation
+            )
         }
     }
 }

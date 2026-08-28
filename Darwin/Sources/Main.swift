@@ -14,7 +14,7 @@ private let notificationLogger = Logger(
 )
 #endif
 
-private typealias AppRootView = OpenMusicEventApplicationRootView
+private typealias AppRootView = OpenMusicEventApplicationEntryView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 
 /// The entry point to the app simply loads the App implementation from SPM module.
@@ -23,8 +23,16 @@ private typealias AppDelegate = OpenMusicEventAppDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let uiAutomationValue = Bundle.main.object(
+            forInfoDictionaryKey: "OMEUIAutomation"
+        )
+        let uiAutomation = (uiAutomationValue as? Bool) == true
+            || (uiAutomationValue as? String) == "YES"
         try! prepareDependencies {
-            try OME.preparePersistedServiceEnvironmentDependencies(&$0)
+            try OME.preparePersistedServiceEnvironmentDependencies(
+                &$0,
+                uiAutomation: uiAutomation
+            )
         }
     }
 

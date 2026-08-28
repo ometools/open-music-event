@@ -19,7 +19,9 @@
 # CI can install the same bundle and invoke `bundle exec fastlane <lane>`.
 
 require "json"
+require "fileutils"
 require "open3"
+require "rbconfig"
 
 # Keep these runs out of Fastlane's anonymous usage reporting.
 opt_out_usage
@@ -140,6 +142,7 @@ def build_install_launch_ios(device:, app_id:)
       "-derivedDataPath", ios_ui_derived_data_path,
       "-skipPackagePluginValidation",
       "-skipMacroValidation",
+      "OME_UI_AUTOMATION=YES",
       "build"
     )
   end
@@ -150,6 +153,15 @@ def build_install_launch_ios(device:, app_id:)
   )
   UI.user_error!("iOS app product is missing at #{app_path}") unless File.directory?(app_path)
 
+  output, error, status = Open3.capture3(
+    "xcrun", "simctl", "uninstall", device, app_id
+  )
+  unless status.success?
+    message = "#{output}\n#{error}"
+    expected_missing_app = message.match?(/not installed|No such file|NSPOSIXErrorDomain.*code=2/i)
+    UI.user_error!("Unable to clear iOS app data: #{message.strip}") unless expected_missing_app
+  end
+
   sh("xcrun", "simctl", "install", device, app_path)
   sh("xcrun", "simctl", "launch", device, app_id)
 end
@@ -159,7 +171,104 @@ end
 # =============================================================================
 
 def maestro_flow(options)
-  File.expand_path(options[:flow] || ".maestro/00-launch.yaml", repo_root)
+  File.expand_path(options[:flow] || ".maestro/10-testival-attendee.yaml", repo_root)
+end
+
+def option_enabled?(value, default:)
+  return default if value.nil?
+
+  !%w[0 false no off].include?(value.to_s.downcase)
+end
+
+# A custom diagnostic flow is functional by default. The deterministic Testival
+# flow compares visual baselines unless the caller explicitly passes compare:false.
+def snapshot_comparison_requested?(options)
+  option_enabled?(options[:compare], default: options[:flow].nil?)
+end
+
+def snapshot_actual_root
+  File.join(repo_root, ".maestro", "screenshots")
+end
+
+def snapshot_baseline_root
+  File.join(repo_root, ".maestro", "baselines")
+end
+
+def snapshot_diff_root
+  File.join(repo_root, ".maestro", "diffs")
+end
+
+def prepare_snapshot_output_directories
+  FileUtils.rm_rf(snapshot_actual_root)
+  FileUtils.rm_rf(snapshot_diff_root)
+  %w[ios android].each do |platform|
+    FileUtils.mkdir_p(File.join(snapshot_actual_root, platform))
+    FileUtils.mkdir_p(File.join(snapshot_diff_root, platform))
+  end
+end
+
+def snapshot_profiles
+  JSON.parse(File.read(File.join(snapshot_baseline_root, "profiles.json")))
+end
+
+def ios_snapshot_profile(device)
+  output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "--json")
+  UI.user_error!("Unable to inspect the iOS snapshot profile: #{error}") unless status.success?
+
+  JSON.parse(output).fetch("devices").each do |runtime_identifier, devices|
+    match = devices.find { |candidate| candidate["udid"] == device }
+    next unless match
+
+    runtime = runtime_identifier
+      .sub("com.apple.CoreSimulator.SimRuntime.", "")
+      .sub("iOS-", "iOS ")
+      .tr("-", ".")
+    return { "device" => match.fetch("name"), "runtime" => runtime }
+  end
+
+  UI.user_error!("The iOS Simulator #{device} is not registered")
+end
+
+def android_snapshot_profile(device)
+  avd_output, avd_error, avd_status = Open3.capture3(
+    "adb", "-s", device, "emu", "avd", "name"
+  )
+  UI.user_error!("Unable to inspect the Android AVD: #{avd_error}") unless avd_status.success?
+  avd = avd_output.lines.map(&:strip).reject { |line| line.empty? || line == "OK" }.first
+
+  release_output, release_error, release_status = Open3.capture3(
+    "adb", "-s", device, "shell", "getprop", "ro.build.version.release"
+  )
+  UI.user_error!("Unable to inspect the Android release: #{release_error}") unless release_status.success?
+
+  { "avd" => avd, "release" => release_output.strip }
+end
+
+def verify_snapshot_profiles!(ios_device:, android_device:)
+  expected = snapshot_profiles
+  actual_ios = ios_snapshot_profile(ios_device)
+  actual_android = android_snapshot_profile(android_device)
+
+  UI.user_error!(
+    "Visual baselines require #{expected.fetch("ios")}; found #{actual_ios}"
+  ) unless actual_ios == expected.fetch("ios")
+  UI.user_error!(
+    "Visual baselines require #{expected.fetch("android")}; found #{actual_android}"
+  ) unless actual_android == expected.fetch("android")
+end
+
+def run_snapshot_comparator(action)
+  # `bundle` and `ruby` can resolve to different installations on macOS. Pin
+  # the child process to the Ruby already running Fastlane so Bundler never
+  # combines Homebrew gems with Apple's system Ruby.
+  run_in_repo(
+    "bundle", "exec", RbConfig.ruby,
+    File.join(repo_root, "Scripts", "compare-ui-snapshots.rb"),
+    action,
+    "--actual-root", snapshot_actual_root,
+    "--baseline-root", snapshot_baseline_root,
+    "--diff-root", snapshot_diff_root
+  )
 end
 
 def verify_maestro_device!(device)
@@ -168,14 +277,23 @@ def verify_maestro_device!(device)
 end
 
 def run_maestro(device:, app_id:, platform:, flow:)
-  # Maestro substitutes these values into the shared YAML flow. They must be
-  # passed with `-e`; inheriting ordinary shell variables is not enough.
+  output_directory = File.join(snapshot_actual_root, platform)
+
+  # Maestro writes `takeScreenshot` artifacts under its test output directory.
+  # Give each platform its own stable directory, then promote just the PNGs to
+  # the paths consumed by the visual comparator.
   sh(
     "maestro", "--device", device, "test",
+    "--test-output-dir", output_directory,
     "-e", "APP_ID=#{app_id}",
-    "-e", "MAESTRO_PLATFORM=#{platform}",
     flow
   )
+
+  # Maestro 2.9 may add timestamp and flow-name directories beneath the
+  # requested output directory, so discover screenshots recursively.
+  Dir.glob(File.join(output_directory, "**", "takeScreenshot", "*.png")).each do |screenshot|
+    FileUtils.cp(screenshot, output_directory)
+  end
 end
 
 # =============================================================================
@@ -275,48 +393,78 @@ lane :ui_test_preflight do |options|
   sh("maestro", "--version")
   verify_maestro_device!(ios_device)
   verify_maestro_device!(android_device)
+  if snapshot_comparison_requested?(options)
+    verify_snapshot_profiles!(
+      ios_device: ios_device,
+      android_device: android_device
+    )
+  end
   UI.success("iOS UI test device: #{ios_device}")
   UI.success("Android UI test device: #{android_device}")
   UI.success("Maestro flow: #{maestro_flow(options)}")
 end
 
-desc "Build, install, and run the same Maestro flow on iOS and Android"
-lane :ui_tests do |options|
-  # A lane can call another lane just like a Ruby method. Keeping preflight as a
-  # lane also makes it independently runnable while diagnosing local setup.
-  ui_test_preflight(options)
-
+def run_dual_platform_ui_flow(options, snapshot_action:)
   ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
   android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
   ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
   android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
   flow = maestro_flow(options)
 
-  android_arguments = ["--launch", "--serial", android_device]
+  prepare_snapshot_output_directories
+
+  android_arguments = ["--launch", "--clear-data", "--serial", android_device]
 
   # `all_tests` has already built and validated the canonical APK. In that
-  # composed lane, reuse its generated projections and native build products.
-  # The Android harness still verifies them and fails if anything is stale.
+  # composed lane, reuse its validated native products. Gradle still repackages
+  # the wrapper with BuildConfig.OME_UI_AUTOMATION enabled.
   android_arguments << "--no-prebuild" if options[:reuse_android_build]
 
-  run_android_harness(*android_arguments)
+  with_environment("OME_UI_AUTOMATION" => "1") do
+    run_android_harness(*android_arguments)
+  end
   build_install_launch_ios(device: ios_device, app_id: ios_app_id)
 
-  run_maestro(
-    device: ios_device,
-    app_id: ios_app_id,
-    platform: "ios",
-    flow: flow
-  )
-  run_maestro(
-    device: android_device,
-    app_id: android_app_id,
-    platform: "android",
-    flow: flow
-  )
+  failures = []
+  [
+    ["iOS", ios_device, ios_app_id, "ios"],
+    ["Android", android_device, android_app_id, "android"]
+  ].each do |name, device, app_id, platform|
+    begin
+      run_maestro(
+        device: device,
+        app_id: app_id,
+        platform: platform,
+        flow: flow
+      )
+    rescue StandardError => error
+      failures << "#{name} Maestro flow: #{error.message.lines.first.strip}"
+      UI.error(failures.last)
+    end
+  end
+
+  UI.user_error!(failures.join("\n")) unless failures.empty?
+  run_snapshot_comparator(snapshot_action) if snapshot_action
 end
 
-desc "Run both platform suites, then the shared UI smoke flow"
+desc "Run the deterministic Testival story on iOS and Android and compare visual baselines"
+lane :ui_tests do |options|
+  # A lane can call another lane just like a Ruby method. Keeping preflight as a
+  # lane also makes it independently runnable while diagnosing local setup.
+  ui_test_preflight(options)
+
+  snapshot_action = snapshot_comparison_requested?(options) ? "compare" : nil
+  run_dual_platform_ui_flow(options, snapshot_action: snapshot_action)
+end
+
+desc "Run the deterministic Testival story and explicitly replace tracked visual baselines"
+lane :record_ui_snapshots do |options|
+  UI.user_error!("record_ui_snapshots always uses the Testival flow; omit flow:<path>") if options[:flow]
+  ui_test_preflight(options)
+  run_dual_platform_ui_flow(options, snapshot_action: "record")
+end
+
+desc "Run both platform suites, then the deterministic Testival visual suite"
 lane :all_tests do |options|
   # This is the one-command path for a local machine or CI job that has both
   # simulators available. A failing non-UI suite stops the UI phase.
@@ -325,9 +473,8 @@ lane :all_tests do |options|
     android_device: options[:android_device]
   )
 
-  # android_tests produced the exact APK that the UI smoke needs, so tell the
-  # UI lane to take the harness's guarded incremental path instead of running
-  # Skip's full Android prebuild a second time.
+  # android_tests produced validated native products. The UI lane takes the
+  # harness's guarded incremental path, while still repackaging a UI-marked APK.
   ui_tests(
     ios_device: options[:ios_device],
     android_device: options[:android_device],

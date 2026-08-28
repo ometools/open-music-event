@@ -1,0 +1,10 @@
+date: "2026-08-01"
+customTitle: Saturday
+performances:
+  meadow:
+  - id: opening-set
+    title: Opening Set
+    startTime: "18:00"
+    endTime: "19:00"
+    contributors:
+    - id: artist-one

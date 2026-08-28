@@ -1,5 +1,7 @@
 import java.util.Properties
 
+val uiAutomation = System.getenv("OME_UI_AUTOMATION") == "1"
+
 plugins {
     // AGP 9 provides built-in Kotlin support; the generated version catalog no longer declares kotlin.android.
     alias(libs.plugins.kotlin.compose)
@@ -35,6 +37,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.sdk.min.get().toInt()
         targetSdk = libs.versions.android.sdk.compile.get().toInt()
+        buildConfigField("boolean", "OME_UI_AUTOMATION", uiAutomation.toString())
         // skip.tools.skip-build-plugin will automatically use Skip.env properties for:
         // applicationId = ANDROID_APPLICATION_ID ?? PRODUCT_BUNDLE_IDENTIFIER
         // versionCode = CURRENT_PROJECT_VERSION

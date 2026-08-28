@@ -642,6 +642,9 @@ public struct BrowseView: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(
+                "button.browse-event.\(event.uri.rkey?.rawValue ?? "unknown")"
+            )
         }
     }
 
@@ -1366,6 +1369,9 @@ public struct EventBrowseDetailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.isEnteringEvent)
+                    .accessibilityIdentifier(
+                        "button.enter-event.\(store.event.uri.rkey?.rawValue ?? "unknown")"
+                    )
                 }
             }
         } content: {
@@ -1474,6 +1480,9 @@ public struct EventBrowseDetailView: View {
         .task {
             await store.send(.task)?.value
         }
+        .accessibilityIdentifier(
+            "view.event-browse-detail.\(store.event.uri.rkey?.rawValue ?? "unknown")"
+        )
     }
 }
 

@@ -34,6 +34,9 @@ struct ScheduleTimelineCardView: View {
             cardContent
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(
+            "button.performance.\(performance.id.performanceID.rawValue.rawValue)"
+        )
         .accessibilityLabel(Text(accessibilityLabel))
         .portableAccessibilityHint(Text(timeRangeText))
         .contextMenu {

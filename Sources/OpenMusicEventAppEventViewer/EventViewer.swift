@@ -1207,6 +1207,9 @@ public struct EventViewerView: View {
 
     public var body: some View {
         tabContent
+            .accessibilityIdentifier(
+                "view.event.\(store.eventID.eventID.rawValue.rawValue)"
+            )
             .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
             .environment(
                 \.eventTimePresentation,

@@ -224,6 +224,9 @@ public struct ScheduleViewerView: View {
 
     public var body: some View {
         content
+            .accessibilityIdentifier(
+                "view.schedule.\(store.eventID.eventID.rawValue.rawValue)"
+            )
             .navigationTitle(navigationTitle)
             .toolbar {
                 #if os(macOS) && !SKIP

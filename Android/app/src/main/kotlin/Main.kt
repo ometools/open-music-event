@@ -33,7 +33,7 @@ import androidx.core.app.ActivityCompat
 
 internal val logger: SkipLogger = SkipLogger(subsystem = "open.music.event", category = "OpenMusicEvent")
 
-private typealias AppRootView = OpenMusicEventApplicationRootView
+private typealias AppRootView = OpenMusicEventApplicationEntryView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 private typealias AppBootstrap = OpenMusicEventAndroidApplication
 
@@ -48,7 +48,7 @@ open class AndroidAppMain: Application {
         super.onCreate()
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
-        AppBootstrap.prepareDependencies()
+        AppBootstrap.prepareDependencies(uiAutomation = BuildConfig.OME_UI_AUTOMATION)
         createEmergencyNotificationChannel()
     }
 

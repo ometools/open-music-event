@@ -1,0 +1,42 @@
+appId: ${APP_ID}
+---
+# Fastlane has already reinstalled the UI-marked app and cleared its data. This
+# launch is intentionally ordinary: the app itself owns deterministic fixture
+# preparation and exposes a visible failure state if that boundary fails.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.testival-source-testival-2026
+    timeout: 30000
+- assertVisible:
+    id: app.root
+- takeScreenshot: 10-browse
+
+- tapOn:
+    id: button.browse-event.testival-source-testival-2026
+- extendedWaitUntil:
+    visible:
+      id: view.event-browse-detail.testival-source-testival-2026
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 20-testival-detail
+
+- tapOn:
+    id: button.enter-event.testival-source-testival-2026
+- extendedWaitUntil:
+    visible:
+      id: button.performance.opening-set
+    timeout: 30000
+- assertVisible:
+    id: view.schedule.testival-source-testival-2026
+- waitForAnimationToEnd
+- takeScreenshot: 30-testival-schedule
+
+- tapOn:
+    id: button.performance.opening-set
+- extendedWaitUntil:
+    visible:
+      id: view.performance-detail.opening-set
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 40-opening-set-detail

@@ -200,6 +200,9 @@ public struct SchedulePerformanceListView: View {
                             )
                         }
                         .id(row.performanceID)
+                        .accessibilityIdentifier(
+                            "button.performance.\(row.performanceID.rawValue.rawValue)"
+                        )
                         .navigationLinkListRowStyle()
                         .contextMenu {
                             PerformanceReactionMenuContent(

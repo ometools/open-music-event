@@ -16,6 +16,7 @@ Options:
   --architectures LIST    Comma-separated Android Swift architectures.
                           Release default: aarch64,x86_64. Debug default: Skip automatic.
   --install                Install the APK after the app build.
+  --clear-data             Clear the installed package data after install. Implies --install.
   --launch                 Launch the app after install. Implies --install.
   --logs                   Dump focused logcat output after launch/install.
   --serial SERIAL          Android device serial. Default: ANDROID_SERIAL or emulator-5554.
@@ -42,7 +43,7 @@ Environment overrides:
   SKIP_COMMAND_OVERRIDE, SKIP_SHARING_SWIFT_SHARING, SKIP_EXPORT_ARCHS,
   CLANG_MODULE_CACHE_PATH, SWIFT_MODULECACHE_PATH, CFFIXED_USER_HOME,
   SWIFT_SDK_HOME, SWIFT_ANDROID_SDK_BUNDLE, SWIFT_TOOLCHAIN_DIR,
-  OME_ANDROID_APP_BUILD, OME_OPEN_MUSIC_EVENT_PATH, OME_TCA26_PATH,
+  OME_ANDROID_APP_BUILD, OME_UI_AUTOMATION, OME_OPEN_MUSIC_EVENT_PATH, OME_TCA26_PATH,
   OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_WORKSPACE_PATH,
   OME_DEPENDENCIES_HTTP_CLIENT_PATH,
   OME_ANDROID_TEST_APP_APK, OME_ANDROID_TEST_FILTER, OME_ANDROID_TEST_PARALLELISM,
@@ -236,6 +237,7 @@ if [[ -n "${OME_ANDROID_ARCHITECTURES+x}" || -n "${SKIP_EXPORT_ARCHS+x}" ]]; the
   ARCHITECTURES_EXPLICIT=1
 fi
 INSTALL=0
+CLEAR_DATA=0
 LAUNCH=0
 LOGS=0
 DRY_RUN=0
@@ -313,6 +315,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install)
       INSTALL=1
+      shift
+      ;;
+    --clear-data)
+      INSTALL=1
+      CLEAR_DATA=1
       shift
       ;;
     --launch)
@@ -410,8 +417,8 @@ fi
 
 if [[ "$RUN_TESTS" -eq 1 ]]; then
   [[ "$ARTIFACT" == "apk" ]] || fail "--tests cannot be combined with --artifact bundle"
-  [[ "$INSTALL" -eq 0 && "$LAUNCH" -eq 0 && "$LOGS" -eq 0 ]] \
-    || fail "--tests cannot be combined with --install, --launch, or --logs"
+  [[ "$INSTALL" -eq 0 && "$CLEAR_DATA" -eq 0 && "$LAUNCH" -eq 0 && "$LOGS" -eq 0 ]] \
+    || fail "--tests cannot be combined with --install, --clear-data, --launch, or --logs"
   [[ "$ADOPT_BUILD_CONFIG" -eq 0 ]] \
     || fail "--tests cannot adopt the app build configuration; run a successful app build instead"
   [[ "$ANDROID_TEST_PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
@@ -754,6 +761,14 @@ if [[ -n "$OME_OPEN_MUSIC_EVENT_PATH" ]]; then
   export OME_OPEN_MUSIC_EVENT_PATH
 fi
 export SKIP_ANDROID_PREBUILD
+if [[ "$SKIP_ANDROID_PREBUILD" == "0" ]]; then
+  # The Skip-generated Gradle project otherwise invokes its native Swift build
+  # from mergeDebugJniLibFolders. Reuse the already validated JNI products and
+  # let Gradle do only the UI-marked wrapper packaging.
+  export SKIP_BRIDGE_ANDROID_BUILD_DISABLED=1
+else
+  export SKIP_BRIDGE_ANDROID_BUILD_DISABLED=0
+fi
 export ANDROID_SERIAL
 export PATH="$(dirname "$GRADLE_BIN"):$ANDROID_HOME/platform-tools:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -1472,6 +1487,18 @@ build_app() {
   verify_skip_source_projections before
   invalidate_stale_observation_bridges
   invalidate_stale_swiftui_modules
+  if [[ "$SKIP_ANDROID_PREBUILD" == "0" && "$DRY_RUN" == "0" ]]; then
+    local reusable_native_product
+    reusable_native_product="$({
+      find "$APP_ROOT/.build/plugins/outputs" \
+        -type f \
+        -path '*/OpenMusicEventApp/build/jni-libs/*/libOpenMusicEventApp.so' \
+        -print -quit 2>/dev/null
+    } || true)"
+    [[ -n "$reusable_native_product" ]] \
+      || fail "--no-prebuild requires a validated libOpenMusicEventApp.so; run once without --no-prebuild"
+    echo "Reusing validated Android native product: $reusable_native_product"
+  fi
   if [[ "$ARTIFACT" == "bundle" ]]; then
     gradle_task=":app:bundle$CONFIGURATION_SUFFIX"
   else
@@ -1564,6 +1591,10 @@ if [[ "$INSTALL" -eq 1 ]]; then
     [[ -n "$APK_PATH" ]] || fail "no $CONFIGURATION APK found"
   fi
   run adb -s "$ANDROID_SERIAL" install -r "$APK_PATH"
+fi
+
+if [[ "$CLEAR_DATA" -eq 1 ]]; then
+  run adb -s "$ANDROID_SERIAL" shell pm clear "$ANDROID_APPLICATION_ID"
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then

@@ -504,6 +504,9 @@ public struct PerformanceDetailView: View {
                 .navigationTitle("Performance")
             }
         }
+        .accessibilityIdentifier(
+            "view.performance-detail.\(store.performanceID.rawValue.rawValue)"
+        )
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
             ContributorDetailView(
                 store: detailStore,

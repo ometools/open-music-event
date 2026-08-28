@@ -10,6 +10,44 @@ import SQLiteData
 import XRPCClient
 
 extension CalendarEventsClient {
+    static func uiAutomation(database: any DatabaseWriter) -> Self {
+        Self(
+            browse: { request in
+                guard request.collection == OME.Event.nsid else {
+                    throw CalendarEventsClientError.collectionNotServed(request.collection)
+                }
+                let events = try await storedOpenMusicEvents(database: database)
+                return CalendarEvent.Page(
+                    events: Array(events.prefix(request.limit)),
+                    cursor: nil
+                )
+            },
+            event: { uri in
+                guard let eventID = OME.Event.ID(uri) else {
+                    throw CalendarEventsClientError.invalidEventURI(uri.description)
+                }
+                guard let event = try await storedOpenMusicEvent(
+                    eventID,
+                    database: database
+                ) else {
+                    throw CalendarEventsClientError.missingEventRecord
+                }
+                return event
+            },
+            organizer: { organizerID in
+                let hasOrganizer = try await database.read { db in
+                    try OME.Event
+                        .where { $0.id.organizerID.eq(organizerID) }
+                        .fetchCount(db) > 0
+                }
+                guard hasOrganizer else {
+                    throw CalendarEventsClientError.missingOrganizer(organizerID)
+                }
+                return CalendarEvent.Organizer(id: organizerID)
+            }
+        )
+    }
+
     static func openMusicEventAndAtmo(
         database: any DatabaseWriter,
         appViewHost: ATProto.PDSHost = "openmusicevent.app"
@@ -26,21 +64,7 @@ extension CalendarEventsClient {
                     request,
                     appViewHost: appViewHost
                 )
-                let installedEvents = try await database.read { db in
-                    let events = try OME.Event
-                        .order { ($0.startDate.asc(), $0.name) }
-                        .fetchAll(db)
-                    let posters = try OME.Poster.fetchAll(db)
-                    let postersByEventID = Dictionary(grouping: posters) { poster in
-                        OME.Event.ID(
-                            organizerID: poster.id.organizerID,
-                            eventID: poster.id.eventID
-                        )
-                    }
-                    return events.map { event in
-                        event.calendarEvent(posters: postersByEventID[event.id] ?? [])
-                    }
-                }
+                let installedEvents = try await storedOpenMusicEvents(database: database)
                 let installedEventsByURI = Dictionary(
                     uniqueKeysWithValues: installedEvents.map { ($0.uri, $0) }
                 )
@@ -98,6 +122,42 @@ extension CalendarEventsClient {
                 return try await atmo.organizer(organizerID)
             }
         )
+    }
+
+    static func storedOpenMusicEvents(
+        database: any DatabaseWriter
+    ) async throws -> [CalendarEvent] {
+        try await database.read { db in
+            let events = try OME.Event
+                .order { ($0.startDate.asc(), $0.name) }
+                .fetchAll(db)
+            let posters = try OME.Poster.fetchAll(db)
+            let postersByEventID = Dictionary(grouping: posters) { poster in
+                OME.Event.ID(
+                    organizerID: poster.id.organizerID,
+                    eventID: poster.id.eventID
+                )
+            }
+            return events.map { event in
+                event.calendarEvent(posters: postersByEventID[event.id] ?? [])
+            }
+        }
+    }
+
+    static func storedOpenMusicEvent(
+        _ eventID: OME.Event.ID,
+        database: any DatabaseWriter
+    ) async throws -> CalendarEvent? {
+        try await database.read { db in
+            guard let event = try OME.Event.find(eventID).fetchOne(db) else {
+                return nil
+            }
+            let posters = try OME.Poster
+                .where { $0.id.organizerID.eq(eventID.organizerID) }
+                .where { $0.id.eventID.eq(eventID.eventID) }
+                .fetchAll(db)
+            return event.calendarEvent(posters: posters)
+        }
     }
 
     static func openMusicEventPage(
