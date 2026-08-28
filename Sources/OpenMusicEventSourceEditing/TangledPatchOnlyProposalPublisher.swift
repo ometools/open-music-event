@@ -124,7 +124,8 @@ extension TangledPatchOnlyProposalTransport {
                     did: request.target.repositoryOwnerDID,
                     name: request.target.repositoryName,
                     patch: request.patch,
-                    branch: request.branch
+                    branch: request.branch,
+                    repo: request.target.repositoryDID
                 ),
                 knotHost: request.target.knotHost
             )

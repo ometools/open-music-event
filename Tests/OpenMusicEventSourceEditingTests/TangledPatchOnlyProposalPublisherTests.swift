@@ -1,16 +1,57 @@
 import ATProto
 import ComposableWorkspace
 import CustomDump
+import Dependencies
 import Foundation
+import HTTPClient
 import OpenMusicEventSourceClone
 import Synchronization
 import TangledLexicon
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventSourceEditing
 
 @Suite("Patch-only Tangled proposal publication")
 struct TangledPatchOnlyProposalPublisherTests {
+    @Test
+    func `live merge check identifies the repository to the knot`() async throws {
+        let request = try publicationRequest()
+        let requests = Mutex([(url: URL?, body: Data?)]())
+
+        let output = try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { urlRequest, body in
+                requests.withLock {
+                    $0.append((url: urlRequest.url, body: body))
+                }
+                return Data(#"{"is_conflicted":false}"#.utf8)
+            }
+        } operation: {
+            try await TangledPatchOnlyProposalTransport.live.mergeCheck(
+                TangledPatchOnlyProposalMergeCheckRequest(
+                    target: request.target,
+                    patch: request.patch.patchText,
+                    branch: "main"
+                )
+            )
+        }
+
+        #expect(output.isConflicted == false)
+        let sentRequest = try #require(requests.withLock { $0.first })
+        #expect(
+            sentRequest.url?.path.hasSuffix("/sh.tangled.repo.mergeCheck") == true
+        )
+        let body = try #require(sentRequest.body)
+        let json = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(json["did"] as? String == "did:plc:owner")
+        #expect(json["name"] as? String == "festival-source")
+        #expect(json["branch"] as? String == "main")
+        #expect(json["repo"] as? String == "did:plc:repository")
+    }
+
     @Test
     func `publishes the frozen patch to the live default branch without a source branch`() async throws {
         let events = PublicationEventRecorder()

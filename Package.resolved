@@ -34,7 +34,7 @@
       "location" : "https://source.woody.fm/composable-atmosphere-tangled",
       "state" : {
         "branch" : "main",
-        "revision" : "5eda859549864745a60ce53c51f1ef6230ec3403"
+        "revision" : "09046bf99baa5fc8c921c640253c4e29061f290c"
       }
     },
     {
@@ -520,7 +520,7 @@
       "location" : "https://source.woody.fm/swift-dependencies-source-control-client",
       "state" : {
         "branch" : "main",
-        "revision" : "bf2c50b2f473333c686d7ac81e7c7269a685f76f"
+        "revision" : "6e15393616a265f0053f253bdea02faa0602995f"
       }
     },
     {
