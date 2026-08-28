@@ -1,5 +1,8 @@
+import ATProto
 import Dependencies
 import Foundation
+import HTTPClient
+import HTTPTypes
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -24,8 +27,22 @@ enum OpenMusicEventUIAutomationFixtureError: Error, Equatable {
 
 enum OpenMusicEventUIAutomationFixture {
     static let organizerID = OME.Organizer.ID("did:web:example.com")!
+    static let eventID = OME.Event.ID(
+        organizerID: organizerID,
+        eventID: OME.ID<OME.Event>(rawValue: "testival-source-testival-2026")
+    )
     static let sourceReference = "tangled.org/open-music-event/testival-source"
     static let sourceRef = "main"
+    static let refreshRevision = "testival-refresh-b"
+    static let refreshArtifactRepository =
+        "https://resources.openmusicevent.test/open-music-event/testival-source"
+    static let refreshArtifactURL = URL(
+        string: "\(refreshArtifactRepository)/archive/\(refreshRevision).tar.gz"
+    )!
+    static let refreshArtifactSHA256 =
+        "r7PUPbDE4x1C1vB6GEu4pRm1A9/aztbcxiK131Roetc="
+    static let refreshArtifactByteCount = 21_198
+    static let calendarEventPath = "/xrpc/\(OME.CalendarEvent.GetEvent.nsid)"
 
     static let bundledFiles = [
         "calendar.yml",
@@ -63,40 +80,139 @@ enum OpenMusicEventUIAutomationFixture {
         // processed resources in the iOS bundle. Materialize the bundled source into
         // a real directory so the normal source validator can traverse it.
         for relativePath in bundledFiles {
-            let pathComponents = relativePath.split(separator: "/").map(String.init)
-            guard let fileName = pathComponents.last else {
-                throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
-            }
-            let fileURL = URL(fileURLWithPath: fileName)
-            let extensionName = fileURL.pathExtension
-            let resourceName = fileURL.deletingPathExtension().lastPathComponent
-            let relativeDirectory = pathComponents.dropLast().joined(separator: "/")
-            let nestedDirectory = [
-                "UIAutomation/TestivalSource",
-                relativeDirectory.isEmpty ? nil : relativeDirectory,
-            ]
-            .compactMap { $0 }
-            .joined(separator: "/")
-
-            guard let bundledURL = bundle.url(
-                forResource: resourceName,
-                withExtension: extensionName,
-                subdirectory: nestedDirectory
-            ) ?? bundle.url(
-                forResource: resourceName,
-                withExtension: extensionName
-            ) else {
-                throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
-            }
-
-            let destinationURL = sourceURL.appendingPathComponent(relativePath)
-            try fileManager.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            try materializeBundledFile(
+                at: "UIAutomation/TestivalSource/\(relativePath)",
+                as: relativePath,
+                in: sourceURL,
+                bundle: bundle,
+                fileManager: fileManager
             )
-            try Data(contentsOf: bundledURL).write(to: destinationURL, options: .atomic)
         }
+
         return sourceURL
+    }
+
+    static func refreshArtifactData(bundle: Bundle = .module) throws -> Data {
+        guard let artifactURL = bundle.url(
+            forResource: "testival-refresh-b",
+            withExtension: "tar.gz",
+            subdirectory: "UIAutomation"
+        ) ?? bundle.url(
+            forResource: "testival-refresh-b",
+            withExtension: "tar.gz"
+        ) else {
+            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
+        }
+        return try Data(contentsOf: artifactURL)
+    }
+
+    /// Installs the two responses a real AppView owns: the catalog projection and the immutable
+    /// source artifact it advertises. Everything after this raw HTTP boundary is production code.
+    static func prepareServerResponses(
+        _ dependencies: inout DependencyValues,
+        appViewHost: ATProto.PDSHost
+    ) {
+        let liveDataForURL = dependencies.dataForURL
+        dependencies.dataForURL = { request, body in
+            if isRefreshCatalogRequest(request) {
+                return (
+                    try refreshCalendarEventData(appViewHost: appViewHost),
+                    HTTPResponse(status: .ok)
+                )
+            }
+            if request.method == .get, request.url == refreshArtifactURL {
+                return (
+                    try refreshArtifactData(),
+                    HTTPResponse(status: .ok)
+                )
+            }
+            return try await liveDataForURL(request, body)
+        }
+    }
+
+    static func refreshCalendarEvent(appViewHost: ATProto.PDSHost) -> OME.CalendarEvent {
+        OME.CalendarEvent(
+            uri: OME.Event.reference(id: eventID).uri,
+            name: "Testival 2026",
+            description: "A compact, deterministic festival that exercises attendee refresh.",
+            organizer: OME.CalendarEvent.Organizer(id: organizerID),
+            source: OME.CalendarEvent.Source(
+                collection: OME.Event.nsid,
+                appViewHost: appViewHost,
+                sourceRecord: OME.SourceRecord(
+                    kind: .tangled,
+                    reference: sourceReference,
+                    ref: refreshRevision
+                ),
+                resolvedArtifact: OME.CalendarEvent.Source.Artifact(
+                    url: refreshArtifactURL,
+                    revision: refreshRevision,
+                    checksumSHA256: refreshArtifactSHA256,
+                    byteCount: refreshArtifactByteCount
+                ),
+                resolvedRepository: OME.CalendarEvent.Source.Repository(
+                    reference: refreshArtifactRepository,
+                    ref: refreshRevision
+                )
+            ),
+            timeZoneIdentifier: "America/Denver"
+        )
+    }
+
+    static func refreshCalendarEventData(appViewHost: ATProto.PDSHost) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(refreshCalendarEvent(appViewHost: appViewHost))
+    }
+
+    static func isRefreshCatalogRequest(_ request: HTTPRequest) -> Bool {
+        guard request.method == .get,
+              let url = request.url,
+              url.path == calendarEventPath
+        else { return false }
+        let requestedEventURI = URLComponents(
+            url: url,
+            resolvingAgainstBaseURL: false
+        )?
+        .queryItems?
+        .first(where: { $0.name == "uri" })?
+        .value
+        return requestedEventURI == OME.Event.reference(id: eventID).uri.description
+    }
+
+    static func materializeBundledFile(
+        at bundledPath: String,
+        as sourcePath: String,
+        in sourceURL: URL,
+        bundle: Bundle,
+        fileManager: FileManager
+    ) throws {
+        let pathComponents = bundledPath.split(separator: "/").map(String.init)
+        guard let fileName = pathComponents.last else {
+            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
+        }
+        let fileURL = URL(fileURLWithPath: fileName)
+        let extensionName = fileURL.pathExtension
+        let resourceName = fileURL.deletingPathExtension().lastPathComponent
+        let relativeDirectory = pathComponents.dropLast().joined(separator: "/")
+
+        guard let bundledURL = bundle.url(
+            forResource: resourceName,
+            withExtension: extensionName,
+            subdirectory: relativeDirectory
+        ) ?? bundle.url(
+            forResource: resourceName,
+            withExtension: extensionName
+        ) else {
+            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
+        }
+
+        let destinationURL = sourceURL.appendingPathComponent(sourcePath)
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(contentsOf: bundledURL).write(to: destinationURL, options: .atomic)
     }
 
     @discardableResult

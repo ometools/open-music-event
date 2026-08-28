@@ -131,7 +131,7 @@ def ios_ui_derived_data_path
   File.join(repo_root, ".build", "fastlane-ios-derived-data")
 end
 
-def build_install_launch_ios(device:, app_id:)
+def build_ios_ui_app(device:)
   with_ios_environment do
     run_in_repo(
       "xcodebuild",
@@ -153,6 +153,10 @@ def build_install_launch_ios(device:, app_id:)
   )
   UI.user_error!("iOS app product is missing at #{app_path}") unless File.directory?(app_path)
 
+  app_path
+end
+
+def reset_ios_ui_app(device:, app_id:, app_path:)
   output, error, status = Open3.capture3(
     "xcrun", "simctl", "uninstall", device, app_id
   )
@@ -170,8 +174,16 @@ end
 # Maestro UI-testing helpers
 # =============================================================================
 
-def maestro_flow(options)
-  File.expand_path(options[:flow] || ".maestro/10-testival-attendee.yaml", repo_root)
+def maestro_flows(options)
+  paths = if options[:flow]
+    [options[:flow]]
+  else
+    [
+      ".maestro/10-testival-attendee.yaml",
+      ".maestro/20-testival-refresh.yaml"
+    ]
+  end
+  paths.map { |path| File.expand_path(path, repo_root) }
 end
 
 def option_enabled?(value, default:)
@@ -337,10 +349,14 @@ end
 desc "Run OpenMusicEventAppTests in an Android instrumentation APK"
 lane :android_tests do |options|
   device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  build_arguments = ["--serial", device]
+  if option_enabled?(options[:adopt_android_build_config], default: false)
+    build_arguments << "--adopt-build-config"
+  end
 
   # First package the canonical app APK. Then package and run the test APK using
   # that exact app product, so tests see the same bridged app types.
-  run_android_harness("--serial", device)
+  run_android_harness(*build_arguments)
   run_android_harness("--tests", "--serial", device)
 end
 
@@ -358,7 +374,10 @@ lane :suite do |options|
   end
 
   begin
-    android_tests(device: options[:android_device])
+    android_tests(
+      device: options[:android_device],
+      adopt_android_build_config: options[:adopt_android_build_config]
+    )
   rescue StandardError => error
     failures << "Android instrumentation suite: #{error.message.lines.first.strip}"
     UI.error(failures.last)
@@ -385,7 +404,9 @@ end
 desc "Verify the local tools and devices required for dual-platform UI tests"
 lane :ui_test_preflight do |options|
   UI.user_error!("Maestro is unavailable. Install it with Homebrew before running UI tests.") unless executable_available?("maestro")
-  UI.user_error!("Maestro flow does not exist: #{maestro_flow(options)}") unless File.file?(maestro_flow(options))
+  maestro_flows(options).each do |flow|
+    UI.user_error!("Maestro flow does not exist: #{flow}") unless File.file?(flow)
+  end
 
   ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
   android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
@@ -401,44 +422,71 @@ lane :ui_test_preflight do |options|
   end
   UI.success("iOS UI test device: #{ios_device}")
   UI.success("Android UI test device: #{android_device}")
-  UI.success("Maestro flow: #{maestro_flow(options)}")
+  maestro_flows(options).each { |flow| UI.success("Maestro flow: #{flow}") }
 end
 
-def run_dual_platform_ui_flow(options, snapshot_action:)
+def run_dual_platform_ui_suite(options, snapshot_action:)
   ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
   android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
   ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
   android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
-  flow = maestro_flow(options)
+  flows = maestro_flows(options)
 
   prepare_snapshot_output_directories
 
-  android_arguments = ["--launch", "--clear-data", "--serial", android_device]
+  android_arguments = ["--install", "--serial", android_device]
 
   # `all_tests` has already built and validated the canonical APK. In that
   # composed lane, reuse its validated native products. Gradle still repackages
   # the wrapper with BuildConfig.OME_UI_AUTOMATION enabled.
   android_arguments << "--no-prebuild" if options[:reuse_android_build]
+  if !options[:reuse_android_build] && option_enabled?(
+    options[:adopt_android_build_config],
+    default: false
+  )
+    android_arguments << "--adopt-build-config"
+  end
 
   with_environment("OME_UI_AUTOMATION" => "1") do
     run_android_harness(*android_arguments)
   end
-  build_install_launch_ios(device: ios_device, app_id: ios_app_id)
+  ios_app_path = build_ios_ui_app(device: ios_device)
 
   failures = []
-  [
-    ["iOS", ios_device, ios_app_id, "ios"],
-    ["Android", android_device, android_app_id, "android"]
-  ].each do |name, device, app_id, platform|
+  flows.each do |flow|
     begin
-      run_maestro(
-        device: device,
-        app_id: app_id,
-        platform: platform,
-        flow: flow
+      # Each story owns a fresh attendee database. Reinstall the already-built
+      # iOS app and clear the already-installed Android app without recompiling.
+      reset_ios_ui_app(
+        device: ios_device,
+        app_id: ios_app_id,
+        app_path: ios_app_path
       )
+      run_android_harness(
+        "--run-installed",
+        "--clear-data",
+        "--launch",
+        "--serial", android_device
+      )
+
+      [
+        ["iOS", ios_device, ios_app_id, "ios"],
+        ["Android", android_device, android_app_id, "android"]
+      ].each do |name, device, app_id, platform|
+        begin
+          run_maestro(
+            device: device,
+            app_id: app_id,
+            platform: platform,
+            flow: flow
+          )
+        rescue StandardError => error
+          failures << "#{name} #{File.basename(flow)}: #{error.message.lines.first.strip}"
+          UI.error(failures.last)
+        end
+      end
     rescue StandardError => error
-      failures << "#{name} Maestro flow: #{error.message.lines.first.strip}"
+      failures << "App reset for #{File.basename(flow)}: #{error.message.lines.first.strip}"
       UI.error(failures.last)
     end
   end
@@ -447,21 +495,21 @@ def run_dual_platform_ui_flow(options, snapshot_action:)
   run_snapshot_comparator(snapshot_action) if snapshot_action
 end
 
-desc "Run the deterministic Testival story on iOS and Android and compare visual baselines"
+desc "Run deterministic Testival attendee and refresh stories on iOS and Android"
 lane :ui_tests do |options|
   # A lane can call another lane just like a Ruby method. Keeping preflight as a
   # lane also makes it independently runnable while diagnosing local setup.
   ui_test_preflight(options)
 
   snapshot_action = snapshot_comparison_requested?(options) ? "compare" : nil
-  run_dual_platform_ui_flow(options, snapshot_action: snapshot_action)
+  run_dual_platform_ui_suite(options, snapshot_action: snapshot_action)
 end
 
-desc "Run the deterministic Testival story and explicitly replace tracked visual baselines"
+desc "Run the deterministic Testival suite and explicitly replace visual baselines"
 lane :record_ui_snapshots do |options|
   UI.user_error!("record_ui_snapshots always uses the Testival flow; omit flow:<path>") if options[:flow]
   ui_test_preflight(options)
-  run_dual_platform_ui_flow(options, snapshot_action: "record")
+  run_dual_platform_ui_suite(options, snapshot_action: "record")
 end
 
 desc "Run both platform suites, then the deterministic Testival visual suite"
@@ -470,7 +518,8 @@ lane :all_tests do |options|
   # simulators available. A failing non-UI suite stops the UI phase.
   suite(
     ios_device: options[:ios_device],
-    android_device: options[:android_device]
+    android_device: options[:android_device],
+    adopt_android_build_config: options[:adopt_android_build_config]
   )
 
   # android_tests produced validated native products. The UI lane takes the
@@ -481,6 +530,7 @@ lane :all_tests do |options|
     ios_app_id: options[:ios_app_id],
     android_app_id: options[:android_app_id],
     flow: options[:flow],
+    adopt_android_build_config: options[:adopt_android_build_config],
     reuse_android_build: true
   )
 end

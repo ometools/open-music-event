@@ -741,6 +741,7 @@ struct CommunicationChannelNotificationMenu: View {
                 }
             }
             .disabled(isSubscribed)
+            .accessibilityIdentifier("button.channel-notifications.subscribe")
 
             Button {
                 store.send(.notificationStateButtonTapped(.unsubscribed))
@@ -752,6 +753,7 @@ struct CommunicationChannelNotificationMenu: View {
                 }
             }
             .disabled(channel.notificationsRequired || isUnsubscribed)
+            .accessibilityIdentifier("button.channel-notifications.unsubscribe")
         } label: {
             Label {
                 Text(menuTitle)
@@ -759,5 +761,8 @@ struct CommunicationChannelNotificationMenu: View {
                 MappedSystemImage(systemName: menuSystemImage)
             }
         }
+        .accessibilityIdentifier(
+            "menu.channel-notifications.\(channel.id.channelID.rawValue.rawValue)"
+        )
     }
 }

@@ -18,6 +18,7 @@ Options:
   --install                Install the APK after the app build.
   --clear-data             Clear the installed package data after install. Implies --install.
   --launch                 Launch the app after install. Implies --install.
+  --run-installed          Clear, launch, or inspect the existing app without building or installing.
   --logs                   Dump focused logcat output after launch/install.
   --serial SERIAL          Android device serial. Default: ANDROID_SERIAL or emulator-5554.
   --app-root PATH          Skip app package to build. Default: this OME checkout.
@@ -228,6 +229,7 @@ run() {
 ROOT="$(repo_root)"
 APP_ROOT="$ROOT"
 RUN_TESTS=0
+RUN_INSTALLED=0
 CONFIGURATION="debug"
 CONFIGURATION_EXPLICIT=0
 ARTIFACT="apk"
@@ -237,6 +239,7 @@ if [[ -n "${OME_ANDROID_ARCHITECTURES+x}" || -n "${SKIP_EXPORT_ARCHS+x}" ]]; the
   ARCHITECTURES_EXPLICIT=1
 fi
 INSTALL=0
+INSTALL_EXPLICIT=0
 CLEAR_DATA=0
 LAUNCH=0
 LOGS=0
@@ -315,6 +318,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install)
       INSTALL=1
+      INSTALL_EXPLICIT=1
       shift
       ;;
     --clear-data)
@@ -325,6 +329,10 @@ while [[ $# -gt 0 ]]; do
     --launch)
       INSTALL=1
       LAUNCH=1
+      shift
+      ;;
+    --run-installed)
+      RUN_INSTALLED=1
       shift
       ;;
     --logs)
@@ -415,6 +423,15 @@ if [[ "$ARTIFACT" == "bundle" && "$INSTALL" -eq 1 ]]; then
   fail "Android app bundles cannot be installed directly; use --artifact apk"
 fi
 
+if [[ "$RUN_INSTALLED" -eq 1 ]]; then
+  [[ "$RUN_TESTS" -eq 0 ]] || fail "--run-installed cannot be combined with --tests"
+  [[ "$INSTALL_EXPLICIT" -eq 0 ]] || fail "--run-installed cannot be combined with --install"
+  [[ "$ARTIFACT" == "apk" ]] || fail "--run-installed cannot be combined with --artifact bundle"
+  [[ "$ADOPT_BUILD_CONFIG" -eq 0 ]] || fail "--run-installed cannot adopt build configuration"
+  [[ "$CLEAR_DATA" -eq 1 || "$LAUNCH" -eq 1 || "$LOGS" -eq 1 ]] \
+    || fail "--run-installed requires --clear-data, --launch, or --logs"
+fi
+
 if [[ "$RUN_TESTS" -eq 1 ]]; then
   [[ "$ARTIFACT" == "apk" ]] || fail "--tests cannot be combined with --artifact bundle"
   [[ "$INSTALL" -eq 0 && "$CLEAR_DATA" -eq 0 && "$LAUNCH" -eq 0 && "$LOGS" -eq 0 ]] \
@@ -426,6 +443,33 @@ if [[ "$RUN_TESTS" -eq 1 ]]; then
 fi
 
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
+
+if [[ "$RUN_INSTALLED" -eq 1 ]]; then
+  ANDROID_APPLICATION_ID="${ANDROID_APPLICATION_ID:-$(read_skip_env_value ANDROID_APPLICATION_ID "$APP_ROOT/Skip.env")}"
+  if [[ -z "$ANDROID_APPLICATION_ID" ]]; then
+    ANDROID_APPLICATION_ID="$(read_skip_env_value PRODUCT_BUNDLE_IDENTIFIER "$APP_ROOT/Skip.env")"
+  fi
+  [[ -n "$ANDROID_APPLICATION_ID" ]] \
+    || fail "could not determine Android application id from Skip.env"
+
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    command -v adb >/dev/null || fail "adb is not on PATH"
+  fi
+  if [[ "$CLEAR_DATA" -eq 1 ]]; then
+    run adb -s "$ANDROID_SERIAL" shell pm clear "$ANDROID_APPLICATION_ID"
+  fi
+  if [[ "$LAUNCH" -eq 1 ]]; then
+    run adb -s "$ANDROID_SERIAL" shell am force-stop "$ANDROID_APPLICATION_ID"
+    run adb -s "$ANDROID_SERIAL" shell monkey -p "$ANDROID_APPLICATION_ID" 1
+  fi
+  if [[ "$LOGS" -eq 1 ]]; then
+    LOGCAT_FILTERS="${LOGCAT_FILTERS:-$ANDROID_APPLICATION_ID/OpenMusicEventApp OpenMusicEvent AndroidRuntime SwiftRuntime skip.ui.SkipUI}"
+    # shellcheck disable=SC2086
+    run adb -s "$ANDROID_SERIAL" logcat -d -v time -s $LOGCAT_FILTERS
+  fi
+  exit 0
+fi
+
 ANDROID_TEST_APP_APK="${OME_ANDROID_TEST_APP_APK:-$APP_ROOT/.build/Android/app/outputs/apk/$CONFIGURATION/app-$CONFIGURATION.apk}"
 if [[ "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
   APP_ROOT_FINGERPRINT="$(printf '%s' "$APP_ROOT" | shasum -a 256 | cut -c 1-12)"

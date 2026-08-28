@@ -153,6 +153,57 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func acceptsArchiveMatchingAdvertisedServerIntegrity() throws {
+        let archive = SourceArchiveReference(
+            url: try #require(
+                URL(string: "https://resources.openmusicevent.test/archive/revision.tar.gz")
+            ),
+            checksumSHA256: "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+            byteCount: 0
+        )
+
+        try archive.validate(Data())
+    }
+
+    @Test
+    func rejectsArchiveWithUnexpectedServerByteCount() throws {
+        let archive = SourceArchiveReference(
+            url: try #require(
+                URL(string: "https://resources.openmusicevent.test/archive/revision.tar.gz")
+            ),
+            checksumSHA256: "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+            byteCount: 1
+        )
+
+        let error = #expect(throws: SourceArchiveIntegrityError.self) {
+            try archive.validate(Data())
+        }
+        expectNoDifference(error, .byteCount(expected: 1, actual: 0))
+    }
+
+    @Test
+    func rejectsArchiveWithUnexpectedServerChecksum() throws {
+        let archive = SourceArchiveReference(
+            url: try #require(
+                URL(string: "https://resources.openmusicevent.test/archive/revision.tar.gz")
+            ),
+            checksumSHA256: "not-the-server-checksum",
+            byteCount: 0
+        )
+
+        let error = #expect(throws: SourceArchiveIntegrityError.self) {
+            try archive.validate(Data())
+        }
+        expectNoDifference(
+            error,
+            .checksumSHA256(
+                expected: "not-the-server-checksum",
+                actual: "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+            )
+        )
+    }
+
+    @Test
     func buildsSourceControlCloneRequestForResolvedRepoDID() throws {
         let repository = try TangledRepositoryReference(
             parsing: "https://tangled.org/woody.fm/wicked-woods-ome"

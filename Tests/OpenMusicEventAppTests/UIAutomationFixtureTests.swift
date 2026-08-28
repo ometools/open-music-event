@@ -4,12 +4,15 @@ import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import HTTPClient
+import HTTPTypes
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SQLiteData
 import Testing
+import XRPCClient
 
 @Suite(.serialized)
 @MainActor
@@ -327,6 +330,190 @@ struct UIAutomationFixtureTests {
             )
             expectNoDifference(workspaceID, try #require(provenance.workspace?.id))
         }
+    }
+
+    @Test
+    func `installed attendee receives a published Testival revision without losing personal state`() async throws {
+        let database = try preparedDatabase()
+        let requests = LockIsolated<[HTTPRequest]>([])
+
+        try await withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            OME.prepareDependencies(
+                &$0,
+                database: database,
+                uiAutomation: true
+            )
+            $0.requestInterceptors = []
+            $0.uuid = .incrementing
+            $0.httpClient = .liveValue
+            $0[XRPC.Client.self] = .liveValue
+            let serverResponses = $0.dataForURL
+            $0.dataForURL = { request, body in
+                requests.withValue { $0.append(request) }
+                return try await serverResponses(request, body)
+            }
+        } operation: {
+            // Revision A crosses the normal validator and becomes the attendee's installed event.
+            let validation = try await OpenMusicEventUIAutomationFixture.importSource(
+                into: database
+            )
+            let eventID = try #require(validation.insertedEventIDs.only)
+            expectNoDifference(eventID, OpenMusicEventUIAutomationFixture.eventID)
+            let eventURI = OME.Event.reference(id: eventID).uri
+            let installedEventID = try await OMEEventInstallationClient.liveValue
+                .ensureInstalled(eventURI)
+            expectNoDifference(installedEventID, eventID)
+
+            // The attendee owns these rows. Published source replacement may update schedules and
+            // posts, but it must not reset notification choices, read state, or personal schedules.
+            let generalChannelID = OME.Channel.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                channelID: OME.ID<OME.Channel>(rawValue: "general")
+            )
+            let welcomePostID = CommsPost.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                channelID: generalChannelID.channelID,
+                postID: CommsPost.PostID("welcome")
+            )
+            let personalSchedule = UserSchedule(
+                id: try #require(
+                    UUID(uuidString: "00000000-0000-0000-0000-000000000026")
+                ),
+                eventID: eventID,
+                title: "My Saturday"
+            )
+            let collaborativeSetMembership = UserSchedule.Performance(
+                scheduleID: personalSchedule.id,
+                performanceID: OME.ID<OME.Performance>(rawValue: "collaborative-set")
+            )
+            let viewerState = EventViewerState(
+                id: eventID,
+                selectedScheduleID: OME.ID<OME.Schedule>(rawValue: "saturday"),
+                selectedUserScheduleID: personalSchedule.id,
+                didInitializeUserSchedules: true
+            )
+            try await database.write { db in
+                try ChannelPreferences.insert {
+                    ChannelPreferences(
+                        id: generalChannelID,
+                        notificationState: .unsubscribed
+                    )
+                }
+                .execute(db)
+                try CommsPostRead.insert { CommsPostRead(id: welcomePostID) }.execute(db)
+                try UserSchedule.insert { personalSchedule }.execute(db)
+                try UserSchedule.Performance.insert { collaborativeSetMembership }.execute(db)
+                try EventViewerState.insert { viewerState }.execute(db)
+            }
+
+            // The same XRPC query used in production receives the complete AppView projection.
+            let advertisedEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
+            let advertisedSource = advertisedEvent.source
+            expectNoDifference(advertisedSource.appViewHost, "openmusicevent.app")
+            expectNoDifference(
+                advertisedSource.sourceRecord,
+                OME.SourceRecord(
+                    kind: .tangled,
+                    reference: OpenMusicEventUIAutomationFixture.sourceReference,
+                    ref: OpenMusicEventUIAutomationFixture.refreshRevision
+                )
+            )
+            expectNoDifference(
+                advertisedSource.resolvedArtifact,
+                OME.CalendarEvent.Source.Artifact(
+                    url: OpenMusicEventUIAutomationFixture.refreshArtifactURL,
+                    revision: OpenMusicEventUIAutomationFixture.refreshRevision,
+                    checksumSHA256: OpenMusicEventUIAutomationFixture.refreshArtifactSHA256,
+                    byteCount: OpenMusicEventUIAutomationFixture.refreshArtifactByteCount
+                )
+            )
+            expectNoDifference(
+                advertisedSource.resolvedRepository,
+                OME.CalendarEvent.Source.Repository(
+                    reference: OpenMusicEventUIAutomationFixture.refreshArtifactRepository,
+                    ref: OpenMusicEventUIAutomationFixture.refreshRevision
+                )
+            )
+
+            // Resume synchronization downloads and verifies the advertised archive, validates the
+            // requested event, then atomically replaces only its published source-owned rows.
+            try await OMEEventInstallationClient.liveValue.synchronizeInstalledEvent(eventID)
+
+            let refreshed = try await database.read { db in
+                (
+                    installation: try InstalledEventRecord.find(eventID).fetchOne(db),
+                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
+                    performances: try PerformanceRow.all(eventID: eventID).fetchAll(db),
+                    posts: try CommsPost
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db),
+                    preference: try ChannelPreferences.find(generalChannelID).fetchOne(db),
+                    reads: try CommsPostRead.fetchAll(db),
+                    personalSchedule: try UserSchedule.find(personalSchedule.id).fetchOne(db),
+                    memberships: try UserSchedule.Performance.fetchAll(db),
+                    viewerState: try EventViewerStateRequest(eventID: eventID).fetch(db)
+                )
+            }
+
+            expectNoDifference(
+                refreshed.performances.map(\.title),
+                [
+                    "Movement Workshop",
+                    "Opening Set",
+                    "Sunset Session",
+                    "Collaborative Set — Updated",
+                    "Surprise Set",
+                    "Late Night Set",
+                    "Morning Set",
+                    "Closing Set",
+                ]
+            )
+            expectNoDifference(
+                Set(refreshed.posts.map(\.title)),
+                ["Saturday Schedule Updated", "Welcome to Testival"]
+            )
+            expectNoDifference(
+                refreshed.preference,
+                ChannelPreferences(
+                    id: generalChannelID,
+                    notificationState: .unsubscribed
+                )
+            )
+            expectNoDifference(refreshed.reads.map(\.id), [welcomePostID])
+            expectNoDifference(refreshed.personalSchedule, personalSchedule)
+            expectNoDifference(refreshed.memberships, [collaborativeSetMembership])
+            expectNoDifference(refreshed.viewerState, viewerState)
+            expectNoDifference(
+                refreshed.provenance?.ref,
+                OpenMusicEventUIAutomationFixture.refreshRevision
+            )
+            // The imported provenance records the immutable revision we fetched, while the
+            // attendee's installation stays anchored to the canonical authoring branch.
+            expectNoDifference(
+                refreshed.installation?.ref,
+                OpenMusicEventUIAutomationFixture.sourceRef
+            )
+        }
+
+        let observedRequests = requests.value
+        expectNoDifference(observedRequests.map(\.method), [.get, .get, .get])
+        expectNoDifference(
+            observedRequests.compactMap(\.url).map(\.path),
+            [
+                OpenMusicEventUIAutomationFixture.calendarEventPath,
+                OpenMusicEventUIAutomationFixture.calendarEventPath,
+                OpenMusicEventUIAutomationFixture.refreshArtifactURL.path,
+            ]
+        )
+        expectNoDifference(
+            observedRequests.compactMap(\.url).last,
+            OpenMusicEventUIAutomationFixture.refreshArtifactURL
+        )
     }
 
     func preparedDatabase() throws -> any DatabaseWriter {

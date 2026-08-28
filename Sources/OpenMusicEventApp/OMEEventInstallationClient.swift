@@ -219,7 +219,7 @@ extension OMEEventInstallationClient: DependencyKey {
                 }
                 try await OME.SourceDatabaseInsertion.restorePublishedEvents(
                     publishedEvents,
-                    from: workspace,
+                    replacing: workspace,
                     in: database
                 )
             },
@@ -256,6 +256,7 @@ extension OMEEventInstallationClient: DependencyKey {
                 try await published.insertion.replacePublishedEvent(
                     eventID,
                     from: published.workspace,
+                    replacing: workspace,
                     in: database
                 )
                 NotificationRefreshDiagnostics.notice("""

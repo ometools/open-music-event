@@ -256,6 +256,12 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.openMusicEventServiceEnvironment = environment
         dependencies.openMusicEventUIAutomation = uiAutomation
+        if uiAutomation {
+            OpenMusicEventUIAutomationFixture.prepareServerResponses(
+                &dependencies,
+                appViewHost: environment.appViewHost
+            )
+        }
         dependencies.calendarEvents = uiAutomation
             ? .uiAutomation(database: database)
             : .openMusicEventAndAtmo(
