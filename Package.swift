@@ -853,8 +853,10 @@ var applicationTargets: [Target] = [
             "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",
             "OpenMusicEventSource",
+            "OpenMusicEventSourceClone",
             "OpenMusicEventSourceEditing",
             "SourceEditing",
+            .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
@@ -866,6 +868,7 @@ var applicationTargets: [Target] = [
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+            .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
         ]
     ),
     .testTarget(
