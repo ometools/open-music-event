@@ -267,6 +267,146 @@ struct TangledWorkspaceProposalTests {
   }
 
   @Test
+  func `render readiness follows exact input while Jetstream and webhook hydrate the proposal`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let indexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let webhookProposal = try Self.webhookProposal()
+    let record = try Self.pullRecord(title: "Render artist detail previews")
+    let firstInput = Self.renderInput(
+      proposalRevision: ATProto.CID("bafyreirenderone"),
+      targetRevision: "1111111111111111111111111111111111111111",
+      roundNumber: 0,
+      patchDigest: "first-patch-sha256"
+    )
+    let secondInput = Self.renderInput(
+      proposalRevision: ATProto.CID("bafyreirendertwo"),
+      targetRevision: "3333333333333333333333333333333333333333",
+      roundNumber: 1,
+      patchDigest: "second-patch-sha256"
+    )
+    let firstPresentation = OME.WorkspaceProposal.Presentation.empty
+    let secondPresentation = OME.WorkspaceProposal.Presentation(
+      groups: [
+        .init(id: OME.Contributor.nsid.rawValue, displayName: "Contributor", records: [])
+      ]
+    )
+
+    // The webhook creates the proposal before Jetstream, without inventing render readiness.
+    _ = try await store.recordWorkspaceProposal(
+      id: Self.pullURI,
+      webhook: try #require(webhookProposal.webhook)
+    )
+    let awaitingInput = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(awaitingInput.renderInput, nil)
+    expectNoDifference(awaitingInput.renderState, .awaitingInput)
+
+    // Preparing the exact proposal, target, round, patch, and renderer identity makes it pending.
+    let pendingFirst = try await store.prepareWorkspaceProposalRender(
+      id: Self.pullURI,
+      input: firstInput
+    )
+    expectNoDifference(pendingFirst.renderInput, firstInput)
+    expectNoDifference(pendingFirst.renderState, .pending)
+
+    // Only a completion for that same input can make the proposal ready.
+    let firstCompletion = try await store.completeWorkspaceProposalRender(
+      id: Self.pullURI,
+      expectedInput: firstInput,
+      presentation: firstPresentation
+    )
+    expectNoDifference(
+      firstCompletion,
+      .accepted
+    )
+    let readyFirst = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(readyFirst.renderState, .ready(firstPresentation))
+
+    // The matching content-addressed Jetstream record enriches the row without invalidating it.
+    let firstVersion = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: firstInput.proposalRevision,
+      value: JSONEncoder().encode(record),
+      sequence: 400
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(firstVersion))
+    }
+    let hydratedFirst = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(hydratedFirst.renderState, .ready(firstPresentation))
+
+    // Replaying the same input preserves its completed presentation.
+    let replayedFirst = try await store.prepareWorkspaceProposalRender(
+      id: Self.pullURI,
+      input: firstInput
+    )
+    expectNoDifference(replayedFirst.renderState, .ready(firstPresentation))
+
+    // A later Jetstream revision invalidates readiness before the next render is prepared.
+    let secondVersion = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: secondInput.proposalRevision,
+      value: JSONEncoder().encode(record),
+      sequence: 401
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try indexer.apply(.put(secondVersion))
+    }
+    let invalidated = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(invalidated.renderInput, firstInput)
+    expectNoDifference(invalidated.renderState, .pending)
+
+    // Preparing the second identity clears the first completion atomically.
+    let pendingSecond = try await store.prepareWorkspaceProposalRender(
+      id: Self.pullURI,
+      input: secondInput
+    )
+    expectNoDifference(pendingSecond.renderInput, secondInput)
+    expectNoDifference(pendingSecond.renderState, .pending)
+
+    // A late worker cannot publish the first render over the newer input.
+    let lateFirstCompletion = try await store.completeWorkspaceProposalRender(
+      id: Self.pullURI,
+      expectedInput: firstInput,
+      presentation: firstPresentation
+    )
+    expectNoDifference(
+      lateFirstCompletion,
+      .superseded
+    )
+    let stillPending = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(stillPending.renderState, .pending)
+
+    let secondCompletion = try await store.completeWorkspaceProposalRender(
+      id: Self.pullURI,
+      expectedInput: secondInput,
+      presentation: secondPresentation
+    )
+    expectNoDifference(
+      secondCompletion,
+      .accepted
+    )
+
+    // A replayed webhook still cannot disturb the completed render.
+    _ = try await store.recordWorkspaceProposal(
+      id: Self.pullURI,
+      webhook: try #require(webhookProposal.webhook)
+    )
+    let readySecond = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(readySecond.webhook, webhookProposal.webhook)
+    expectNoDifference(readySecond.renderInput, secondInput)
+    expectNoDifference(readySecond.renderState, .ready(secondPresentation))
+  }
+
+  @Test
   func `Jetstream does not project pulls for an unwatched target`() async throws {
     let database = try DatabaseQueue()
     let store = try OpenMusicEventAppViewStore(database: database)
@@ -602,6 +742,21 @@ extension TangledWorkspaceProposalTests {
         repo: DID(pullAuthorDID)!
       ),
       createdAt: "2026-08-24T20:00:00Z"
+    )
+  }
+
+  fileprivate static func renderInput(
+    proposalRevision: ATProto.CID,
+    targetRevision: String,
+    roundNumber: Int,
+    patchDigest: String
+  ) -> TangledWorkspaceProposal.RenderInput {
+    TangledWorkspaceProposal.RenderInput(
+      proposalRevision: proposalRevision,
+      targetRevision: targetRevision,
+      roundNumber: roundNumber,
+      patchDigest: patchDigest,
+      rendererVersion: WorkspaceProposalRenderer.currentVersion
     )
   }
 

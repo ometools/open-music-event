@@ -9,6 +9,8 @@ import OpenMusicEventSourceEditing
 import SourceEditing
 
 struct WorkspaceProposalRenderer: Sendable {
+    static let currentVersion = 1
+
     func render(
         workspace: SourceWorkspace,
         targetSourceURL: URL,

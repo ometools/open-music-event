@@ -1,10 +1,12 @@
 import ATProto
 import AppViewIndex
+import Crypto
 import Dependencies
 import Foundation
 import GRDB
 import HTTPClient
 import IssueReporting
+import OpenMusicEventLexicon
 import SQLiteData
 import ServiceLifecycle
 import TangledLexicon
@@ -63,9 +65,70 @@ struct TangledWorkspaceProposal: Equatable, Sendable {
     case deleted(sequence: Int64)
   }
 
+  struct RenderInput: Codable, Equatable, Sendable {
+    struct Key: Codable, Equatable, Hashable, RawRepresentable, Sendable {
+      let rawValue: String
+
+      init(rawValue: String) {
+        self.rawValue = rawValue
+      }
+    }
+
+    let proposalRevision: ATProto.CID
+    let targetRevision: String
+    let roundNumber: Int
+    let patchDigest: String
+    let rendererVersion: Int
+
+    func key() throws -> Key {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys]
+      return Key(
+        rawValue: Data(SHA256.hash(data: try encoder.encode(self))).base64EncodedString()
+      )
+    }
+  }
+
+  enum RenderState: Equatable, Sendable {
+    case awaitingInput
+    case pending
+    case ready(OME.WorkspaceProposal.Presentation)
+  }
+
+  enum RenderCompletionOutcome: Equatable, Sendable {
+    case accepted
+    case superseded
+  }
+
   let id: ATProto.URI
   let webhook: WebhookObservation?
   let record: RecordObservation?
+  let renderInput: RenderInput?
+  let renderState: RenderState
+
+  init(
+    id: ATProto.URI,
+    webhook: WebhookObservation?,
+    record: RecordObservation?,
+    renderInput: RenderInput? = nil,
+    renderState: RenderState = .awaitingInput
+  ) {
+    self.id = id
+    self.webhook = webhook
+    self.record = record
+    self.renderInput = renderInput
+    self.renderState = renderState
+  }
+}
+
+private struct PersistedWorkspaceProposalRender: Codable, Equatable, Sendable {
+  struct Completion: Codable, Equatable, Sendable {
+    let inputKey: TangledWorkspaceProposal.RenderInput.Key
+    let presentation: OME.WorkspaceProposal.Presentation
+  }
+
+  let input: TangledWorkspaceProposal.RenderInput
+  var completion: Completion?
 }
 
 struct TangledPullURIResolver: Sendable {
@@ -246,6 +309,40 @@ extension OpenMusicEventAppViewStore {
         .map { try $0.proposal() }
     }
   }
+
+  func prepareWorkspaceProposalRender(
+    id: ATProto.URI,
+    input: TangledWorkspaceProposal.RenderInput
+  ) async throws -> TangledWorkspaceProposal {
+    try await database.write { database in
+      guard var row = try TangledWorkspaceProposalRow.find(id.description).fetchOne(database)
+      else {
+        throw TangledWorkspaceProposalPersistenceError.missingProposal(id.description)
+      }
+      try row.prepareRender(input)
+      try TangledWorkspaceProposalRow.upsert { row }.execute(database)
+      return try row.proposal()
+    }
+  }
+
+  func completeWorkspaceProposalRender(
+    id: ATProto.URI,
+    expectedInput: TangledWorkspaceProposal.RenderInput,
+    presentation: OME.WorkspaceProposal.Presentation
+  ) async throws -> TangledWorkspaceProposal.RenderCompletionOutcome {
+    try await database.write { database in
+      guard var row = try TangledWorkspaceProposalRow.find(id.description).fetchOne(database)
+      else {
+        throw TangledWorkspaceProposalPersistenceError.missingProposal(id.description)
+      }
+      guard try row.completeRender(expectedInput: expectedInput, presentation: presentation)
+      else {
+        return .superseded
+      }
+      try TangledWorkspaceProposalRow.upsert { row }.execute(database)
+      return .accepted
+    }
+  }
 }
 
 extension OpenMusicEventAppViewStore {
@@ -276,6 +373,7 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
   var recordSequence: Int64?
   var recordDeleted: Bool?
   var record: Data?
+  var render: Data?
 
   init(uri: String) {
     self.uri = uri
@@ -308,6 +406,37 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
       recordDeleted = true
       record = nil
     }
+  }
+
+  mutating func prepareRender(
+    _ input: TangledWorkspaceProposal.RenderInput
+  ) throws {
+    let existing = try persistedRender()
+    self.render = try JSONEncoder().encode(
+      PersistedWorkspaceProposalRender(
+        input: input,
+        completion: existing?.input == input ? existing?.completion : nil
+      )
+    )
+  }
+
+  mutating func completeRender(
+    expectedInput: TangledWorkspaceProposal.RenderInput,
+    presentation: OME.WorkspaceProposal.Presentation
+  ) throws -> Bool {
+    guard var render = try persistedRender(),
+      render.input == expectedInput,
+      try render.input.key() == expectedInput.key(),
+      try acceptsRender(for: expectedInput.proposalRevision)
+    else {
+      return false
+    }
+    render.completion = PersistedWorkspaceProposalRender.Completion(
+      inputKey: try expectedInput.key(),
+      presentation: presentation
+    )
+    self.render = try JSONEncoder().encode(render)
+    return true
   }
 
   func proposal() throws -> TangledWorkspaceProposal {
@@ -350,11 +479,54 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
       throw TangledWorkspaceProposalPersistenceError.corruptHydration(uri)
     }
 
+    let persistedRender = try persistedRender()
+    let renderState: TangledWorkspaceProposal.RenderState
+    if let persistedRender {
+      switch recordObservation {
+      case .deleted:
+        renderState = .awaitingInput
+      case let .present(cid, _, _) where cid != persistedRender.input.proposalRevision:
+        renderState = .pending
+      default:
+        let inputKey = try persistedRender.input.key()
+        if let completion = persistedRender.completion,
+          completion.inputKey == inputKey
+        {
+          renderState = .ready(completion.presentation)
+        } else {
+          renderState = .pending
+        }
+      }
+    } else {
+      renderState = .awaitingInput
+    }
+
     return TangledWorkspaceProposal(
       id: id,
       webhook: webhookObservation,
-      record: recordObservation
+      record: recordObservation,
+      renderInput: persistedRender?.input,
+      renderState: renderState
     )
+  }
+
+  private func persistedRender() throws -> PersistedWorkspaceProposalRender? {
+    try render.map {
+      try JSONDecoder().decode(PersistedWorkspaceProposalRender.self, from: $0)
+    }
+  }
+
+  private func acceptsRender(for proposalRevision: ATProto.CID) throws -> Bool {
+    switch (recordCID, recordSequence, recordDeleted, record) {
+    case (nil, nil, nil, nil):
+      return true
+    case let (.some(cid), .some, .some(false), .some):
+      return cid == proposalRevision.rawValue
+    case (nil, .some, .some(true), nil):
+      return false
+    default:
+      throw TangledWorkspaceProposalPersistenceError.corruptHydration(uri)
+    }
   }
 
   static func apply(
@@ -423,6 +595,7 @@ private func normalizedTangledBranch(_ value: String) -> String {
 enum TangledWorkspaceProposalPersistenceError: Error, Equatable, Sendable {
   case corruptHydration(String)
   case invalidURI(String)
+  case missingProposal(String)
 }
 
 enum TangledWorkspaceProposalSchema {
@@ -548,6 +721,13 @@ enum TangledWorkspaceProposalSchema {
         CREATE UNIQUE INDEX \(quote: deliveryIndexName)
         ON \(quote: tableName) ("webhookDeliveryID")
         """
+      )
+      .execute(database)
+    }
+    migrator.registerMigration("Add Workspace proposal render state") { database in
+      let tableName = TangledWorkspaceProposalRow.tableName
+      try #sql(
+        "ALTER TABLE \(quote: tableName) ADD COLUMN \"render\" BLOB"
       )
       .execute(database)
     }
