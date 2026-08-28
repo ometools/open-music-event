@@ -22,7 +22,7 @@ Android support needs a practical acceptance loop. A small parity harness keeps 
 
 ## Harness Contract
 
-- `Scripts/android-smoke-build.sh` owns the local Skip checkout, SkipRunner build, package routes, cache fingerprints, and serialized Android compiler entry.
+- `Scripts/android-smoke-build.sh` owns Skip checkout selection, the SkipRunner build, package routes, cache fingerprints, and direct Android command execution. It does not own compiler scheduling; the invoking local shell or CI runner owns job concurrency.
 - Its app build action enters Android packaging only through `SkipRunner gradle -p <app>/Android :app:assembleDebug` (or the corresponding release/bundle task). The generated SkipBridge task owns the native Swift package graph and compiler arguments.
 - Its `--tests` action runs `OpenMusicEventAppTests` through `skip android test --apk --testing-library testing`, which provides the JNI and Android application context that the bare device executable does not. The test APK reuses the canonical debug app APK's DEX payload so bridged Kotlin and Java types are available alongside the native Swift test libraries.
 - The Fastlane `android_tests` lane builds the generated app first, then passes that exact APK into the instrumentation packaging step. A direct `--tests` invocation therefore requires a successful canonical app build in the same app root (or an explicit `OME_ANDROID_TEST_APP_APK`).
