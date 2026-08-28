@@ -61,36 +61,17 @@ public extension WorkspaceReferenceUpdateClient {
                     Repository(url: source.repositoryURL),
                     RefName(rawValue: "HEAD")
                 )
-                guard revision.rawValue == proposal.revision.rawValue else {
+                guard revision.rawValue == proposal.target.revision.rawValue else {
                     throw SourceWorkspaceDatabaseError.unexpectedRevision(
-                        expected: proposal.revision.rawValue,
+                        expected: proposal.target.revision.rawValue,
                         observed: revision.rawValue
                     )
                 }
-                let branch = try publicationSourceBranch(
-                    submission,
-                    workspaceID: workspaceID,
-                    database: mainDatabase
-                )
-
-                let insertion = try sourceInsertion(
-                    workspace: source.workspace,
-                    repositoryURL: source.repositoryURL
-                )
-                let referenceDatabase = source.referenceDatabase
-                try await insertion.replaceSourceWorkspace(
-                    source.workspace,
-                    branch: branch.rawValue,
-                    revision: revision.rawValue,
-                    in: referenceDatabase.database
-                )
-                try await saveReferenceRevision(
-                    revision.rawValue,
-                    workspaceID: workspaceID,
-                    database: referenceDatabase.database
-                )
+                guard submission.proposalTarget == proposal.target else {
+                    throw SourceWorkspaceDatabaseError.proposalTargetMismatch(proposal.id)
+                }
                 try await saveWorkspaceSelection(
-                    branch: branch.rawValue,
+                    branch: proposal.target.branch.rawValue,
                     revision: revision.rawValue,
                     workspaceID: workspaceID,
                     database: mainDatabase
@@ -112,20 +93,16 @@ public extension WorkspaceReferenceUpdateClient {
                 @Dependency(\.sourceWorkingTreeMaterializer) var materializer
 
                 let proposalStore = SourceWorkspaceOpenProposalStore(database: mainDatabase)
-                let expectedReference = try workspaceReference(
-                    reconciliation.expected,
-                    workspaceID: workspaceID,
-                    database: mainDatabase
-                )
-                let destinationBranch = try reconciliationBranch(
-                    reconciliation,
-                    workspaceID: workspaceID,
-                    database: mainDatabase
-                )
+                let persistedProposal = try proposalStore.load(workspaceID)
                 if case let .proposal(expectedProposal) = reconciliation.expected,
-                   case let .published(branch) = reconciliation.destination,
-                   branch == expectedProposal.target.branch,
-                   try proposalStore.load(workspaceID)?.id == expectedProposal.id {
+                   persistedProposal != expectedProposal {
+                    throw SourceWorkspaceDatabaseError.proposalContextMismatch(
+                        expectedProposal.id
+                    )
+                }
+                if case let .proposal(expectedProposal) = reconciliation.expected,
+                   case let .published(targetBranch) = reconciliation.destination,
+                   expectedProposal.target.branch == targetBranch {
                     // The remote review is already merged. Closing that relationship is durable
                     // even if selecting or refreshing its target branch subsequently fails.
                     try await proposalStore.save(nil, workspaceID: workspaceID)
@@ -133,6 +110,8 @@ public extension WorkspaceReferenceUpdateClient {
                 let currentChanges = try await patchGenerator.generate(
                     SourceWorkspacePatchRequest(workspace: source.workspace)
                 )
+                let expectedReference = reconciliation.expected.selectedReference
+                let destinationBranch = reconciliation.destination.editingBranch
                 let switchesBranch = destinationBranch != expectedReference.branch
                 guard !switchesBranch || currentChanges.isEmpty else {
                     throw SourceWorkspaceDatabaseError.localChangesPreventBranchSwitch(
@@ -150,6 +129,23 @@ public extension WorkspaceReferenceUpdateClient {
                         expected: expectedReference.revision.rawValue,
                         observed: startingRevision.rawValue
                     )
+                }
+
+                if case let .proposal(id, targetBranch) = reconciliation.destination {
+                    guard case let .proposal(proposal) = reconciliation.expected,
+                          proposal.id == id,
+                          proposal.target.branch == targetBranch
+                    else {
+                        throw SourceWorkspaceDatabaseError.proposalContextMismatch(id)
+                    }
+                    if let observedRevision = reconciliation.observedRevision,
+                       observedRevision != proposal.revision {
+                        throw SourceWorkspaceDatabaseError.proposalRevisionRequiresRefresh(
+                            expected: proposal.revision.rawValue,
+                            observed: observedRevision.rawValue
+                        )
+                    }
+                    return .proposal(proposal)
                 }
 
                 let previousReferenceTree = try materializer.materialize(
@@ -268,12 +264,18 @@ public extension WorkspaceReferenceUpdateClient {
                         workspaceID: workspaceID,
                         database: mainDatabase
                     )
-                    return try await reconciledEditingContext(
-                        reconciliation,
-                        revision: WorkspaceRevision(rawValue: revision.rawValue),
-                        proposalStore: proposalStore,
-                        workspaceID: workspaceID
+                    let reference = WorkspaceBranchReference(
+                        branch: destinationBranch,
+                        revision: WorkspaceRevision(rawValue: revision.rawValue)
                     )
+                    switch reconciliation.destination {
+                    case .branch:
+                        return .branch(reference)
+                    case .published:
+                        return .published(reference)
+                    case .proposal:
+                        preconditionFailure("Proposal reconciliation returns before branch refresh.")
+                    }
                 } catch {
                     let reconciliationError = error
                     var rollbackFailures: [String] = []
@@ -312,6 +314,12 @@ public extension WorkspaceReferenceUpdateClient {
                             branch: expectedReference.branch.rawValue,
                             revision: expectedReference.revision.rawValue,
                             in: mainDatabase
+                        )
+                        try await saveWorkspaceSelection(
+                            branch: expectedReference.branch.rawValue,
+                            revision: expectedReference.revision.rawValue,
+                            workspaceID: workspaceID,
+                            database: mainDatabase
                         )
                     } catch {
                         rollbackFailures.append(
@@ -360,6 +368,7 @@ private func prepareOpenMusicEventSourceWorkspace(
     }
     let installedRevision = persisted.installation?.revision
     let requestedBranch = persisted.selection?.branch
+        ?? persisted.openProposal?.target.branch.rawValue
         ?? workspace.defaultBranch
 
     let repositoryExists = isGitRepository(location.repositoryURL)
@@ -384,8 +393,15 @@ private func prepareOpenMusicEventSourceWorkspace(
     }
 
     let revision = try await resolveRevision(repository, RefName(rawValue: "HEAD"))
-    let selectedBranch = persisted.selection?.branch ?? workspace.defaultBranch
-    var selectedRevision = revision.rawValue
+    let selectedBranch: String
+    if let selection = persisted.selection {
+        selectedBranch = selection.branch
+    } else if persisted.openProposal?.target.revision.rawValue == revision.rawValue {
+        selectedBranch = persisted.openProposal?.target.branch.rawValue ?? workspace.defaultBranch
+    } else {
+        selectedBranch = workspace.defaultBranch
+    }
+    let selectedRevision = revision.rawValue
 
     switch (referenceRevision, installedRevision) {
     case (nil, nil):
@@ -434,27 +450,6 @@ private func prepareOpenMusicEventSourceWorkspace(
     case (nil, .some):
         throw SourceWorkspaceDatabaseError.referenceMissing(workspace.id)
 
-    case let (.some(referenceRevision), .some(installedRevision))
-        where referenceRevision == installedRevision:
-        guard let checkpoint = try SourceWorkspacePublicationCheckpointStore(database: mainDatabase)
-            .load(workspace.id),
-              checkpoint.commit.parentRevision.rawValue == referenceRevision,
-              publicationBaseRevision(checkpoint.submission).rawValue == referenceRevision,
-              checkpoint.commit.source.revision.rawValue == revision.rawValue
-        else {
-            throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
-                workspaceID: workspace.id,
-                repositoryRevision: revision.rawValue,
-                referenceRevision: referenceRevision,
-                installationRevision: installedRevision
-            )
-        }
-
-        // Publication persisted its local proposal commit before its external push failed. Keep
-        // that commit checked out and preserve its branch/files for diagnosis or continuation,
-        // while exposing the settled parent as the selected branch beneath the durable submission.
-        selectedRevision = referenceRevision
-
     case let (referenceRevision, installedRevision):
         throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
             workspaceID: workspace.id,
@@ -482,11 +477,12 @@ private func prepareOpenMusicEventSourceWorkspace(
     }
 
     let reference = WorkspaceBranchReference(
-            branch: WorkspaceBranch(rawValue: selectedBranch),
-            revision: WorkspaceRevision(rawValue: selectedRevision)
-        )
+        branch: WorkspaceBranch(rawValue: selectedBranch),
+        revision: WorkspaceRevision(rawValue: selectedRevision)
+    )
     let context: WorkspaceEditingContext
-    if let proposal = persisted.openProposal {
+    if persisted.openProposal?.target == reference,
+       let proposal = persisted.openProposal {
         context = .proposal(proposal)
     } else if selectedBranch == workspace.defaultBranch {
         context = .published(reference)
@@ -502,103 +498,6 @@ private func prepareOpenMusicEventSourceWorkspace(
             referenceDatabase: referenceDatabase
         )
     )
-}
-
-private func publicationSourceBranch(
-    _ submission: WorkspaceSubmission<SourcePatch>,
-    workspaceID: SourceWorkspace.ID,
-    database: any DatabaseWriter
-) throws -> WorkspaceBranch {
-    switch submission.target {
-    case .createProposal:
-        return WorkspaceBranch(
-            rawValue: "ome/proposal-\(submission.id.rawValue.uuidString.lowercased())"
-        )
-    case .updateProposal:
-        guard let selection = try database.read({ db in
-            try SourceWorkspaceSelectionRecord.find(workspaceID).fetchOne(db)
-        }) else {
-            throw SourceWorkspaceDatabaseError.selectionMissing(workspaceID)
-        }
-        return WorkspaceBranch(rawValue: selection.branch)
-    }
-}
-
-private func publicationBaseRevision(
-    _ submission: WorkspaceSubmission<SourcePatch>
-) -> WorkspaceRevision {
-    switch submission.target {
-    case let .createProposal(target, _):
-        target.revision
-    case let .updateProposal(proposal):
-        proposal.revision
-    }
-}
-
-private func workspaceReference(
-    _ context: WorkspaceEditingContext,
-    workspaceID: SourceWorkspace.ID,
-    database: any DatabaseWriter
-) throws -> WorkspaceBranchReference {
-    switch context {
-    case let .branch(reference), let .published(reference):
-        return reference
-    case let .proposal(proposal):
-        guard let selection = try database.read({ db in
-            try SourceWorkspaceSelectionRecord.find(workspaceID).fetchOne(db)
-        }) else {
-            throw SourceWorkspaceDatabaseError.selectionMissing(workspaceID)
-        }
-        return WorkspaceBranchReference(
-            branch: WorkspaceBranch(rawValue: selection.branch),
-            revision: proposal.revision
-        )
-    }
-}
-
-private func reconciliationBranch(
-    _ reconciliation: WorkspaceReconciliation,
-    workspaceID: SourceWorkspace.ID,
-    database: any DatabaseWriter
-) throws -> WorkspaceBranch {
-    switch reconciliation.destination {
-    case let .branch(branch), let .published(branch):
-        return branch
-    case .proposal:
-        return try workspaceReference(
-            reconciliation.expected,
-            workspaceID: workspaceID,
-            database: database
-        ).branch
-    }
-}
-
-private func reconciledEditingContext(
-    _ reconciliation: WorkspaceReconciliation,
-    revision: WorkspaceRevision,
-    proposalStore: SourceWorkspaceOpenProposalStore,
-    workspaceID: SourceWorkspace.ID
-) async throws -> WorkspaceEditingContext {
-    switch reconciliation.destination {
-    case let .branch(branch):
-        return .branch(WorkspaceBranchReference(branch: branch, revision: revision))
-    case let .published(branch):
-        return .published(WorkspaceBranchReference(branch: branch, revision: revision))
-    case let .proposal(id, targetBranch):
-        guard case let .proposal(existing) = reconciliation.expected,
-              existing.id == id,
-              existing.target.branch == targetBranch
-        else {
-            throw SourceWorkspaceDatabaseError.proposalDestinationMismatch(workspaceID)
-        }
-        let proposal = WorkspaceProposal(
-            id: id,
-            revision: revision,
-            target: existing.target
-        )
-        try await proposalStore.save(proposal, workspaceID: workspaceID)
-        return .proposal(proposal)
-    }
 }
 
 private func sourceInsertion(
@@ -676,12 +575,13 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
         referenceRevision: String?,
         installationRevision: String?
     )
+    case proposalContextMismatch(WorkspaceProposalID?)
+    case proposalRevisionRequiresRefresh(expected: String, observed: String)
+    case proposalTargetMismatch(WorkspaceProposalID)
     case referenceMissing(SourceWorkspace.ID)
-    case proposalDestinationMismatch(SourceWorkspace.ID)
     case reconciliationRollbackFailed(reconciliation: String, rollback: String)
     case repositoryMissing(SourceWorkspace.ID)
     case resourceMismatch(SourceWorkspace.ID)
-    case selectionMissing(SourceWorkspace.ID)
     case selectionRevisionMismatch(
         workspaceID: SourceWorkspace.ID,
         branch: String,
@@ -689,6 +589,28 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
         persistedRevision: String
     )
     case unexpectedRevision(expected: String, observed: String)
+}
+
+private extension WorkspaceEditingContextDestination {
+    var editingBranch: WorkspaceBranch {
+        switch self {
+        case let .branch(branch), let .published(branch):
+            branch
+        case let .proposal(_, targetBranch):
+            targetBranch
+        }
+    }
+}
+
+private extension WorkspaceSubmission where ChangeSet == SourcePatch {
+    var proposalTarget: WorkspaceBranchReference {
+        switch target {
+        case let .createProposal(target, _):
+            target
+        case let .updateProposal(proposal):
+            proposal.target
+        }
+    }
 }
 
 private enum SourceWorkspacePreparationCoordinator {

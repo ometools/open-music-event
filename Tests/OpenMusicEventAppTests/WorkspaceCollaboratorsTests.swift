@@ -90,8 +90,7 @@ struct WorkspaceCollaboratorsTests {
                 return EventWorkspace.State(
                     workspace: workspace,
                     eventID: eventID,
-                    workspacePhase: SharedReader(value: .inactive),
-                    openProposal: SharedReader(value: nil)
+                    workspacePhase: SharedReader(value: .inactive)
                 )
             }
 
@@ -163,8 +162,7 @@ struct WorkspaceCollaboratorsTests {
                 return EventWorkspace.State(
                     workspace: workspace,
                     eventID: eventID,
-                    workspacePhase: SharedReader(value: .inactive),
-                    openProposal: SharedReader(value: nil)
+                    workspacePhase: SharedReader(value: .inactive)
                 )
             }
 

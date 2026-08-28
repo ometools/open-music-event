@@ -4,7 +4,7 @@ import Foundation
 import Gzip
 import SourceControlClient
 
-struct TangledReplacementPatch: Equatable, Sendable {
+struct TangledReplacementPatch: Codable, Equatable, Sendable {
     var baseRevision: WorkspaceRevision
     var currentRevision: WorkspaceRevision
     var patchText: String
@@ -23,6 +23,8 @@ struct TangledReplacementPatchLimits: Equatable, Sendable {
     var maxPatchBytes: Int
     var maxCompressedBlobBytes: Int
 
+    /// Knot2's default decompressed and encoded patch ceilings.
+    /// Operators can lower these values, so the server remains authoritative.
     static let tangled = Self(
         maxPatchBytes: 128 * 1_024 * 1_024,
         maxCompressedBlobBytes: 16 * 1_024 * 1_024

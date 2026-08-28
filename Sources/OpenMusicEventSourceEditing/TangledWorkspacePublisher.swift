@@ -1,146 +1,40 @@
 import ATProto
-import ATProtoOAuth
 import ComposableWorkspace
 import Dependencies
 import Foundation
-import Gzip
 import OpenMusicEventSourceClone
-import SQLiteData
 #if canImport(OSLog)
 import OSLog
 #endif
 import SourceControlClient
 import SourceEditing
 import TangledLexicon
-import TangledXRPC
-import XRPCClient
 
+/// Adapts Workspace's durable submission to Tangled's patch-only pull model.
+///
+/// Git is used only inside a temporary copy to create the Git-compatible replacement patch.
+/// No proposal branch is created or sent to a remote repository.
 struct TangledWorkspacePublisher: Sendable {
+    var patchPublisher: TangledPatchOnlyProposalPublisher
+    var patchGenerator: TangledReplacementPatchGenerator
+
+    init(
+        patchPublisher: TangledPatchOnlyProposalPublisher = .init(),
+        patchGenerator: TangledReplacementPatchGenerator = .init()
+    ) {
+        self.patchPublisher = patchPublisher
+        self.patchGenerator = patchGenerator
+    }
+
     func publishProposal(
+        source: SourceWorkspaceResource,
         workspaceID: SourceWorkspace.ID,
         submission: WorkspaceSubmission<SourcePatch>,
         persistence: WorkspacePublicationPersistence
     ) async throws -> WorkspaceProposal {
-        let commit = try await pushCommit(
-            workspaceID: workspaceID,
-            submission: submission,
-            persistence: persistence
-        )
-        return try await recordProposal(
-            workspaceID: workspaceID,
-            submission: submission,
-            commit: commit,
-            persistence: persistence
-        )
-    }
-
-    func pushCommit(
-        workspaceID: SourceWorkspace.ID,
-        submission: WorkspaceSubmission<SourcePatch>,
-        persistence: WorkspacePublicationPersistence
-    ) async throws -> SourceWorkspacePublicationCommit {
-        if let commit = try persistence.pushedCommit(
-            workspaceID: workspaceID,
-            submissionID: submission.id
-        ) {
-            let context = try await PublishingContext.load(workspaceID)
-            @Dependency(\.sourceWorkspaceStorage) var storage
-            try await push(
-                commit: commit,
-                repositoryURL: storage.location(workspaceID).repositoryURL,
-                context: context
-            )
-            return commit
+        guard source.workspace.id == workspaceID else {
+            throw TangledWorkspacePublisherError.sourceWorkspaceMismatch(workspaceID)
         }
-
-        let context = try await PublishingContext.load(workspaceID)
-        @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
-        try await authorizationBroker.authorize(
-            TangledOAuthRequirements.proposalAuthRequirement
-        )
-
-        @Dependency(\.sourceControl) var sourceControl
-        @Dependency(\.sourcePatchApplier) var patchApplier
-        @Dependency(\.sourceWorkspaceStorage) var storage
-        let repositoryURL = try storage.location(workspaceID).repositoryURL
-        let repository = try await sourceControl.open(repositoryURL)
-        let branch = try persistence.sourceBranch(
-            workspaceID: workspaceID,
-            submission: submission
-        )
-        switch submission.target {
-        case .createProposal:
-            try await sourceControl.checkout(
-                CheckoutRequest(
-                    repository: repository,
-                    ref: RefName(
-                        rawValue: submission.baseRevision.rawValue
-                    )
-                )
-            )
-            _ = try await sourceControl.createBranch(
-                CreateBranchRequest(
-                    repository: repository,
-                    name: BranchName(rawValue: branch.rawValue),
-                    startPoint: RefName(
-                        rawValue: submission.baseRevision.rawValue
-                    ),
-                    checkout: true
-                )
-            )
-        case .updateProposal:
-            try await sourceControl.checkout(
-                CheckoutRequest(
-                    repository: repository,
-                    ref: RefName(rawValue: branch.rawValue)
-                )
-            )
-        }
-        try patchApplier.apply(submission.changes, repositoryURL)
-        try await sourceControl.stage(
-            StageRequest(
-                repository: repository,
-                paths: submission.changes.fileChanges.map {
-                    RepositoryPath(rawValue: $0.path)
-                }
-            )
-        )
-        let commit = try await sourceControl.commit(
-            CommitRequest(
-                repository: repository,
-                message: CommitMessage(rawValue: submission.commitTitle),
-                author: Author(
-                    name: PersonName(rawValue: "Open Music Event"),
-                    email: EmailAddress(rawValue: "noreply@openmusicevent.app")
-                )
-            )
-        )
-        let workspaceCommit = SourceWorkspacePublicationCommit(
-            parentRevision: submission.baseRevision,
-            source: WorkspaceBranchReference(
-                branch: branch,
-                revision: WorkspaceRevision(rawValue: commit.id.rawValue)
-            )
-        )
-        try await persistence.savePushedCommit(
-            workspaceCommit,
-            workspaceID: workspaceID,
-            submissionID: submission.id
-        )
-        try await push(
-            commit: workspaceCommit,
-            repositoryURL: repositoryURL,
-            context: context
-        )
-        return workspaceCommit
-    }
-
-    func recordProposal(
-        workspaceID: SourceWorkspace.ID,
-        submission: WorkspaceSubmission<SourcePatch>,
-        commit: SourceWorkspacePublicationCommit,
-        persistence: WorkspacePublicationPersistence
-    ) async throws -> WorkspaceProposal {
         if let proposal = try persistence.publishedProposal(
             workspaceID: workspaceID,
             submissionID: submission.id
@@ -148,119 +42,30 @@ struct TangledWorkspacePublisher: Sendable {
             return proposal
         }
 
-        @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
-        @Dependency(\.date.now) var now
-        @Dependency(\.getDefaultSession) var getDefaultSession
-        @Dependency(XRPC.Client.self) var xrpcClient
-        try await authorizationBroker.authorize(
-            TangledOAuthRequirements.proposalAuthRequirement
-        )
-
-        let session = getDefaultSession()
-        let repo = session.accountID.rawValue.description
-        let timestamp = try await persistence.proposalTimestamp(
+        let request: TangledPatchOnlyProposalPublicationRequest
+        if let prepared = try persistence.preparedPublication(
             workspaceID: workspaceID,
             submissionID: submission.id
         ) {
-            ISO8601DateFormatter().string(from: now)
-        }
-        let context = try await PublishingContext.load(workspaceID)
-        let patchBlob = try await patchBlob(
-            workspaceID: workspaceID,
-            submission: submission,
-            commit: commit,
-            timestamp: timestamp,
-            persistence: persistence
-        )
-        let round = TangledPullRecord.Round(
-            patchBlob: patchBlob,
-            createdAt: timestamp
-        )
-
-        let proposal: WorkspaceProposal
-        switch submission.target {
-        case let .createProposal(target, details):
-            let rkey = ATProto.Record.Key(rawValue: submission.proposalRecordKey)
-            let record = TangledPullRecord(
-                target: TangledPullRecord.Target(
-                    repo: context.targetRepository.repositoryDID,
-                    branch: target.branch.rawValue
-                ),
-                title: details.title.rawValue,
-                body: details.description,
-                rounds: [round],
-                source: TangledPullRecord.Source(branch: commit.source.branch.rawValue),
-                createdAt: timestamp
+            request = prepared
+        } else {
+            request = try await preparePublication(
+                source: source,
+                submission: submission
             )
-            let output = try await xrpcClient.run(
-                TangledRepositoryRequests.putRecord(
-                    repo: repo,
-                    collection: .pull,
-                    rkey: rkey,
-                    record: record,
-                    authorizationPolicy: .required(
-                        TangledOAuthRequirements.proposalAuthRequirement
-                    )
-                )
-            )
-            proposal = WorkspaceProposal(
-                id: WorkspaceProposalID(rawValue: output.uri.description),
-                revision: commit.source.revision,
-                target: target
-            )
-
-        case let .updateProposal(existingProposal):
-            guard let uri = ATProto.URI(existingProposal.id.rawValue),
-                  uri.collection == TangledNSID.pull,
-                  let rkey = uri.rkey
-            else {
-                throw TangledWorkspacePublisherError.invalidProposalID(existingProposal.id.rawValue)
-            }
-            let existing = try await xrpcClient.run(
-                TangledRepositoryRequests.getRecord(
-                    TangledPullRecord.self,
-                    repo: uri.authorDescription,
-                    collection: .pull,
-                    rkey: rkey
-                )
-            )
-            let observedRevision = try await patchRevision(
-                existing.value,
-                authorDID: try requireDIDAuthority(uri)
-            )
-            if observedRevision == commit.source.revision {
-                proposal = WorkspaceProposal(
-                    id: existingProposal.id,
-                    revision: commit.source.revision,
-                    target: existingProposal.target
-                )
-                break
-            }
-            guard observedRevision == existingProposal.revision else {
-                throw WorkspaceHeadMismatch(observedRevision: observedRevision)
-            }
-            var record = existing.value
-            record.rounds.append(round)
-            record.source = TangledPullRecord.Source(branch: commit.source.branch.rawValue)
-            _ = try await xrpcClient.run(
-                TangledRepositoryRequests.putRecord(
-                    repo: uri.authorDescription,
-                    collection: .pull,
-                    rkey: rkey,
-                    record: record,
-                    swapRecord: existing.cid,
-                    authorizationPolicy: .required(
-                        TangledOAuthRequirements.proposalAuthRequirement
-                    )
-                )
-            )
-            proposal = WorkspaceProposal(
-                id: existingProposal.id,
-                revision: commit.source.revision,
-                target: existingProposal.target
+            try await persistence.savePreparedPublication(
+                request,
+                workspaceID: workspaceID,
+                submissionID: submission.id
             )
         }
 
+        let id = try await patchPublisher.publish(request)
+        let proposal = WorkspaceProposal(
+            id: id,
+            revision: request.patch.currentRevision,
+            target: submission.proposalTarget
+        )
         try await persistence.savePublishedProposal(
             proposal,
             workspaceID: workspaceID,
@@ -291,138 +96,142 @@ struct TangledWorkspacePublisher: Sendable {
 }
 
 enum TangledWorkspacePublisherError: Equatable, Error, Sendable {
+    case invalidAuthorRepository(String)
     case invalidProposalID(String)
     case missingRepositoryPDS(String)
     case repositoryRecordMissingRepoDID(String)
     case repositoryRecordNotFound(owner: String, repository: String)
-    case sourceCheckoutMissing(String)
+    case sourceWorkspaceMismatch(SourceWorkspace.ID)
     case sourceNotTangled(String)
-    case sourceSelectionMissing(SourceWorkspace.ID)
 }
 
 private extension TangledWorkspacePublisher {
-    func push(
-        commit: SourceWorkspacePublicationCommit,
-        repositoryURL: URL,
-        context: PublishingContext
-    ) async throws {
+    func preparePublication(
+        source: SourceWorkspaceResource,
+        submission: WorkspaceSubmission<SourcePatch>
+    ) async throws -> TangledPatchOnlyProposalPublicationRequest {
+        @Dependency(\.date.now) var now
+        let context = try await PublishingContext.load(source.workspace.id)
+        let address = try proposalAddress(submission)
+        let patch = try await replacementPatch(
+            source: source,
+            submission: submission
+        )
+        return TangledPatchOnlyProposalPublicationRequest(
+            authorRepository: address.authorRepository,
+            recordKey: address.recordKey,
+            target: TangledPatchOnlyProposalTarget(
+                repositoryDID: context.targetRepository.repositoryDID,
+                repositoryOwnerDID: try proposalDIDAuthority(
+                    context.targetRepository.recordURI
+                ),
+                repositoryName: context.repository.repository,
+                knotHost: context.targetRepository.knotHost
+            ),
+            title: submission.proposalTitle,
+            body: submission.proposalBody,
+            createdAt: ISO8601DateFormatter().string(from: now),
+            patch: patch,
+            previousProposal: submission.previousProposal
+        )
+    }
+
+    func replacementPatch(
+        source: SourceWorkspaceResource,
+        submission: WorkspaceSubmission<SourcePatch>
+    ) async throws -> TangledReplacementPatch {
         @Dependency(\.sourceControl) var sourceControl
-        let repository = try await sourceControl.open(repositoryURL)
-        try await TangledWorkspacePublisherDiagnostics.run(
-            operation: "sourceControl.push",
-            details: [
-                "repository: \(repositoryURL.path)",
-                "branch: \(commit.source.branch.rawValue)",
-                "revision: \(commit.source.revision.rawValue)",
-            ]
-        ) {
-            try await sourceControl.push(
-                PushRequest(
-                    repository: repository,
-                    localBranch: BranchName(rawValue: commit.source.branch.rawValue),
-                    remoteBranch: BranchName(rawValue: commit.source.branch.rawValue),
-                    credentials: context.repository.sourceControlCredentials(
-                        context.credentials
-                    )
+        @Dependency(\.sourcePatchApplier) var patchApplier
+        @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+
+        let workingTree = try materializer.materialize(source.repositoryURL, nil)
+        defer {
+            try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL)
+        }
+        let repository = try await sourceControl.open(workingTree.workingRepositoryURL)
+        let target = submission.proposalTarget
+        try await sourceControl.checkout(
+            CheckoutRequest(
+                repository: repository,
+                ref: RefName(rawValue: target.revision.rawValue)
+            )
+        )
+        try patchApplier.apply(
+            submission.changes,
+            workingTree.workingRepositoryURL
+        )
+        try await sourceControl.stage(
+            StageRequest(
+                repository: repository,
+                paths: submission.changes.fileChanges.map {
+                    RepositoryPath(rawValue: $0.path)
+                }
+            )
+        )
+        let commit = try await sourceControl.commit(
+            CommitRequest(
+                repository: repository,
+                message: CommitMessage(rawValue: submission.proposalTitle),
+                author: Author(
+                    name: PersonName(rawValue: "Open Music Event"),
+                    email: EmailAddress(rawValue: "noreply@openmusicevent.app")
                 )
             )
-        }
+        )
+        return try await patchGenerator.generate(
+            repository: repository,
+            baseRevision: target.revision,
+            currentRevision: WorkspaceRevision(rawValue: commit.id.rawValue)
+        )
     }
 
-    func patchBlob(
-        workspaceID: SourceWorkspace.ID,
-        submission: WorkspaceSubmission<SourcePatch>,
-        commit: SourceWorkspacePublicationCommit,
-        timestamp: String,
-        persistence: WorkspacePublicationPersistence
-    ) async throws -> ATProto.Blob {
-        guard try persistence.pushedCommit(
-            workspaceID: workspaceID,
-            submissionID: submission.id
-        ) != nil else {
-            throw TangledWorkspacePublisherError.sourceCheckoutMissing(
-                submission.id.rawValue.uuidString
+    struct ProposalAddress {
+        var authorRepository: DID
+        var recordKey: ATProto.Record.Key
+    }
+
+    func proposalAddress(
+        _ submission: WorkspaceSubmission<SourcePatch>
+    ) throws -> ProposalAddress {
+        switch submission.target {
+        case .createProposal:
+            @Dependency(\.getDefaultSession) var getDefaultSession
+            let description = getDefaultSession().accountID.rawValue.description
+            guard let authorRepository = DID(description) else {
+                throw TangledWorkspacePublisherError.invalidAuthorRepository(description)
+            }
+            return ProposalAddress(
+                authorRepository: authorRepository,
+                recordKey: ATProto.Record.Key(rawValue: submission.proposalRecordKey)
+            )
+
+        case let .updateProposal(proposal):
+            guard let uri = ATProto.URI(proposal.id.rawValue),
+                  uri.collection == TangledNSID.pull,
+                  let recordKey = uri.rkey
+            else {
+                throw TangledWorkspacePublisherError.invalidProposalID(proposal.id.rawValue)
+            }
+            return ProposalAddress(
+                authorRepository: try proposalDIDAuthority(uri),
+                recordKey: recordKey
             )
         }
-        @Dependency(\.sourceControl) var sourceControl
-        @Dependency(\.sourceWorkspaceStorage) var storage
-        @Dependency(XRPC.Client.self) var xrpcClient
-        let repositoryURL = try storage.location(workspaceID).repositoryURL
-        let data = try await sourceControl.formatPatch(
-            FormatPatchRequest(
-                repository: Repository(url: repositoryURL),
-                commit: CommitID(rawValue: commit.source.revision.rawValue)
-            )
-        )
-        let createdAt = try ISO8601DateFormatter().date(from: timestamp)
-            .required(TangledWorkspacePublisherError.sourceCheckoutMissing(timestamp))
-        let text = try Self.formatPatchText(
-            diffData: data,
-            sourceRevision: commit.source.revision.rawValue,
-            title: submission.commitTitle,
-            createdAt: createdAt
-        )
-        return try await xrpcClient.tangledUploadPatchBlob(
-            try Data(text.utf8).gzipped(),
-            authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
-        )
-        .blob
-    }
-
-    static func formatPatchText(
-        diffData: Data,
-        sourceRevision: String,
-        title: String,
-        createdAt: Date
-    ) throws -> String {
-        guard let diff = String(data: diffData, encoding: .utf8) else {
-            throw SourcePatchGitPatchCodecError.binaryPatch
-        }
-        let subject = title
-            .replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-        let body = """
-        From \(sourceRevision) Mon Sep 17 00:00:00 2001
-        From: Open Music Event <noreply@openmusicevent.app>
-        Date: \(formatPatchDate(createdAt))
-        Subject: [PATCH] \(subject)
-
-        ---
-
-        \(diff)
-        """
-        return body.hasSuffix("\n")
-            ? body + "-- \nOpen Music Event\n"
-            : body + "\n-- \nOpen Music Event\n"
-    }
-
-    static func formatPatchDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
-        return formatter.string(from: date)
     }
 }
 
 private struct PublishingContext {
-    var credentials: Credentials
     var repository: TangledRepositoryReference
     var targetRepository: TangledRepositoryTarget
 
     static func load(_ workspaceID: SourceWorkspace.ID) async throws -> Self {
-        @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
         let workspace = try SourceWorkspace(id: workspaceID)
         let repository = try TangledRepositoryReference(
             sourceReference: workspace.repository
         )
         let targetRepository = try await TangledWorkspacePublisher()
             .targetRepository(repository)
-        let credentials = try await tangledSSHCredentials.readyCredentials(
-            targetRepository.knotHost
-        )
         return Self(
-            credentials: credentials,
             repository: repository,
             targetRepository: targetRepository
         )
@@ -430,13 +239,14 @@ private struct PublishingContext {
 }
 
 private extension WorkspaceSubmission where ChangeSet == SourcePatch {
-    var commitTitle: String {
-        switch target {
-        case let .createProposal(_, details):
-            details.title.rawValue
-        case .updateProposal:
-            "Update proposal"
-        }
+    var previousProposal: WorkspaceProposal? {
+        guard case let .updateProposal(proposal) = target else { return nil }
+        return proposal
+    }
+
+    var proposalBody: String? {
+        guard case let .createProposal(_, details) = target else { return nil }
+        return details.description
     }
 
     var proposalRecordKey: String {
@@ -445,38 +255,26 @@ private extension WorkspaceSubmission where ChangeSet == SourcePatch {
             .replacingOccurrences(of: "-", with: "")
     }
 
-    var baseRevision: WorkspaceRevision {
+    var proposalTarget: WorkspaceBranchReference {
         switch target {
         case let .createProposal(target, _):
-            target.revision
+            target
         case let .updateProposal(proposal):
-            proposal.revision
+            proposal.target
         }
     }
-}
 
-private extension WorkspacePublicationPersistence {
-    func sourceBranch(
-        workspaceID: SourceWorkspace.ID,
-        submission: WorkspaceSubmission<SourcePatch>
-    ) throws -> WorkspaceBranch {
-        switch submission.target {
-        case .createProposal:
-            return WorkspaceBranch(
-                rawValue: "ome/proposal-\(submission.id.rawValue.uuidString.lowercased())"
-            )
+    var proposalTitle: String {
+        switch target {
+        case let .createProposal(_, details):
+            details.title.rawValue
         case .updateProposal:
-            guard let selection = try database.read({ db in
-                try SourceWorkspaceSelectionRecord.find(workspaceID).fetchOne(db)
-            }) else {
-                throw TangledWorkspacePublisherError.sourceSelectionMissing(workspaceID)
-            }
-            return WorkspaceBranch(rawValue: selection.branch)
+            "Update proposal"
         }
     }
 }
 
-private func patchRevision(
+func patchRevision(
     _ pull: TangledPullRecord,
     authorDID: DID
 ) async throws -> WorkspaceRevision {
@@ -491,19 +289,12 @@ private func patchRevision(
     return WorkspaceRevision(rawValue: revision)
 }
 
-private func requireDIDAuthority(_ uri: ATProto.URI) throws -> DID {
+func proposalDIDAuthority(_ uri: ATProto.URI) throws -> DID {
     switch uri.authority {
     case let .did(did):
         return did
     case .handle:
         throw TangledWorkspacePublisherError.invalidProposalID(uri.description)
-    }
-}
-
-private extension Optional {
-    func required(_ error: @autoclosure () -> any Error) throws -> Wrapped {
-        guard let self else { throw error() }
-        return self
     }
 }
 

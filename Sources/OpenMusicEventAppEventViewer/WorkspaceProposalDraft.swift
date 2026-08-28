@@ -162,7 +162,7 @@ public struct WorkspaceProposalDraftView: View {
             case .publishProposal:
                 "Publishing the proposal"
             case .updateReference:
-                "Refreshing the source branch"
+                "Refreshing the source"
             }
         case .inactive, .preparingSource, .publicationFailed,
              .publicationInterrupted, .ready, .reconciling,

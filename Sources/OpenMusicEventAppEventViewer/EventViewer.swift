@@ -857,8 +857,7 @@ public struct EventViewer {
                     state.eventWorkspace = EventWorkspace.State(
                         workspace: sourceWorkspace,
                         eventID: state.eventID,
-                        workspacePhase: workspace.phase,
-                        openProposal: workspace.openProposal
+                        workspacePhase: workspace.phase
                     )
                 }
             } catch {
@@ -888,7 +887,6 @@ public struct EventViewer {
                 workspace: source.workspace,
                 eventID: state.eventID,
                 workspacePhase: workspace.phase,
-                openProposal: workspace.openProposal,
                 referenceDatabase: source.referenceDatabase
             )
         }

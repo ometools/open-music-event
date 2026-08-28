@@ -625,7 +625,7 @@ func patchTextForLatestRound(
     in pull: TangledPullRecord,
     authorDID: DID
 ) async throws -> String {
-    guard let round = pull.rounds.max(by: { $0.createdAt < $1.createdAt }) else {
+    guard let round = pull.rounds.last else {
         throw TangledPullReviewClientError.missingPatchBlob(pull.title)
     }
     let pdsHost = try await pdsHost(for: authorDID)

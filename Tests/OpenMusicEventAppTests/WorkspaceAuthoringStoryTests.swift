@@ -1123,7 +1123,7 @@ struct WorkspaceAuthoringStoryTests {
                 .eventViewer?.authoring.content.phase,
                 recordedProposal == proposal
             else {
-                Issue.record("Creating the proposal must select its proposal context.")
+                Issue.record("Creating the proposal must select its source branch.")
                 return
             }
             expectNoDifference(
@@ -1185,11 +1185,13 @@ struct WorkspaceAuthoringStoryTests {
                         .fetch(db)
                 )
             }
-            #expect(exitedWorkspaceState.selection?.id == workspace.id)
-            #expect(exitedWorkspaceState.selection?.branch.hasPrefix("ome/proposal-") == true)
             expectNoDifference(
-                exitedWorkspaceState.selection?.revision,
-                proposal.revision.rawValue
+                exitedWorkspaceState.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: proposal.target.branch.rawValue,
+                    revision: proposal.target.revision.rawValue
+                )
             )
             expectNoDifference(exitedWorkspaceState.proposal, proposal)
 
@@ -1216,8 +1218,8 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case let .ready(.proposal(remountedProposal)) = authoring.content.phase,
-                          remountedProposal == proposal
+                          case let .ready(.proposal(selectedProposal)) = authoring.content.phase,
+                          selectedProposal == proposal
                     else { return false }
                     return true
                 }
@@ -1240,7 +1242,7 @@ struct WorkspaceAuthoringStoryTests {
             guard case let .ready(.proposal(remountedProposal)) = remountedAuthoring.content.phase,
                   remountedProposal == proposal
             else {
-                Issue.record("Reentry after confirmed exit must restore the proposal context.")
+                Issue.record("Reentry after confirmed exit must restore the selected branch.")
                 return
             }
             expectNoDifference(
@@ -1587,7 +1589,7 @@ struct WorkspaceAuthoringStoryTests {
                 workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
             )?.value
             let readyAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
-            guard case let .ready(selectedContext) = readyAuthoring.content.phase else {
+            guard case let .ready(.published(selectedBranch)) = readyAuthoring.content.phase else {
                 Issue.record("Workspace retry must establish the selected branch.")
                 return
             }
@@ -1596,7 +1598,7 @@ struct WorkspaceAuthoringStoryTests {
             #expect(readyAuthoring.content.content.installedFeatures.contains(.workspace))
             expectNoDifference(
                 readyAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                .ready(selectedContext)
+                .ready(.published(selectedBranch))
             )
             expectNoDifference(operations.count(of: "clone"), 1)
 
@@ -1617,8 +1619,8 @@ struct WorkspaceAuthoringStoryTests {
             let retainedSelection = try await database.read { db in
                 try SourceWorkspaceSelectionRecord.find(exitedWorkspaceID).fetchOne(db)
             }
-            expectNoDifference(retainedSelection?.branch, selectedContext.selectedBranch.rawValue)
-            expectNoDifference(retainedSelection?.revision, selectedContext.revision.rawValue)
+            expectNoDifference(retainedSelection?.branch, selectedBranch.branch.rawValue)
+            expectNoDifference(retainedSelection?.revision, selectedBranch.revision.rawValue)
             await opened.dismount(timeout: .seconds(1))
         }
     }

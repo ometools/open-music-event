@@ -8,14 +8,14 @@ import TangledLexicon
 import TangledXRPC
 import XRPCClient
 
-struct TangledPatchOnlyProposalTarget: Equatable, Sendable {
+struct TangledPatchOnlyProposalTarget: Codable, Equatable, Sendable {
     var repositoryDID: DID
     var repositoryOwnerDID: DID
     var repositoryName: String
     var knotHost: ATProto.PDSHost
 }
 
-struct TangledPatchOnlyProposalPublicationRequest: Equatable, Sendable {
+struct TangledPatchOnlyProposalPublicationRequest: Codable, Equatable, Sendable {
     var authorRepository: DID
     var recordKey: ATProto.Record.Key
     var target: TangledPatchOnlyProposalTarget
@@ -23,6 +23,13 @@ struct TangledPatchOnlyProposalPublicationRequest: Equatable, Sendable {
     var body: String?
     var createdAt: TangledTimestamp
     var patch: TangledReplacementPatch
+    var previousProposal: WorkspaceProposal?
+}
+
+struct TangledPatchOnlyProposalSnapshot: Equatable, Sendable {
+    var cid: ATProto.CID?
+    var record: TangledPullRecord
+    var revision: WorkspaceRevision
 }
 
 struct TangledPatchOnlyProposalMergeCheckRequest: Equatable, Sendable {
@@ -35,6 +42,7 @@ struct TangledPatchOnlyProposalPutRecordRequest: Equatable, Sendable {
     var authorRepository: DID
     var recordKey: ATProto.Record.Key
     var record: TangledPullRecord
+    var swapRecord: ATProto.CID?
 }
 
 struct TangledPatchOnlyProposalTransport: Sendable {
@@ -44,6 +52,9 @@ struct TangledPatchOnlyProposalTransport: Sendable {
     var mergeCheck: @Sendable (
         _ request: TangledPatchOnlyProposalMergeCheckRequest
     ) async throws -> TangledMergeCheckOutput
+    var loadProposal: @Sendable (
+        _ id: WorkspaceProposalID
+    ) async throws -> TangledPatchOnlyProposalSnapshot
     var authorize: @Sendable () async throws -> Void
     var uploadPatchBlob: @Sendable (_ data: Data) async throws -> ATProto.Blob
     var putRecord: @Sendable (
@@ -72,6 +83,31 @@ extension TangledPatchOnlyProposalTransport {
                 knotHost: request.target.knotHost
             )
         },
+        loadProposal: { id in
+            @Dependency(XRPC.Client.self) var xrpcClient
+            guard let uri = ATProto.URI(id.rawValue),
+                  uri.collection == TangledNSID.pull,
+                  let rkey = uri.rkey
+            else {
+                throw TangledWorkspacePublisherError.invalidProposalID(id.rawValue)
+            }
+            let output = try await xrpcClient.run(
+                TangledRepositoryRequests.getRecord(
+                    TangledPullRecord.self,
+                    repo: uri.authorDescription,
+                    collection: .pull,
+                    rkey: rkey
+                )
+            )
+            return TangledPatchOnlyProposalSnapshot(
+                cid: output.cid,
+                record: output.value,
+                revision: try await patchRevision(
+                    output.value,
+                    authorDID: try proposalDIDAuthority(uri)
+                )
+            )
+        },
         authorize: {
             @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
             try await authorizationBroker.authorize(
@@ -96,6 +132,7 @@ extension TangledPatchOnlyProposalTransport {
                     collection: .pull,
                     rkey: request.recordKey,
                     record: request.record,
+                    swapRecord: request.swapRecord,
                     authorizationPolicy: .required(
                         TangledOAuthRequirements.proposalAuthRequirement
                     )
@@ -113,6 +150,8 @@ enum TangledPatchOnlyProposalPublisherError: Equatable, Error, Sendable {
     case defaultBranchChanged(expected: String, observed: String)
     case defaultBranchAdvanced(expected: WorkspaceRevision, observed: WorkspaceRevision)
     case mergeCheckRejected(String)
+    case proposalTargetRepositoryChanged(expected: DID, observed: DID)
+    case proposalTargetBranchChanged(expected: String, observed: String)
 }
 
 struct TangledPatchOnlyProposalPublisher: Sendable {
@@ -151,29 +190,65 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
             )
         }
 
+        var existing: TangledPatchOnlyProposalSnapshot?
+        if let previousProposal = request.previousProposal {
+            let snapshot = try await transport.loadProposal(previousProposal.id)
+            guard snapshot.record.target.repo == request.target.repositoryDID else {
+                throw TangledPatchOnlyProposalPublisherError.proposalTargetRepositoryChanged(
+                    expected: request.target.repositoryDID,
+                    observed: snapshot.record.target.repo
+                )
+            }
+            guard snapshot.record.target.branch == initialBranch.name else {
+                throw TangledPatchOnlyProposalPublisherError.proposalTargetBranchChanged(
+                    expected: initialBranch.name,
+                    observed: snapshot.record.target.branch
+                )
+            }
+            if snapshot.revision == request.patch.currentRevision {
+                return previousProposal.id
+            }
+            guard snapshot.revision == previousProposal.revision else {
+                throw WorkspaceHeadMismatch(observedRevision: snapshot.revision)
+            }
+            existing = snapshot
+        }
+
         try await transport.authorize()
         let patchBlob = try await transport.uploadPatchBlob(request.patch.compressedBlob)
-        let record = TangledPullRecord(
+        let publicationBranch = try await defaultBranch(
+            for: request.target,
+            expectedRevision: request.patch.baseRevision
+        )
+        guard publicationBranch.name == initialBranch.name else {
+            throw TangledPatchOnlyProposalPublisherError.defaultBranchChanged(
+                expected: initialBranch.name,
+                observed: publicationBranch.name
+            )
+        }
+        let round = TangledPullRecord.Round(
+            patchBlob: patchBlob,
+            createdAt: request.createdAt
+        )
+        var record = existing?.record ?? TangledPullRecord(
             target: TangledPullRecord.Target(
                 repo: request.target.repositoryDID,
                 branch: initialBranch.name
             ),
             title: request.title,
             body: request.body,
-            rounds: [
-                TangledPullRecord.Round(
-                    patchBlob: patchBlob,
-                    createdAt: request.createdAt
-                )
-            ],
+            rounds: [],
             source: nil,
             createdAt: request.createdAt
         )
+        record.rounds.append(round)
+        record.source = nil
         let uri = try await transport.putRecord(
             TangledPatchOnlyProposalPutRecordRequest(
                 authorRepository: request.authorRepository,
                 recordKey: request.recordKey,
-                record: record
+                record: record,
+                swapRecord: existing?.cid
             )
         )
         return WorkspaceProposalID(rawValue: uri.description)

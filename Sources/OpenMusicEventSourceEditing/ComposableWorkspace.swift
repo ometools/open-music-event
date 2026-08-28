@@ -70,24 +70,6 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
     }
 }
 
-public extension WorkspaceContext
-where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
-    var openProposal: SharedReader<WorkspaceProposal?> {
-        phase.proposal
-    }
-}
-
-public extension WorkspaceEditingContext {
-    var revision: WorkspaceRevision {
-        switch self {
-        case let .branch(reference), let .published(reference):
-            reference.revision
-        case let .proposal(proposal):
-            proposal.revision
-        }
-    }
-}
-
 public extension ComposableWorkspace.WorkspaceClient
 where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
     static var openMusicEvent: Self {
@@ -143,6 +125,7 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
             },
             publishProposal: { source, workspaceID, submission in
                 try await publisher.publishProposal(
+                    source: source,
                     workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     submission: submission,
                     persistence: persistence
@@ -173,4 +156,27 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
 
 private enum OpenMusicEventAuthoringIntegrationError: Error {
     case grantWorkspaceMismatch
+}
+
+public extension WorkspaceEditingContext {
+    /// The opaque revision of the mounted comparison snapshot.
+    var revision: WorkspaceRevision {
+        switch self {
+        case let .branch(reference), let .published(reference):
+            reference.revision
+        case let .proposal(proposal):
+            proposal.revision
+        }
+    }
+
+    /// The repository reference mounted beneath the editing context.
+    /// A patch-only proposal remains mounted on its immutable target.
+    var selectedReference: WorkspaceBranchReference {
+        switch self {
+        case let .branch(reference), let .published(reference):
+            reference
+        case let .proposal(proposal):
+            proposal.target
+        }
+    }
 }

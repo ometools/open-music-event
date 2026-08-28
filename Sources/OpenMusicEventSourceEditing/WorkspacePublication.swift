@@ -14,6 +14,10 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
     var recordedSubmissionID: String?
     var mutationData: Data?
     var proposalTimestamp: String?
+    var preparedSubmissionID: String?
+    var preparedPublicationData: Data?
+    var publishedSubmissionID: String?
+    var publishedProposalData: Data?
 
     init(
         id: SourceWorkspace.ID,
@@ -24,7 +28,11 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
         commitData: Data? = nil,
         recordedSubmissionID: String? = nil,
         mutationData: Data? = nil,
-        proposalTimestamp: String? = nil
+        proposalTimestamp: String? = nil,
+        preparedSubmissionID: String? = nil,
+        preparedPublicationData: Data? = nil,
+        publishedSubmissionID: String? = nil,
+        publishedProposalData: Data? = nil
     ) {
         self.id = id
         self.captureRequestID = captureRequestID
@@ -35,6 +43,10 @@ struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
         self.recordedSubmissionID = recordedSubmissionID
         self.mutationData = mutationData
         self.proposalTimestamp = proposalTimestamp
+        self.preparedSubmissionID = preparedSubmissionID
+        self.preparedPublicationData = preparedPublicationData
+        self.publishedSubmissionID = publishedSubmissionID
+        self.publishedProposalData = publishedProposalData
     }
 }
 
@@ -91,6 +103,34 @@ public enum WorkspacePublicationMigrations {
                 """)
                 .execute(db)
         }
+        migrator.registerMigration("Persist patch-only workspace proposal publication") { db in
+            let columns = try db.columns(in: "sourceWorkspacePublications")
+                .map(\.name)
+            if !columns.contains("preparedSubmissionID") {
+                try #sql(
+                    "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"preparedSubmissionID\" TEXT"
+                )
+                .execute(db)
+            }
+            if !columns.contains("preparedPublicationData") {
+                try #sql(
+                    "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"preparedPublicationData\" BLOB"
+                )
+                .execute(db)
+            }
+            if !columns.contains("publishedSubmissionID") {
+                try #sql(
+                    "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"publishedSubmissionID\" TEXT"
+                )
+                .execute(db)
+            }
+            if !columns.contains("publishedProposalData") {
+                try #sql(
+                    "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"publishedProposalData\" BLOB"
+                )
+                .execute(db)
+            }
+        }
     }
 }
 
@@ -133,65 +173,6 @@ public struct SourceWorkspaceOpenProposalStore: Sendable {
     }
 }
 
-/// The durable Git transport checkpoint for a workspace proposal publication.
-///
-/// `ComposableWorkspace` treats a proposal revision as opaque. OME still creates and pushes a
-/// temporary Git commit to produce Tangled's patch blob, so that transport-specific state remains
-/// durable here without leaking back into the workspace domain.
-public struct SourceWorkspacePublicationCommit: Codable, Equatable, Sendable {
-    public var parentRevision: WorkspaceRevision
-    public var source: WorkspaceBranchReference
-
-    public init(
-        parentRevision: WorkspaceRevision,
-        source: WorkspaceBranchReference
-    ) {
-        self.parentRevision = parentRevision
-        self.source = source
-    }
-}
-
-/// A durable publication that created a local commit but has not yet settled the workspace.
-///
-/// Source preparation uses this checkpoint to distinguish an interrupted publication from an
-/// unexplained repository revision mismatch. The proposal commit remains reachable from its local
-/// branch while preparation restores the settled editing revision.
-public struct SourceWorkspacePublicationCheckpoint: Equatable, Sendable {
-    public var submission: WorkspaceSubmission<SourcePatch>
-    public var commit: SourceWorkspacePublicationCommit
-
-    public init(
-        submission: WorkspaceSubmission<SourcePatch>,
-        commit: SourceWorkspacePublicationCommit
-    ) {
-        self.submission = submission
-        self.commit = commit
-    }
-}
-
-public struct SourceWorkspacePublicationCheckpointStore: Sendable {
-    public init(database: any DatabaseWriter) {
-        self.persistence = WorkspacePublicationPersistence(database: database)
-    }
-
-    private let persistence: WorkspacePublicationPersistence
-
-    public func load(
-        _ workspaceID: SourceWorkspace.ID
-    ) throws -> SourceWorkspacePublicationCheckpoint? {
-        guard let submission = try persistence.submission(workspaceID),
-              let commit = try persistence.pushedCommit(
-                workspaceID: workspaceID,
-                submissionID: submission.id
-              )
-        else { return nil }
-        return SourceWorkspacePublicationCheckpoint(
-            submission: submission,
-            commit: commit
-        )
-    }
-}
-
 /// The proposal currently tracked by a source workspace.
 public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
     public init(workspaceID: SourceWorkspace.ID) {
@@ -208,10 +189,6 @@ public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
 }
 
 struct WorkspacePublicationPersistence: Sendable {
-    enum Error: Swift.Error {
-        case workspaceNotPrepared(SourceWorkspace.ID)
-    }
-
     let database: any DatabaseWriter
 
     func capture(
@@ -268,32 +245,32 @@ struct WorkspacePublicationPersistence: Sendable {
         }
     }
 
-    func pushedCommit(
+    func preparedPublication(
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
-    ) throws -> SourceWorkspacePublicationCommit? {
+    ) throws -> TangledPatchOnlyProposalPublicationRequest? {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try database.read { db in
             guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
-                  record.pushedSubmissionID == submissionID,
-                  let data = record.commitData
+                  record.preparedSubmissionID == submissionID,
+                  let data = record.preparedPublicationData
             else { return nil }
-            return try decode(SourceWorkspacePublicationCommit.self, from: data)
+            return try decode(TangledPatchOnlyProposalPublicationRequest.self, from: data)
         }
     }
 
-    func savePushedCommit(
-        _ commit: SourceWorkspacePublicationCommit,
+    func savePreparedPublication(
+        _ request: TangledPatchOnlyProposalPublicationRequest,
         workspaceID: SourceWorkspace.ID,
         submissionID: WorkspaceSubmissionID
     ) async throws {
-        let data = try encode(commit)
+        let data = try encode(request)
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         try await database.write { db in
             try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.pushedSubmissionID = #bind(submissionID as String?)
-                $0.commitData = #bind(data as Data?)
+                $0.preparedSubmissionID = #bind(submissionID as String?)
+                $0.preparedPublicationData = #bind(data as Data?)
             }
             .execute(db)
         }
@@ -306,10 +283,10 @@ struct WorkspacePublicationPersistence: Sendable {
         let submissionID = submissionID.rawValue.uuidString.lowercased()
         return try database.read { db in
             guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
-                  record.recordedSubmissionID == submissionID,
-                  let data = record.mutationData
+                  record.publishedSubmissionID == submissionID,
+                  let data = record.publishedProposalData
             else { return nil }
-            return try? decode(WorkspaceProposal.self, from: data)
+            return try decode(WorkspaceProposal.self, from: data)
         }
     }
 
@@ -323,33 +300,10 @@ struct WorkspacePublicationPersistence: Sendable {
         try await database.write { db in
             try ensureRecord(workspaceID, in: db)
             try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.recordedSubmissionID = #bind(submissionID as String?)
-                $0.mutationData = #bind(data as Data?)
+                $0.publishedSubmissionID = #bind(submissionID as String?)
+                $0.publishedProposalData = #bind(data as Data?)
             }
             .execute(db)
-        }
-    }
-
-    func proposalTimestamp(
-        workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID,
-        makeTimestamp: @escaping @Sendable () -> String
-    ) async throws -> String {
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
-        return try await database.write { db in
-            guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)
-            else { throw Error.workspaceNotPrepared(workspaceID) }
-            if record.recordedSubmissionID == submissionID,
-               let timestamp = record.proposalTimestamp {
-                return timestamp
-            }
-            let timestamp = makeTimestamp()
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.recordedSubmissionID = #bind(submissionID as String?)
-                $0.proposalTimestamp = #bind(timestamp as String?)
-            }
-            .execute(db)
-            return timestamp
         }
     }
 
@@ -368,6 +322,10 @@ struct WorkspacePublicationPersistence: Sendable {
                 $0.recordedSubmissionID = #bind(nil as String?)
                 $0.mutationData = #bind(nil as Data?)
                 $0.proposalTimestamp = #bind(nil as String?)
+                $0.preparedSubmissionID = #bind(nil as String?)
+                $0.preparedPublicationData = #bind(nil as Data?)
+                $0.publishedSubmissionID = #bind(nil as String?)
+                $0.publishedProposalData = #bind(nil as Data?)
             }
             .execute(db)
         }

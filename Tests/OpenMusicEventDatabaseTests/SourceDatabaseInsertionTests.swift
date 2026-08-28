@@ -3426,7 +3426,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func proposalBranchReopensAfterItsRevisionAdvances() async throws {
+    func patchOnlyProposalReopensOnItsImmutableTargetRevision() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -3473,11 +3473,18 @@ struct SourceDatabaseInsertionTests {
                 resolveRevision: resolveRevision
             )
             let prepared = try await preparation.prepare(workspace)
-            currentRevision.withLock { $0 = "new-revision" }
-
+            expectNoDifference(
+                prepared.context,
+                .published(
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+                        revision: WorkspaceRevision(rawValue: "old-revision")
+                    )
+                )
+            )
             let proposal = WorkspaceProposal(
                 id: WorkspaceProposalID(rawValue: "proposal-1"),
-                revision: WorkspaceRevision(rawValue: "new-revision"),
+                revision: WorkspaceRevision(rawValue: "proposal-revision"),
                 target: WorkspaceBranchReference(
                     branch: WorkspaceBranch(rawValue: "main"),
                     revision: WorkspaceRevision(rawValue: "old-revision")
@@ -3502,18 +3509,23 @@ struct SourceDatabaseInsertionTests {
                         .revision
                 }
             )
-            expectNoDifference(persistedRevisions.0, "new-revision")
-            expectNoDifference(persistedRevisions.1, "new-revision")
+            expectNoDifference(persistedRevisions.0, "old-revision")
+            expectNoDifference(persistedRevisions.1, "old-revision")
 
             let reopened = try await preparation.prepare(workspace)
-            expectNoDifference(reopened.context, .proposal(proposal))
+            expectNoDifference(
+                reopened.context,
+                .proposal(
+                    proposal
+                )
+            )
             #expect(reopened.source.workspace == workspace)
 
             try await database.write { db in
                 try SourceWorkspaceSelectionRecord.upsert {
                     SourceWorkspaceSelectionRecord(
                         id: workspace.id,
-                        branch: "proposal/testival",
+                        branch: "main",
                         revision: "unrelated-revision"
                     )
                 }
@@ -3522,8 +3534,8 @@ struct SourceDatabaseInsertionTests {
             await #expect(
                 throws: SourceWorkspaceDatabaseError.selectionRevisionMismatch(
                     workspaceID: workspace.id,
-                    branch: "proposal/testival",
-                    expectedRevision: "new-revision",
+                    branch: "main",
+                    expectedRevision: "old-revision",
                     persistedRevision: "unrelated-revision"
                 )
             ) {

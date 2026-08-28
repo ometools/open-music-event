@@ -40,13 +40,13 @@ public struct EventWorkspace {
             workspace: SourceWorkspace,
             eventID: OME.Event.ID,
             workspacePhase: SharedReader<WorkspacePhase<SourcePatch>>,
-            openProposal: SharedReader<WorkspaceProposal?>,
             referenceDatabase: SourceBaselineDatabase? = nil
         ) {
             self.workspace = workspace
             self.eventID = eventID
             self._workspacePhase = workspacePhase
-            self._openProposal = openProposal
+            self.requestedBranch = workspacePhase.wrappedValue.editingContext?
+                .selectedBranch.rawValue ?? workspace.defaultBranch
             self.changes = WorkspaceChanges.State(
                 workspace: workspace,
                 referenceDatabase: referenceDatabase
@@ -59,7 +59,6 @@ public struct EventWorkspace {
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @SharedReader public var workspacePhase: WorkspacePhase<SourcePatch>
-        @SharedReader public var openProposal: WorkspaceProposal?
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
@@ -70,6 +69,8 @@ public struct EventWorkspace {
         public var changeCount: Int? { changes.badgeCount }
 
         public var workspaceStatus: WorkspaceStatus { workspacePhase.status }
+        public var editingContext: WorkspaceEditingContext? { workspacePhase.editingContext }
+        public var openProposal: WorkspaceProposal? { workspacePhase.proposal }
 
         public var workspaceIsReady: Bool {
             guard case .ready = workspacePhase else { return false }
@@ -148,7 +149,7 @@ public struct EventWorkspace {
 
                 case .switchBranchButtonTapped:
                     guard state.authoringAccess.canEditContent,
-                          case let .ready(currentBranch) = state.workspacePhase,
+                          case let .ready(context) = state.workspacePhase,
                           state.changeCount == nil,
                           !state.requestedBranch.trimmingCharacters(
                               in: .whitespacesAndNewlines
@@ -157,7 +158,7 @@ public struct EventWorkspace {
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.requestedBranch)
                     )
-                    guard requestedBranch != currentBranch.selectedBranch else { return }
+                    guard requestedBranch != context.selectedBranch else { return }
                     store.addTask {
                         let task = try store.post(
                             key: WorkspaceBranchRequested.self,
@@ -201,6 +202,13 @@ public struct EventWorkspace {
                 try store.send(.reviews(.refreshButtonTapped))
             }
         }
+        .onChange(
+            of: store.workspacePhase.editingContext?.selectedBranch,
+            initial: true
+        ) { oldBranch, branch, state in
+            guard oldBranch != branch, let branch else { return }
+            state.requestedBranch = branch.rawValue
+        }
     }
 }
 
@@ -238,7 +246,6 @@ public struct EventWorkspaceView: View {
                     eventID: store.eventID,
                     phase: store.workspacePhase,
                     summary: changesStore.summary,
-                    openProposal: store.openProposal,
                     canPropose: store.authoringAccess.canPropose,
                     propose: { changesStore.send(.proposalActionButtonTapped) },
                     viewProposal: { store.send(.viewProposalButtonTapped) }
@@ -355,7 +362,6 @@ struct WorkspaceProposalStatusSection: View {
     let eventID: OME.Event.ID
     let phase: WorkspacePhase<SourcePatch>
     let summary: SourceWorkspaceEditSummary
-    let openProposal: WorkspaceProposal?
     let canPropose: Bool
     let propose: () -> Void
     let viewProposal: () -> Void
@@ -366,18 +372,8 @@ struct WorkspaceProposalStatusSection: View {
     }
 
     var editingContext: WorkspaceEditingContext? { phase.editingContext }
+    var openProposal: WorkspaceProposal? { phase.proposal }
 
-    var publicationIsActive: Bool {
-        switch phase {
-        case .capturingSubmission, .publishing:
-            true
-        case .inactive, .preparingSource, .publicationFailed,
-             .publicationInterrupted, .ready, .reconciling,
-             .reconciliationFailed, .sourcePreparationFailed, .stale,
-             .submissionCaptureFailed:
-            false
-        }
-    }
     var progressTitle: String? {
         switch phase {
         case .capturingSubmission:
@@ -385,7 +381,7 @@ struct WorkspaceProposalStatusSection: View {
         case let .publishing(submission):
             switch submission.step {
             case .publishProposal: "Publishing the proposal"
-            case .updateReference: "Refreshing the source branch"
+            case .updateReference: "Refreshing the source"
             }
         case .reconciling:
             "Refreshing workspace"
@@ -439,11 +435,7 @@ struct WorkspaceProposalStatusSection: View {
                 Section {
                     switch editingContext {
                     case .published:
-                        if openProposal != nil {
-                            Text("These changes are based on Published. Return to the tracked proposal to update it.")
-                            Button("View Proposal", action: viewProposal)
-                                .accessibilityIdentifier("workspace.proposal.view")
-                        } else if canPropose {
+                        if canPropose {
                             Button("Create Proposal", action: propose)
                                 .buttonStyle(.borderedProminent)
                                 .accessibilityIdentifier("workspace.proposal.create")
@@ -466,10 +458,6 @@ struct WorkspaceProposalStatusSection: View {
                             bundle: .module,
                             comment: "Explains why changes on a manually selected branch cannot be proposed"
                         )
-                        if openProposal != nil {
-                            Button("View Proposal", action: viewProposal)
-                                .accessibilityIdentifier("workspace.proposal.view")
-                        }
                     }
                 }
             } else if openProposal != nil {
@@ -487,14 +475,14 @@ struct WorkspaceProposalStatusSection: View {
                             WorkspaceTechnicalValueView(label: "Default branch", value: workspace.defaultBranch)
                             WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
                             WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
-                            if let editingContext {
+                            if let context = editingContext {
                                 WorkspaceTechnicalValueView(
                                     label: String(
                                         localized: "Selected branch",
                                         bundle: .module,
                                         comment: "Technical detail label for the mounted source branch"
                                     ),
-                                    value: editingContext.selectedBranch.rawValue
+                                    value: context.selectedBranch.rawValue
                                 )
                             }
                             if let proposal = openProposal {
@@ -518,17 +506,6 @@ struct WorkspaceProposalStatusSection: View {
                 }
             }
         }
-    }
-}
-
-struct WorkspaceBranchNameView: View {
-    let branch: String
-
-    var body: some View {
-        Text(branch)
-            .font(.body.monospaced())
-            .selectableText()
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -583,61 +560,6 @@ struct SourceChangeSummarySection: View {
                     fieldComparisons: fieldComparisons,
                     recordComparisons: recordComparisons
                 )
-            }
-        }
-    }
-}
-
-struct SourceChangePresentationSection: View {
-    let presentation: OME.WorkspaceProposal.Presentation
-    let emptyMessage: String
-
-    var body: some View {
-        Section("What changed") {
-            if presentation.totalCount == 0 {
-                Text(emptyMessage)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(presentation.groups.filter { !$0.records.isEmpty }) { group in
-                PortableDisclosureGroup {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(group.records) { record in
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    SourceChangeKindBadge(
-                                        kind: SourceRecordChangeKind(record.transition.kind)
-                                    )
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(record.title ?? group.displayName)
-                                        Text(group.displayName)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-
-                                ForEach(record.changedFields, id: \.self) { field in
-                                    Text(field.sourceFieldTitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.displayName)
-                        Text(
-                            group.records.count == 1
-                                ? "1 change"
-                                : "\(group.records.count) changes"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
             }
         }
     }
@@ -1137,17 +1059,6 @@ extension SourceChangeValueView.Role {
 }
 
 extension SourceRecordChangeKind {
-    init(_ kind: OME.WorkspaceProposal.Presentation.Transition.Kind) {
-        switch kind {
-        case .added:
-            self = .added
-        case .modified:
-            self = .modified
-        case .deleted:
-            self = .deleted
-        }
-    }
-
     var backgroundStyle: Color {
         switch self {
         case .added:
