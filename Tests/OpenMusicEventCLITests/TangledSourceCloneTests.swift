@@ -335,6 +335,7 @@ struct TangledSourceCloneTests {
                 stage: { _ in },
                 commit: { _ in Commit(id: "commit-id") },
                 formatPatch: { _ in Data() },
+                emailPatch: { _ in Data() },
                 push: { _ in }
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -425,6 +426,7 @@ struct TangledSourceCloneTests {
                 stage: { _ in },
                 commit: { _ in Commit(id: "commit-id") },
                 formatPatch: { _ in Data() },
+                emailPatch: { _ in Data() },
                 push: { _ in }
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
@@ -534,6 +536,7 @@ struct TangledSourceCloneTests {
                 stage: { _ in },
                 commit: { _ in Commit(id: "commit-id") },
                 formatPatch: { _ in Data() },
+                emailPatch: { _ in Data() },
                 push: { _ in }
             )
         } operation: {
