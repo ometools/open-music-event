@@ -1,14 +1,54 @@
-# This file contains repository-level Fastlane automation that does not need
-# App Store Connect, Play Console, signing, or release credentials.
+# This Fastfile owns local, credential-free automation for OpenMusicEvent.
+# Store uploads, signing, and release credentials belong to the platform-specific
+# Fastfiles under Darwin/ and Android/.
+#
+# Fastlane files are Ruby with a small workflow DSL:
+#
+# - `desc` documents the lane immediately below it.
+# - `lane :name do |options|` defines a command you can run by name.
+# - Lane options arrive from `key:value` command-line arguments.
+# - `sh` runs an external command and stops the lane when it fails.
+# - `UI.user_error!` stops with a readable error; other `UI` calls report status.
+# - Calling one lane from another composes a larger workflow.
+#
+# Helpers come first so each lane reads as a short workflow built from named
+# operations. Run lanes through the repository's pinned Fastlane bundle:
+#
+#   Scripts/fastlane-local.sh suite ios_device:<udid> android_device:<serial>
 
 require "json"
 require "open3"
 
+# Keep local runs out of Fastlane's anonymous usage reporting.
 opt_out_usage
+
+# =============================================================================
+# Shared project paths and process helpers
+# =============================================================================
 
 def repo_root
   File.expand_path("..", __dir__)
 end
+
+# Temporarily set environment variables for one operation, then restore the
+# caller's environment even if the operation fails.
+def with_environment(values)
+  previous_values = values.to_h { |key, _value| [key, ENV[key]] }
+  values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  yield
+ensure
+  previous_values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+end
+
+def executable_available?(name)
+  ENV.fetch("PATH", "")
+    .split(File::PATH_SEPARATOR)
+    .any? { |directory| File.executable?(File.join(directory, name)) }
+end
+
+# =============================================================================
+# Swift, Skip, and Android command ownership
+# =============================================================================
 
 def compiler_lane
   ENV.fetch(
@@ -19,6 +59,8 @@ def compiler_lane
   )
 end
 
+# Every command sent through this helper enters the shared compiler queue. Passing
+# one argument per shell word avoids constructing a fragile command string.
 def run_compiler_lane(*command)
   UI.user_error!("Swift compiler lane is unavailable at #{compiler_lane}") unless File.executable?(compiler_lane)
 
@@ -31,6 +73,8 @@ def run_compiler_lane(*command)
   )
 end
 
+# SKIPLOCAL names the canonical Skipstone source checkout. It is deliberately
+# separate from SKIP_COMMAND_OVERRIDE, which may select an isolated SkipRunner.
 def skiplocal
   File.expand_path(
     ENV.fetch(
@@ -55,6 +99,8 @@ def android_harness
   File.join(repo_root, "Scripts", "android-smoke-build.sh")
 end
 
+# Fastlane chooses the workflow. The harness owns the generated Gradle project,
+# APK selection, local package routing, and the Android compiler lock.
 def run_android_harness(*arguments)
   UI.user_error!("Android harness is unavailable at #{android_harness}") unless File.executable?(android_harness)
 
@@ -66,19 +112,9 @@ def run_android_harness(*arguments)
   end
 end
 
-def with_environment(values)
-  previous_values = values.to_h { |key, _value| [key, ENV[key]] }
-  values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
-  yield
-ensure
-  previous_values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
-end
-
-def executable_available?(name)
-  ENV.fetch("PATH", "")
-    .split(File::PATH_SEPARATOR)
-    .any? { |directory| File.executable?(File.join(directory, name)) }
-end
+# =============================================================================
+# iOS Simulator helpers
+# =============================================================================
 
 def booted_ios_device_id
   output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "booted", "--json")
@@ -89,24 +125,6 @@ def booted_ios_device_id
   UI.user_error!("No iOS Simulator is booted") unless device
 
   device.fetch("udid")
-end
-
-def maestro_flow(options)
-  File.expand_path(options[:flow] || ".maestro/00-launch.yaml", repo_root)
-end
-
-def run_maestro(device:, app_id:, platform:, flow:)
-  sh(
-    "maestro", "--device", device, "test",
-    "-e", "APP_ID=#{app_id}",
-    "-e", "MAESTRO_PLATFORM=#{platform}",
-    flow
-  )
-end
-
-def verify_maestro_device!(device)
-  _output, error, status = Open3.capture3("maestro", "--device", device, "hierarchy")
-  UI.user_error!("Maestro cannot connect to #{device}: #{error}") unless status.success?
 end
 
 def ios_ui_derived_data_path
@@ -142,6 +160,35 @@ def build_install_launch_ios(device:, app_id:)
   sh("xcrun", "simctl", "launch", device, app_id)
 end
 
+# =============================================================================
+# Maestro UI-testing helpers
+# =============================================================================
+
+def maestro_flow(options)
+  File.expand_path(options[:flow] || ".maestro/00-launch.yaml", repo_root)
+end
+
+def verify_maestro_device!(device)
+  _output, error, status = Open3.capture3("maestro", "--device", device, "hierarchy")
+  UI.user_error!("Maestro cannot connect to #{device}: #{error}") unless status.success?
+end
+
+def run_maestro(device:, app_id:, platform:, flow:)
+  # Maestro substitutes these values into the shared YAML flow. They must be
+  # passed with `-e`; inheriting ordinary shell variables is not enough.
+  sh(
+    "maestro", "--device", device, "test",
+    "-e", "APP_ID=#{app_id}",
+    "-e", "MAESTRO_PLATFORM=#{platform}",
+    flow
+  )
+end
+
+# =============================================================================
+# Readiness and non-UI test lanes
+# =============================================================================
+
+# `desc` appears in `fastlane lanes` and documents the next lane.
 desc "Run credential-free release readiness checks"
 lane :check do
   Dir.chdir(repo_root) do
@@ -158,6 +205,8 @@ end
 
 desc "Run OpenMusicEventAppTests on an iOS Simulator"
 lane :ios_tests do |options|
+  # Options use Fastlane's `device:<udid>` syntax. The environment variable is
+  # convenient for repeated runs; otherwise we use the first booted Simulator.
   device = options[:device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
 
   with_environment(
@@ -182,6 +231,9 @@ end
 desc "Run OpenMusicEventAppTests in an Android instrumentation APK"
 lane :android_tests do |options|
   device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+
+  # First package the canonical app APK. Then package and run the test APK using
+  # that exact app product, so tests see the same bridged app types.
   run_android_harness("--serial", device)
   run_android_harness("--tests", "--serial", device)
 end
@@ -190,6 +242,8 @@ desc "Run the complete non-UI suite for the iOS app and Android"
 lane :suite do |options|
   failures = []
 
+  # Calling lanes directly is Fastlane's composition model. Each platform gets
+  # a chance to run, and the aggregate reports every platform that failed.
   begin
     ios_tests(device: options[:ios_device])
   rescue StandardError => error
@@ -206,6 +260,10 @@ lane :suite do |options|
 
   UI.user_error!(failures.join("\n")) unless failures.empty?
 end
+
+# =============================================================================
+# Device setup and dual-platform UI lanes
+# =============================================================================
 
 desc "Start the default headless Android emulator used by local tests"
 lane :start_android_emulator do |options|
@@ -236,6 +294,8 @@ end
 
 desc "Build, install, and run the same Maestro flow on iOS and Android"
 lane :ui_tests do |options|
+  # A lane can call another lane just like a Ruby method. Keeping preflight as a
+  # lane also makes it independently runnable while diagnosing local setup.
   ui_test_preflight(options)
 
   ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
