@@ -63,7 +63,7 @@ public struct EventSettings {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.devicePermissions) var devicePermissions
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
     var workspace
 
     private func requestAuthoringExit() {
@@ -101,7 +101,7 @@ public struct EventSettings {
                 }
 
             case .exitAuthoringButtonTapped:
-                guard let source = workspace.source.wrappedValue else {
+                guard let source = workspace.session?.source else {
                     // Without the prepared reference, cleanliness cannot be proven. Preserve the
                     // same explicit destructive confirmation used for a known dirty workspace.
                     state.destination = .exitAuthoringConfirmation(

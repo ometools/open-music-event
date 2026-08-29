@@ -157,6 +157,38 @@ struct WorkspaceChangePresentationTests {
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
     @Test
+    func `OME prepared database survives nested live Store tasks and child mounting`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let recorder = WorkspaceStoryDependencyPropagationRecorder(database: database)
+
+        await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+        } operation: {
+            @Dependency(\.defaultDatabase) var preparedDatabase
+            recorder.record(.preparedScope, database: preparedDatabase)
+
+            let store = Store(
+                initialState: WorkspaceStoryDependencyPropagationProbe.State()
+            ) {
+                WorkspaceStoryDependencyPropagationProbe(recorder: recorder)
+            }
+
+            await store.send(.open)?.value
+
+            expectNoDifference(
+                recorder.snapshot,
+                WorkspaceStoryDependencyPropagationBoundary.allCases.map {
+                    WorkspaceStoryDependencyPropagationObservation(
+                        boundary: $0,
+                        matchesPreparedDatabase: true
+                    )
+                }
+            )
+        }
+    }
+
+    @Test
     func `live event installation resolves the database prepared in the same dependency update`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let eventID = try await insertUnrelatedWorkspaceStoryEvent(into: database)
@@ -334,8 +366,9 @@ struct WorkspaceAuthoringStoryTests {
                 store.state.content.destination?.eventViewer?.authoring
             )
             let workspace = preparedAuthoring.context
-            let resource = try #require(preparedAuthoring.content.source)
-            guard case let .ready(.published(initialBranch)) = preparedAuthoring.content.phase else {
+            let preparedSession = try #require(preparedAuthoring.content.session)
+            let resource = preparedSession.source
+            guard case let .published(initialBranch) = preparedSession.selectedContext else {
                 Issue.record("Authoring must initially select the configured branch.")
                 return
             }
@@ -361,8 +394,8 @@ struct WorkspaceAuthoringStoryTests {
                 revision: WorkspaceRevision(rawValue: git.alternateRevision)
             )
             expectNoDifference(
-                store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(.branch(selectedAlternate))
+                store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
+                .branch(selectedAlternate)
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -422,8 +455,8 @@ struct WorkspaceAuthoringStoryTests {
                 .enterAuthoringButtonTapped
             )?.value
             expectNoDifference(
-                store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(.branch(selectedAlternate))
+                store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
+                .branch(selectedAlternate)
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -449,8 +482,8 @@ struct WorkspaceAuthoringStoryTests {
                 revision: WorkspaceRevision(rawValue: git.mainRevision)
             )
             expectNoDifference(
-                store.state.content.destination?.eventViewer?.authoring.content.phase,
-                .ready(.branch(selectedMain))
+                store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
+                .branch(selectedMain)
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -473,20 +506,9 @@ struct WorkspaceAuthoringStoryTests {
                     workspaceStoryWorkspaceAction(.switchBranchButtonTapped)
                 )?.value
             }
-            guard case let .reconciliationFailed(reconciliation, _) =
-                store.state.content.destination?.eventViewer?.authoring.content.phase
-            else {
-                Issue.record("A malformed branch must fail without becoming selected.")
-                return
-            }
-            expectNoDifference(reconciliation.expected, .branch(selectedMain))
             expectNoDifference(
-                reconciliation.destination,
-                .branch(
-                    branch: WorkspaceBranch(
-                        rawValue: WorkspaceStoryGitFixture.malformedBranch
-                    )
-                )
+                store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
+                .branch(selectedMain)
             )
             expectNoDifference(
                 try workspaceStoryGitRevision(at: resource.repositoryURL),
@@ -535,6 +557,7 @@ struct WorkspaceAuthoringStoryTests {
             WorkspaceStoryProposalScenario(target: .settings, signsIn: true),
             WorkspaceStoryProposalScenario(target: .workspace),
             WorkspaceStoryProposalScenario(target: .settings, failsPublication: true),
+            WorkspaceStoryProposalScenario(target: .workspace, failsReferenceApplication: true),
         ]
     )
     func `a source repository owner edits an organizer's event and publishes workspace changes`(
@@ -622,7 +645,8 @@ struct WorkspaceAuthoringStoryTests {
                 eventID: selectedEventID,
                 archive: git.archive,
                 revision: git.mainRevision,
-                failsProposalPublication: scenario.failsPublication
+                failsProposalPublication: scenario.failsPublication,
+                recorder: operations
             )
             if scenario.signsIn {
                 $0.openMusicEventAuthorizationRequests = OAuthAuthorizationRequests(
@@ -740,7 +764,7 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = opened.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case .ready = authoring.content.phase
+                          case .ready = authoring.content.availability
                     else { return false }
                     return true
                 }
@@ -757,7 +781,8 @@ struct WorkspaceAuthoringStoryTests {
 
             let authoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
             let workspace = authoring.context
-            let resource = try #require(authoring.content.source)
+            let session = try #require(authoring.content.session)
+            let resource = session.source
             expectNoDifference(
                 authoring.grant?.principal,
                 AuthoringPrincipal(actorID: repositoryOwnerID)
@@ -773,15 +798,15 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case let .ready(.published(initialBranch)) = authoring.content.phase else {
+            guard case let .published(initialBranch) = session.selectedContext else {
                 Issue.record("First preparation must select the configured branch.")
                 return
             }
             expectNoDifference(initialBranch.branch.rawValue, workspace.defaultBranch)
             #expect(authoring.content.content.eventWorkspace != nil)
             expectNoDifference(
-                authoring.content.content.eventWorkspace?.workspaceStatus,
-                .ready(.published(initialBranch))
+                authoring.content.content.eventWorkspace?.selectedContext,
+                .published(initialBranch)
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
             // Preparation receives the archive's exact advertised revision and does not need a
@@ -992,7 +1017,7 @@ struct WorkspaceAuthoringStoryTests {
                 workspaceStoryProposalAction(.proposalDraft(.proposeButtonTapped))
             )?.value
             guard case .ready = opened.state.content.destination?.eventViewer?
-                .authoring.content.phase
+                .authoring.content.availability
             else {
                 Issue.record("An invalid title must not start proposal publication.")
                 return
@@ -1020,6 +1045,17 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )?.value
+            if scenario.failsReferenceApplication {
+                try resource.referenceDatabase.write { db in
+                    try db.execute(sql: """
+                        CREATE TRIGGER reject_workspace_story_proposal_reference
+                        BEFORE INSERT ON sourceWorkspaceReferences
+                        BEGIN
+                          SELECT RAISE(ABORT, 'proposal reference rejected');
+                        END
+                        """)
+                }
+            }
             if scenario.failsPublication {
                 try await expectReportedIssue(
                     containing: "WorkspaceStoryPatchPublicationFailure"
@@ -1034,23 +1070,19 @@ struct WorkspaceAuthoringStoryTests {
                 let failedAuthoring = try #require(
                     opened.state.content.destination?.eventViewer?.authoring
                 )
-                guard case let .publicationFailed(submission, failure) = failedAuthoring.content.phase
-                else {
-                    Issue.record(
-                        "A failed patch publication must leave Workspace in its publication failure phase."
-                    )
-                    return
-                }
-                #expect(failure.message.contains("WorkspaceStoryPatchPublicationFailure"))
                 let failedWorkspace = try #require(
                     failedAuthoring.content.content.eventWorkspace
                 )
-                expectNoDifference(
-                    failedWorkspace.workspaceStatus,
-                    .failed(operation: .publication, failure: failure)
-                )
-                #expect(!failedWorkspace.workspaceIsReady)
-                expectNoDifference(failedWorkspace.openProposal, nil)
+                #expect(failedWorkspace.workspaceIsReady)
+                expectNoDifference(failedWorkspace.selectedContext, .published(initialBranch))
+                expectNoDifference(failedWorkspace.selectedProposal, nil)
+                guard case let .failed(message) = failedWorkspace.changes.proposalDraft?
+                    .publicationProgress
+                else {
+                    Issue.record("A pre-record failure must remain in the proposal composer.")
+                    return
+                }
+                #expect(message.contains("WorkspaceStoryPatchPublicationFailure"))
 
                 // Publication failure blocks another proposal, not authoring. A subsequent real
                 // editor save must remain available and durable while the failed submission is
@@ -1084,9 +1116,9 @@ struct WorkspaceAuthoringStoryTests {
 
                 await opened.dismount(timeout: .seconds(1))
 
-                // A fresh app mount must recognize the durable local commit, restore the settled
-                // source, and surface one interrupted publication instead of trapping the user in
-                // source preparation with a persisted-revision mismatch.
+                // A fresh app mount recognizes the durable local commit and restores the same
+                // usable comparison context. The transport checkpoint remains private retry data;
+                // it is not a product phase that can trap the workspace.
                 let remountedStore = WorkspaceStoryLiveStore(
                     initialState: OpenMusicEventApplication.State(
                         storage: authenticationStorage
@@ -1098,8 +1130,8 @@ struct WorkspaceAuthoringStoryTests {
                 )
                 try await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
                 try await workspaceStoryWaitUntil {
-                    guard case .publicationInterrupted = remountedStore.state.content.destination?
-                        .eventViewer?.authoring.content.phase
+                    guard case .ready = remountedStore.state.content.destination?
+                        .eventViewer?.authoring.content.availability
                     else { return false }
                     return true
                 }
@@ -1107,15 +1139,8 @@ struct WorkspaceAuthoringStoryTests {
                 let recoveredAuthoring = try #require(
                     remountedStore.state.content.destination?.eventViewer?.authoring
                 )
-                expectNoDifference(
-                    recoveredAuthoring.content.phase,
-                    .publicationInterrupted(submission)
-                )
-                expectNoDifference(
-                    recoveredAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                    .interrupted(.publication)
-                )
-                #expect(recoveredAuthoring.content.source != nil)
+                expectNoDifference(recoveredAuthoring.content.selectedContext, .published(initialBranch))
+                #expect(recoveredAuthoring.content.session?.source != nil)
                 #expect(recoveredAuthoring.content.content.eventWorkspace != nil)
                 expectNoDifference(
                     recoveredAuthoring.content.content.event?.name,
@@ -1152,13 +1177,66 @@ struct WorkspaceAuthoringStoryTests {
                 )
             )?.value
 
+            if scenario.failsReferenceApplication {
+                let proposal = try #require(
+                    try await database.read { db in
+                        try SourceWorkspaceProposalReceiptsRequest(workspaceID: workspace.id)
+                            .fetch(db)
+                            .first
+                    }
+                )
+                try await workspaceStoryWaitUntil {
+                    opened.state.content.destination?.eventViewer?.authoring.content.content
+                        .eventWorkspace?.pendingProposalRepair?.proposal == proposal
+                }
+                let repairingWorkspace = try #require(
+                    opened.state.content.destination?.eventViewer?.authoring.content.content
+                        .eventWorkspace
+                )
+                #expect(repairingWorkspace.changes.proposalDraft == nil)
+                #expect(repairingWorkspace.workspaceIsReady)
+                expectNoDifference(repairingWorkspace.selectedContext, .published(initialBranch))
+                expectNoDifference(repairingWorkspace.selectedPage, .proposals)
+                expectNoDifference(repairingWorkspace.reviews.requestedReviewID, proposal.id.rawValue)
+                expectNoDifference(operations.count(of: "putRecord"), 1)
+
+                try resource.referenceDatabase.write { db in
+                    try db.execute(sql: "DROP TRIGGER reject_workspace_story_proposal_reference")
+                }
+                await opened.dismount(timeout: .seconds(1))
+
+                let remountedStore = WorkspaceStoryLiveStore(
+                    initialState: OpenMusicEventApplication.State(
+                        storage: authenticationStorage
+                    ) {
+                        OpenMusicEventAppRoot.State()
+                    },
+                    storage: authenticationStorage,
+                    requestCenter: authorizationRequestCenter
+                )
+                try await workspaceStoryOpenEvent(remountedStore, route: route, url: routeURL)
+                try await workspaceStoryWaitUntil {
+                    remountedStore.state.content.destination?.eventViewer?.authoring.content
+                        .selectedProposal == proposal
+                }
+                let repairedWorkspace = try #require(
+                    remountedStore.state.content.destination?.eventViewer?.authoring.content.content
+                        .eventWorkspace
+                )
+                expectNoDifference(repairedWorkspace.selectedContext, .proposal(proposal))
+                expectNoDifference(repairedWorkspace.pendingProposalRepair, nil)
+                expectNoDifference(operations.count(of: "putRecord"), 1)
+                await remountedStore.dismount(timeout: .seconds(1))
+                return
+            }
+
             let proposal = try #require(
                 opened.state.content.destination?.eventViewer?
                     .authoring.content.content.eventWorkspace?
-                    .openProposal
+                    .selectedProposal
             )
-            guard case let .ready(.proposal(recordedProposal)) = opened.state.content.destination?
-                .eventViewer?.authoring.content.phase,
+            guard case let .proposal(recordedProposal) = opened.state.content.destination?
+                .eventViewer?.authoring.content.selectedContext,
                 recordedProposal == proposal
             else {
                 Issue.record("Creating the proposal must select its source branch.")
@@ -1166,8 +1244,8 @@ struct WorkspaceAuthoringStoryTests {
             }
             expectNoDifference(
                 opened.state.content.destination?.eventViewer?.authoring.content.content
-                    .eventWorkspace?.workspaceStatus,
-                .ready(.proposal(proposal))
+                    .eventWorkspace?.selectedContext,
+                .proposal(proposal)
             )
             let settledSummary = try await database.read { db in
                 try SourceWorkspaceEditSummary.query(
@@ -1207,8 +1285,8 @@ struct WorkspaceAuthoringStoryTests {
                 exitedAuthoring.phase,
                 .inactive(.eligible(eligibility))
             )
-            expectNoDifference(exitedAuthoring.content.phase, .inactive)
-            #expect(exitedAuthoring.content.source == nil)
+            #expect(workspaceIsInactive(exitedAuthoring.content.availability))
+            #expect(exitedAuthoring.content.session?.source == nil)
             expectNoDifference(exitedAuthoring.content.content.authoringAccess, .attendee)
             #expect(!exitedAuthoring.content.content.installedFeatures.contains(.workspace))
             expectNoDifference(
@@ -1222,7 +1300,7 @@ struct WorkspaceAuthoringStoryTests {
                     selection: try SourceWorkspaceSelectionRecord
                         .find(workspace.id)
                         .fetchOne(db),
-                    proposal: try SourceWorkspaceOpenProposalRequest(workspaceID: workspace.id)
+                    proposals: try SourceWorkspaceProposalReceiptsRequest(workspaceID: workspace.id)
                         .fetch(db)
                 )
             }
@@ -1234,7 +1312,7 @@ struct WorkspaceAuthoringStoryTests {
                     revision: proposal.revision.rawValue
                 )
             )
-            expectNoDifference(exitedWorkspaceState.proposal, proposal)
+            expectNoDifference(exitedWorkspaceState.proposals, [proposal])
 
             await opened.dismount(timeout: .seconds(1))
 
@@ -1259,7 +1337,7 @@ struct WorkspaceAuthoringStoryTests {
                 try await workspaceStoryWaitUntil {
                     guard let authoring = remountedStore.state.content.destination?.eventViewer?.authoring,
                           case .active = authoring.phase,
-                          case let .ready(.proposal(selectedProposal)) = authoring.content.phase,
+                          case let .proposal(selectedProposal) = authoring.content.selectedContext,
                           selectedProposal == proposal
                     else { return false }
                     return true
@@ -1280,14 +1358,14 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             )
-            guard case let .ready(.proposal(remountedProposal)) = remountedAuthoring.content.phase,
+            guard case let .proposal(remountedProposal) = remountedAuthoring.content.selectedContext,
                   remountedProposal == proposal
             else {
                 Issue.record("Reentry after confirmed exit must restore the selected branch.")
                 return
             }
             expectNoDifference(
-                remountedAuthoring.content.content.eventWorkspace?.openProposal,
+                remountedAuthoring.content.content.eventWorkspace?.selectedProposal,
                 proposal
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
@@ -1444,7 +1522,7 @@ struct WorkspaceAuthoringStoryTests {
             let authoring = try #require(store.content.destination?.eventViewer?.authoring)
             let grant = try #require(authoring.grant)
             expectNoDifference(authoring.phase, .active(grant))
-            expectNoDifference(authoring.content.phase, .preparingSource)
+            #expect(workspaceIsPreparing(authoring.content.availability))
             expectNoDifference(authoring.content.content.selectedFeature, .settings)
             #expect(authoring.content.content.eventSettings != nil)
 
@@ -1452,7 +1530,7 @@ struct WorkspaceAuthoringStoryTests {
             await preparation.continuePreparation()
             await opening?.value
             try await workspaceStoryWaitUntil {
-                guard case .ready = store.content.destination?.eventViewer?.authoring.content.phase
+                guard case .ready = store.content.destination?.eventViewer?.authoring.content.availability
                 else { return false }
                 return true
             }
@@ -1581,7 +1659,7 @@ struct WorkspaceAuthoringStoryTests {
                     AuthoringPrincipal(actorID: organizerID)
                 )
                 expectNoDifference(preparingGrant.role, .owner)
-                expectNoDifference(preparingAuthoring.content.phase, .preparingSource)
+                #expect(workspaceIsPreparing(preparingAuthoring.content.availability))
                 expectNoDifference(
                     preparingAuthoring.content.content.authoringAccess,
                     .authoring(.owner)
@@ -1593,11 +1671,7 @@ struct WorkspaceAuthoringStoryTests {
                     preparingAuthoring.content.content.eventWorkspace
                 )
                 expectNoDifference(preparingWorkspace.workspace.id, preparingGrant.workspaceID)
-                expectNoDifference(preparingWorkspace.workspacePhase, .preparingSource)
-                expectNoDifference(
-                    preparingWorkspace.workspaceStatus,
-                    .activity(.preparingSource)
-                )
+                #expect(workspaceIsPreparing(preparingWorkspace.workspaceState.availability))
                 expectNoDifference(
                     preparingWorkspace.changes.summary.availability,
                     .workspaceNeedsPreparation
@@ -1608,22 +1682,22 @@ struct WorkspaceAuthoringStoryTests {
                 await entry?.value
             }
             let failedAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
-            guard case .sourcePreparationFailed = failedAuthoring.content.phase else {
+            guard case .preparationFailed = failedAuthoring.content.availability else {
                 Issue.record("The controlled first preparation must fail in Workspace.")
                 return
             }
             #expect(failedAuthoring.grant != nil)
-            #expect(failedAuthoring.content.source == nil)
+            #expect(failedAuthoring.content.session?.source == nil)
             #expect(failedAuthoring.content.content.eventWorkspace != nil)
             #expect(failedAuthoring.content.content.installedFeatures.contains(.workspace))
             #expect(failedAuthoring.content.content.authoringAccess.canEditContent)
-            guard case let .sourcePreparationFailed(failure) = failedAuthoring.content.phase else {
+            guard case let .preparationFailed(failure) = failedAuthoring.content.availability else {
                 Issue.record("The controlled first preparation must retain its failure details.")
                 return
             }
             expectNoDifference(
-                failedAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                .failed(operation: .sourcePreparation, failure: failure)
+                failedAuthoring.content.content.eventWorkspace?.workspaceState.preparationFailure,
+                failure
             )
 
             // Retry starts at EventWorkspace, crosses the app event bridge, and reaches the shared
@@ -1632,16 +1706,18 @@ struct WorkspaceAuthoringStoryTests {
                 workspaceStoryWorkspaceAction(.sourcePreparationRetryButtonTapped)
             )?.value
             let readyAuthoring = try #require(opened.state.content.destination?.eventViewer?.authoring)
-            guard case let .ready(.published(selectedBranch)) = readyAuthoring.content.phase else {
+            guard let readySession = readyAuthoring.content.session,
+                  case let .published(selectedBranch) = readySession.selectedContext
+            else {
                 Issue.record("Workspace retry must establish the selected branch.")
                 return
             }
-            #expect(readyAuthoring.content.source != nil)
+            #expect(readyAuthoring.content.session?.source != nil)
             #expect(readyAuthoring.content.content.eventWorkspace != nil)
             #expect(readyAuthoring.content.content.installedFeatures.contains(.workspace))
             expectNoDifference(
-                readyAuthoring.content.content.eventWorkspace?.workspaceStatus,
-                .ready(.published(selectedBranch))
+                readyAuthoring.content.content.eventWorkspace?.selectedContext,
+                .published(selectedBranch)
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
             expectNoDifference(operations.count(of: "clone"), 0)
@@ -1658,8 +1734,8 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(exited.content.content.authoringAccess, .attendee)
             #expect(!exited.content.content.installedFeatures.contains(.workspace))
             #expect(exited.content.content.eventWorkspace != nil)
-            expectNoDifference(exited.content.phase, .inactive)
-            #expect(exited.content.source == nil)
+            #expect(workspaceIsInactive(exited.content.availability))
+            #expect(exited.content.session?.source == nil)
             let exitedWorkspaceID = exited.context.id
             let retainedSelection = try await database.read { db in
                 try SourceWorkspaceSelectionRecord.find(exitedWorkspaceID).fetchOne(db)
@@ -1804,14 +1880,14 @@ struct WorkspaceAuthoringStoryTests {
             $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient {
                 requestedWorkspace in
                 #expect(requestedWorkspace == workspace)
-                return WorkspacePreparation(
-                    context: .published(
+                return WorkspaceSession(
+                    source: resource,
+                    selectedContext: .published(
                         WorkspaceBranchReference(
                             branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
                             revision: WorkspaceRevision(rawValue: "authoring-revision")
                         )
-                    ),
-                    source: resource
+                    )
                 )
             }
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
@@ -1844,7 +1920,7 @@ struct WorkspaceAuthoringStoryTests {
             try await workspaceStoryWaitUntil {
                 guard case .active = store.content.destination?.eventViewer?.authoring.phase,
                       case .ready = store.content.destination?.eventViewer?
-                        .authoring.content.phase
+                        .authoring.content.availability
                 else { return false }
                 return true
             }
@@ -1887,7 +1963,7 @@ struct WorkspaceAuthoringStoryTests {
                     return false
                 }
                 return authoring.grant == nil
-                    && authoring.content.phase == .inactive
+                    && workspaceIsInactive(authoring.content.availability)
                     && authoring.content.content.event?.name == "Wicked Woods 2026"
             }
             #expect(authoringGrant.wrappedValue == nil)
@@ -2015,7 +2091,7 @@ struct WorkspaceAuthoringStoryTests {
                 .inactive(.unavailable)
             )
             #expect(authoring.grant == nil)
-            expectNoDifference(authoring.content.phase, .inactive)
+            #expect(workspaceIsInactive(authoring.content.availability))
             if target == .workspace {
                 expectNoDifference(
                     authoring.content.content.pendingAuthoringEntry,
@@ -2038,10 +2114,9 @@ struct WorkspaceAuthoringStoryTests {
                 .inactive(.unavailable)
             )
             #expect(opened.state.content.destination?.eventViewer?.authoring.grant == nil)
-            expectNoDifference(
-                opened.state.content.destination?.eventViewer?.authoring.content.phase,
-                .inactive
-            )
+            #expect(workspaceIsInactive(
+                opened.state.content.destination?.eventViewer?.authoring.content.availability
+            ))
             #expect(operations.snapshot.isEmpty)
             await opened.dismount(timeout: .seconds(1))
         }
@@ -2145,14 +2220,27 @@ struct WorkspaceAuthoringStoryTests {
                     .inactive(.unavailable)
                 )
                 #expect(store.content.destination?.eventViewer?.authoring.grant == nil)
-                expectNoDifference(
-                    store.content.destination?.eventViewer?.authoring.content.phase,
-                    .inactive
-                )
+                #expect(workspaceIsInactive(
+                    store.content.destination?.eventViewer?.authoring.content.availability
+                ))
                 #expect(operations.snapshot.isEmpty)
             }
         }
     }
+}
+
+private func workspaceIsInactive<Source>(
+    _ availability: WorkspaceAvailability<Source>?
+) -> Bool {
+    guard case .inactive? = availability else { return false }
+    return true
+}
+
+private func workspaceIsPreparing<Source>(
+    _ availability: WorkspaceAvailability<Source>?
+) -> Bool {
+    guard case .preparing? = availability else { return false }
+    return true
 }
 
 private struct WorkspaceStoryGitFixture {
@@ -2375,7 +2463,8 @@ private func workspaceStoryNetwork(
     eventID: OME.Event.ID,
     archive: Data,
     revision: String = "unused-revision",
-    failsProposalPublication: Bool = false
+    failsProposalPublication: Bool = false,
+    recorder: WorkspaceStorySourceControlRecorder? = nil
 ) -> RunHTTPRequest {
     let archiveChecksum = Data(SHA256.hash(data: archive)).base64EncodedString()
     return { request, _ in
@@ -2478,6 +2567,7 @@ private func workspaceStoryNetwork(
             ))
         }
         if path.hasSuffix("/com.atproto.repo.putRecord") {
+            recorder?.record("putRecord")
             if failsProposalPublication {
                 throw WorkspaceStoryPatchPublicationFailure()
             }
@@ -2570,10 +2660,12 @@ private func workspaceStorySourceControl(
 struct WorkspaceStoryProposalScenario: CustomStringConvertible, Sendable {
     var target: EventTarget
     var failsPublication = false
+    var failsReferenceApplication = false
     var signsIn = false
 
     var description: String {
         if failsPublication { return "\(target)-patch-publication-failure" }
+        if failsReferenceApplication { return "\(target)-reference-application-failure" }
         if signsIn { return "\(target)-sign-in-success" }
         return "\(target)-success"
     }
@@ -2694,6 +2786,127 @@ private final class WorkspaceStoryLiveStore {
     }
 }
 
+private enum WorkspaceStoryDependencyPropagationBoundary: CaseIterable, Equatable, Sendable {
+    case preparedScope
+    case openingTask
+    case installationUpdate
+    case installationTask
+    case childState
+    case childMount
+}
+
+private struct WorkspaceStoryDependencyPropagationObservation: Equatable, Sendable {
+    var boundary: WorkspaceStoryDependencyPropagationBoundary
+    var matchesPreparedDatabase: Bool
+}
+
+private final class WorkspaceStoryDependencyPropagationRecorder: Sendable {
+    let observations = Mutex<[WorkspaceStoryDependencyPropagationObservation]>([])
+    let preparedDatabaseID: ObjectIdentifier
+
+    init(database: any DatabaseWriter) {
+        preparedDatabaseID = ObjectIdentifier(database)
+    }
+
+    var snapshot: [WorkspaceStoryDependencyPropagationObservation] {
+        observations.withLock { $0 }
+    }
+
+    func record(
+        _ boundary: WorkspaceStoryDependencyPropagationBoundary,
+        database: any DatabaseWriter
+    ) {
+        observations.withLock {
+            $0.append(
+                WorkspaceStoryDependencyPropagationObservation(
+                    boundary: boundary,
+                    matchesPreparedDatabase: ObjectIdentifier(database) == preparedDatabaseID
+                )
+            )
+        }
+    }
+}
+
+@Feature
+private struct WorkspaceStoryDependencyPropagationProbe {
+    struct State {
+        var child: Child.State?
+    }
+
+    enum Action {
+        case child(Child.Action)
+        case install
+        case open
+    }
+
+    @Feature
+    struct Child {
+        struct State {
+            init(recorder: WorkspaceStoryDependencyPropagationRecorder) {
+                @Dependency(\.defaultDatabase) var database
+                recorder.record(.childState, database: database)
+            }
+
+            var isMounted = false
+        }
+
+        enum Action {
+            case mounted
+        }
+
+        @Dependency(\.defaultDatabase) var database
+        let recorder: WorkspaceStoryDependencyPropagationRecorder
+
+        var body: some Feature {
+            Update { _, _ in }
+                .onMount { state in
+                    recorder.record(.childMount, database: database)
+                    state.isMounted = true
+                }
+        }
+    }
+
+    @Dependency(\.defaultDatabase) var database
+    let recorder: WorkspaceStoryDependencyPropagationRecorder
+
+    var body: some Feature {
+        Update { _, action in
+            switch action {
+            case .child:
+                break
+
+            case .install:
+                recorder.record(.installationUpdate, database: database)
+                store.addTask {
+                    let installation = AsyncStream<Void> { continuation in
+                        continuation.yield()
+                        continuation.finish()
+                    }
+                    for await _ in installation {}
+
+                    @Dependency(\.defaultDatabase) var taskDatabase
+                    recorder.record(.installationTask, database: taskDatabase)
+                    let child = Child.State(recorder: recorder)
+                    let mount = try store.modify { $0.child = child }
+                    await mount?.value
+                }
+
+            case .open:
+                store.addTask {
+                    await Task.yield()
+                    @Dependency(\.defaultDatabase) var taskDatabase
+                    recorder.record(.openingTask, database: taskDatabase)
+                    let install = try store.send(.install)
+                    await install?.value
+                }
+            }
+        }
+        .ifLet(\.child, action: \.child) {
+            Child(recorder: recorder)
+        }
+    }
+}
+
 @MainActor
 private func workspaceStoryOpenEvent(
     _ store: WorkspaceStoryLiveStore,
@@ -2800,7 +3013,7 @@ private actor WorkspaceStoryPreparationPause {
     func prepare(
         _ workspace: SourceWorkspace,
         live: SourceWorkspacePreparationClient
-    ) async throws -> WorkspacePreparation<SourceWorkspaceResource> {
+    ) async throws -> WorkspaceSession<SourceWorkspaceResource> {
         precondition(!started, "Source preparation unexpectedly started more than once.")
         await withCheckedContinuation {
             continuation = $0
@@ -2830,7 +3043,7 @@ private actor WorkspaceStoryPreparationGate {
     func prepare(
         _ workspace: SourceWorkspace,
         live: SourceWorkspacePreparationClient
-    ) async throws -> WorkspacePreparation<SourceWorkspaceResource> {
+    ) async throws -> WorkspaceSession<SourceWorkspaceResource> {
         attempt += 1
         guard attempt == 1 else {
             return try await live.prepare(workspace)

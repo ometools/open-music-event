@@ -1017,9 +1017,12 @@ private func makeEventSettingsAuthoringExitFixture(
             AnyFeature(
                 EventSettings()
                     .environment(
-                        WorkspaceContext<SourceWorkspaceResource, SourcePatch>(
-                            phase: SharedReader(value: .inactive),
-                            source: SharedReader(value: resource)
+                        WorkspaceContext<SourceWorkspaceResource>(
+                            state: SharedReader(
+                                value: WorkspaceState(
+                                    id: WorkspaceID(rawValue: workspace.id.rawValue)
+                                )
+                            )
                         )
                     )
                 )

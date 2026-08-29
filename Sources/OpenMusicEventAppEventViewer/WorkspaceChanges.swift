@@ -85,7 +85,7 @@ public struct WorkspaceChanges {
     }
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
     var workspace
 
     public var body: some Feature {
@@ -94,12 +94,12 @@ public struct WorkspaceChanges {
             case .proposalActionButtonTapped:
                 guard state.canPropose,
                       state.changeCount > 0,
-                      case let .ready(context) = workspace.phase.wrappedValue
+                      let session = workspace.session
                 else { return }
-                switch context {
-                case let .published(branch):
+                switch session.selectedContext {
+                case let .published(reference):
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        targetBranch: branch.branch.rawValue,
+                        targetBranch: reference.branch.rawValue,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
@@ -119,7 +119,7 @@ public struct WorkspaceChanges {
             case .resetChangesButtonTapped:
                 guard state.canResetChanges else { return }
                 let workspace = state.workspace
-                let referenceDatabase = self.workspace.source.wrappedValue?.referenceDatabase
+                let referenceDatabase = self.workspace.session?.source.referenceDatabase
                 let workspaceResetter = workspaceResetter
                 state.resetStatus = .resetting
                 store.addTask {
@@ -174,34 +174,32 @@ private struct SourceWorkspaceEditSummaryRequest: FetchKeyRequest {
 
 public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
-    let workspacePhase: WorkspacePhase<SourcePatch>
+    let workspaceState: WorkspaceState<SourceWorkspaceResource>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var isResetConfirmationPresented = false
 
     public init(
         store: StoreOf<WorkspaceChanges>,
-        workspacePhase: WorkspacePhase<SourcePatch>
+        workspaceState: WorkspaceState<SourceWorkspaceResource>
     ) {
         self.store = store
-        self.workspacePhase = workspacePhase
+        self.workspaceState = workspaceState
     }
 
     public var body: some View {
         Group {
             switch store.summary.availability {
             case .available:
-                if store.changeCount > 0 {
-                    SourceChangeSummarySection(
-                        groups: store.summary.groups,
-                        fieldComparisons: store.summary.fieldComparisons,
-                        recordComparisons: store.summary.recordComparisons,
-                        emptyMessage: "No local changes."
-                    )
-                }
+                SourceChangePresentationSection(
+                    presentation: store.summary.presentation,
+                    emptyMessage: workspaceState.selectedProposal == nil
+                        ? "No local changes."
+                        : "No newer changes are waiting to be added to this proposal."
+                )
 
             case .workspaceNeedsPreparation:
                 Section("What changed") {
-                    if case .preparingSource = workspacePhase {
+                    if case .preparing = workspaceState.availability {
                         HStack(spacing: 10) {
                             ProgressView()
                             VStack(alignment: .leading, spacing: 2) {
@@ -253,8 +251,7 @@ public struct WorkspaceChangesView: View {
         }
         .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
             WorkspaceProposalDraftView(
-                store: draftStore,
-                workspacePhase: workspacePhase
+                store: draftStore
             )
         }
         .alert("Reset all source changes?", isPresented: $isResetConfirmationPresented) {

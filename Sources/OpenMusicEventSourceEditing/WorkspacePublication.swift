@@ -3,57 +3,105 @@ import Foundation
 import SQLiteData
 import SourceEditing
 
+/// The pre-model publication table is retained only as migration input.
 @Table("sourceWorkspacePublications")
-struct WorkspacePublicationRecord: Equatable, Sendable, Identifiable {
+struct LegacyWorkspacePublicationRecord: Equatable, Sendable, Identifiable {
     var id: SourceWorkspace.ID
-    var captureRequestID: String?
-    var capturedChangesData: Data?
-    var submissionData: Data?
-    var pushedSubmissionID: String?
-    var commitData: Data?
-    var recordedSubmissionID: String?
-    var mutationData: Data?
-    var proposalTimestamp: String?
-    var preparedSubmissionID: String?
-    var preparedPublicationData: Data?
-    var publishedSubmissionID: String?
-    var publishedProposalData: Data?
-
-    init(
-        id: SourceWorkspace.ID,
-        captureRequestID: String? = nil,
-        capturedChangesData: Data? = nil,
-        submissionData: Data? = nil,
-        pushedSubmissionID: String? = nil,
-        commitData: Data? = nil,
-        recordedSubmissionID: String? = nil,
-        mutationData: Data? = nil,
-        proposalTimestamp: String? = nil,
-        preparedSubmissionID: String? = nil,
-        preparedPublicationData: Data? = nil,
-        publishedSubmissionID: String? = nil,
-        publishedProposalData: Data? = nil
-    ) {
-        self.id = id
-        self.captureRequestID = captureRequestID
-        self.capturedChangesData = capturedChangesData
-        self.submissionData = submissionData
-        self.pushedSubmissionID = pushedSubmissionID
-        self.commitData = commitData
-        self.recordedSubmissionID = recordedSubmissionID
-        self.mutationData = mutationData
-        self.proposalTimestamp = proposalTimestamp
-        self.preparedSubmissionID = preparedSubmissionID
-        self.preparedPublicationData = preparedPublicationData
-        self.publishedSubmissionID = publishedSubmissionID
-        self.publishedProposalData = publishedProposalData
-    }
+    var captureRequestID: String? = nil
+    var capturedChangesData: Data? = nil
+    var submissionData: Data? = nil
+    var pushedSubmissionID: String? = nil
+    var commitData: Data? = nil
+    var recordedSubmissionID: String? = nil
+    var mutationData: Data? = nil
+    var proposalTimestamp: String? = nil
+    var preparedSubmissionID: String? = nil
+    var preparedPublicationData: Data? = nil
+    var publishedSubmissionID: String? = nil
+    var publishedProposalData: Data? = nil
 }
 
 @Table("sourceWorkspaceOpenProposals")
-struct WorkspaceOpenProposalRecord: Equatable, Sendable, Identifiable {
+struct LegacyWorkspaceOpenProposalRecord: Equatable, Sendable, Identifiable {
     var id: SourceWorkspace.ID
     var proposalData: Data
+}
+
+@Table("sourceWorkspaceContexts")
+struct WorkspaceContextRecord: Equatable, Sendable, Identifiable {
+    var id: SourceWorkspace.ID
+    var contextData: Data
+}
+
+@Table("sourceWorkspaceProposalReceipts")
+struct WorkspaceProposalReceiptRecord: Equatable, Sendable, Identifiable {
+    var id: String
+    var workspaceID: SourceWorkspace.ID
+    var proposalData: Data
+}
+
+@Table("sourceWorkspaceProposalRepairs")
+struct WorkspaceProposalRepairRecord: Equatable, Sendable, Identifiable {
+    var id: SourceWorkspace.ID
+    var proposalData: Data
+    var patchData: Data
+}
+
+public struct SourceWorkspaceProposalRepair: Codable, Equatable, Sendable {
+    public var proposal: WorkspaceProposal
+    public var patch: SourcePatch
+
+    public init(proposal: WorkspaceProposal, patch: SourcePatch) {
+        self.proposal = proposal
+        self.patch = patch
+    }
+}
+
+/// OME-private transport recovery. This is deliberately not part of Workspace's product model.
+struct WorkspacePublicationCheckpoint: Codable, Equatable, Sendable {
+    var changes: SourcePatch
+    var id: UUID
+    var target: WorkspacePublicationTarget
+
+    init(attempt: WorkspaceProposalAttempt<SourcePatch>, id: UUID = UUID()) {
+        self.changes = attempt.changes
+        self.id = id
+        self.target = WorkspacePublicationTarget(attempt.target)
+    }
+
+    var attempt: WorkspaceProposalAttempt<SourcePatch> {
+        WorkspaceProposalAttempt(changes: changes, target: target.attemptTarget)
+    }
+
+    func represents(_ attempt: WorkspaceProposalAttempt<SourcePatch>) -> Bool {
+        changes == attempt.changes && target.attemptTarget == attempt.target
+    }
+}
+
+enum WorkspacePublicationTarget: Codable, Equatable, Sendable {
+    case createProposal(
+        target: WorkspaceBranchReference,
+        details: WorkspaceProposalDetails
+    )
+    case updateProposal(WorkspaceProposal)
+
+    init(_ target: WorkspaceProposalAttemptTarget) {
+        switch target {
+        case let .createProposal(target, details):
+            self = .createProposal(target: target, details: details)
+        case let .updateProposal(proposal):
+            self = .updateProposal(proposal)
+        }
+    }
+
+    var attemptTarget: WorkspaceProposalAttemptTarget {
+        switch self {
+        case let .createProposal(target, details):
+            .createProposal(target: target, details: details)
+        case let .updateProposal(proposal):
+            .updateProposal(proposal)
+        }
+    }
 }
 
 public enum WorkspacePublicationMigrations {
@@ -104,8 +152,7 @@ public enum WorkspacePublicationMigrations {
                 .execute(db)
         }
         migrator.registerMigration("Persist patch-only workspace proposal publication") { db in
-            let columns = try db.columns(in: "sourceWorkspacePublications")
-                .map(\.name)
+            let columns = try db.columns(in: "sourceWorkspacePublications").map(\.name)
             if !columns.contains("preparedSubmissionID") {
                 try #sql(
                     "ALTER TABLE \"sourceWorkspacePublications\" ADD COLUMN \"preparedSubmissionID\" TEXT"
@@ -131,18 +178,127 @@ public enum WorkspacePublicationMigrations {
                 .execute(db)
             }
         }
+        migrator.registerMigration("Model one exact source workspace context") { db in
+            try #sql("""
+                CREATE TABLE "sourceWorkspaceContexts" (
+                  "id" TEXT PRIMARY KEY NOT NULL,
+                  "contextData" BLOB NOT NULL
+                ) STRICT
+                """)
+                .execute(db)
+            try #sql("""
+                CREATE TABLE "sourceWorkspaceProposalReceipts" (
+                  "id" TEXT PRIMARY KEY NOT NULL,
+                  "workspaceID" TEXT NOT NULL,
+                  "proposalData" BLOB NOT NULL
+                ) STRICT
+                """)
+                .execute(db)
+            try #sql("""
+                CREATE INDEX "sourceWorkspaceProposalReceipts_workspaceID"
+                ON "sourceWorkspaceProposalReceipts" ("workspaceID")
+                """)
+                .execute(db)
+            try #sql("""
+                CREATE TABLE "sourceWorkspaceProposalRepairs" (
+                  "id" TEXT PRIMARY KEY NOT NULL,
+                  "proposalData" BLOB NOT NULL,
+                  "patchData" BLOB NOT NULL
+                ) STRICT
+                """)
+                .execute(db)
+
+            let openProposals = Dictionary(
+                uniqueKeysWithValues: try LegacyWorkspaceOpenProposalRecord.all
+                    .fetchAll(db)
+                    .map { ($0.id, $0.proposalData) }
+            )
+            let legacyPublications = try LegacyWorkspacePublicationRecord.all.fetchAll(db)
+            var recordedProposals = openProposals
+            for legacy in legacyPublications {
+                guard let proposalData = legacy.publishedProposalData ?? legacy.mutationData,
+                      let proposal = try? decode(WorkspaceProposal.self, from: proposalData)
+                else { continue }
+                let encodedProposal = try encode(proposal)
+                recordedProposals[legacy.id] = encodedProposal
+                try saveReceipt(proposal, workspaceID: legacy.id, in: db)
+
+                let checkpoint = legacy.submissionData.flatMap {
+                    try? decode(WorkspacePublicationCheckpoint.self, from: $0)
+                }
+                let patchData = try checkpoint.map { try encode($0.changes) }
+                    ?? legacy.capturedChangesData
+                if let patchData,
+                   (try? decode(SourcePatch.self, from: patchData)) != nil {
+                    try WorkspaceProposalRepairRecord.upsert {
+                        WorkspaceProposalRepairRecord(
+                            id: legacy.id,
+                            proposalData: encodedProposal,
+                            patchData: patchData
+                        )
+                    }
+                    .execute(db)
+                }
+            }
+            for selection in try SourceWorkspaceSelectionRecord.all.fetchAll(db) {
+                let context: WorkspaceEditingContext
+                let installation = try SourceWorkspaceInstallationRecord
+                    .find(selection.id)
+                    .fetchOne(db)
+                if let proposalData = recordedProposals[selection.id],
+                   let proposal = try? decode(WorkspaceProposal.self, from: proposalData),
+                   installation?.revision == proposal.revision.rawValue {
+                    context = .proposal(proposal)
+                    try saveReceipt(proposal, workspaceID: selection.id, in: db)
+                } else {
+                    let workspace = try SourceWorkspace(id: selection.id)
+                    let reference = WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: selection.branch),
+                        revision: WorkspaceRevision(rawValue: selection.revision)
+                    )
+                    context = selection.branch == workspace.defaultBranch
+                        ? .published(reference)
+                        : .branch(reference)
+                }
+                let contextData = try encode(context)
+                try WorkspaceContextRecord.upsert {
+                    WorkspaceContextRecord(
+                        id: selection.id,
+                        contextData: contextData
+                    )
+                }
+                .execute(db)
+            }
+        }
+    }
+
+    private static func saveReceipt(
+        _ proposal: WorkspaceProposal,
+        workspaceID: SourceWorkspace.ID,
+        in db: Database
+    ) throws {
+        let proposalData = try encode(proposal)
+        try WorkspaceProposalReceiptRecord.upsert {
+            WorkspaceProposalReceiptRecord(
+                id: proposal.id.rawValue,
+                workspaceID: workspaceID,
+                proposalData: proposalData
+            )
+        }
+        .execute(db)
     }
 }
 
-/// Durable workspace state that is meaningful only while this device is authoring the source.
 public enum SourceWorkspaceEditingState {
-    /// Removes the writable baseline and all in-flight publication state in the caller's
-    /// transaction. The reference database belongs to the source checkout and is not mutated here.
-    public static func discard(
+    /// Removes rows that exist only while authoring is active.
+    ///
+    /// The exact selected context, its installed revision, publication receipts, and any
+    /// post-record repair journal are durable workspace state. Restoring attendee data must not
+    /// erase them: they are what lets the next authoring session mount the same coherent context.
+    public static func deactivate(
         _ workspaceID: SourceWorkspace.ID,
         in database: Database
     ) throws {
-        try WorkspacePublicationRecord.find(workspaceID).delete().execute(database)
         try WorkspaceAuthoringActivationRecord.find(workspaceID).delete().execute(database)
         try SourceWorkspaceInstallationRecord.find(workspaceID).delete().execute(database)
         try WorkspaceRelationshipRecord
@@ -152,107 +308,158 @@ public enum SourceWorkspaceEditingState {
     }
 }
 
-/// The proposal currently tracked by a source workspace.
-/// Transient publication retry state remains private to the publication implementation.
-public struct SourceWorkspaceOpenProposalStore: Sendable {
+public struct SourceWorkspaceContextStore: Sendable {
     public init(database: any DatabaseWriter) {
         self.persistence = WorkspacePublicationPersistence(database: database)
     }
 
     private let persistence: WorkspacePublicationPersistence
 
-    public func load(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceProposal? {
-        try persistence.openProposal(workspaceID)
+    public func load(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceEditingContext? {
+        try persistence.optionalContext(workspaceID)
     }
 
     public func save(
-        _ proposal: WorkspaceProposal?,
+        _ context: WorkspaceEditingContext,
         workspaceID: SourceWorkspace.ID
     ) async throws {
-        try await persistence.saveOpenProposal(proposal, workspaceID: workspaceID)
+        try await persistence.saveContext(context, workspaceID: workspaceID)
+    }
+
+    /// Advances the main database's workspace revision and exact mounted context atomically.
+    public func saveProposalContext(
+        _ proposal: WorkspaceProposal,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        try await persistence.saveProposalContext(
+            proposal,
+            workspaceID: workspaceID
+        )
     }
 }
 
-/// The proposal currently tracked by a source workspace.
-public struct SourceWorkspaceOpenProposalRequest: FetchKeyRequest {
+public struct SourceWorkspaceProposalReceiptsRequest: FetchKeyRequest {
     public init(workspaceID: SourceWorkspace.ID) {
         self.workspaceID = workspaceID
     }
 
     public let workspaceID: SourceWorkspace.ID
 
-    public func fetch(_ db: Database) throws -> WorkspaceProposal? {
-        try WorkspaceOpenProposalRecord.find(workspaceID)
-            .fetchOne(db)
+    public func fetch(_ db: Database) throws -> [WorkspaceProposal] {
+        try WorkspaceProposalReceiptRecord
+            .where { $0.workspaceID.eq(workspaceID) }
+            .fetchAll(db)
             .map { try decode(WorkspaceProposal.self, from: $0.proposalData) }
     }
 }
 
+public struct SourceWorkspaceProposalReceiptStore: Sendable {
+    public init(database: any DatabaseWriter) {
+        self.database = database
+    }
+
+    private let database: any DatabaseWriter
+
+    /// Removes delivery receipts once the server-owned proposal projection has observed them.
+    public func acknowledge(_ proposalIDs: [WorkspaceProposalID]) async throws {
+        guard !proposalIDs.isEmpty else { return }
+        try await database.write { db in
+            for proposalID in proposalIDs {
+                try WorkspaceProposalReceiptRecord.find(proposalID.rawValue)
+                    .delete()
+                    .execute(db)
+            }
+        }
+    }
+}
+
+public struct SourceWorkspaceProposalRepairRequest: FetchKeyRequest {
+    public init(workspaceID: SourceWorkspace.ID) {
+        self.workspaceID = workspaceID
+    }
+
+    public let workspaceID: SourceWorkspace.ID
+
+    public func fetch(_ db: Database) throws -> SourceWorkspaceProposalRepair? {
+        try WorkspaceProposalRepairRecord.find(workspaceID)
+            .fetchOne(db)
+            .map {
+                SourceWorkspaceProposalRepair(
+                    proposal: try decode(WorkspaceProposal.self, from: $0.proposalData),
+                    patch: try decode(SourcePatch.self, from: $0.patchData)
+                )
+            }
+    }
+}
+
+public struct SourceWorkspaceProposalRepairStore: Sendable {
+    public init(database: any DatabaseWriter) {
+        self.database = database
+    }
+
+    private let database: any DatabaseWriter
+
+    public func load(
+        _ workspaceID: SourceWorkspace.ID
+    ) throws -> SourceWorkspaceProposalRepair? {
+        try database.read { db in
+            try SourceWorkspaceProposalRepairRequest(workspaceID: workspaceID).fetch(db)
+        }
+    }
+
+    public func complete(_ workspaceID: SourceWorkspace.ID) async throws {
+        try await WorkspacePublicationPersistence(database: database)
+            .completeRepair(workspaceID: workspaceID)
+    }
+}
+
 struct WorkspacePublicationPersistence: Sendable {
+    enum Error: Swift.Error {
+        case contextMissing(SourceWorkspace.ID)
+    }
+
     let database: any DatabaseWriter
 
-    func capture(
+    func checkpoint(
         workspaceID: SourceWorkspace.ID,
-        requestID: WorkspaceSubmissionID
-    ) throws -> SourcePatch? {
-        let requestID = requestID.rawValue.uuidString.lowercased()
-        return try database.read { db in
-            guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
-                  record.captureRequestID == requestID,
-                  let data = record.capturedChangesData
-            else { return nil }
-            return try decode(SourcePatch.self, from: data)
+        attempt: WorkspaceProposalAttempt<SourcePatch>
+    ) async throws -> WorkspacePublicationCheckpoint {
+        if let existing = try checkpoint(workspaceID), existing.represents(attempt) {
+            return existing
         }
-    }
-
-    func saveCapture(
-        _ changes: SourcePatch,
-        workspaceID: SourceWorkspace.ID,
-        requestID: WorkspaceSubmissionID
-    ) async throws {
-        let data = try encode(changes)
-        let requestID = requestID.rawValue.uuidString.lowercased()
+        let checkpoint = WorkspacePublicationCheckpoint(attempt: attempt)
+        let data = try encode(checkpoint)
         try await database.write { db in
-            try ensureRecord(workspaceID, in: db)
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.captureRequestID = #bind(requestID as String?)
-                $0.capturedChangesData = #bind(data as Data?)
-            }
-            .execute(db)
-        }
-    }
-
-    func submission(
-        _ workspaceID: SourceWorkspace.ID
-    ) throws -> WorkspaceSubmission<SourcePatch>? {
-        try database.read { db in
-            try WorkspacePublicationRecord.find(workspaceID).fetchOne(db)?.submissionData
-        }
-        .map { try decode(WorkspaceSubmission<SourcePatch>.self, from: $0) }
-    }
-
-    func save(
-        _ submission: WorkspaceSubmission<SourcePatch>,
-        workspaceID: SourceWorkspace.ID
-    ) async throws {
-        let data = try encode(submission)
-        try await database.write { db in
-            try ensureRecord(workspaceID, in: db)
-            try WorkspacePublicationRecord.find(workspaceID).update {
+            try ensureLegacyRecord(workspaceID, in: db)
+            try LegacyWorkspacePublicationRecord.find(workspaceID).update {
                 $0.submissionData = #bind(data as Data?)
+                $0.preparedSubmissionID = #bind(nil as String?)
+                $0.preparedPublicationData = #bind(nil as Data?)
+                $0.publishedSubmissionID = #bind(nil as String?)
+                $0.publishedProposalData = #bind(nil as Data?)
             }
             .execute(db)
         }
+        return checkpoint
+    }
+
+    func checkpoint(
+        _ workspaceID: SourceWorkspace.ID
+    ) throws -> WorkspacePublicationCheckpoint? {
+        try database.read { db in
+            try LegacyWorkspacePublicationRecord.find(workspaceID).fetchOne(db)?.submissionData
+        }
+        .flatMap { try? decode(WorkspacePublicationCheckpoint.self, from: $0) }
     }
 
     func preparedPublication(
         workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID
+        checkpointID: UUID
     ) throws -> TangledPatchOnlyProposalPublicationRequest? {
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
+        let id = checkpointID.uuidString.lowercased()
         return try database.read { db in
-            guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
-                  record.preparedSubmissionID == submissionID,
+            guard let record = try LegacyWorkspacePublicationRecord.find(workspaceID).fetchOne(db),
+                  record.preparedSubmissionID == id,
                   let data = record.preparedPublicationData
             else { return nil }
             return try decode(TangledPatchOnlyProposalPublicationRequest.self, from: data)
@@ -262,14 +469,14 @@ struct WorkspacePublicationPersistence: Sendable {
     func savePreparedPublication(
         _ request: TangledPatchOnlyProposalPublicationRequest,
         workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID
+        checkpointID: UUID
     ) async throws {
         let data = try encode(request)
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
+        let id = checkpointID.uuidString.lowercased()
         try await database.write { db in
-            try ensureRecord(workspaceID, in: db)
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.preparedSubmissionID = #bind(submissionID as String?)
+            try ensureLegacyRecord(workspaceID, in: db)
+            try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+                $0.preparedSubmissionID = #bind(id as String?)
                 $0.preparedPublicationData = #bind(data as Data?)
             }
             .execute(db)
@@ -278,42 +485,139 @@ struct WorkspacePublicationPersistence: Sendable {
 
     func publishedProposal(
         workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID
+        checkpointID: UUID
     ) throws -> WorkspaceProposal? {
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
+        let id = checkpointID.uuidString.lowercased()
         return try database.read { db in
-            guard let record = try WorkspacePublicationRecord.find(workspaceID).fetchOne(db),
-                  record.publishedSubmissionID == submissionID,
+            guard let record = try LegacyWorkspacePublicationRecord.find(workspaceID).fetchOne(db),
+                  record.publishedSubmissionID == id,
                   let data = record.publishedProposalData
             else { return nil }
             return try decode(WorkspaceProposal.self, from: data)
         }
     }
 
+    /// Atomically records the remote commit point and the local repair checkpoint.
     func savePublishedProposal(
         _ proposal: WorkspaceProposal,
-        workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID
+        checkpoint: WorkspacePublicationCheckpoint,
+        workspaceID: SourceWorkspace.ID
     ) async throws {
-        let data = try encode(proposal)
-        let submissionID = submissionID.rawValue.uuidString.lowercased()
+        let proposalData = try encode(proposal)
+        let patchData = try encode(checkpoint.changes)
+        let checkpointID = checkpoint.id.uuidString.lowercased()
         try await database.write { db in
-            try ensureRecord(workspaceID, in: db)
-            try WorkspacePublicationRecord.find(workspaceID).update {
-                $0.publishedSubmissionID = #bind(submissionID as String?)
-                $0.publishedProposalData = #bind(data as Data?)
+            try ensureLegacyRecord(workspaceID, in: db)
+            try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+                $0.publishedSubmissionID = #bind(checkpointID as String?)
+                $0.publishedProposalData = #bind(proposalData as Data?)
+            }
+            .execute(db)
+            try WorkspaceProposalReceiptRecord.upsert {
+                WorkspaceProposalReceiptRecord(
+                    id: proposal.id.rawValue,
+                    workspaceID: workspaceID,
+                    proposalData: proposalData
+                )
+            }
+            .execute(db)
+            try WorkspaceProposalRepairRecord.upsert {
+                WorkspaceProposalRepairRecord(
+                    id: workspaceID,
+                    proposalData: proposalData,
+                    patchData: patchData
+                )
             }
             .execute(db)
         }
     }
 
-    func removeSubmission(
-        workspaceID: SourceWorkspace.ID,
-        submissionID: WorkspaceSubmissionID
+    func optionalContext(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceEditingContext? {
+        try database.read { db in
+            try WorkspaceContextRecord.find(workspaceID).fetchOne(db)?.contextData
+        }
+        .map { try decode(WorkspaceEditingContext.self, from: $0) }
+    }
+
+    func context(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceEditingContext {
+        guard let context = try optionalContext(workspaceID) else {
+            throw Error.contextMissing(workspaceID)
+        }
+        return context
+    }
+
+    func saveContext(
+        _ context: WorkspaceEditingContext,
+        workspaceID: SourceWorkspace.ID
     ) async throws {
-        _ = submissionID
+        let data = try encode(context)
         try await database.write { db in
-            try WorkspacePublicationRecord.find(workspaceID).update {
+            try WorkspaceContextRecord.upsert {
+                WorkspaceContextRecord(id: workspaceID, contextData: data)
+            }
+            .execute(db)
+        }
+    }
+
+    func saveProposalContext(
+        _ proposal: WorkspaceProposal,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        let contextData = try encode(WorkspaceEditingContext.proposal(proposal))
+        try await database.write { db in
+            try SourceWorkspaceInstallationRecord.upsert {
+                SourceWorkspaceInstallationRecord(
+                    id: workspaceID,
+                    revision: proposal.revision.rawValue
+                )
+            }
+            .execute(db)
+            try SourceWorkspaceSelectionRecord.upsert {
+                SourceWorkspaceSelectionRecord(
+                    id: workspaceID,
+                    branch: proposal.target.branch.rawValue,
+                    revision: proposal.revision.rawValue
+                )
+            }
+            .execute(db)
+            try WorkspaceContextRecord.upsert {
+                WorkspaceContextRecord(id: workspaceID, contextData: contextData)
+            }
+            .execute(db)
+        }
+    }
+
+    func saveReceiptAndRepair(
+        proposal: WorkspaceProposal,
+        patch: SourcePatch,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        let proposalData = try encode(proposal)
+        let patchData = try encode(patch)
+        try await database.write { db in
+            try WorkspaceProposalReceiptRecord.upsert {
+                WorkspaceProposalReceiptRecord(
+                    id: proposal.id.rawValue,
+                    workspaceID: workspaceID,
+                    proposalData: proposalData
+                )
+            }
+            .execute(db)
+            try WorkspaceProposalRepairRecord.upsert {
+                WorkspaceProposalRepairRecord(
+                    id: workspaceID,
+                    proposalData: proposalData,
+                    patchData: patchData
+                )
+            }
+            .execute(db)
+        }
+    }
+
+    func completeRepair(workspaceID: SourceWorkspace.ID) async throws {
+        try await database.write { db in
+            try WorkspaceProposalRepairRecord.find(workspaceID).delete().execute(db)
+            try LegacyWorkspacePublicationRecord.find(workspaceID).update {
                 $0.captureRequestID = #bind(nil as String?)
                 $0.capturedChangesData = #bind(nil as Data?)
                 $0.submissionData = #bind(nil as Data?)
@@ -331,36 +635,15 @@ struct WorkspacePublicationPersistence: Sendable {
         }
     }
 
-    func openProposal(_ workspaceID: SourceWorkspace.ID) throws -> WorkspaceProposal? {
-        try database.read { db in
-            try WorkspaceOpenProposalRecord.find(workspaceID).fetchOne(db)?.proposalData
-        }
-        .map { try decode(WorkspaceProposal.self, from: $0) }
-    }
-
-    func saveOpenProposal(
-        _ proposal: WorkspaceProposal?,
-        workspaceID: SourceWorkspace.ID
-    ) async throws {
-        let data = try proposal.map(encode)
-        try await database.write { db in
-            if let data {
-                try WorkspaceOpenProposalRecord.upsert {
-                    WorkspaceOpenProposalRecord(id: workspaceID, proposalData: data)
-                }
-                .execute(db)
-            } else {
-                try WorkspaceOpenProposalRecord.find(workspaceID).delete().execute(db)
-            }
-        }
-    }
-
-    func ensureRecord(_ workspaceID: SourceWorkspace.ID, in db: Database) throws {
-        guard try WorkspacePublicationRecord.find(workspaceID).fetchCount(db) == 0 else {
+    private func ensureLegacyRecord(
+        _ workspaceID: SourceWorkspace.ID,
+        in db: Database
+    ) throws {
+        guard try LegacyWorkspacePublicationRecord.find(workspaceID).fetchCount(db) == 0 else {
             return
         }
-        try WorkspacePublicationRecord.insert {
-            WorkspacePublicationRecord(id: workspaceID)
+        try LegacyWorkspacePublicationRecord.insert {
+            LegacyWorkspacePublicationRecord(id: workspaceID)
         }
         .execute(db)
     }

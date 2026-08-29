@@ -612,7 +612,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `a non-authoring viewer downloads published content before workspace reconciliation`() async throws {
+    func `a non-authoring viewer cannot replace an installed authoring workspace`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -786,8 +786,8 @@ struct EventBrowseStoryTests {
                 ]
             )
 
-            // Reconciliation is not part of the attendee slice. Until it has an explicit owner,
-            // the transaction preserves both the installed event and the historical baseline.
+            // Context replacement is not part of the attendee slice. The transaction preserves
+            // both the installed event and the historical authoring reference.
             let preservedInstallation = try await database.read { database in
                 (
                     eventName: try OME.Event.find(eventID).fetchOne(database)?.name,
@@ -1512,7 +1512,10 @@ struct EventBrowseStoryTests {
         expectNoDifference(browseState.installedEvent?.ref, "main")
         expectNoDifference(installedWorkspace, workspace)
         expectNoDifference(browseState.installations, 0)
-        #expect(try SourceWorkspaceOpenProposalStore(database: database).load(workspace.id) == nil)
+        #expect(try SourceWorkspaceContextStore(database: database).load(workspace.id) == nil)
+        #expect(
+            try SourceWorkspaceProposalRepairStore(database: database).load(workspace.id) == nil
+        )
     }
 
     @Test

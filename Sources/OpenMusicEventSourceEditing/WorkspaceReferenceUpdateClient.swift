@@ -2,38 +2,67 @@ import ComposableWorkspace
 import Dependencies
 import SourceEditing
 
-/// The database-layer operation that advances OME's workspace-owned reference copy.
-///
-/// This seam exists because source parsing owns no SQLite insertion policy. It carries no state;
-/// the durable workflow state remains in `sourceWorkspacePublications`.
+public struct PreparedWorkspaceReferenceUpdate: Sendable {
+    public var apply: @Sendable (WorkspaceProposal) async throws -> WorkspaceEditingContext
+
+    public init(
+        apply: @escaping @Sendable (WorkspaceProposal) async throws -> WorkspaceEditingContext
+    ) {
+        self.apply = apply
+    }
+}
+
+/// The proposed snapshot is already mounted locally, but its durable main-database context still
+/// needs repair. Publication has succeeded and callers should expose `mountedContext` immediately.
+public struct WorkspaceReferenceUpdateIncomplete: Error, Equatable, Sendable {
+    public var mountedContext: WorkspaceEditingContext
+    public var message: String
+
+    public init(mountedContext: WorkspaceEditingContext, message: String) {
+        self.mountedContext = mountedContext
+        self.message = message
+    }
+}
+
+/// Database-layer context installation. Preparing a publication replacement happens before the
+/// PDS write; applying it happens afterward and is safe to repair independently.
 public struct WorkspaceReferenceUpdateClient: Sendable {
-    public var advance: @Sendable (
+    public var preparePublication: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
-        WorkspaceSubmission<SourcePatch>,
-        WorkspaceProposal
-    ) async throws -> Void
-    public var reconcile: @Sendable (
+        WorkspaceProposalAttempt<SourcePatch>
+    ) async throws -> PreparedWorkspaceReferenceUpdate
+    public var refresh: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
-        WorkspaceReconciliation
+        WorkspaceEditingContext
+    ) async throws -> WorkspaceEditingContext
+    public var select: @Sendable (
+        SourceWorkspaceResource,
+        SourceWorkspace.ID,
+        WorkspaceContextSelection
     ) async throws -> WorkspaceEditingContext
 
     public init(
-        advance: @escaping @Sendable (
+        preparePublication: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
-            WorkspaceSubmission<SourcePatch>,
-            WorkspaceProposal
-        ) async throws -> Void,
-        reconcile: @escaping @Sendable (
+            WorkspaceProposalAttempt<SourcePatch>
+        ) async throws -> PreparedWorkspaceReferenceUpdate,
+        refresh: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
-            WorkspaceReconciliation
+            WorkspaceEditingContext
+        ) async throws -> WorkspaceEditingContext,
+        select: @escaping @Sendable (
+            SourceWorkspaceResource,
+            SourceWorkspace.ID,
+            WorkspaceContextSelection
         ) async throws -> WorkspaceEditingContext
     ) {
-        self.advance = advance
-        self.reconcile = reconcile
+        self.preparePublication = preparePublication
+        self.refresh = refresh
+        self.select = select
     }
 }
 
@@ -42,8 +71,9 @@ extension WorkspaceReferenceUpdateClient: DependencyKey {
     public static var testValue: Self { .unconfigured }
 
     private static let unconfigured = Self(
-        advance: { _, _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
-        reconcile: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() }
+        preparePublication: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
+        refresh: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
+        select: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() }
     )
 }
 

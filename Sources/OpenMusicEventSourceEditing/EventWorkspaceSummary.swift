@@ -209,7 +209,7 @@ private func sourceSummary(
     )
 }
 
-func sourceScope(
+package func sourceScope(
     for projection: OpenMusicEventSourceProjection,
     workspace: SourceWorkspace
 ) -> SourceRecordScope {

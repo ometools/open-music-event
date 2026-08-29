@@ -22,6 +22,51 @@ public struct TangledDefaultBranchClient: Sendable {
     }
 }
 
+public struct TangledBranchReferenceClient: Sendable {
+    public var resolve: @Sendable (
+        _ repository: TangledRepositoryReference,
+        _ branch: WorkspaceBranch
+    ) async throws -> WorkspaceBranchReference
+
+    public init(
+        resolve: @escaping @Sendable (
+            _ repository: TangledRepositoryReference,
+            _ branch: WorkspaceBranch
+        ) async throws -> WorkspaceBranchReference
+    ) {
+        self.resolve = resolve
+    }
+}
+
+extension TangledBranchReferenceClient: DependencyKey {
+    public static var liveValue: Self {
+        Self { repository, branch in
+            let target = try await repository.resolvedTangledRepositoryTarget()
+            @Dependency(XRPC.Client.self) var xrpcClient
+            let output = try await xrpcClient.tangledListRefs(
+                repo: target.repositoryDID,
+                knotHost: target.knotHost
+            )
+            let canonical = "refs/heads/\(branch.rawValue)"
+            guard let reference = output.refs.first(where: {
+                $0.ref == canonical || $0.ref == branch.rawValue
+            }) else {
+                throw TangledBranchReferenceClientError.missingBranch(branch.rawValue)
+            }
+            return WorkspaceBranchReference(
+                branch: branch,
+                revision: WorkspaceRevision(rawValue: reference.sha)
+            )
+        }
+    }
+
+    public static var testValue: Self {
+        Self { _, branch in
+            throw TangledBranchReferenceClientError.missingBranch(branch.rawValue)
+        }
+    }
+}
+
 extension TangledDefaultBranchClient: DependencyKey {
     public static var liveValue: Self {
         Self { repository in
@@ -48,10 +93,19 @@ public extension DependencyValues {
         get { self[TangledDefaultBranchClient.self] }
         set { self[TangledDefaultBranchClient.self] = newValue }
     }
+
+    var tangledBranchReference: TangledBranchReferenceClient {
+        get { self[TangledBranchReferenceClient.self] }
+        set { self[TangledBranchReferenceClient.self] = newValue }
+    }
 }
 
 private enum TangledDefaultBranchClientError: Error {
     case unimplemented
+}
+
+private enum TangledBranchReferenceClientError: Error {
+    case missingBranch(String)
 }
 
 struct TangledPatchOnlyProposalTarget: Codable, Equatable, Sendable {

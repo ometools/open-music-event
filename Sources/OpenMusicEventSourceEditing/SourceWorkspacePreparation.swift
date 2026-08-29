@@ -10,12 +10,12 @@ import Foundation
 public struct SourceWorkspacePreparationClient: Sendable {
     public var prepare: @Sendable (
         _ workspace: SourceWorkspace
-    ) async throws -> WorkspacePreparation<SourceWorkspaceResource>
+    ) async throws -> WorkspaceSession<SourceWorkspaceResource>
 
     public init(
         prepare: @escaping @Sendable (
             _ workspace: SourceWorkspace
-        ) async throws -> WorkspacePreparation<SourceWorkspaceResource>
+        ) async throws -> WorkspaceSession<SourceWorkspaceResource>
     ) {
         self.prepare = prepare
     }

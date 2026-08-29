@@ -6,6 +6,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData
+import SourceEditing
 import Testing
 
 @testable import OpenMusicEventSourceEditing
@@ -21,7 +22,23 @@ struct WorkspacePublicationPersistenceTests {
 
         let persistence = WorkspacePublicationPersistence(database: database)
         let workspaceID = SourceWorkspace.ID(rawValue: "workspace-1")
-        let submissionID = WorkspaceSubmissionID(rawValue: UUID(1))
+        let attempt = WorkspaceProposalAttempt(
+            changes: SourcePatch(),
+            target: .createProposal(
+                target: WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "main"),
+                    revision: WorkspaceRevision(rawValue: "base-revision")
+                ),
+                details: WorkspaceProposalDetails(
+                    title: try #require(WorkspaceProposalTitle("Update the source")),
+                    description: "Complete replacement proposal"
+                )
+            )
+        )
+        let checkpoint = try await persistence.checkpoint(
+            workspaceID: workspaceID,
+            attempt: attempt
+        )
         let request = TangledPatchOnlyProposalPublicationRequest(
             authorRepository: try #require(DID("did:plc:author")),
             recordKey: ATProto.Record.Key(rawValue: "ome-proposal"),
@@ -56,43 +73,40 @@ struct WorkspacePublicationPersistenceTests {
         try await persistence.savePreparedPublication(
             request,
             workspaceID: workspaceID,
-            submissionID: submissionID
+            checkpointID: checkpoint.id
         )
         expectNoDifference(
             try persistence.preparedPublication(
                 workspaceID: workspaceID,
-                submissionID: submissionID
+                checkpointID: checkpoint.id
             ),
             request
         )
 
         try await persistence.savePublishedProposal(
             proposal,
-            workspaceID: workspaceID,
-            submissionID: submissionID
+            checkpoint: checkpoint,
+            workspaceID: workspaceID
         )
         expectNoDifference(
             try persistence.publishedProposal(
                 workspaceID: workspaceID,
-                submissionID: submissionID
+                checkpointID: checkpoint.id
             ),
             proposal
         )
 
-        try await persistence.removeSubmission(
-            workspaceID: workspaceID,
-            submissionID: submissionID
-        )
+        try await persistence.completeRepair(workspaceID: workspaceID)
         #expect(
             try persistence.preparedPublication(
                 workspaceID: workspaceID,
-                submissionID: submissionID
+                checkpointID: checkpoint.id
             ) == nil
         )
         #expect(
             try persistence.publishedProposal(
                 workspaceID: workspaceID,
-                submissionID: submissionID
+                checkpointID: checkpoint.id
             ) == nil
         )
     }

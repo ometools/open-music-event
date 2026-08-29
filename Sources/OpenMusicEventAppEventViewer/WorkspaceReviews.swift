@@ -41,15 +41,20 @@ public struct WorkspaceReviews {
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
             )
+            self._publicationReceipts = Fetch(
+                wrappedValue: [],
+                SourceWorkspaceProposalReceiptsRequest(workspaceID: workspace.id)
+            )
         }
 
         public let workspace: SourceWorkspace
         public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
+        @Fetch public var publicationReceipts: [WorkspaceProposal]
         public var destination: Destination.State?
         public var locallyRemovedReviewIDs: Set<String> = []
-        public var pendingCreatedReviewID: String?
+        public var requestedReviewID: String?
         public var status: Status = .notLoaded
 
         public var reviewAuthorReferences: [String] {
@@ -61,15 +66,20 @@ public struct WorkspaceReviews {
             return reviews
         }
 
+        public var pendingProjectionReceipts: [WorkspaceProposal] {
+            let projectedIDs = Set(reviews.map(\.id))
+            return publicationReceipts.filter { !projectedIDs.contains($0.id.rawValue) }
+        }
+
         public var canReview: Bool {
             guard authoringGrant?.workspaceID == workspace.id else { return false }
             let access = authoringGrant?.access ?? .attendee
             return access.canPropose || access.canMerge
         }
 
-        public mutating func openPendingReviewIfAvailable() {
-            guard let pendingCreatedReviewID,
-                  let review = reviews.first(where: { $0.id == pendingCreatedReviewID })
+        public mutating func openRequestedReviewIfAvailable() {
+            guard let requestedReviewID,
+                  let review = reviews.first(where: { $0.id == requestedReviewID })
             else { return }
             destination = .reviewDetail(
                 WorkspaceReviewDetail.State(
@@ -78,7 +88,7 @@ public struct WorkspaceReviews {
                     authoringGrant: authoringGrant
                 )
             )
-            self.pendingCreatedReviewID = nil
+            self.requestedReviewID = nil
         }
 
         mutating func remove(_ review: TangledPullReview) {
@@ -102,6 +112,7 @@ public struct WorkspaceReviews {
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+    @Dependency(\.defaultDatabase) var database
     @Dependency(\.tangledPullReviewClient) var reviewClient
 
     public var body: some Feature {
@@ -161,6 +172,7 @@ public struct WorkspaceReviews {
     func loadReviews(state: inout State) {
         guard state.canReview, state.status != .loading else { return }
         let target = OpenMusicEventSourceTarget(workspace: state.workspace)
+        let receiptStore = SourceWorkspaceProposalReceiptStore(database: database)
         let reviewClient = reviewClient
         state.status = .loading
         store.addTask {
@@ -168,14 +180,22 @@ public struct WorkspaceReviews {
                 let reviews = try await reviewClient.list(
                     OpenMusicEventTangledPullReviewRequest(target: target)
                 )
-                try store.modify {
+                let transition = try store.modify {
                     let removed = $0.locallyRemovedReviewIDs
                     $0.status = .loaded(
                         reviews
                             .filter { !removed.contains($0.id) }
                             .sorted { $0.createdAt > $1.createdAt }
                     )
-                    $0.openPendingReviewIfAvailable()
+                    $0.openRequestedReviewIfAvailable()
+                }
+                await transition?.value
+                do {
+                    try await receiptStore.acknowledge(
+                        reviews.map { WorkspaceProposalID(rawValue: $0.id) }
+                    )
+                } catch {
+                    reportIssue(error)
                 }
             } catch {
                 try store.modify { $0.status = .failed(String(describing: error)) }
@@ -350,11 +370,11 @@ public struct WorkspaceReviewDetail {
                     }
                     guard result != nil else { return }
                     do {
-                        let reconciliation = try store.post(
+                        let selection = try store.post(
                             key: WorkspaceProposalMerged.self,
                             value: WorkspaceProposalID(rawValue: review.id)
                         )
-                        await reconciliation?.value
+                        await selection?.value
                         try store.post(key: WorkspaceReviewRemoved.self, value: review)
                     } catch {
                         reportIssue(error)
@@ -474,14 +494,20 @@ public struct WorkspaceReviewsView: View {
             }
 
             Section("Open proposals") {
-                if store.pendingCreatedReviewID != nil {
+                ForEach(store.pendingProjectionReceipts, id: \.id) { proposal in
                     HStack(spacing: 10) {
                         ProgressView()
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Opening your new proposal")
-                            Text("Waiting for it to appear in the proposal list.")
+                            Text("Proposal published")
+                            Text("Loading its proposal details.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if showsTechnicalDetails {
+                                Text(proposal.id.rawValue)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .selectableText()
+                            }
                         }
                     }
                     .portableAccessibilityElement()
@@ -497,7 +523,7 @@ public struct WorkspaceReviewsView: View {
                         .foregroundStyle(.secondary)
 
                 case let .loaded(reviews):
-                    if reviews.isEmpty {
+                    if reviews.isEmpty && store.pendingProjectionReceipts.isEmpty {
                         Text("No open proposals")
                             .foregroundStyle(.secondary)
                     }

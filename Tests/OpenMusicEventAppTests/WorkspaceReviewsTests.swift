@@ -225,12 +225,12 @@ struct WorkspaceReviewsTests {
             $0.defaultEventID = eventID
         } operation: {
             var state = WorkspaceReviews.State(workspace: workspace)
-            state.pendingCreatedReviewID = review.id
+            state.requestedReviewID = review.id
             state.status = .loaded([review])
 
-            state.openPendingReviewIfAvailable()
+            state.openRequestedReviewIfAvailable()
 
-            expectNoDifference(state.pendingCreatedReviewID, nil)
+            expectNoDifference(state.requestedReviewID, nil)
             guard case let .reviewDetail(detail)? = state.destination else {
                 Issue.record("The hydrated pending proposal must open its detail.")
                 return

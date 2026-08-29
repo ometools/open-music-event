@@ -15,6 +15,20 @@ enum WorkspaceProposalDraftDismissed: FeatureEventKey<Void> {}
 public struct WorkspaceProposalDraft {
     public init() {}
 
+    public enum PublicationProgress: Equatable, Sendable {
+        case idle
+        case preparing
+        case publishing
+        case failed(String)
+
+        public var isActive: Bool {
+            switch self {
+            case .preparing, .publishing: true
+            case .idle, .failed: false
+            }
+        }
+    }
+
     public struct FormValue: Equatable, Sendable {
         public init(title: String = "", description: String = "") {
             self.title = title
@@ -53,6 +67,7 @@ public struct WorkspaceProposalDraft {
         public let fieldComparisons: SourceFieldComparisons
         public var form: FormFeature.State
         public let groups: [SourceChangeGroup]
+        public var publicationProgress: PublicationProgress = .idle
         public let recordComparisons: SourceRecordComparisons
         public let targetBranch: String
     }
@@ -84,12 +99,14 @@ public struct WorkspaceProposalDraft {
 
             case let .formSubmitted(value):
                 guard state.form.canSubmit,
-                      let title = WorkspaceProposalTitle(value.trimmedTitle)
+                      let title = WorkspaceProposalTitle(value.trimmedTitle),
+                      !state.publicationProgress.isActive
                 else { return }
                 let details = WorkspaceProposalDetails(
                     title: title,
                     description: value.trimmedDescription
                 )
+                state.publicationProgress = .preparing
                 store.addTask {
                     let publication = try store.post(
                         key: WorkspaceProposalCreationRequested.self,
@@ -131,43 +148,22 @@ extension WorkspaceProposalDraft.FormFeature {
 
 public struct WorkspaceProposalDraftView: View {
     @Bindable var store: StoreOf<WorkspaceProposalDraft>
-    let workspacePhase: WorkspacePhase<SourcePatch>
 
-    public init(
-        store: StoreOf<WorkspaceProposalDraft>,
-        workspacePhase: WorkspacePhase<SourcePatch>
-    ) {
+    public init(store: StoreOf<WorkspaceProposalDraft>) {
         self.store = store
-        self.workspacePhase = workspacePhase
     }
 
     public var publicationIsActive: Bool {
-        switch workspacePhase {
-        case .capturingSubmission, .publishing:
-            true
-        case .inactive, .preparingSource, .publicationFailed,
-             .publicationInterrupted, .ready, .reconciling,
-             .reconciliationFailed, .sourcePreparationFailed, .stale,
-             .submissionCaptureFailed:
-            false
-        }
+        store.publicationProgress.isActive
     }
 
     public var publicationStage: String? {
-        switch workspacePhase {
-        case .capturingSubmission:
+        switch store.publicationProgress {
+        case .preparing:
             "Preparing proposal"
-        case let .publishing(submission):
-            switch submission.step {
-            case .publishProposal:
-                "Publishing the proposal"
-            case .updateReference:
-                "Refreshing the source"
-            }
-        case .inactive, .preparingSource, .publicationFailed,
-             .publicationInterrupted, .ready, .reconciling,
-             .reconciliationFailed, .sourcePreparationFailed, .stale,
-             .submissionCaptureFailed:
+        case .publishing:
+            "Publishing the proposal"
+        case .idle, .failed:
             nil
         }
     }
@@ -211,6 +207,18 @@ public struct WorkspaceProposalDraftView: View {
                         }
                         .portableAccessibilityElement()
                         .accessibilityIdentifier("workspace.proposal.progress")
+                    }
+                }
+
+                if case let .failed(message) = store.publicationProgress {
+                    Section("Proposal not published") {
+                        Text("Your changes and proposal details are still here. You can try again.")
+                        if !message.isEmpty {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospaced()
+                        }
                     }
                 }
 

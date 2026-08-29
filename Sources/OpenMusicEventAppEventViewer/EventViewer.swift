@@ -151,7 +151,7 @@ public struct EventViewer {
     @Dependency(\.date.now) var now
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.uuid) var uuid
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource, SourcePatch>.self)
+    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
     var workspace
 
     public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
@@ -325,6 +325,9 @@ public struct EventViewer {
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @Trigger public var authoringAuthorizationInvalidated
+        @Trigger<WorkspaceFailure> public var workspaceContextSelectionFailed
+        @Trigger<WorkspaceFailure> public var workspaceProposalPublicationFailed
+        @Trigger public var workspaceProposalPublishing
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
         @Trigger public var workspaceSourcePrepared
         public let eventID: OMERecord.Event.ID
@@ -856,7 +859,7 @@ public struct EventViewer {
                     state.eventWorkspace = EventWorkspace.State(
                         workspace: sourceWorkspace,
                         eventID: state.eventID,
-                        workspacePhase: workspace.phase
+                        workspaceState: workspace.state
                     )
                 }
             } catch {
@@ -885,7 +888,7 @@ public struct EventViewer {
             preparedEventWorkspace = EventWorkspace.State(
                 workspace: source.workspace,
                 eventID: state.eventID,
-                workspacePhase: workspace.phase,
+                workspaceState: workspace.state,
                 referenceDatabase: source.referenceDatabase
             )
         }
@@ -1003,21 +1006,18 @@ public struct EventViewer {
                     }
                 }
                 .onChange(
-                    of: workspace.source.wrappedValue?.workspace.id,
+                    of: workspace.session?.source.workspace.id,
                     initial: true
                 ) { _, _, state in
-                    guard let source = workspace.source.wrappedValue else { return }
-                    guard case .preparingSource = workspace.phase.wrappedValue else {
-                        installPreparedSource(source, state: &state)
-                        return
-                    }
+                    guard let source = workspace.session?.source else { return }
+                    installPreparedSource(source, state: &state)
                 }
                 .onTrigger(store.workspaceSourcePrepared) { state in
-                    guard let source = workspace.source.wrappedValue else { return }
+                    guard let source = workspace.session?.source else { return }
                     installPreparedSource(source, state: &state)
                 }
                 .onChange(
-                    of: workspace.phase.wrappedValue.editingContext?.revision,
+                    of: workspace.state.wrappedValue.selectedContext?.revision,
                     initial: true
                 ) { oldRevision, revision, state in
                     guard oldRevision != revision,
@@ -1029,14 +1029,24 @@ public struct EventViewer {
                         try await summary.load()
                     }
                 }
+                .onTrigger(store.workspaceProposalPublishing) { state in
+                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .publishing
+                }
+                .onTrigger(store.workspaceProposalPublicationFailed) { failure, state in
+                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .failed(
+                        failure.message
+                    )
+                }
+                .onTrigger(store.workspaceContextSelectionFailed) { _, _ in
+                    // Context selection is an ephemeral request. The coherent mounted session is
+                    // retained by Workspace, so there is no global failure state to install here.
+                }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
-                    let summary = state.eventWorkspace?.changes.$summary
                     state.eventWorkspace?.changes.proposalDraft = nil
                     state.eventWorkspace?.selectedPage = .proposals
-                    state.eventWorkspace?.reviews.pendingCreatedReviewID = proposal.id.rawValue
+                    state.eventWorkspace?.reviews.requestedReviewID = proposal.id.rawValue
                     store.addTask {
-                        try await summary?.load()
                         try store.send(
                             .eventWorkspace(.reviews(.refreshButtonTapped))
                         )
@@ -1258,13 +1268,7 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
-        @State var tabLayout = TabFeatureLayout(
-            preferredIDs: [
-                .init("schedule"),
-                .init("schedule:workshop"),
-                .init("communications"),
-            ]
-        )
+        @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
             let accountStore = store.spawn(\.account)
@@ -1420,7 +1424,7 @@ public struct EventViewerView: View {
                         title: EventViewer.EventFeature.settings.title,
                         systemImage: EventViewer.EventFeature.settings.systemImage,
                         labelTint: EventViewer.EventFeature.settings.labelTint,
-                        badgeValue: featureStore.notificationIndicatorValue,
+                        badgeValue: featureStore.permissions.notificationSetupBadgeValue,
                         navigation: .stack
                     ) {
                         EventSettingsView(store: featureStore)
@@ -1613,7 +1617,7 @@ public struct EventViewerView: View {
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(
                     .settings,
-                    badgeValue: featureStore.notificationIndicatorValue
+                    badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
                     EventSettingsView(store: featureStore)
                 }
@@ -1736,7 +1740,7 @@ public struct EventViewerView: View {
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(
                     .settings,
-                    badgeValue: featureStore.notificationIndicatorValue
+                    badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
                     EventSettingsView(store: featureStore)
                 }

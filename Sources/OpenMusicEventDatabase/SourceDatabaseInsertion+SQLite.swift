@@ -76,102 +76,35 @@ public extension OME.SourceDatabaseInsertion {
         revision: String,
         in database: any DatabaseWriter
     ) async throws {
-        let incomingProvenances = eventSourceProvenances.map(EventSourceProvenanceRecord.init)
-        guard incomingProvenances.allSatisfy({ $0.workspace?.id == workspace.id }) else {
-            throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
-        }
-        let prepared = try await PreparedSourceDatabaseInsertion(
+        let replacement = try await PreparedSourceWorkspaceReplacement(
             sourceInsertion: self,
-            importedAt: Date()
+            workspace: workspace
         )
-        try await database.write { db in
-            let organizerProvenances = try EventSourceProvenanceRecord
-                .where { $0.id.organizerID.eq(workspace.organizerID) }
-                .fetchAll(db)
-            guard organizerProvenances.allSatisfy({ $0.workspace != nil }) else {
-                throw SourceWorkspaceInstallationError.unscopedOrganizerSource(
-                    workspace.organizerID
-                )
-            }
-            let conflictingWorkspaceIDs = Set(
-                organizerProvenances.compactMap { $0.workspace?.id }
-            )
-            .subtracting([workspace.id])
-            guard conflictingWorkspaceIDs.isEmpty else {
-                throw SourceWorkspaceInstallationError.conflictingOrganizerSource(
-                    organizerID: workspace.organizerID,
-                    existingWorkspaceIDs: conflictingWorkspaceIDs.sorted {
-                        $0.rawValue < $1.rawValue
-                    },
-                    incomingWorkspaceID: workspace.id
-                )
-            }
+        try await replacement.replace(branch: branch, revision: revision, in: database)
+    }
 
-            let existingEventIDs = organizerProvenances
-                .filter { $0.workspace?.id == workspace.id }
-                .map(\.id)
-
-            for eventID in existingEventIDs {
-                try OME.Event.find(eventID).delete().execute(db)
-            }
-            try OME.Calendar
-                .find(
-                    OME.Calendar.ID(
-                        ownerID: workspace.organizerID,
-                        calendarID: OME.Calendar.defaultID
-                    )
-                )
-                .delete()
-                .execute(db)
-            try WorkspaceRelationshipRecord
-                .where { $0.id.workspaceID.eq(workspace.id) }
-                .delete()
-                .execute(db)
-
-            try prepared.insert(into: db)
-            try SourceWorkspaceInstallationRecord.upsert {
-                SourceWorkspaceInstallationRecord(
-                    id: workspace.id,
-                    revision: revision
-                )
-            }
-            .execute(db)
-            try SourceWorkspaceSelectionRecord.upsert {
-                SourceWorkspaceSelectionRecord(
-                    id: workspace.id,
-                    branch: branch,
-                    revision: revision
-                )
-            }
-            .execute(db)
-        }
+    /// Prepares every parse and asset-materialization step before an external publication write.
+    internal func prepareWorkspaceReplacement(
+        _ workspace: SourceWorkspace
+    ) async throws -> PreparedSourceWorkspaceReplacement {
+        try await PreparedSourceWorkspaceReplacement(
+            sourceInsertion: self,
+            workspace: workspace
+        )
     }
 
     /// Replaces one event installed as read-only published content without creating or advancing
     /// authoring-workspace revision state.
     ///
     /// Event-scoped installs deliberately do not prepare a source workspace. If that workspace has
-    /// since been prepared for authoring, its reconciliation machinery owns source updates and this
+    /// since been prepared for authoring, its mounted context owns source updates and this
     /// operation refuses to overwrite the writable editing database.
     func replacePublishedEvent(
         _ eventID: OME.Event.ID,
-        from publishedWorkspace: SourceWorkspace,
-        replacing installedWorkspace: SourceWorkspace,
+        from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        guard publishedWorkspace.referencesSameRepository(as: installedWorkspace) else {
-            throw SourceWorkspaceInstallationError.mismatchedSource(installedWorkspace.id)
-        }
-        try validatePublishedEvent(eventID, from: publishedWorkspace)
-        guard let publishedSource = eventSourceProvenances
-            .first(where: { $0.eventID == eventID })?
-            .source
-        else {
-            throw SourceWorkspaceInstallationError.mismatchedEvent(
-                eventID,
-                publishedWorkspace.id
-            )
-        }
+        try validatePublishedEvent(eventID, from: workspace)
 
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
@@ -179,112 +112,81 @@ public extension OME.SourceDatabaseInsertion {
         )
         try await database.write { db in
             guard try SourceWorkspaceInstallationRecord
-                .find(installedWorkspace.id)
+                .find(workspace.id)
                 .fetchOne(db) == nil
             else {
-                throw SourceWorkspaceInstallationError.preparedWorkspace(installedWorkspace.id)
+                throw SourceWorkspaceInstallationError.preparedWorkspace(workspace.id)
             }
             guard let installedProvenance = try EventSourceProvenanceRecord
                 .find(eventID)
                 .fetchOne(db),
-                  installedProvenance.workspace?.id == installedWorkspace.id
+                  installedProvenance.workspace?.id == workspace.id
             else {
                 throw SourceWorkspaceInstallationError.mismatchedEvent(
                     eventID,
-                    installedWorkspace.id
+                    workspace.id
                 )
             }
 
             try OME.Event.find(eventID).delete().execute(db)
             try prepared.insert(into: db)
-            try InstalledEventRecord.upsert {
-                InstalledEventRecord(
-                    id: eventID,
-                    sourceProvenance: publishedSource
-                )
-            }
-            .execute(db)
         }
     }
 
     /// Restores the attendee view of a prepared workspace from published event-scoped source.
     ///
     /// Every event currently owned by the workspace is removed, but only events represented by an
-    /// explicit `InstalledEventRecord` are reinserted. Active authoring rows are discarded
-    /// in the same transaction, so the database is never half attendee and half authoring state.
+    /// explicit `InstalledEventRecord` are reinserted. Volatile activation and writable
+    /// installation rows are removed in the same transaction, while the exact selected context
+    /// remains available to remount on the next authoring entry.
     static func restorePublishedEvents(
         _ publishedEvents: [OME.SourceDatabaseInsertion],
-        replacing installedWorkspace: SourceWorkspace,
+        from workspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        var preparedEvents: [(
-            eventID: OME.Event.ID,
-            source: OME.SourceDatabaseInsertion.SourceProvenance,
-            insertion: PreparedSourceDatabaseInsertion
-        )] = []
+        var preparedEvents: [(OME.Event.ID, PreparedSourceDatabaseInsertion)] = []
         preparedEvents.reserveCapacity(publishedEvents.count)
         for insertion in publishedEvents {
-            guard let eventID = insertion.events.only?.id,
-                  let publishedProvenance = insertion.eventSourceProvenances
-                    .first(where: { $0.eventID == eventID }),
-                  let publishedWorkspace = EventSourceProvenanceRecord(
-                    publishedProvenance
-                  ).workspace,
-                  publishedWorkspace.referencesSameRepository(as: installedWorkspace)
-            else {
-                throw SourceWorkspaceInstallationError.mismatchedSource(installedWorkspace.id)
+            guard let eventID = insertion.events.only?.id else {
+                throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
             }
-            try insertion.validatePublishedEvent(eventID, from: publishedWorkspace)
+            try insertion.validatePublishedEvent(eventID, from: workspace)
             preparedEvents.append(
                 (
-                    eventID: eventID,
-                    source: publishedProvenance.source,
-                    insertion: try await PreparedSourceDatabaseInsertion(
+                    eventID,
+                    try await PreparedSourceDatabaseInsertion(
                         sourceInsertion: insertion,
                         importedAt: Date()
                     )
                 )
             )
         }
-        let publishedEventIDs = Set(preparedEvents.map(\.eventID))
-        let replacements = preparedEvents
+        let publishedEventIDs = Set(preparedEvents.map(\.0))
+        let publishedPreparedEvents = preparedEvents
 
         try await database.write { db in
             let installedEventIDs = Set(
                 try InstalledEventRecord.all
                     .fetchAll(db)
-                    .filter {
-                        $0.workspace?.referencesSameRepository(as: installedWorkspace) == true
-                    }
+                    .filter { $0.workspace?.id == workspace.id }
                     .map(\.id)
             )
             guard installedEventIDs == publishedEventIDs else {
-                throw SourceWorkspaceInstallationError.installedEventSetChanged(
-                    installedWorkspace.id
-                )
+                throw SourceWorkspaceInstallationError.installedEventSetChanged(workspace.id)
             }
 
             let workspaceEventIDs = try EventSourceProvenanceRecord
-                .where { $0.id.organizerID.eq(installedWorkspace.organizerID) }
+                .where { $0.id.organizerID.eq(workspace.organizerID) }
                 .fetchAll(db)
-                .filter {
-                    $0.workspace?.referencesSameRepository(as: installedWorkspace) == true
-                }
+                .filter { $0.workspace?.id == workspace.id }
                 .map(\.id)
             for eventID in workspaceEventIDs {
                 try OME.Event.find(eventID).delete().execute(db)
             }
-            for publishedEvent in replacements {
-                try publishedEvent.insertion.insert(into: db)
-                try InstalledEventRecord.upsert {
-                    InstalledEventRecord(
-                        id: publishedEvent.eventID,
-                        sourceProvenance: publishedEvent.source
-                    )
-                }
-                .execute(db)
+            for (_, prepared) in publishedPreparedEvents {
+                try prepared.insert(into: db)
             }
-            try SourceWorkspaceEditingState.discard(installedWorkspace.id, in: db)
+            try SourceWorkspaceEditingState.deactivate(workspace.id, in: db)
         }
     }
 
@@ -346,6 +248,102 @@ public extension OME.SourceDatabaseInsertion {
     }
 }
 
+struct PreparedSourceWorkspaceReplacement: Sendable {
+    private let prepared: PreparedSourceDatabaseInsertion
+    private let workspace: SourceWorkspace
+
+    init(
+        sourceInsertion: OME.SourceDatabaseInsertion,
+        workspace: SourceWorkspace
+    ) async throws {
+        let incomingProvenances = sourceInsertion.eventSourceProvenances.map(
+            EventSourceProvenanceRecord.init
+        )
+        guard incomingProvenances.allSatisfy({ $0.workspace?.id == workspace.id }) else {
+            throw SourceWorkspaceInstallationError.mismatchedSource(workspace.id)
+        }
+        self.workspace = workspace
+        self.prepared = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: sourceInsertion,
+            importedAt: Date()
+        )
+    }
+
+    func replace(
+        branch: String,
+        revision: String,
+        recordsReferenceRevision: Bool = false,
+        in database: any DatabaseWriter
+    ) async throws {
+        try await database.write { db in
+            let organizerProvenances = try EventSourceProvenanceRecord
+                .where { $0.id.organizerID.eq(workspace.organizerID) }
+                .fetchAll(db)
+            guard organizerProvenances.allSatisfy({ $0.workspace != nil }) else {
+                throw SourceWorkspaceInstallationError.unscopedOrganizerSource(
+                    workspace.organizerID
+                )
+            }
+            let conflictingWorkspaceIDs = Set(
+                organizerProvenances.compactMap { $0.workspace?.id }
+            )
+            .subtracting([workspace.id])
+            guard conflictingWorkspaceIDs.isEmpty else {
+                throw SourceWorkspaceInstallationError.conflictingOrganizerSource(
+                    organizerID: workspace.organizerID,
+                    existingWorkspaceIDs: conflictingWorkspaceIDs.sorted {
+                        $0.rawValue < $1.rawValue
+                    },
+                    incomingWorkspaceID: workspace.id
+                )
+            }
+
+            let existingEventIDs = organizerProvenances
+                .filter { $0.workspace?.id == workspace.id }
+                .map(\.id)
+            for eventID in existingEventIDs {
+                try OME.Event.find(eventID).delete().execute(db)
+            }
+            try OME.Calendar
+                .find(
+                    OME.Calendar.ID(
+                        ownerID: workspace.organizerID,
+                        calendarID: OME.Calendar.defaultID
+                    )
+                )
+                .delete()
+                .execute(db)
+            try WorkspaceRelationshipRecord
+                .where { $0.id.workspaceID.eq(workspace.id) }
+                .delete()
+                .execute(db)
+
+            try prepared.insert(into: db)
+            try SourceWorkspaceInstallationRecord.upsert {
+                SourceWorkspaceInstallationRecord(id: workspace.id, revision: revision)
+            }
+            .execute(db)
+            try SourceWorkspaceSelectionRecord.upsert {
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: branch,
+                    revision: revision
+                )
+            }
+            .execute(db)
+            if recordsReferenceRevision {
+                try SourceWorkspaceReferenceRecord.upsert {
+                    SourceWorkspaceReferenceRecord(
+                        id: workspace.id,
+                        revision: revision
+                    )
+                }
+                .execute(db)
+            }
+        }
+    }
+}
+
 private enum SourceWorkspaceInstallationError: Error, Equatable {
     case conflictingOrganizerSource(
         organizerID: OME.Organizer.ID,
@@ -365,7 +363,7 @@ private extension Array {
     }
 }
 
-private struct PreparedSourceDatabaseInsertion {
+private struct PreparedSourceDatabaseInsertion: Sendable {
     var workspaceIDs: [SourceWorkspace.ID]
     var workspaceRelationships: [WorkspaceRelationshipRecord]
     var organizers: [OME.Organizer.Draft]

@@ -112,7 +112,7 @@ let composableWorkspaceDependency: Package.Dependency = {
     }
     return .package(
         url: "https://source.woody.fm/swift-composable-workspace",
-        branch: "main"
+        revision: "13b8c65dd4aba0f67368b678fd7cd11f6137031b"
     )
 }()
 let dependenciesHTTPClientDependency: Package.Dependency = {
@@ -438,7 +438,7 @@ let appViewDependencies: [Package.Dependency] = [
         url: "https://source.woody.fm/composable-atmosphere-tangled",
         branch: "main"
     ),
-    .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
+    composableWorkspaceDependency,
     .package(
         url: "https://source.woody.fm/swift-dependencies-source-control-client",
         branch: "main"

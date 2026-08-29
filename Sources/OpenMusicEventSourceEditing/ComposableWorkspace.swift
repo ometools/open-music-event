@@ -10,6 +10,9 @@ import SourceEditing
 
 public protocol OpenMusicEventWorkspaceContentState {
     var authoringAuthorizationInvalidated: Trigger<()> { get }
+    var workspaceContextSelectionFailed: Trigger<WorkspaceFailure> { get }
+    var workspaceProposalPublicationFailed: Trigger<WorkspaceFailure> { get }
+    var workspaceProposalPublishing: Trigger<()> { get }
     var workspaceProposalRecorded: Trigger<WorkspaceProposal> { get }
     var workspaceSourcePrepared: Trigger<()> { get }
 }
@@ -52,7 +55,10 @@ where Content.State: OpenMusicEventWorkspaceContentState {
     public var body: some FeatureProtocol<State, Action> {
         Feature(
             sourcePreparedTrigger: \.workspaceSourcePrepared,
-            proposalRecordedTrigger: \.workspaceProposalRecorded
+            proposalPublishingTrigger: \.workspaceProposalPublishing,
+            proposalRecordedTrigger: \.workspaceProposalRecorded,
+            proposalPublicationFailedTrigger: \.workspaceProposalPublicationFailed,
+            contextSelectionFailedTrigger: \.workspaceContextSelectionFailed
         ) {
             OpenMusicEventWorkspaceContent(makeContent: makeContent)
         }
@@ -70,6 +76,17 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
     }
 }
 
+public extension WorkspaceEditingContext {
+    var revision: WorkspaceRevision {
+        switch self {
+        case let .branch(reference), let .published(reference):
+            reference.revision
+        case let .proposal(proposal):
+            proposal.revision
+        }
+    }
+}
+
 public extension ComposableWorkspace.WorkspaceClient
 where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
     static var openMusicEvent: Self {
@@ -81,73 +98,100 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
         let publisher = TangledWorkspacePublisher()
 
         return Self(
-            updateReference: { source, workspaceID, submission, proposal in
+            prepareSource: { workspaceID in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
-                try await referenceUpdate.advance(
-                    source,
-                    sourceWorkspaceID,
-                    submission,
-                    proposal
+                return try await preparation.prepare(
+                    SourceWorkspace(id: sourceWorkspaceID)
                 )
-                return .proposal(proposal)
             },
-            captureChanges: { source, workspaceID, request in
+            captureChanges: { source, workspaceID in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 precondition(source.workspace.id == sourceWorkspaceID)
-                let sourcePersistence = persistence
-                if let capture = try sourcePersistence.capture(
-                    workspaceID: sourceWorkspaceID,
-                    requestID: request.id
-                ) {
-                    return capture.isEmpty ? .noChanges : .changes(capture)
-                }
                 let capture = try await patchGenerator.generate(
                     SourceWorkspacePatchRequest(workspace: source.workspace)
                 )
-                try await sourcePersistence.saveCapture(
-                    capture,
-                    workspaceID: sourceWorkspaceID,
-                    requestID: request.id
-                )
                 return capture.isEmpty ? .noChanges : .changes(capture)
             },
-            loadSubmission: { workspaceID in
-                try persistence.submission(
-                    SourceWorkspace.ID(rawValue: workspaceID.rawValue)
-                )
-            },
-            prepareSource: { workspaceID in
+            publishProposal: { source, workspaceID, attempt in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
-                let prepared = try await preparation.prepare(
-                    SourceWorkspace(id: sourceWorkspaceID)
+                precondition(source.workspace.id == sourceWorkspaceID)
+                let update = try await referenceUpdate.preparePublication(
+                    source,
+                    sourceWorkspaceID,
+                    attempt
                 )
-                return prepared
-            },
-            publishProposal: { source, workspaceID, submission in
-                try await publisher.publishProposal(
+                let proposal = try await publisher.publishProposal(
                     source: source,
-                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    submission: submission,
+                    workspaceID: sourceWorkspaceID,
+                    attempt: attempt,
                     persistence: persistence
                 )
+                let context: WorkspaceEditingContext
+                let referenceUpdateIsComplete: Bool
+                do {
+                    context = try await update.apply(proposal)
+                    referenceUpdateIsComplete = true
+                } catch let incomplete as WorkspaceReferenceUpdateIncomplete {
+                    TangledWorkspacePublisherDiagnostics.log(
+                        operation: "reference.install",
+                        status: .failed,
+                        details: [
+                            "workspace: \(sourceWorkspaceID.rawValue)",
+                            "proposal: \(proposal.id.rawValue)",
+                            "publication: recorded; proposal snapshot is mounted; metadata repair remains pending",
+                        ],
+                        error: incomplete
+                    )
+                    context = incomplete.mountedContext
+                    referenceUpdateIsComplete = false
+                } catch {
+                    TangledWorkspacePublisherDiagnostics.log(
+                        operation: "reference.install",
+                        status: .failed,
+                        details: [
+                            "workspace: \(sourceWorkspaceID.rawValue)",
+                            "proposal: \(proposal.id.rawValue)",
+                            "publication: recorded; proposal snapshot repair remains pending",
+                        ],
+                        error: error
+                    )
+                    context = (try? persistence.context(sourceWorkspaceID))
+                        ?? attempt.target.editingContext
+                    referenceUpdateIsComplete = false
+                }
+                if referenceUpdateIsComplete {
+                    do {
+                        try await persistence.completeRepair(workspaceID: sourceWorkspaceID)
+                    } catch {
+                        TangledWorkspacePublisherDiagnostics.log(
+                            operation: "reference.repair-cleanup",
+                            status: .failed,
+                            details: [
+                                "workspace: \(sourceWorkspaceID.rawValue)",
+                                "proposal: \(proposal.id.rawValue)",
+                                "publication: recorded; cleanup will retry during preparation",
+                            ],
+                            error: error
+                        )
+                    }
+                }
+                return WorkspaceProposalPublication(
+                    proposal: proposal,
+                    session: WorkspaceSession(source: source, selectedContext: context)
+                )
             },
-            reconcileSource: { source, workspaceID, reconciliation in
-                try await referenceUpdate.reconcile(
+            refreshContext: { source, workspaceID, current in
+                try await referenceUpdate.refresh(
                     source,
                     SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    reconciliation
+                    current
                 )
             },
-            removeSubmission: { source, workspaceID, submissionID in
-                try await persistence.removeSubmission(
-                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    submissionID: submissionID
-                )
-            },
-            saveSubmission: { source, workspaceID, submission in
-                try await persistence.save(
-                    submission,
-                    workspaceID: SourceWorkspace.ID(rawValue: workspaceID.rawValue)
+            selectContext: { source, workspaceID, selection in
+                try await referenceUpdate.select(
+                    source,
+                    SourceWorkspace.ID(rawValue: workspaceID.rawValue),
+                    selection
                 )
             }
         )
@@ -156,27 +200,4 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
 
 private enum OpenMusicEventAuthoringIntegrationError: Error {
     case grantWorkspaceMismatch
-}
-
-public extension WorkspaceEditingContext {
-    /// The opaque revision of the mounted comparison snapshot.
-    var revision: WorkspaceRevision {
-        switch self {
-        case let .branch(reference), let .published(reference):
-            reference.revision
-        case let .proposal(proposal):
-            proposal.revision
-        }
-    }
-
-    /// The repository reference mounted beneath the editing context.
-    /// A patch-only proposal remains mounted on its immutable target.
-    var selectedReference: WorkspaceBranchReference {
-        switch self {
-        case let .branch(reference), let .published(reference):
-            reference
-        case let .proposal(proposal):
-            proposal.target
-        }
-    }
 }

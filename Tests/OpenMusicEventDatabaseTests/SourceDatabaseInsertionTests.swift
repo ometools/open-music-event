@@ -3077,7 +3077,6 @@ struct SourceDatabaseInsertionTests {
             try await foreignInsertion.replacePublishedEvent(
                 installedEventID,
                 from: foreignWorkspace,
-                replacing: installedWorkspace,
                 in: database
             )
         }
@@ -3196,7 +3195,7 @@ struct SourceDatabaseInsertionTests {
 
         try await OME.SourceDatabaseInsertion.restorePublishedEvents(
             [publishedInsertion],
-            replacing: workspace,
+            from: workspace,
             in: database
         )
 
@@ -3303,7 +3302,7 @@ struct SourceDatabaseInsertionTests {
         await #expect(throws: (any Error).self) {
             try await OME.SourceDatabaseInsertion.restorePublishedEvents(
                 [],
-                replacing: workspace,
+                from: workspace,
                 in: database
             )
         }
@@ -3395,7 +3394,11 @@ struct SourceDatabaseInsertionTests {
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
         } operation: {
-            try await SourceWorkspaceCheckoutClient.liveValue.checkout(workspace, outputURL)
+            try await SourceWorkspaceCheckoutClient.liveValue.checkout(
+                workspace,
+                nil,
+                outputURL
+            )
         }
 
         let tangledRepository = try TangledRepositoryReference(
@@ -3477,6 +3480,7 @@ struct SourceDatabaseInsertionTests {
             } operation: {
                 try await SourceWorkspaceCheckoutClient.liveValue.checkout(
                     workspace,
+                    nil,
                     outputURL
                 )
             }
@@ -3524,6 +3528,7 @@ struct SourceDatabaseInsertionTests {
             } operation: {
                 try await SourceWorkspaceCheckoutClient.liveValue.checkout(
                     workspace,
+                    nil,
                     outputURL
                 )
             }
@@ -3590,7 +3595,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
             $0.sourceWorkspaceStorage = storage
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                checkedOutWorkspace, outputURL in
+                checkedOutWorkspace, _, outputURL in
                 checkoutRefs.withLock { $0.append(checkedOutWorkspace.defaultBranch) }
                 try FileManager.default.createDirectory(
                     at: outputURL,
@@ -3616,7 +3621,7 @@ struct SourceDatabaseInsertionTests {
 
         expectNoDifference(checkoutRefs.withLock { $0 }, ["main"])
         expectNoDifference(
-            prepared.context,
+            prepared.selectedContext,
             .published(
                 WorkspaceBranchReference(
                     branch: WorkspaceBranch(rawValue: "main"),
@@ -3673,7 +3678,7 @@ struct SourceDatabaseInsertionTests {
                     return SourcePatch()
                 }
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, outputURL in
+                _, _, outputURL in
                 let index = checkoutCount.withLock {
                     $0 += 1
                     return $0
@@ -3697,21 +3702,17 @@ struct SourceDatabaseInsertionTests {
             let prepared = try await SourceWorkspacePreparationClient
                 .openMusicEvent(resolveRevision: resolveRevision)
                 .prepare(workspace)
-            expectNoDifference(prepared.context, .published(oldReference))
+            expectNoDifference(prepared.selectedContext, .published(oldReference))
 
-            let reconciled = try await WorkspaceReferenceUpdateClient
+            let refreshed = try await WorkspaceReferenceUpdateClient
                 .openMusicEvent(resolveRevision: resolveRevision)
-                .reconcile(
+                .refresh(
                     prepared.source,
                     workspace.id,
-                    WorkspaceReconciliation(
-                        expected: prepared.context,
-                        destination: .published(branch: newReference.branch),
-                        observedRevision: newReference.revision
-                    )
+                    prepared.selectedContext
                 )
 
-            expectNoDifference(reconciled, .published(newReference))
+            expectNoDifference(refreshed, .published(newReference))
             expectNoDifference(checkoutCount.withLock { $0 }, 2)
             let recordedPatchBaseURLs = patchBaseURLs.withLock { $0 }
             #expect(recordedPatchBaseURLs.count == 2)
@@ -3782,7 +3783,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func `a branch name cannot select source without an exact immutable reference`() async throws {
+    func `a branch selection installs its resolved immutable reference`() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -3817,7 +3818,7 @@ struct SourceDatabaseInsertionTests {
             $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
                 SourcePatchGenerator { _ in SourcePatch() }
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, outputURL in
+                _, _, outputURL in
                 checkoutCount.withLock { $0 += 1 }
                 try FileManager.default.createDirectory(
                     at: outputURL.appending(path: ".git"),
@@ -3836,24 +3837,23 @@ struct SourceDatabaseInsertionTests {
             let prepared = try await SourceWorkspacePreparationClient
                 .openMusicEvent(resolveRevision: resolveRevision)
                 .prepare(workspace)
-            await #expect(
-                throws: SourceWorkspaceDatabaseError
-                    .branchSelectionRequiresExactReference("preview")
-            ) {
-                _ = try await WorkspaceReferenceUpdateClient
-                    .openMusicEvent(resolveRevision: resolveRevision)
-                    .reconcile(
-                        prepared.source,
-                        workspace.id,
-                        WorkspaceReconciliation(
-                            expected: prepared.context,
-                            destination: .branch(
-                                branch: WorkspaceBranch(rawValue: "preview")
-                            )
-                        )
+            let selected = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .select(
+                    prepared.source,
+                    workspace.id,
+                    .branch(WorkspaceBranch(rawValue: "preview"))
+                )
+            expectNoDifference(
+                selected,
+                .branch(
+                    WorkspaceBranchReference(
+                        branch: WorkspaceBranch(rawValue: "preview"),
+                        revision: WorkspaceRevision(rawValue: "synthetic-local-base")
                     )
-            }
-            expectNoDifference(checkoutCount.withLock { $0 }, 1)
+                )
+            )
+            expectNoDifference(checkoutCount.withLock { $0 }, 3)
         }
     }
 
@@ -3897,7 +3897,7 @@ struct SourceDatabaseInsertionTests {
             $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
                 SourcePatchGenerator { _ in SourcePatch() }
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, outputURL in
+                _, _, outputURL in
                 let index = checkoutCount.withLock {
                     $0 += 1
                     return $0
@@ -3920,20 +3920,17 @@ struct SourceDatabaseInsertionTests {
                 .openMusicEvent(resolveRevision: resolveRevision)
                 .prepare(workspace)
             await #expect(
-                throws: SourceWorkspaceDatabaseError.defaultBranchChanged(
+                throws: SourceWorkspaceDatabaseError.contextSelectionRevisionChanged(
                     expected: "main",
                     observed: "trunk"
                 )
             ) {
                 _ = try await WorkspaceReferenceUpdateClient
                     .openMusicEvent(resolveRevision: resolveRevision)
-                    .reconcile(
+                    .refresh(
                         prepared.source,
                         workspace.id,
-                        WorkspaceReconciliation(
-                            expected: prepared.context,
-                            destination: .published(branch: oldReference.branch)
-                        )
+                        prepared.selectedContext
                     )
             }
 
@@ -3980,7 +3977,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func patchOnlyProposalReopensOnItsImmutableTargetRevision() async throws {
+    func exactProposalContextReopensWithoutMovingThePublishedBranch() async throws {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -4008,7 +4005,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
             $0.sourceWorkspaceStorage = storage
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, outputURL in
+                _, _, outputURL in
                 try FileManager.default.createDirectory(
                     at: outputURL.appending(path: ".git"),
                     withIntermediateDirectories: true
@@ -4030,27 +4027,29 @@ struct SourceDatabaseInsertionTests {
                 resolveRevision: resolveRevision
             )
             let prepared = try await preparation.prepare(workspace)
-            expectNoDifference(
-                prepared.context,
-                .published(
-                    WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
-                        revision: WorkspaceRevision(rawValue: "old-revision")
-                    )
-                )
-            )
+            guard case let .published(target) = prepared.selectedContext else {
+                Issue.record("Initial preparation must mount Published.")
+                return
+            }
             let proposal = WorkspaceProposal(
                 id: WorkspaceProposalID(rawValue: "proposal-1"),
                 revision: WorkspaceRevision(rawValue: "proposal-revision"),
-                target: WorkspaceBranchReference(
-                    branch: WorkspaceBranch(rawValue: "main"),
-                    revision: WorkspaceRevision(rawValue: "old-revision")
+                target: target
+            )
+            let attempt = WorkspaceProposalAttempt(
+                changes: SourcePatch(),
+                target: .createProposal(
+                    target: target,
+                    details: WorkspaceProposalDetails(
+                        title: try #require(WorkspaceProposalTitle("Test proposal"))
+                    )
                 )
             )
-            let submission = try workspaceSubmission(for: proposal)
-            try await WorkspaceReferenceUpdateClient
+            let update = try await WorkspaceReferenceUpdateClient
                 .openMusicEvent(resolveRevision: resolveRevision)
-                .advance(prepared.source, workspace.id, submission, proposal)
+                .preparePublication(prepared.source, workspace.id, attempt)
+            let installedContext = try await update.apply(proposal)
+            expectNoDifference(installedContext, .proposal(proposal))
 
             let persistedRevisions = try await (
                 prepared.source.referenceDatabase.read { db in
@@ -4066,38 +4065,12 @@ struct SourceDatabaseInsertionTests {
                         .revision
                 }
             )
-            expectNoDifference(persistedRevisions.0, "old-revision")
-            expectNoDifference(persistedRevisions.1, "old-revision")
+            expectNoDifference(persistedRevisions.0, "proposal-revision")
+            expectNoDifference(persistedRevisions.1, "proposal-revision")
 
             let reopened = try await preparation.prepare(workspace)
-            expectNoDifference(
-                reopened.context,
-                .proposal(
-                    proposal
-                )
-            )
+            expectNoDifference(reopened.selectedContext, .proposal(proposal))
             #expect(reopened.source.workspace == workspace)
-
-            try await database.write { db in
-                try SourceWorkspaceSelectionRecord.upsert {
-                    SourceWorkspaceSelectionRecord(
-                        id: workspace.id,
-                        branch: "main",
-                        revision: "unrelated-revision"
-                    )
-                }
-                .execute(db)
-            }
-            await #expect(
-                throws: SourceWorkspaceDatabaseError.selectionRevisionMismatch(
-                    workspaceID: workspace.id,
-                    branch: "main",
-                    expectedRevision: "old-revision",
-                    persistedRevision: "unrelated-revision"
-                )
-            ) {
-                _ = try await preparation.prepare(workspace)
-            }
         }
     }
 
@@ -5336,28 +5309,6 @@ struct SourceDatabaseInsertionTests {
         return url
     }
 
-    private func workspaceSubmission(
-        for proposal: WorkspaceProposal
-    ) throws -> WorkspaceSubmission<SourcePatch> {
-        struct EncodableSubmission: Encodable {
-            var changes: SourcePatch
-            var id: WorkspaceSubmissionID
-            var step: WorkspacePublicationStep
-            var target: WorkspaceSubmissionTarget
-        }
-
-        return try JSONDecoder().decode(
-            WorkspaceSubmission<SourcePatch>.self,
-            from: JSONEncoder().encode(
-                EncodableSubmission(
-                    changes: SourcePatch(),
-                    id: WorkspaceSubmissionID(rawValue: UUID(0)),
-                    step: .updateReference(proposal),
-                    target: .updateProposal(proposal)
-                )
-            )
-        )
-    }
 }
 
 

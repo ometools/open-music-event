@@ -55,16 +55,14 @@ shared UI and infrastructure code out of the main app target.
 OME composes OAuth authorization, authoring policy, and one generic editable
 workspace around the Event Viewer. OAuth owns the signed-in session and network
 authorization. Authoring owns whether OME policy grants an editing capability.
-Workspace owns reference preparation and the durable proposal state machine.
-The Event Viewer owns only editing and presentation.
+Workspace owns availability and one coherent mounted editing session. The Event
+Viewer owns editing, proposal-form progress, and presentation.
 
 There is exactly one writable application database: `defaultDatabase`. While a
 workspace is prepared, its `SourceWorkspaceResource` exposes that same writer as
-`main` with `source_baseline` already attached read-only. Workspace owns the
-attachment. Only Workspace descendants receive the resource, and they issue
-ordinary live queries against it. They must never reopen the workspace, install
-another writer, attach another comparison baseline, or maintain a reload token
-to make edits visible.
+`main` and a stable, read-only reference database separately. Only Workspace
+descendants receive that coherent resource. They must never reopen the workspace,
+install another writer, or reconstruct a comparison reference independently.
 
 Browsing and authoring have a strict source-storage boundary. Browsing downloads
 a temporary source artifact, imports only the selected event into the persistent
@@ -80,36 +78,38 @@ authorization succeed, Workspace takes ownership of the organization source. On
 first entry it clones the repository, resolves the exact checked-out Git commit,
 installs the complete organization source into `defaultDatabase`, replaces only
 rows owned by that exact source, builds the reference database from the same
-commit, and attaches it as `source_baseline`. The selected event remains viewer
-focus; it does not narrow or widen Workspace's organization-source ownership.
+commit, and opens it as the stable comparison reader. The selected event remains
+viewer focus; it does not narrow or widen Workspace's organization-source ownership.
 
 Durable re-entry is deliberately different from first entry. While authoring
 state remains installed, a new application mount opens the existing repository
 and validates that its checked-out commit, installed revision, selected branch,
-and reference revision agree. It does not clone, reinstall, or implicitly
-reconcile. Explicit authoring exit removes the writable installation and restores
-attendee content through the public event route, while retaining the checkout,
-selected branch, and tracked proposal. Re-entry after that exit validates the
-retained checkout and reinstalls the selected branch without cloning. After the
-settled resource is exposed, a background fetch may update remote refs, but it
-cannot change HEAD, the reference database, or application rows. Incorporating
-remote movement is always explicit reconciliation.
+reference revision and exact editing context agree. The durable core model is
+availability plus a ready session containing the resource and one
+`WorkspaceEditingContext`: exact Published revision, unassociated branch revision,
+or exact proposal record URI and mounted proposal revision. Refreshing and
+selecting are tasks, not additional states; failure preserves the prior coherent
+session.
 
-The first publication freezes the current database difference, creates and
-pushes a source branch, records the Tangled proposal from that source branch to
-its target branch, and advances the attached workspace baseline to the source
-commit. Edits made after capture remain in the writable database and therefore
-remain visible as unpublished changes. A later publication adds another commit
-to the same source branch and updates the tracked proposal. Remote target
-movement enters the explicit reconciliation path; preparation never silently
-fetches or advances an existing baseline.
+Publication freezes the current database difference and formats a Git patch from
+a temporary local commit. OME uploads any required blobs and creates the Tangled
+proposal record directly; it does not create or push a proposal branch. Successful
+PDS record creation is the publication commit point. Before that point, failure
+stays in the proposal form and local editing remains available. After that point,
+OME dismisses the form and opens Proposals even if the AppView projection has not
+caught up.
 
-Durable publication progress lives in `sourceWorkspacePublications`, keyed by
-the source workspace ID. Clients are stateless database and network adapters.
-Losing an authoring grant interrupts work that is in flight, but settled
-Workspace state, its prepared resource, and its open proposal survive grant loss
-and re-entry while the feature remains mounted. After an application remount,
-Workspace reconstructs the resource through the durable validation path above.
+At the commit point OME atomically saves a proposal receipt and reference-repair
+journal. Installing the proposal snapshot updates the writable installation
+revision, selected revision, and exact context together. If installation cannot
+finish, the existing session remains usable and preparation retries the journal;
+the published record never becomes a global "publication stopped" state. Receipts
+render pending proposals until the server-owned projection observes the exact
+record URI, then they are acknowledged independently of repair completion.
+
+Losing an authoring grant cancels in-flight work but does not invalidate an
+already coherent ready session. After an application remount, Workspace
+reconstructs the resource through the durable validation path above.
 Proposal review diffs independently load the review's target repository and
 branch and its source repository and branch. They never substitute the selected
 workspace branch or its already-advanced reference database for either side.

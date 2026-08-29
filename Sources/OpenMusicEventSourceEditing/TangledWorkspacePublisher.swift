@@ -10,7 +10,7 @@ import SourceControlClient
 import SourceEditing
 import TangledLexicon
 
-/// Adapts Workspace's durable submission to Tangled's patch-only pull model.
+/// Adapts Workspace's ephemeral attempt to OME's durable patch-only transport checkpoint.
 ///
 /// Git is used only inside a temporary copy to create the Git-compatible replacement patch.
 /// No proposal branch is created or sent to a remote repository.
@@ -29,15 +29,19 @@ struct TangledWorkspacePublisher: Sendable {
     func publishProposal(
         source: SourceWorkspaceResource,
         workspaceID: SourceWorkspace.ID,
-        submission: WorkspaceSubmission<SourcePatch>,
+        attempt: WorkspaceProposalAttempt<SourcePatch>,
         persistence: WorkspacePublicationPersistence
     ) async throws -> WorkspaceProposal {
         guard source.workspace.id == workspaceID else {
             throw TangledWorkspacePublisherError.sourceWorkspaceMismatch(workspaceID)
         }
+        let checkpoint = try await persistence.checkpoint(
+            workspaceID: workspaceID,
+            attempt: attempt
+        )
         if let proposal = try persistence.publishedProposal(
             workspaceID: workspaceID,
-            submissionID: submission.id
+            checkpointID: checkpoint.id
         ) {
             return proposal
         }
@@ -45,18 +49,18 @@ struct TangledWorkspacePublisher: Sendable {
         let request: TangledPatchOnlyProposalPublicationRequest
         if let prepared = try persistence.preparedPublication(
             workspaceID: workspaceID,
-            submissionID: submission.id
+            checkpointID: checkpoint.id
         ) {
             request = prepared
         } else {
             request = try await preparePublication(
                 source: source,
-                submission: submission
+                checkpoint: checkpoint
             )
             try await persistence.savePreparedPublication(
                 request,
                 workspaceID: workspaceID,
-                submissionID: submission.id
+                checkpointID: checkpoint.id
             )
         }
 
@@ -64,13 +68,28 @@ struct TangledWorkspacePublisher: Sendable {
         let proposal = WorkspaceProposal(
             id: id,
             revision: request.patch.currentRevision,
-            target: submission.proposalTarget
+            target: checkpoint.proposalTarget
         )
-        try await persistence.savePublishedProposal(
-            proposal,
-            workspaceID: workspaceID,
-            submissionID: submission.id
-        )
+        do {
+            try await persistence.savePublishedProposal(
+                proposal,
+                checkpoint: checkpoint,
+                workspaceID: workspaceID
+            )
+        } catch {
+            // The Tangled record is the publication commit point. The prepared request retains
+            // the same deterministic record key, so a later retry cannot create a duplicate.
+            TangledWorkspacePublisherDiagnostics.log(
+                operation: "publication.journal",
+                status: .failed,
+                details: [
+                    "workspace: \(workspaceID.rawValue)",
+                    "proposal: \(proposal.id.rawValue)",
+                    "publication: recorded; local receipt will retry",
+                ],
+                error: error
+            )
+        }
         return proposal
     }
 
@@ -108,14 +127,14 @@ enum TangledWorkspacePublisherError: Equatable, Error, Sendable {
 private extension TangledWorkspacePublisher {
     func preparePublication(
         source: SourceWorkspaceResource,
-        submission: WorkspaceSubmission<SourcePatch>
+        checkpoint: WorkspacePublicationCheckpoint
     ) async throws -> TangledPatchOnlyProposalPublicationRequest {
         @Dependency(\.date.now) var now
         let context = try await PublishingContext.load(source.workspace.id)
-        let address = try proposalAddress(submission)
+        let address = try proposalAddress(checkpoint)
         let patch = try await replacementPatch(
             source: source,
-            submission: submission
+            checkpoint: checkpoint
         )
         return TangledPatchOnlyProposalPublicationRequest(
             authorRepository: address.authorRepository,
@@ -128,17 +147,17 @@ private extension TangledWorkspacePublisher {
                 repositoryName: context.repository.repository,
                 knotHost: context.targetRepository.knotHost
             ),
-            title: submission.proposalTitle,
-            body: submission.proposalBody,
+            title: checkpoint.proposalTitle,
+            body: checkpoint.proposalBody,
             createdAt: ISO8601DateFormatter().string(from: now),
             patch: patch,
-            previousProposal: submission.previousProposal
+            previousProposal: checkpoint.previousProposal
         )
     }
 
     func replacementPatch(
         source: SourceWorkspaceResource,
-        submission: WorkspaceSubmission<SourcePatch>
+        checkpoint: WorkspacePublicationCheckpoint
     ) async throws -> TangledReplacementPatch {
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.sourcePatchApplier) var patchApplier
@@ -149,7 +168,7 @@ private extension TangledWorkspacePublisher {
             try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL)
         }
         let repository = try await sourceControl.open(workingTree.workingRepositoryURL)
-        let target = submission.proposalTarget
+        let target = checkpoint.proposalTarget
         let baseCommit = try await sourceControl.resolveRevision(
             ResolveRevisionRequest(
                 repository: repository,
@@ -157,13 +176,13 @@ private extension TangledWorkspacePublisher {
             )
         )
         try patchApplier.apply(
-            submission.changes,
+            checkpoint.changes,
             workingTree.workingRepositoryURL
         )
         try await sourceControl.stage(
             StageRequest(
                 repository: repository,
-                paths: submission.changes.fileChanges.map {
+                paths: checkpoint.changes.fileChanges.map {
                     RepositoryPath(rawValue: $0.path)
                 }
             )
@@ -171,7 +190,7 @@ private extension TangledWorkspacePublisher {
         let commit = try await sourceControl.commit(
             CommitRequest(
                 repository: repository,
-                message: CommitMessage(rawValue: submission.proposalTitle),
+                message: CommitMessage(rawValue: checkpoint.proposalTitle),
                 author: Author(
                     name: PersonName(rawValue: "Open Music Event"),
                     email: EmailAddress(rawValue: "noreply@openmusicevent.app")
@@ -192,9 +211,9 @@ private extension TangledWorkspacePublisher {
     }
 
     func proposalAddress(
-        _ submission: WorkspaceSubmission<SourcePatch>
+        _ checkpoint: WorkspacePublicationCheckpoint
     ) throws -> ProposalAddress {
-        switch submission.target {
+        switch checkpoint.target {
         case .createProposal:
             @Dependency(\.getDefaultSession) var getDefaultSession
             let description = getDefaultSession().accountID.rawValue.description
@@ -203,7 +222,7 @@ private extension TangledWorkspacePublisher {
             }
             return ProposalAddress(
                 authorRepository: authorRepository,
-                recordKey: ATProto.Record.Key(rawValue: submission.proposalRecordKey)
+                recordKey: ATProto.Record.Key(rawValue: checkpoint.proposalRecordKey)
             )
 
         case let .updateProposal(proposal):
@@ -239,7 +258,7 @@ private struct PublishingContext {
     }
 }
 
-private extension WorkspaceSubmission where ChangeSet == SourcePatch {
+private extension WorkspacePublicationCheckpoint {
     var previousProposal: WorkspaceProposal? {
         guard case let .updateProposal(proposal) = target else { return nil }
         return proposal
@@ -251,7 +270,7 @@ private extension WorkspaceSubmission where ChangeSet == SourcePatch {
     }
 
     var proposalRecordKey: String {
-        "ome-" + id.rawValue.uuidString
+        "ome-" + id.uuidString
             .lowercased()
             .replacingOccurrences(of: "-", with: "")
     }
