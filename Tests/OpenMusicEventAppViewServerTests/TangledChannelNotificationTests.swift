@@ -952,6 +952,7 @@ private extension TangledChannelNotificationTests {
             repository: repository,
             hookID: 42,
             repositoryOwnerDID: try #require(DID(repositoryOwnerDID)),
+            repositoryDID: try #require(DID(repositoryOwnerDID)),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),

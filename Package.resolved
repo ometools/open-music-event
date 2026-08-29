@@ -1,5 +1,5 @@
 {
-  "originHash" : "623f53e66eef4a923458e84ebe7cab21bd566f34232a013e138b98eb6f0c9431",
+  "originHash" : "ebd47764b7dfdb551c7dbf52b1128cd2863a1fd27f0406f2766137fd6b39723e",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/combine-schedulers",
       "state" : {
-        "revision" : "9fa31f4403da54855f1e2aeaeff478f4f0e40b13",
-        "version" : "1.0.2"
+        "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
+        "version" : "1.2.0"
       }
     },
     {
@@ -38,15 +38,6 @@
       }
     },
     {
-      "identity" : "composable-atmosphere-userinput",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-userinput",
-      "state" : {
-        "branch" : "main",
-        "revision" : "bb82609d0f4212f36ac44b0fae27fce6fe506092"
-      }
-    },
-    {
       "identity" : "composable-calendar-events",
       "kind" : "remoteSourceControl",
       "location" : "https://source.woody.fm/composable-calendar-events",
@@ -62,24 +53,6 @@
       "state" : {
         "revision" : "e1caa19077dda4b00441142ef57da3db02acd466",
         "version" : "1.4.2"
-      }
-    },
-    {
-      "identity" : "daterangepicker",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/14T/DateRangePicker",
-      "state" : {
-        "branch" : "main",
-        "revision" : "a6503d46e5dfbd6cde386d01ad514797d2246126"
-      }
-    },
-    {
-      "identity" : "drops",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/omaralbeik/Drops.git",
-      "state" : {
-        "revision" : "a183ee6f79f21c940092a19c2cba756555422371",
-        "version" : "1.7.0"
       }
     },
     {
@@ -134,33 +107,6 @@
       "state" : {
         "revision" : "7abc497b0f907191933c87166e9b6a41b9d028d6",
         "version" : "5.6.0"
-      }
-    },
-    {
-      "identity" : "noora",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tuist/Noora",
-      "state" : {
-        "revision" : "b01663496be276c7e8b198486febedc4b3689c2f",
-        "version" : "0.57.0"
-      }
-    },
-    {
-      "identity" : "path",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tuist/path",
-      "state" : {
-        "revision" : "7c74ac435e03a927c3a73134c48b61e60221abcb",
-        "version" : "0.3.8"
-      }
-    },
-    {
-      "identity" : "rainbow",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/onevcat/Rainbow",
-      "state" : {
-        "revision" : "cdf146ae671b2624917648b61c908d1244b98ca1",
-        "version" : "4.2.1"
       }
     },
     {
@@ -224,15 +170,6 @@
       "state" : {
         "revision" : "d27fc109268b21feb98a48bc1a3f4558e162d9ca",
         "version" : "1.18.1"
-      }
-    },
-    {
-      "identity" : "skip-kit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.skip.tools/skip-kit.git",
-      "state" : {
-        "revision" : "e9b75cf768ab90fe5814b99c615673f5bcd85e1e",
-        "version" : "1.1.1"
       }
     },
     {
@@ -421,16 +358,7 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "cae07c0b1e45f37306f68ccbe84322104bbfe7d0"
-      }
-    },
-    {
-      "identity" : "swift-composable-forms",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-forms",
-      "state" : {
-        "branch" : "main",
-        "revision" : "f3a180edca79e896899303bb1441a624617fe49e"
+        "revision" : "e436a4990e15681d04536ac768027a4ff1c94985"
       }
     },
     {
@@ -439,7 +367,7 @@
       "location" : "https://source.woody.fm/swift-composable-notifications",
       "state" : {
         "branch" : "main",
-        "revision" : "5438ff8cd33bcded280c9c9c590d8494a9561023"
+        "revision" : "cd0a19bcbb5f32904ae9906b401b8d1ec082c9a5"
       }
     },
     {
@@ -448,7 +376,7 @@
       "location" : "https://source.woody.fm/swift-composable-workspace",
       "state" : {
         "branch" : "main",
-        "revision" : "1983072e5a1b59c57ee0fce96ec7ba672d0c65bd"
+        "revision" : "b6022fa81b69b9fab2db8df19a61f82a9ae3a5e2"
       }
     },
     {
@@ -812,15 +740,6 @@
       }
     },
     {
-      "identity" : "swift-web-metadata",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-web-metadata",
-      "state" : {
-        "branch" : "main",
-        "revision" : "02469ff800c8ebd27a1bdaa8efc8a8413fcfcd0f"
-      }
-    },
-    {
       "identity" : "swift-websocket",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/hummingbird-project/swift-websocket",
@@ -834,7 +753,6 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/TCA26",
       "state" : {
-        "branch" : "main",
         "revision" : "cf2f6b58c7be7736a9705dc194c7ff81513bd28d"
       }
     },

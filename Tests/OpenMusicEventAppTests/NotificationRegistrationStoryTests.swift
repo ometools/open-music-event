@@ -338,6 +338,7 @@ struct NotificationRegistrationStoryTests {
                         ),
                         hookID: webhookHookID,
                         repositoryOwnerDID: organizerID,
+                        repositoryDID: organizerID,
                         ref: "refs/heads/main",
                         canonicalSource: CanonicalTangledSource(
                             organizerID: try #require(

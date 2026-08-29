@@ -30,6 +30,7 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
 
     case invalidTangledCanonicalSourceOrganizerID(String)
     case invalidTangledWebhookRepositoryOwnerDID(String)
+    case invalidTangledWebhookRepositoryDID(String)
     case invalidTangledWebhookWatchID(String)
     case tangledWebhookConfigurationInvalid(String)
     case tangledWebhookConfigurationUnreadable(String)

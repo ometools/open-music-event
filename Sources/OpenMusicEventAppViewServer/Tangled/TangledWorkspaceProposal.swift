@@ -6,6 +6,7 @@ import Foundation
 import GRDB
 import HTTPClient
 import IssueReporting
+import LexiconSQLiteData
 import OpenMusicEventLexicon
 import SQLiteData
 import ServiceLifecycle
@@ -65,6 +66,14 @@ struct TangledWorkspaceProposal: Equatable, Sendable {
     case deleted(sequence: Int64)
   }
 
+  struct StatusObservation: Equatable, Sendable {
+    let uri: ATProto.URI
+    let cid: ATProto.CID
+    let sequence: Int64
+    let status: Open<TangledPullStatus>
+    let createdAt: TangledTimestamp
+  }
+
   struct RenderInput: Codable, Equatable, Sendable {
     struct Key: Codable, Equatable, Hashable, RawRepresentable, Sendable {
       let rawValue: String
@@ -103,19 +112,40 @@ struct TangledWorkspaceProposal: Equatable, Sendable {
   let id: ATProto.URI
   let webhook: WebhookObservation?
   let record: RecordObservation?
+  let status: StatusObservation?
   let renderInput: RenderInput?
   let renderState: RenderState
+
+  var lifecycle: Open<TangledPullStatus> {
+    if let status {
+      return status.status
+    }
+    switch webhook?.value.state {
+    case TangledPullState.closed.rawValue:
+      return .closed
+    case TangledPullState.merged.rawValue:
+      return .merged
+    case TangledPullState.open.rawValue:
+      return .open
+    case let value?:
+      return .unknown(.string(value))
+    case nil:
+      return .open
+    }
+  }
 
   init(
     id: ATProto.URI,
     webhook: WebhookObservation?,
     record: RecordObservation?,
+    status: StatusObservation? = nil,
     renderInput: RenderInput? = nil,
     renderState: RenderState = .awaitingInput
   ) {
     self.id = id
     self.webhook = webhook
     self.record = record
+    self.status = status
     self.renderInput = renderInput
     self.renderState = renderState
   }
@@ -347,15 +377,30 @@ extension OpenMusicEventAppViewStore {
 
 extension OpenMusicEventAppViewStore {
   func tangledWorkspaceProposalRecordIndex(
-    configuration: TangledWebhookConfiguration
+    repositoryDIDs: Set<DID>
   ) -> AppViewRecordIndex<TangledPullRecord> {
     AppViewRecordIndex<TangledPullRecord>(collection: TangledNSID.pull)
-      .project { mutation, database in
-        try TangledWorkspaceProposalRow.apply(
+      .filter { mutation, database in
+        try TangledWorkspaceProposalRow.includes(
           mutation,
-          configuration: configuration,
+          repositoryDIDs: repositoryDIDs,
           in: database
         )
+      }
+      .project { mutation, database in
+        try TangledWorkspaceProposalRow.apply(mutation, in: database)
+      }
+  }
+
+  func tangledWorkspaceProposalStatusRecordIndex()
+    -> AppViewRecordIndex<TangledPullStatusRecord>
+  {
+    AppViewRecordIndex<TangledPullStatusRecord>(collection: TangledNSID.pullStatus)
+      .filter { mutation, database in
+        try TangledWorkspaceProposalRow.includes(mutation, in: database)
+      }
+      .project { mutation, database in
+        try TangledWorkspaceProposalRow.apply(mutation, in: database)
       }
   }
 }
@@ -373,6 +418,11 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
   var recordSequence: Int64?
   var recordDeleted: Bool?
   var record: Data?
+  var statusURI: String?
+  var statusCID: String?
+  var statusSequence: Int64?
+  var statusValue: Open<TangledPullStatus>?
+  var statusCreatedAt: String?
   var render: Data?
 
   init(uri: String) {
@@ -406,6 +456,16 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
       recordDeleted = true
       record = nil
     }
+  }
+
+  mutating func hydrate(
+    _ observation: TangledWorkspaceProposal.StatusObservation?
+  ) {
+    statusURI = observation?.uri.description
+    statusCID = observation?.cid.rawValue
+    statusSequence = observation?.sequence
+    statusValue = observation?.status
+    statusCreatedAt = observation?.createdAt
   }
 
   mutating func prepareRender(
@@ -479,6 +539,31 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
       throw TangledWorkspaceProposalPersistenceError.corruptHydration(uri)
     }
 
+    let statusObservation: TangledWorkspaceProposal.StatusObservation?
+    switch (statusURI, statusCID, statusSequence, statusValue, statusCreatedAt) {
+    case (nil, nil, nil, nil, nil):
+      statusObservation = nil
+    case let (
+      .some(statusURI),
+      .some(statusCID),
+      .some(statusSequence),
+      .some(statusValue),
+      .some(statusCreatedAt)
+    ):
+      guard let statusURI = ATProto.URI(statusURI) else {
+        throw TangledWorkspaceProposalPersistenceError.invalidURI(statusURI)
+      }
+      statusObservation = TangledWorkspaceProposal.StatusObservation(
+        uri: statusURI,
+        cid: ATProto.CID(statusCID),
+        sequence: statusSequence,
+        status: statusValue,
+        createdAt: statusCreatedAt
+      )
+    default:
+      throw TangledWorkspaceProposalPersistenceError.corruptHydration(uri)
+    }
+
     let persistedRender = try persistedRender()
     let renderState: TangledWorkspaceProposal.RenderState
     if let persistedRender {
@@ -505,6 +590,7 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
       id: id,
       webhook: webhookObservation,
       record: recordObservation,
+      status: statusObservation,
       renderInput: persistedRender?.input,
       renderState: renderState
     )
@@ -529,67 +615,145 @@ struct TangledWorkspaceProposalRow: Equatable, Sendable {
     }
   }
 
+  static func includes(
+    _ mutation: AppView.RecordMutation<TangledPullRecord>,
+    repositoryDIDs: Set<DID>,
+    in database: Database
+  ) throws -> Bool {
+    switch mutation {
+    case let .create(current):
+      let existingProposal = try Self.find(current.uri.description).fetchOne(database)
+      return repositoryDIDs.contains(current.value.target.repo) || existingProposal != nil
+
+    case let .update(previous, current):
+      let existingProposal = try Self.find(current.uri.description).fetchOne(database)
+      return repositoryDIDs.contains(current.value.target.repo)
+        || repositoryDIDs.contains(previous.value.target.repo)
+        || existingProposal != nil
+
+    case let .delete(previous, current):
+      let existingProposal = try Self.find(current.uri.description).fetchOne(database)
+      return previous.map { repositoryDIDs.contains($0.value.target.repo) } == true
+        || existingProposal != nil
+    }
+  }
+
   static func apply(
     _ mutation: AppView.RecordMutation<TangledPullRecord>,
-    configuration: TangledWebhookConfiguration,
     in database: Database
   ) throws {
     let uri: ATProto.URI
-    let observation: TangledWorkspaceProposal.RecordObservation?
+    let observation: TangledWorkspaceProposal.RecordObservation
     switch mutation {
-    case let .create(current):
+    case let .create(current), let .update(_, current):
       uri = current.uri
-      observation = configuration.includes(current.value)
-        ? .present(
-          cid: current.cid,
-          sequence: current.sequence,
-          value: current.value
-        )
-        : nil
+      observation = .present(
+        cid: current.cid,
+        sequence: current.sequence,
+        value: current.value
+      )
 
-    case let .update(previous, current):
+    case let .delete(_, current):
       uri = current.uri
-      if configuration.includes(current.value) {
-        observation = .present(
-          cid: current.cid,
-          sequence: current.sequence,
-          value: current.value
-        )
-      } else if configuration.includes(previous.value) {
-        observation = .deleted(sequence: current.sequence)
-      } else {
-        observation = nil
-      }
-
-    case let .delete(previous, current):
-      uri = current.uri
-      let existingProposal = try Self.find(uri.description).fetchOne(database)
-      observation = previous.map { configuration.includes($0.value) } == true
-        || existingProposal != nil
-        ? .deleted(sequence: current.sequence)
-        : nil
+      observation = .deleted(sequence: current.sequence)
     }
-
-    guard let observation else { return }
     var row = try Self.find(uri.description).fetchOne(database)
       ?? Self(uri: uri.description)
     try row.hydrate(observation)
     try Self.upsert { row }.execute(database)
   }
-}
 
-private extension TangledWebhookConfiguration {
-  func includes(_ pull: TangledPullRecord) -> Bool {
-    watches.contains { watch in
-      watch.repositoryOwnerDID == pull.target.repo
-        && normalizedTangledBranch(watch.ref) == normalizedTangledBranch(pull.target.branch)
+  static func includes(
+    _ mutation: AppView.RecordMutation<TangledPullStatusRecord>,
+    in database: Database
+  ) throws -> Bool {
+    switch mutation {
+    case let .create(current):
+      return try Self.find(current.value.pull.description).fetchOne(database) != nil
+
+    case let .update(previous, current):
+      let currentProposal = try Self.find(current.value.pull.description).fetchOne(database)
+      let previousProposal = try Self.find(previous.value.pull.description).fetchOne(database)
+      return currentProposal != nil || previousProposal != nil
+
+    case let .delete(previous, _):
+      // A previous raw value exists only when this filtered index accepted it.
+      return previous != nil
+    }
+  }
+
+  static func apply(
+    _ mutation: AppView.RecordMutation<TangledPullStatusRecord>,
+    in database: Database
+  ) throws {
+    var affectedPulls: [ATProto.URI] = []
+    func append(_ pull: ATProto.URI) {
+      guard !affectedPulls.contains(pull) else { return }
+      affectedPulls.append(pull)
+    }
+    switch mutation {
+    case let .create(current):
+      append(current.value.pull)
+    case let .update(previous, current):
+      append(previous.value.pull)
+      append(current.value.pull)
+    case let .delete(previous, _):
+      if let previous {
+        append(previous.value.pull)
+      }
+    }
+
+    let presentStatuses = try AppViewIndexDatabase.presentRecords(
+      collection: TangledNSID.pullStatus,
+      in: database
+    )
+    for pull in affectedPulls {
+      guard var proposal = try Self.find(pull.description).fetchOne(database) else {
+        continue
+      }
+      var selected: (
+        version: AppView.RecordVersion<Data>,
+        record: TangledPullStatusRecord
+      )?
+      for version in presentStatuses {
+        let record = try JSONDecoder().decode(
+          TangledPullStatusRecord.self,
+          from: version.value
+        )
+        guard record.pull == pull else { continue }
+        if let existing = selected,
+          !statusRecord(version, sortsAfter: existing.version)
+        {
+          continue
+        }
+        selected = (version, record)
+      }
+      proposal.hydrate(
+        selected.map { selected in
+          TangledWorkspaceProposal.StatusObservation(
+            uri: selected.version.uri,
+            cid: selected.version.cid,
+            sequence: selected.version.sequence,
+            status: selected.record.status,
+            createdAt: selected.record.createdAt
+          )
+        }
+      )
+      try Self.upsert { proposal }.execute(database)
     }
   }
 }
 
-private func normalizedTangledBranch(_ value: String) -> String {
-  let prefix = "refs/heads/"
-  return value.hasPrefix(prefix) ? String(value.dropFirst(prefix.count)) : value
+private func statusRecord(
+  _ lhs: AppView.RecordVersion<Data>,
+  sortsAfter rhs: AppView.RecordVersion<Data>
+) -> Bool {
+  let lhsKey = lhs.uri.rkey?.rawValue ?? ""
+  let rhsKey = rhs.uri.rkey?.rawValue ?? ""
+  if lhsKey != rhsKey {
+    return lhsKey > rhsKey
+  }
+  return lhs.uri.description > rhs.uri.description
 }
 
 enum TangledWorkspaceProposalPersistenceError: Error, Equatable, Sendable {
@@ -728,6 +892,138 @@ enum TangledWorkspaceProposalSchema {
       let tableName = TangledWorkspaceProposalRow.tableName
       try #sql(
         "ALTER TABLE \(quote: tableName) ADD COLUMN \"render\" BLOB"
+      )
+      .execute(database)
+    }
+    migrator.registerMigration("Add Workspace proposal status hydration") { database in
+      let tableName = TangledWorkspaceProposalRow.tableName
+      let replacementTableName = "\(tableName)_status"
+      let deliveryIndexName = "\(tableName)_webhookDeliveryID"
+      try #sql(
+        """
+        CREATE TABLE \(quote: replacementTableName) (
+          "uri" TEXT PRIMARY KEY NOT NULL,
+          "webhookDeliveryID" TEXT,
+          "webhookWatchID" TEXT,
+          "webhookPullNumber" INTEGER,
+          "webhookState" TEXT,
+          "webhook" BLOB,
+          "webhookObservedAt" TEXT,
+          "recordCID" TEXT,
+          "recordSequence" INTEGER,
+          "recordDeleted" INTEGER,
+          "record" BLOB,
+          "statusURI" TEXT,
+          "statusCID" TEXT,
+          "statusSequence" INTEGER,
+          "statusValue" TEXT,
+          "statusCreatedAt" TEXT,
+          "render" BLOB,
+          CHECK (
+            (
+              "webhookDeliveryID" IS NULL
+              AND "webhookWatchID" IS NULL
+              AND "webhookPullNumber" IS NULL
+              AND "webhookState" IS NULL
+              AND "webhook" IS NULL
+              AND "webhookObservedAt" IS NULL
+            )
+            OR
+            (
+              "webhookDeliveryID" IS NOT NULL
+              AND "webhookWatchID" IS NOT NULL
+              AND "webhookPullNumber" IS NOT NULL
+              AND "webhookState" IS NOT NULL
+              AND "webhook" IS NOT NULL
+              AND "webhookObservedAt" IS NOT NULL
+            )
+          ),
+          CHECK (
+            (
+              "recordCID" IS NULL
+              AND "recordSequence" IS NULL
+              AND "recordDeleted" IS NULL
+              AND "record" IS NULL
+            )
+            OR
+            (
+              "recordCID" IS NOT NULL
+              AND "recordSequence" IS NOT NULL
+              AND "recordDeleted" = 0
+              AND "record" IS NOT NULL
+            )
+            OR
+            (
+              "recordCID" IS NULL
+              AND "recordSequence" IS NOT NULL
+              AND "recordDeleted" = 1
+              AND "record" IS NULL
+            )
+          ),
+          CHECK (
+            (
+              "statusURI" IS NULL
+              AND "statusCID" IS NULL
+              AND "statusSequence" IS NULL
+              AND "statusValue" IS NULL
+              AND "statusCreatedAt" IS NULL
+            )
+            OR
+            (
+              "statusURI" IS NOT NULL
+              AND "statusCID" IS NOT NULL
+              AND "statusSequence" IS NOT NULL
+              AND "statusValue" IS NOT NULL
+              AND "statusCreatedAt" IS NOT NULL
+            )
+          )
+        ) STRICT
+        """
+      )
+      .execute(database)
+      try #sql(
+        """
+        INSERT INTO \(quote: replacementTableName) (
+          "uri",
+          "webhookDeliveryID",
+          "webhookWatchID",
+          "webhookPullNumber",
+          "webhookState",
+          "webhook",
+          "webhookObservedAt",
+          "recordCID",
+          "recordSequence",
+          "recordDeleted",
+          "record",
+          "render"
+        )
+        SELECT
+          "uri",
+          "webhookDeliveryID",
+          "webhookWatchID",
+          "webhookPullNumber",
+          "webhookState",
+          "webhook",
+          "webhookObservedAt",
+          "recordCID",
+          "recordSequence",
+          "recordDeleted",
+          "record",
+          "render"
+        FROM \(quote: tableName)
+        """
+      )
+      .execute(database)
+      try #sql("DROP TABLE \(quote: tableName)").execute(database)
+      try #sql(
+        "ALTER TABLE \(quote: replacementTableName) RENAME TO \(quote: tableName)"
+      )
+      .execute(database)
+      try #sql(
+        """
+        CREATE UNIQUE INDEX \(quote: deliveryIndexName)
+        ON \(quote: tableName) ("webhookDeliveryID")
+        """
       )
       .execute(database)
     }

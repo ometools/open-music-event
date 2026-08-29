@@ -322,6 +322,9 @@ struct AppViewRouteTests {
                     repositoryOwnerDID: try #require(DID(
                         "did:plc:cqqtuv75m7e5s4uj6nw4czyu"
                     )),
+                    repositoryDID: try #require(DID(
+                        "did:plc:cqqtuv75m7e5s4uj6nw4czyu"
+                    )),
                     ref: "refs/heads/main",
                     canonicalSource: CanonicalTangledSource(
                         organizerID: organizerID,

@@ -36,12 +36,14 @@ public struct TangledWebhookWatch: Equatable, Sendable {
         repository: TangledRepositoryReference,
         hookID: Int64,
         repositoryOwnerDID: DID,
+        repositoryDID: DID,
         ref: String,
         canonicalSource: CanonicalTangledSource
     ) {
         self.repository = repository
         self.hookID = hookID
         self.repositoryOwnerDID = repositoryOwnerDID
+        self.repositoryDID = repositoryDID
         self.ref = ref
         self.canonicalSource = canonicalSource
     }
@@ -51,6 +53,8 @@ public struct TangledWebhookWatch: Equatable, Sendable {
     public let repository: TangledRepositoryReference
     public let hookID: Int64
     public let repositoryOwnerDID: DID
+    /// The DID stored in `TangledPullRecord.target.repo` for this physical repository.
+    public let repositoryDID: DID
     public let ref: String
     public let canonicalSource: CanonicalTangledSource
 
@@ -73,6 +77,7 @@ public struct TangledWebhookConfiguration: Sendable {
         var watchesByID: [WebhookInboxDelivery.WatchID: TangledWebhookWatch] = [:]
         var watchIDs: Set<WebhookInboxDelivery.WatchID> = []
         var repositoryReferences: Set<String> = []
+        var repositoryDIDs: Set<DID> = []
         var canonicalSourceReferences: Set<String> = []
         for watch in watches {
             guard watchesByHookID.updateValue(watch, forKey: watch.hookID) == nil else {
@@ -86,6 +91,11 @@ public struct TangledWebhookConfiguration: Sendable {
             guard repositoryReferences.insert(repositoryReference).inserted else {
                 throw TangledWebhookConfigurationError.duplicateRepositoryReference(
                     repositoryReference
+                )
+            }
+            guard repositoryDIDs.insert(watch.repositoryDID).inserted else {
+                throw TangledWebhookConfigurationError.duplicateRepositoryDID(
+                    watch.repositoryDID
                 )
             }
             guard canonicalSourceReferences.insert(watch.canonicalSource.reference).inserted else {
@@ -105,17 +115,20 @@ public struct TangledWebhookConfiguration: Sendable {
         self.watches = watches
         self.watchesByHookID = watchesByHookID
         self.watchesByID = watchesByID
+        self.repositoryDIDs = repositoryDIDs
     }
 
     public let watches: [TangledWebhookWatch]
     let watchesByHookID: [Int64: TangledWebhookWatch]
     let watchesByID: [WebhookInboxDelivery.WatchID: TangledWebhookWatch]
+    let repositoryDIDs: Set<DID>
 }
 
 public enum TangledWebhookConfigurationError: Error, Equatable, Sendable {
     case duplicateCanonicalSource(String)
     case duplicateHookID(Int64)
     case duplicateRepositoryReference(String)
+    case duplicateRepositoryDID(DID)
     case duplicateWatchID(WebhookInboxDelivery.WatchID)
     case invalidRepositoryPath(String)
 }
@@ -149,6 +162,11 @@ extension AppViewConfiguration {
                     configuredWatch.repositoryOwnerDID
                 )
             }
+            guard let repositoryDID = DID(configuredWatch.repositoryDID) else {
+                throw AppViewConfigurationError.invalidTangledWebhookRepositoryDID(
+                    configuredWatch.repositoryDID
+                )
+            }
             guard let organizerID = OME.Organizer.ID(
                 configuredWatch.canonicalSource.organizerID
             ) else {
@@ -160,6 +178,7 @@ extension AppViewConfiguration {
                 repository: repository,
                 hookID: configuredWatch.hookID,
                 repositoryOwnerDID: repositoryOwnerDID,
+                repositoryDID: repositoryDID,
                 ref: configuredWatch.ref,
                 canonicalSource: CanonicalTangledSource(
                     organizerID: organizerID,
@@ -209,6 +228,7 @@ private struct TangledWebhookConfigurationFile: Decodable {
         var id: String
         var hookID: Int64
         var repositoryOwnerDID: String
+        var repositoryDID: String
         var ref: String
         var canonicalSource: CanonicalSource
     }

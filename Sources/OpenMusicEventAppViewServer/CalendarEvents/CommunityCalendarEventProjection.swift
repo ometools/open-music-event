@@ -87,11 +87,10 @@ extension OpenMusicEventAppViewStore {
             .project { mutation, database in
                 try CommunityCalendarEventProjection.apply(mutation, in: database)
             }
-            if let tangledWebhookConfiguration {
-                tangledWorkspaceProposalRecordIndex(
-                    configuration: tangledWebhookConfiguration
-                )
-            }
+            tangledWorkspaceProposalRecordIndex(
+                repositoryDIDs: tangledWebhookConfiguration?.repositoryDIDs ?? []
+            )
+            tangledWorkspaceProposalStatusRecordIndex()
         }
     }
 }

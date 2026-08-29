@@ -89,7 +89,7 @@ let tca26Dependency: Package.Dependency = {
     }
     return .package(
         url: "https://github.com/pointfreeco/TCA26",
-        branch: "main",
+        revision: "cf2f6b58c7be7736a9705dc194c7ff81513bd28d",
         traits: ["Dependencies"]
     )
 }()
@@ -281,7 +281,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
-    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.2"),
+    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     isAndroidAppBuild
         ? .package(
@@ -366,7 +366,7 @@ let appViewDependencies: [Package.Dependency] = [
         branch: "main"
     ),
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
-    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.2"),
+    .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(
@@ -1153,6 +1153,7 @@ let appViewTargets: [Target] = [
             .product(name: "HydrantClient", package: "swift-composable-atmosphere"),
             .product(name: "HydrantClientHummingbird", package: "swift-composable-atmosphere"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+            .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
             .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "Tagged", package: "swift-tagged"),
@@ -1196,6 +1197,7 @@ let appViewTargets: [Target] = [
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
             .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
+            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
         ],
         resources: [

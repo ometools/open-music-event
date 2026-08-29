@@ -8,6 +8,7 @@ import HTTPClient
 import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
+import Lexicon
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData
@@ -140,7 +141,7 @@ struct TangledWorkspaceProposalTests {
     let database = try DatabaseQueue()
     let store = try OpenMusicEventAppViewStore(database: database)
     let indexer = store.appViewRecordIndexer(
-      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+      tangledWebhookConfiguration: nil
     )
     let webhookProposal = try Self.webhookProposal()
 
@@ -151,6 +152,7 @@ struct TangledWorkspaceProposalTests {
     )
 
     // Jetstream later supplies the content-addressed pull record for the same exact URI.
+    // The last watch configuration has retired, so the webhook-created row is the admission fact.
     let record = try Self.pullRecord(title: "Add artist detail previews")
     let version = try AppView.RecordVersion(
       collection: TangledNSID.pull,
@@ -442,15 +444,306 @@ struct TangledWorkspaceProposalTests {
       sequence: 300
     )
 
-    // The general AppView index may retain the raw record, but it is not an OME proposal.
+    // AppView rejects unrelated pulls before either raw or projected persistence.
     let outcome = try withDependencies {
       $0.defaultDatabase = database
     } operation: {
       try indexer.apply(.put(version)).outcome
     }
-    expectNoDifference(outcome, .created)
+    expectNoDifference(outcome, .ignored)
     let proposal = try await store.workspaceProposal(id: unrelatedURI)
+    let rawSummary = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try AppViewIndexDatabase.summary(collection: TangledNSID.pull)
+    }
     expectNoDifference(proposal, nil)
+    expectNoDifference(rawSummary, AppViewIndexSummary(presentRecords: 0, tombstones: 0))
+  }
+
+  @Test
+  func `repository DID admits every branch and accepted proposals remain sticky`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let watchedIndexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let firstRecord = try Self.pullRecord(
+      title: "Review the release branch",
+      targetBranch: "refs/heads/release"
+    )
+    let firstVersion = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: ATProto.CID("bafyreireleasebranch"),
+      value: JSONEncoder().encode(firstRecord),
+      sequence: 310
+    )
+
+    // Webhook ownership and pull-target identity are deliberately different facts.
+    #expect(Self.watch.repositoryOwnerDID != Self.watch.repositoryDID)
+    let firstOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try watchedIndexer.apply(.put(firstVersion)).outcome
+    }
+    expectNoDifference(firstOutcome, .created)
+
+    // Removing the watch does not strand a proposal that this database already accepted.
+    let retiredIndexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [])
+    )
+    let updatedRecord = try Self.pullRecord(
+      title: "Keep observing the retired watch",
+      repositoryDID: DID("did:plc:retired-repository"),
+      targetBranch: "some-other-branch"
+    )
+    let updatedVersion = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: ATProto.CID("bafyreiretiredwatch"),
+      value: JSONEncoder().encode(updatedRecord),
+      sequence: 311
+    )
+    let updateOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try retiredIndexer.apply(.put(updatedVersion)).outcome
+    }
+    expectNoDifference(updateOutcome, .updated)
+    let retained = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      retained.record,
+      .present(
+        cid: updatedVersion.cid,
+        sequence: updatedVersion.sequence,
+        value: updatedRecord
+      )
+    )
+
+    let retiredDeletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      sequence: 312
+    )
+    let deleteOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try retiredIndexer.apply(.delete(retiredDeletion)).outcome
+    }
+    expectNoDifference(deleteOutcome, .deleted)
+    let deleted = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(deleted.record, .deleted(sequence: 312))
+
+    // A clean rebuild with that same retired configuration has no sticky row to admit it.
+    let cleanDatabase = try DatabaseQueue()
+    let cleanStore = try OpenMusicEventAppViewStore(database: cleanDatabase)
+    let cleanIndexer = cleanStore.appViewRecordIndexer(
+      tangledWebhookConfiguration: nil
+    )
+    let rebuildOutcome = try withDependencies {
+      $0.defaultDatabase = cleanDatabase
+    } operation: {
+      try cleanIndexer.apply(.put(updatedVersion)).outcome
+    }
+    expectNoDifference(rebuildOutcome, .ignored)
+    let rebuiltProposal = try await cleanStore.workspaceProposal(id: Self.pullURI)
+    expectNoDifference(rebuiltProposal, nil)
+  }
+
+  @Test
+  func `status records materialize the newest accepted lifecycle and fall back on deletion`() async throws {
+    let database = try DatabaseQueue()
+    let store = try OpenMusicEventAppViewStore(database: database)
+    let watchedIndexer = store.appViewRecordIndexer(
+      tangledWebhookConfiguration: try TangledWebhookConfiguration(watches: [Self.watch])
+    )
+    let pull = try Self.pullRecord(title: "Hydrate proposal status")
+    let pullVersion = try AppView.RecordVersion(
+      collection: TangledNSID.pull,
+      uri: Self.pullURI,
+      cid: ATProto.CID("bafyreistatuspull"),
+      value: JSONEncoder().encode(pull),
+      sequence: 500
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try watchedIndexer.apply(.put(pullVersion))
+    }
+    let statusIndexer = store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
+
+    let unrelatedURI = ATProto.URI(
+      "at://did:plc:status-author/sh.tangled.repo.pull.status/3unrelated"
+    )!
+    let unrelated = try Self.statusVersion(
+      uri: unrelatedURI,
+      cid: "bafyreistatusunrelated",
+      sequence: 501,
+      pull: ATProto.URI("at://did:plc:other/sh.tangled.repo.pull/3other")!,
+      status: .closed
+    )
+    let unrelatedOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.put(unrelated)).outcome
+    }
+    expectNoDifference(unrelatedOutcome, .ignored)
+    let unrelatedSummary = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try AppViewIndexDatabase.summary(collection: TangledNSID.pullStatus)
+    }
+    expectNoDifference(
+      unrelatedSummary,
+      AppViewIndexSummary(presentRecords: 0, tombstones: 0)
+    )
+    let unrelatedDeletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pullStatus,
+      uri: unrelatedURI,
+      sequence: 502
+    )
+    let unrelatedDeleteOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.delete(unrelatedDeletion)).outcome
+    }
+    expectNoDifference(unrelatedDeleteOutcome, .ignored)
+    let rejectedDeleteSummary = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try AppViewIndexDatabase.summary(collection: TangledNSID.pullStatus)
+    }
+    expectNoDifference(
+      rejectedDeleteSummary,
+      AppViewIndexSummary(presentRecords: 0, tombstones: 0)
+    )
+
+    let firstURI = ATProto.URI(
+      "at://did:plc:status-a/sh.tangled.repo.pull.status/3same"
+    )!
+    let first = try Self.statusVersion(
+      uri: firstURI,
+      cid: "bafyreistatusopen",
+      sequence: 503,
+      pull: Self.pullURI,
+      status: .open
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.put(first))
+    }
+
+    // Equal record keys use the full URI as a stable cross-repository tie-breaker.
+    let selectedURI = ATProto.URI(
+      "at://did:plc:status-z/sh.tangled.repo.pull.status/3same"
+    )!
+    let selected = try Self.statusVersion(
+      uri: selectedURI,
+      cid: "bafyreistatusmerged",
+      sequence: 504,
+      pull: Self.pullURI,
+      status: .merged
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.put(selected))
+    }
+    let merged = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(
+      merged.status,
+      TangledWorkspaceProposal.StatusObservation(
+        uri: selected.uri,
+        cid: selected.cid,
+        sequence: selected.sequence,
+        status: .merged,
+        createdAt: "2026-08-24T20:00:00Z"
+      )
+    )
+    expectNoDifference(merged.lifecycle, .merged)
+
+    let updatedSelected = try Self.statusVersion(
+      uri: selectedURI,
+      cid: "bafyreistatusclosedupdate",
+      sequence: 505,
+      pull: Self.pullURI,
+      status: .closed
+    )
+    let statusUpdateOutcome = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.put(updatedSelected)).outcome
+    }
+    expectNoDifference(statusUpdateOutcome, .updated)
+    let updated = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(updated.status?.status, .closed)
+    expectNoDifference(updated.lifecycle, .closed)
+
+    let unknownURI = ATProto.URI(
+      "at://did:plc:status-author/sh.tangled.repo.pull.status/3zzzz"
+    )!
+    let unknownStatus: Open<TangledPullStatus> = .unknown(
+      .string("sh.tangled.repo.pull.status.reviewing")
+    )
+    let unknown = try Self.statusVersion(
+      uri: unknownURI,
+      cid: "bafyreistatusunknown",
+      sequence: 506,
+      pull: Self.pullURI,
+      status: unknownStatus
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.put(unknown))
+    }
+    let preserved = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(preserved.status?.status, unknownStatus)
+    expectNoDifference(preserved.lifecycle, unknownStatus)
+
+    let unknownDeletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pullStatus,
+      uri: unknownURI,
+      sequence: 507
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.delete(unknownDeletion))
+    }
+    let fellBack = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(fellBack.status?.uri, selectedURI)
+    expectNoDifference(fellBack.lifecycle, .closed)
+
+    let selectedDeletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pullStatus,
+      uri: selectedURI,
+      sequence: 508
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.delete(selectedDeletion))
+    }
+    let tiedFallback = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(tiedFallback.status?.uri, firstURI)
+    expectNoDifference(tiedFallback.lifecycle, .open)
+
+    let firstDeletion = try AppView.RecordDeletion(
+      collection: TangledNSID.pullStatus,
+      uri: firstURI,
+      sequence: 509
+    )
+    _ = try withDependencies {
+      $0.defaultDatabase = database
+    } operation: {
+      try statusIndexer.apply(.delete(firstDeletion))
+    }
+    let cleared = try #require(try await store.workspaceProposal(id: Self.pullURI))
+    expectNoDifference(cleared.status, nil)
+    expectNoDifference(cleared.lifecycle, .open)
   }
 
   @Test
@@ -521,6 +814,19 @@ struct TangledWorkspaceProposalTests {
         .map { try $0.proposal() }
     }
     expectNoDifference(migrated, proposal)
+
+    #expect(throws: DatabaseError.self) {
+      try database.write { database in
+        try #sql(
+          """
+          UPDATE \(quote: tableName)
+          SET "statusURI" = \(bind: "at://did:plc:status/sh.tangled.repo.pull.status/partial")
+          WHERE "uri" = \(bind: proposal.id.description)
+          """
+        )
+        .execute(database)
+      }
+    }
   }
 
   @Test
@@ -651,6 +957,7 @@ struct TangledWorkspaceProposalTests {
 
 extension TangledWorkspaceProposalTests {
   fileprivate static let repositoryOwnerDID = "did:plc:workspace-owner"
+  fileprivate static let repositoryDID = "did:plc:workspace-repository"
   fileprivate static let repository = TangledRepositoryReference(
     host: "tangled.org",
     owner: "wickedwoods.ca",
@@ -675,6 +982,7 @@ extension TangledWorkspaceProposalTests {
     repository: repository,
     hookID: 42,
     repositoryOwnerDID: DID(repositoryOwnerDID)!,
+    repositoryDID: DID(repositoryDID)!,
     ref: "refs/heads/main",
     canonicalSource: CanonicalTangledSource(
       organizerID: OME.Organizer.ID("did:plc:wickedwoods")!,
@@ -719,11 +1027,15 @@ extension TangledWorkspaceProposalTests {
     )
   }
 
-  fileprivate static func pullRecord(title: String) throws -> TangledPullRecord {
+  fileprivate static func pullRecord(
+    title: String,
+    repositoryDID: DID? = DID(repositoryDID),
+    targetBranch: String = "main"
+  ) throws -> TangledPullRecord {
     TangledPullRecord(
       target: TangledPullRecord.Target(
-        repo: try #require(DID(repositoryOwnerDID)),
-        branch: "main"
+        repo: try #require(repositoryDID),
+        branch: targetBranch
       ),
       title: title,
       body: "Carries the old and new artist values.",
@@ -757,6 +1069,28 @@ extension TangledWorkspaceProposalTests {
       roundNumber: roundNumber,
       patchDigest: patchDigest,
       rendererVersion: WorkspaceProposalRenderer.currentVersion
+    )
+  }
+
+  fileprivate static func statusVersion(
+    uri: ATProto.URI,
+    cid: String,
+    sequence: Int64,
+    pull: ATProto.URI,
+    status: Open<TangledPullStatus>
+  ) throws -> AppView.RecordVersion<Data> {
+    try AppView.RecordVersion(
+      collection: TangledNSID.pullStatus,
+      uri: uri,
+      cid: ATProto.CID(cid),
+      value: JSONEncoder().encode(
+        TangledPullStatusRecord(
+          pull: pull,
+          status: status,
+          createdAt: "2026-08-24T20:00:00Z"
+        )
+      ),
+      sequence: sequence
     )
   }
 

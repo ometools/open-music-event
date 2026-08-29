@@ -202,6 +202,7 @@ metadata in the public server-configuration repository, for example:
     "id": "woody.fm/wicked-woods-ome-stg#refs/heads/main",
     "hookID": 123,
     "repositoryOwnerDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+    "repositoryDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
     "ref": "refs/heads/main",
     "canonicalSource": {
       "organizerID": "did:plc:5df2u7ief6m6tn77jznicxob",
@@ -215,7 +216,11 @@ The numeric `hookID` is assigned by Tangled; replace `123` with the created hook
 exactly `<Tangled owner>/<Tangled repository>#<ref>`. AppView derives the physical repository name,
 checkpoint key, and public artifact path from that one value; the separate `ref` must agree with the
 suffix. `repositoryOwnerDID` is the resolved Tangled owner used to authenticate the webhook and
-download source bytes. `canonicalSource` remains independent: it identifies the organizer and
+download source bytes. `repositoryDID` is the exact DID stored in
+`sh.tangled.repo.pull:target.repo`; AppView uses it to admit Hydrant pull records before raw
+persistence. It may currently equal the owner DID, but it is configured and validated as a separate
+identity. Pull admission is repository-wide and does not use `ref` or branch. `canonicalSource`
+remains independent: it identifies the organizer and
 `sh.tangled.repo` record whose stable OME namespace those bytes represent. A staging watch therefore
 publishes its staging repository beneath `OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN` without changing the
 organizer, event, channel, or post identities. One source repository can contain multiple events;

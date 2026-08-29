@@ -33,6 +33,7 @@ struct TangledWebhookInboxTests {
                   "id": "woody.fm/wicked-woods-ome-stg#refs/heads/main",
                   "hookID": 42,
                   "repositoryOwnerDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+                  "repositoryDID": "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
                   "repositoryKey": "wicked-woods-ome-stg",
                   "ref": "refs/heads/main",
                   "canonicalSource": {
@@ -79,6 +80,9 @@ struct TangledWebhookInboxTests {
                     repositoryOwnerDID: try #require(
                         DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu")
                     ),
+                    repositoryDID: try #require(
+                        DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+                    ),
                     ref: "refs/heads/main",
                     canonicalSource: CanonicalTangledSource(
                         organizerID: try #require(
@@ -116,6 +120,7 @@ struct TangledWebhookInboxTests {
             ),
             hookID: 42,
             repositoryOwnerDID: try #require(DID("did:plc:staging-owner")),
+            repositoryDID: try #require(DID("did:plc:staging-repository")),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID("did:plc:wickedwoods")),
@@ -131,6 +136,7 @@ struct TangledWebhookInboxTests {
             ),
             hookID: 44,
             repositoryOwnerDID: try #require(DID("did:plc:third-owner")),
+            repositoryDID: try #require(DID("did:plc:third-repository")),
             ref: "refs/heads/main",
             canonicalSource: firstWatch.canonicalSource
         )
@@ -144,6 +150,103 @@ struct TangledWebhookInboxTests {
                 "at://did:plc:wickedwoods/sh.tangled.repo/ome-workspace"
             )
         )
+    }
+
+    @Test
+    func `one repository DID cannot ambiguously identify two watches`() throws {
+        let repositoryDID = try #require(DID("did:plc:shared-repository"))
+        let first = TangledWebhookWatch(
+            repository: .init(
+                host: "tangled.org",
+                owner: "first-owner",
+                repository: "first-repository"
+            ),
+            hookID: 45,
+            repositoryOwnerDID: try #require(DID("did:plc:first-owner")),
+            repositoryDID: repositoryDID,
+            ref: "refs/heads/main",
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID("did:plc:first-organizer")),
+                repositoryRecordKey: .init(rawValue: "first-source")
+            )
+        )
+        let second = TangledWebhookWatch(
+            repository: .init(
+                host: "tangled.org",
+                owner: "second-owner",
+                repository: "second-repository"
+            ),
+            hookID: 46,
+            repositoryOwnerDID: try #require(DID("did:plc:second-owner")),
+            repositoryDID: repositoryDID,
+            ref: "refs/heads/main",
+            canonicalSource: CanonicalTangledSource(
+                organizerID: try #require(OME.Organizer.ID("did:plc:second-organizer")),
+                repositoryRecordKey: .init(rawValue: "second-source")
+            )
+        )
+
+        expectNoDifference(
+            #expect(throws: TangledWebhookConfigurationError.self) {
+                try TangledWebhookConfiguration(watches: [first, second])
+            },
+            .duplicateRepositoryDID(repositoryDID)
+        )
+    }
+
+    @Test
+    func `repository DID is required and validated when loading watch JSON`() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configurationURL = directory.appending(path: "tangled-webhooks.json")
+        let environment = [
+            "OME_TANGLED_WEBHOOK_CONFIGURATION_PATH": configurationURL.path(percentEncoded: false)
+        ]
+
+        try Data(
+            """
+            {"watches":[{
+              "id":"woody.fm/source#refs/heads/main",
+              "hookID":42,
+              "repositoryOwnerDID":"did:plc:owner",
+              "ref":"refs/heads/main",
+              "canonicalSource":{
+                "organizerID":"did:plc:organizer",
+                "repositoryRecordKey":"source"
+              }
+            }]}
+            """.utf8
+        ).write(to: configurationURL)
+        #expect(
+            throws: AppViewConfigurationError.tangledWebhookConfigurationInvalid(
+                configurationURL.path(percentEncoded: false)
+            )
+        ) {
+            try AppViewConfiguration.tangledWebhookConfiguration(environment: environment)
+        }
+
+        try Data(
+            """
+            {"watches":[{
+              "id":"woody.fm/source#refs/heads/main",
+              "hookID":42,
+              "repositoryOwnerDID":"did:plc:owner",
+              "repositoryDID":"not-a-did",
+              "ref":"refs/heads/main",
+              "canonicalSource":{
+                "organizerID":"did:plc:organizer",
+                "repositoryRecordKey":"source"
+              }
+            }]}
+            """.utf8
+        ).write(to: configurationURL)
+        #expect(
+            throws: AppViewConfigurationError.invalidTangledWebhookRepositoryDID("not-a-did")
+        ) {
+            try AppViewConfiguration.tangledWebhookConfiguration(environment: environment)
+        }
     }
 
     @Test
@@ -173,6 +276,7 @@ struct TangledWebhookInboxTests {
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
                 "repositoryOwnerDID": "\(Self.repositoryDID)",
+                "repositoryDID": "\(Self.repositoryDID)",
                 "ref": "refs/heads/main",
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
@@ -283,6 +387,7 @@ struct TangledWebhookInboxTests {
                 "id": "\(Self.watchID.rawValue)",
                 "hookID": \(Self.hookID),
                 "repositoryOwnerDID": "\(Self.repositoryDID)",
+                "repositoryDID": "\(Self.repositoryDID)",
                 "ref": "refs/heads/main",
                 "canonicalSource": {
                   "organizerID": "\(Self.canonicalOrganizerID)",
@@ -1766,6 +1871,7 @@ private extension TangledWebhookInboxTests {
             repository: repository,
             hookID: hookID,
             repositoryOwnerDID: try #require(DID(repositoryDID)),
+            repositoryDID: try #require(DID(repositoryDID)),
             ref: "refs/heads/main",
             canonicalSource: CanonicalTangledSource(
                 organizerID: try #require(OME.Organizer.ID(canonicalOrganizerID)),
