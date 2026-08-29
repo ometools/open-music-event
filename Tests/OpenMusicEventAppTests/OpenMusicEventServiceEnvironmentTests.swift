@@ -8,7 +8,11 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventAuthentication
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
+import OpenMusicEventSourceEditing
+import OpenMusicEventWhiteLabel
 import SQLiteData
 import Synchronization
 import Testing
@@ -17,6 +21,95 @@ import XRPCClient
 @testable import OpenMusicEventApp
 
 struct OpenMusicEventServiceEnvironmentTests {
+    @Test
+    func `white label workspace identity follows the selected environment`() throws {
+        let database = try makeServiceEnvironmentDatabase()
+        let productionOrganizerID = try #require(
+            OME.Organizer.ID("did:plc:productionfestival")
+        )
+        let stagingOrganizerID = try #require(
+            OME.Organizer.ID("did:plc:stagingfestival")
+        )
+        let variant = OpenMusicEventAppVariant.whiteLabel(
+            production: .init(
+                configuration: WhiteLabelAppConfiguration(
+                    brand: WhiteLabelBrand(displayName: "Festival"),
+                    organizerID: productionOrganizerID
+                )
+            ),
+            staging: .init(
+                configuration: WhiteLabelAppConfiguration(
+                    brand: WhiteLabelBrand(displayName: "Festival"),
+                    organizerID: stagingOrganizerID
+                )
+            )
+        )
+
+        let (production, staging) = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            (
+                OpenMusicEventAppRoot.State(
+                    variant: variant,
+                    serviceEnvironment: .production
+                ),
+                OpenMusicEventAppRoot.State(
+                    variant: variant,
+                    serviceEnvironment: .staging
+                )
+            )
+        }
+
+        expectNoDifference(
+            production.whiteLabelRoot?.state.configuration.organizerID,
+            productionOrganizerID
+        )
+        expectNoDifference(
+            staging.whiteLabelRoot?.state.configuration.organizerID,
+            stagingOrganizerID
+        )
+    }
+
+    @Test
+    func `installation client retains the database from its runtime`() async throws {
+        let productionDatabase = try makeServiceEnvironmentDatabase()
+        let stagingDatabase = try makeServiceEnvironmentDatabase()
+        let organizerID = try #require(
+            OME.Organizer.ID("did:plc:stagingfestival")
+        )
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "staging-festival-2026")
+        )
+        try await insertServiceEnvironmentEvent(eventID, into: stagingDatabase)
+
+        let client = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = stagingDatabase
+        } operation: {
+            OMEEventInstallationClient.liveValue
+        }
+
+        let installedEventID = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = productionDatabase
+        } operation: {
+            try await client.ensureInstalled(OME.Event.reference(id: eventID).uri)
+        }
+
+        expectNoDifference(installedEventID, eventID)
+        let stagingInstallation = try await stagingDatabase.read {
+            try InstalledEventRecord.find(eventID).fetchOne($0)?.id
+        }
+        let productionInstallation = try await productionDatabase.read {
+            try InstalledEventRecord.find(eventID).fetchOne($0)
+        }
+
+        expectNoDifference(stagingInstallation, eventID)
+        #expect(productionInstallation == nil)
+    }
+
     @Test @MainActor
     func `persisted app delegate restores the selected environment`() throws {
         let suiteName = "OpenMusicEventServiceEnvironmentTests.persistedDelegate"
@@ -236,6 +329,56 @@ struct OpenMusicEventServiceEnvironmentTests {
         expectNoDifference(clearedServiceEnvironments.withLock { $0 }, [.staging])
         expectNoDifference(newDestinations.withLock { $0 }, [destination])
         expectNoDifference(appDelegate.serviceEnvironment, .production)
+    }
+}
+
+private func makeServiceEnvironmentDatabase() throws -> any DatabaseWriter {
+    let database = try SQLiteData.defaultDatabase()
+    var migrator = DatabaseMigrator()
+    OME.DatabaseMigrations.register(into: &migrator)
+    OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+    try migrator.migrate(database)
+    return database
+}
+
+private func insertServiceEnvironmentEvent(
+    _ eventID: OME.Event.ID,
+    into database: any DatabaseWriter
+) async throws {
+    try await database.write { db in
+        try OME.Organizer.insert {
+            OME.Organizer.Draft(id: eventID.organizerID)
+        }
+        .execute(db)
+        try OME.Event.insert {
+            OME.Event.Draft(
+                id: eventID,
+                name: "Staging Festival 2026",
+                description: nil,
+                startDate: nil,
+                endDate: nil,
+                status: nil,
+                mode: nil,
+                locations: nil,
+                uris: nil,
+                timeZone: .gmt,
+                images: nil,
+                contactNumbers: nil,
+                categoryConfigs: nil
+            )
+        }
+        .execute(db)
+        try EventSourceProvenanceRecord.insert {
+            EventSourceProvenanceRecord(
+                id: eventID,
+                sourceKind: .tangled,
+                sourceReference: "at://did:plc:stagingfestival/sh.tangled.repo/staging-festival",
+                ref: "main",
+                eventIDOrigin: .explicit,
+                sourceEventDirectory: "staging-festival-2026"
+            )
+        }
+        .execute(db)
     }
 }
 

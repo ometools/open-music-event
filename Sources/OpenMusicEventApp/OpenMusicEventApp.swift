@@ -13,6 +13,7 @@ import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventAppRouting
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
@@ -102,9 +103,59 @@ enum APNSEnvironmentConfiguration {
     }
 }
 
+public struct OpenMusicEventWhiteLabelAppVariant: Equatable, Sendable {
+    public struct Environment: Equatable, Sendable {
+        public var brandedEventRouteClaims: [BrandedEventRouteClaim]
+        public var configuration: WhiteLabelAppConfiguration
+
+        public init(
+            configuration: WhiteLabelAppConfiguration,
+            brandedEventRouteClaims: [BrandedEventRouteClaim] = []
+        ) {
+            self.brandedEventRouteClaims = brandedEventRouteClaims
+            self.configuration = configuration
+        }
+    }
+
+    public var production: Environment
+    public var staging: Environment
+
+    public init(
+        production: Environment,
+        staging: Environment
+    ) {
+        self.production = production
+        self.staging = staging
+    }
+
+    func configuration(
+        for environment: OpenMusicEventServiceEnvironment
+    ) -> Environment {
+        switch environment {
+        case .production:
+            production
+        case .staging:
+            staging
+        }
+    }
+}
+
 public enum OpenMusicEventAppVariant: Equatable, Sendable {
     case generic
     case whiteLabel(WhiteLabelAppConfiguration)
+    case whiteLabelEnvironments(OpenMusicEventWhiteLabelAppVariant)
+
+    public static func whiteLabel(
+        production: OpenMusicEventWhiteLabelAppVariant.Environment,
+        staging: OpenMusicEventWhiteLabelAppVariant.Environment
+    ) -> Self {
+        .whiteLabelEnvironments(
+            OpenMusicEventWhiteLabelAppVariant(
+                production: production,
+                staging: staging
+            )
+        )
+    }
 }
 
 extension OpenMusicEventAppVariant {
@@ -112,9 +163,13 @@ extension OpenMusicEventAppVariant {
         switch self {
         case .generic:
             .openMusicEvent
-        case let .whiteLabel(configuration) where configuration.handle == WickedWoodsWhiteLabel.handle:
+        case let .whiteLabel(configuration)
+            where configuration.handle == WickedWoodsWhiteLabel.handle:
             .wickedWoods
-        case .whiteLabel:
+        case let .whiteLabelEnvironments(variant)
+            where variant.production.configuration.handle == WickedWoodsWhiteLabel.handle:
+            .wickedWoods
+        case .whiteLabel, .whiteLabelEnvironments:
             .openMusicEvent
         }
     }
@@ -123,9 +178,29 @@ extension OpenMusicEventAppVariant {
         switch self {
         case .generic:
             true
-        case .whiteLabel:
+        case .whiteLabel, .whiteLabelEnvironments:
             true
         }
+    }
+
+    func whiteLabelConfiguration(
+        for environment: OpenMusicEventServiceEnvironment
+    ) -> WhiteLabelAppConfiguration? {
+        switch self {
+        case .generic:
+            nil
+        case let .whiteLabel(configuration):
+            configuration
+        case let .whiteLabelEnvironments(variant):
+            variant.configuration(for: environment).configuration
+        }
+    }
+
+    func brandedEventRouteClaims(
+        for environment: OpenMusicEventServiceEnvironment
+    ) -> [BrandedEventRouteClaim]? {
+        guard case let .whiteLabelEnvironments(variant) = self else { return nil }
+        return variant.configuration(for: environment).brandedEventRouteClaims
     }
 }
 
@@ -540,6 +615,9 @@ struct OpenMusicEventApplicationRuntime {
             }
             let appConfiguration = variant.appConfiguration
             $0.openMusicEventAppConfiguration = appConfiguration
+            if let brandedEventRouteClaims = variant.brandedEventRouteClaims(for: environment) {
+                $0.brandedEventRouteClaims = brandedEventRouteClaims
+            }
             $0.devicePermissions = .live(
                 supportsCriticalAlerts: appConfiguration.supportsCriticalAlerts
             )
@@ -557,6 +635,7 @@ struct OpenMusicEventApplicationRuntime {
                         ) {
                             OpenMusicEventAppRoot.State(
                                 variant: variant,
+                                serviceEnvironment: environment,
                                 selectedEventIDAtLaunch: selectedEventRestoration.eventID,
                                 workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
                             )

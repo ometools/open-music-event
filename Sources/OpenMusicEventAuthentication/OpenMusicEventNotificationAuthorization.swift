@@ -3,6 +3,9 @@ import ComposableNotifications
 import ComposableNotificationsHTTP
 import Dependencies
 import Foundation
+#if SKIP_BRIDGE
+import SkipAndroidBridge
+#endif
 #if os(Android)
 import SkipKeychain
 #endif
@@ -13,7 +16,7 @@ public enum OpenMusicEventServiceEnvironment: String, CaseIterable, Equatable, H
 
     public static let userDefaultsKey = "openMusicEventServiceEnvironment"
 
-    #if os(Android)
+    #if os(Android) || SKIP_BRIDGE
     public static func persisted() -> Self {
         persistedValue(userDefaults: .standard)
     }

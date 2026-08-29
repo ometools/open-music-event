@@ -31,6 +31,7 @@ public struct OpenMusicEventAppRoot {
     public struct State {
         public init(
             variant: OpenMusicEventAppVariant = .generic,
+            serviceEnvironment: OpenMusicEventServiceEnvironment = .production,
             selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
             workspaceRestorationErrorAtLaunch: (any Error)? = nil
         ) {
@@ -64,7 +65,8 @@ public struct OpenMusicEventAppRoot {
                     self.workspaceRestorationError = error
                 }
             }
-            if case let .whiteLabel(configuration) = variant {
+            if let configuration = variant
+                .whiteLabelConfiguration(for: serviceEnvironment) {
                 self.whiteLabelRoot = Spawn(
                     WhiteLabelRoot.State(configuration: configuration)
                 )
@@ -573,7 +575,7 @@ struct OpenMusicEventAppSurfaceView: View {
                     serviceEnvironmentSelected: serviceEnvironmentSelected
                 )
 
-            case .whiteLabel:
+            case .whiteLabel, .whiteLabelEnvironments:
                 if let whiteLabelStore = store.spawn(\.whiteLabelRoot) {
                     WhiteLabelRootView(
                         store: whiteLabelStore,
