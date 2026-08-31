@@ -26,6 +26,27 @@ private func notificationDatabase(
     }
 }
 
+private actor NotificationProviderStartProbe {
+    private var didStart = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func start() {
+        didStart = true
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 @Suite(.serialized)
 struct NotificationPersistenceTests {
     @Test
@@ -1191,5 +1212,97 @@ struct NotificationPersistenceTests {
 
         #expect(String(describing: protection).contains("<redacted>"))
         #expect(!String(reflecting: protection).contains(keyData.base64EncodedString()))
+    }
+
+    @Test
+    func `notification outbox service ends normally when its delivery is cancelled`() async throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let notifications = notificationDatabase(store: store, protection: protection)
+        let installation = NotificationInstallation(id: .init(rawValue: "installation-1"))
+        let source = NotificationSource(
+            id: .init(rawValue: "at://did:plc:wickedwoods/app.openmusicevent.event/2026"),
+            version: .init(rawValue: "bafy-source-version")
+        )
+        let now = Date()
+        try await notifications.insertInstallation(
+            installation,
+            credentialFingerprint: .init(rawValue: "credential-fingerprint")
+        )
+        try await notifications.replaceDestination(
+            .fcm(
+                Push.FCM(
+                    applicationID: .init(rawValue: "fm.woody.wickedwoods"),
+                    registrationToken: .init(rawValue: "provider-token")
+                )
+            ),
+            for: installation.id
+        )
+        try await notifications.replaceSubscriptions(
+            [NotificationSubscription(sourceID: source.id)],
+            for: installation.id
+        )
+        try await notifications.enqueue(source: source, at: now)
+
+        let provider = NotificationProviderStartProbe()
+        let service = NotificationOutboxService(
+            database: database,
+            destinationProtection: protection,
+            legacyAPNSEnvironments: [:],
+            provider: NotificationProviderClient { _, _ in
+                await provider.start()
+                try await ContinuousClock().sleep(for: .seconds(60))
+                return .accepted(NotificationProviderResponse(status: 200))
+            }
+        )
+        let serviceTask = Task {
+            try await withDependencies {
+                $0.continuousClock = ContinuousClock()
+                $0.date.now = now
+            } operation: {
+                try await service.run()
+            }
+        }
+
+        await provider.waitUntilStarted()
+        serviceTask.cancel()
+        try await serviceTask.value
+
+        let failedAttempts = try await database.read { database in
+            try Int.fetchOne(database, sql: "SELECT failedAttempts FROM pushOutbox")
+        }
+        expectNoDifference(failedAttempts, 0)
+    }
+
+    @Test
+    func `notification outbox service surfaces delivery database failure`() async throws {
+        let database = try DatabaseQueue()
+        _ = try OpenMusicEventAppViewStore(database: database)
+        let protection = try NotificationDestinationProtection(
+            keyData: Data(repeating: 0x2A, count: 32)
+        )
+        let service = NotificationOutboxService(
+            database: database,
+            destinationProtection: protection,
+            legacyAPNSEnvironments: [:],
+            provider: NotificationProviderClient { _, _ in
+                .accepted(NotificationProviderResponse(status: 200))
+            }
+        )
+        try await database.write { database in
+            try database.execute(sql: "DROP TABLE pushOutbox")
+        }
+
+        await #expect(throws: DatabaseError.self) {
+            try await withDependencies {
+                $0.continuousClock = ContinuousClock()
+                $0.date.now = Date(timeIntervalSince1970: 1_786_291_200)
+            } operation: {
+                try await service.run()
+            }
+        }
     }
 }

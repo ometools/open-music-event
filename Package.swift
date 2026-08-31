@@ -1144,7 +1144,6 @@ let appViewTargets: [Target] = [
             .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
             .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
-            .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(
                 name: "ComposableNotificationsServer",
