@@ -27,22 +27,41 @@ public struct OpenMusicEventAppViewIngestion: Service {
     public func run() async throws {
         await store.readiness.markCatchingUp()
         let readiness = store.readiness
-        let provider = AppView.RecordProvider.hydrant(
-            configuration: HydrantClient.Configuration(
-                endpoint: configuration.endpoint
-            ),
-            subscriptionID: configuration.subscriptionID,
-            client: client,
-            caughtUp: { marker in
-                await readiness.markReady(cursor: marker.cursor)
-            }
+        let repositoryDIDs = tangledWebhookConfiguration?.repositoryDIDs ?? []
+        let hydrantConfiguration = HydrantClient.Configuration(
+            endpoint: configuration.endpoint
         )
 
         try await withDependencies {
             $0.defaultDatabase = store.database
         } operation: {
+            if !repositoryDIDs.isEmpty {
+                try await AppViewIngest(
+                    provider: .hydrant(
+                        configuration: hydrantConfiguration,
+                        subscriptionID: "\(configuration.subscriptionID)|workspace-pulls",
+                        client: client,
+                        caughtUpBehavior: .finish
+                    ),
+                    indexer: AppViewRecordIndexer {
+                        store.tangledWorkspaceProposalRecordIndex(
+                            repositoryDIDs: repositoryDIDs
+                        )
+                    }
+                )
+                .run()
+            }
+
             try await AppViewIngest(
-                provider: provider,
+                provider: .hydrant(
+                    configuration: hydrantConfiguration,
+                    subscriptionID: configuration.subscriptionID,
+                    client: client,
+                    caughtUpBehavior: .continueStreaming,
+                    caughtUp: { marker in
+                        await readiness.markReady(cursor: marker.cursor)
+                    }
+                ),
                 indexer: store.appViewRecordIndexer(
                     tangledWebhookConfiguration: tangledWebhookConfiguration
                 )
