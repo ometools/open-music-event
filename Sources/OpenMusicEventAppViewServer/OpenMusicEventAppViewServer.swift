@@ -165,6 +165,11 @@ public enum OpenMusicEventAppViewServer {
             store: store,
             openMusicEventCatalog: openMusicEventCatalog
         )
+        installWorkspaceProposalRoutes(
+            on: router,
+            store: store,
+            tangledWebhookConfiguration: configuration.tangledWebhook
+        )
         installNotificationRegistrationRoutes(
             on: router,
             registration: notificationRegistration

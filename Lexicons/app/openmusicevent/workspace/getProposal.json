@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.workspace.getProposal",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get one Workspace proposal and its rendered diff projection.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The exact Tangled pull record URI."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "app.openmusicevent.workspace.defs#detail"
+        }
+      },
+      "errors": [
+        { "name": "ProposalNotFound" },
+        { "name": "WorkspaceUnavailable" }
+      ]
+    }
+  }
+}

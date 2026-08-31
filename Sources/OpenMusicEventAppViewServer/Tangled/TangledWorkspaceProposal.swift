@@ -758,6 +758,7 @@ private func statusRecord(
 
 enum TangledWorkspaceProposalPersistenceError: Error, Equatable, Sendable {
   case corruptHydration(String)
+  case invalidTimestamp(String)
   case invalidURI(String)
   case missingProposal(String)
 }

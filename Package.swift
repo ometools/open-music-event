@@ -119,6 +119,27 @@ if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] 
         traits: []
     )
 }
+let applicationComposableAtmosphereDependency: Package.Dependency = {
+    if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
+        return .package(
+            name: "swift-composable-atmosphere",
+            path: composableAtmospherePath,
+            traits: composableAtmosphereTraits
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "swift-composable-atmosphere",
+            path: workspacePackagePath("swift-composable-atmosphere"),
+            traits: composableAtmosphereTraits
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-composable-atmosphere",
+        branch: "main",
+        traits: ["TCA26"]
+    )
+}()
 let composableNotificationsDependency: Package.Dependency = {
     if let path = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"] {
         return .package(
@@ -283,17 +304,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-composable-workspace", branch: "main"),
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
-    isAndroidAppBuild
-        ? .package(
-            name: "swift-composable-atmosphere",
-            path: workspacePackagePath("swift-composable-atmosphere"),
-            traits: composableAtmosphereTraits
-        )
-        : .package(
-            url: "https://source.woody.fm/swift-composable-atmosphere",
-            branch: "main",
-            traits: ["TCA26"]
-        ),
+    applicationComposableAtmosphereDependency,
     .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
     .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
