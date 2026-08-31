@@ -384,7 +384,6 @@ struct EventBrowseStoryTests {
                 synchronize: {},
                 signals: { AsyncStream { $0.finish() } }
             )
-            $0.omeEventInstallation = .liveValue
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 let checkoutNumber = checkoutRequests.withLock { requests in
                     requests.append(request)
@@ -687,7 +686,6 @@ struct EventBrowseStoryTests {
                 synchronize: {},
                 signals: { AsyncStream { $0.finish() } }
             )
-            $0.omeEventInstallation = .liveValue
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 checkoutRequests.withLock { $0.append(request) }
                 try FileManager.default.createDirectory(
@@ -1404,7 +1402,7 @@ struct EventBrowseStoryTests {
             $0.httpClient = HTTPClient { _, _ in
                 Data(Self.wickedWoodsAppViewEventResponse.utf8)
             }
-            $0.omeEventInstallation = .liveValue
+            $0.omeEventInstallation = .live(database: database)
             $0.date.now = now
             $0.uuid = .constant(downloadUUID)
             $0.sourceControl.clone = { _ in

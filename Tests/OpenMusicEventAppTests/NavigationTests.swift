@@ -7589,7 +7589,7 @@ struct NavigationTests {
             // Root navigation and the mounted viewer must resolve the same installed event.
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.omeEventInstallation = .liveValue
+            $0.omeEventInstallation = .live(database: database)
         } operation: {
             Store(initialState: OpenMusicEventAppRoot.State()) {
                 OpenMusicEventAppRoot()

@@ -2,6 +2,8 @@ import ATProto
 import ComposableWorkspace
 import CustomDump
 import Foundation
+import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData
 import Testing
@@ -14,7 +16,7 @@ struct WorkspacePublicationPersistenceTests {
     func `freezes transport input before publication and caches its proposal result`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
-        WorkspacePublicationMigrations.register(into: &migrator)
+        OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
         let persistence = WorkspacePublicationPersistence(database: database)

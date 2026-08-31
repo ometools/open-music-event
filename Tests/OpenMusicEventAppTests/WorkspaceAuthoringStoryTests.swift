@@ -157,6 +157,25 @@ struct WorkspaceChangePresentationTests {
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
     @Test
+    func `live event installation resolves the database prepared in the same dependency update`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let eventID = try await insertUnrelatedWorkspaceStoryEvent(into: database)
+
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+        } operation: {
+            @Dependency(\.omeEventInstallation) var eventInstallation
+
+            let installedEventID = try await eventInstallation.ensureInstalled(
+                OMERecord.Event.reference(id: eventID).uri
+            )
+            expectNoDifference(installedEventID, eventID)
+        }
+    }
+
+    @Test
     func `a Tangled repository member can propose and merge`() async throws {
         let ownerID = try #require(DID("did:plc:owner"))
         let memberID = try #require(DID("did:plc:member"))
@@ -263,7 +282,6 @@ struct WorkspaceAuthoringStoryTests {
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.defaultEventID = selectedEventID
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             $0.sourceWorkspaceStorage = .fileBacked(
                 rootURL: storageRoot.appending(path: "workspaces")
@@ -583,7 +601,6 @@ struct WorkspaceAuthoringStoryTests {
             // callback. Give that out-of-tree callback the same event identity that AppRoot scopes
             // onto the mounted EventViewer so its event-keyed authoring grant remains deterministic.
             $0.defaultEventID = selectedEventID
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Reentry uses this durable location so the selected branch survives while attendee
             // presentation is restored from the public event route.
@@ -767,7 +784,9 @@ struct WorkspaceAuthoringStoryTests {
                 .ready(.published(initialBranch))
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
-            #expect(operations.count(prefix: "resolve:") > 0)
+            // Preparation receives the archive's exact advertised revision and does not need a
+            // second remote resolution step.
+            expectNoDifference(operations.count(prefix: "resolve:"), 0)
             let preparedEventNames = try await workspaceStoryEventNames(in: database)
             expectNoDifference(
                 preparedEventNames,
@@ -1212,7 +1231,7 @@ struct WorkspaceAuthoringStoryTests {
                 SourceWorkspaceSelectionRecord(
                     id: workspace.id,
                     branch: proposal.target.branch.rawValue,
-                    revision: proposal.target.revision.rawValue
+                    revision: proposal.revision.rawValue
                 )
             )
             expectNoDifference(exitedWorkspaceState.proposal, proposal)
@@ -1351,7 +1370,6 @@ struct WorkspaceAuthoringStoryTests {
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.defaultEventID = selectedEventID
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Restoration must reopen the same durable source location after authorization succeeds.
             $0.sourceWorkspaceStorage = .fileBacked(
@@ -1480,7 +1498,6 @@ struct WorkspaceAuthoringStoryTests {
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.defaultEventID = selectedEventID
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Retry must reuse the same persisted checkout after the controlled first failure.
             $0.sourceWorkspaceStorage = .fileBacked(
@@ -1767,7 +1784,6 @@ struct WorkspaceAuthoringStoryTests {
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.defaultEventID = selectedEventID
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             // Public restoration resolves the event through the real typed XRPC client before
             // checking out its published source. Mock only that client's raw transport so this
@@ -1941,7 +1957,6 @@ struct WorkspaceAuthoringStoryTests {
             let liveSourceControl = $0.sourceControl
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
-            $0.omeEventInstallation = .liveValue
             $0.uuid = .incrementing
             $0.sourceWorkspaceStorage = .fileBacked(
                 rootURL: storageRoot.appending(path: "workspaces")

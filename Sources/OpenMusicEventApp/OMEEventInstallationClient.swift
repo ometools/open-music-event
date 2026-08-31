@@ -108,172 +108,181 @@ public enum OMEEventInstallationError: Error, Equatable {
 
 extension OMEEventInstallationClient: DependencyKey {
     public static var liveValue: Self {
-        withEscapedDependencies { dependencies in
-            let install = { @Sendable (
-                eventURI: ATProto.URI,
-                preview: @escaping @Sendable (EventEntryPreview) -> Void
-            ) async throws -> OMERecord.Event.ID in
-                try await dependencies.yield {
-                    @Dependency(\.defaultDatabase) var database
+        @Dependency(\.defaultDatabase) var database
+        return withEscapedDependencies { dependencies in
+            live(database: database) {
+                dependencies.yield {
                     @Dependency(\.date.now) var now
-                    guard let eventID = OME.Event.ID(eventURI) else {
-                        throw OMEEventInstallationError.invalidEventURI(eventURI)
-                    }
-                    let installation = try await database.read { db in
-                        (
-                            event: try OME.Event.find(eventID).fetchOne(db),
-                            provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
-                            installedEvent: try InstalledEventRecord.find(eventID).fetchOne(db)
-                        )
-                    }
-                    if installation.event != nil, let provenance = installation.provenance {
-                        try await database.write { db in
-                            try InstalledEventRecord.upsert {
-                                InstalledEventRecord(
-                                    id: eventID,
-                                    sourceProvenance: provenance.sourceProvenance
-                                )
-                            }
-                            .execute(db)
-                            if installation.installedEvent == nil {
-                                try initializeCommsPostReadState(
-                                    for: eventID,
-                                    now: now,
-                                    in: db
-                                )
-                            }
-                        }
-                        return eventID
-                    }
-
-                    let catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
-                    preview(
-                        EventEntryPreview(
-                            title: catalogEvent.name,
-                            logoURL: catalogEvent.eventEntryLogoURL
-                        )
-                    )
-                    let published = try await publishedEventInstallation(
-                        eventID,
-                        catalogEvent: catalogEvent
-                    )
-                    try await published.insertion.installPublishedEvent(
-                        eventID,
-                        from: published.workspace,
-                        in: database,
-                        initializeInstalledEvent: { database in
-                            try initializeCommsPostReadState(
-                                for: eventID,
-                                now: now,
-                                in: database
-                            )
-                        }
-                    )
-                    return eventID
+                    return now
                 }
             }
+        }
+    }
 
-            return Self(
-                ensureInstalled: { eventURI in
-                    try await install(eventURI) { _ in }
-                },
-                restorePublishedEvents: { workspace in
-                    try await dependencies.yield {
-                        @Dependency(\.defaultDatabase) var database
-                        let installedEventIDs = try await database.read { db in
-                            try InstalledEventRecord.all
-                                .fetchAll(db)
-                                .filter { $0.workspace?.id == workspace.id }
-                                .map(\.id)
-                                .sorted { $0.eventID.rawValue < $1.eventID.rawValue }
-                        }
-                        guard !installedEventIDs.isEmpty else {
-                            throw OMEEventInstallationError.noInstalledEvents(workspace.id)
-                        }
+    static func live(database: any DatabaseWriter) -> Self {
+        live(database: database) {
+            @Dependency(\.date.now) var now
+            return now
+        }
+    }
 
-                        var publishedEvents: [OME.SourceDatabaseInsertion] = []
-                        publishedEvents.reserveCapacity(installedEventIDs.count)
-                        for eventID in installedEventIDs {
-                            let published = try await publishedEventInstallation(eventID)
-                            guard published.workspace.referencesSameRepository(as: workspace) else {
-                                throw OMEEventInstallationError.installationSourceUnavailable(
-                                    OME.Event.reference(id: eventID).uri
-                                )
-                            }
-                            publishedEvents.append(published.insertion)
-                        }
-                        try await OME.SourceDatabaseInsertion.restorePublishedEvents(
-                            publishedEvents,
-                            replacing: workspace,
-                            in: database
+    private static func live(
+        database: any DatabaseWriter,
+        now: @escaping @Sendable () -> Date
+    ) -> Self {
+        let install = { @Sendable (
+            eventURI: ATProto.URI,
+            preview: @escaping @Sendable (EventEntryPreview) -> Void
+        ) async throws -> OMERecord.Event.ID in
+            guard let eventID = OME.Event.ID(eventURI) else {
+                throw OMEEventInstallationError.invalidEventURI(eventURI)
+            }
+            let installation = try await database.read { db in
+                (
+                    event: try OME.Event.find(eventID).fetchOne(db),
+                    provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
+                    installedEvent: try InstalledEventRecord.find(eventID).fetchOne(db)
+                )
+            }
+            if installation.event != nil, let provenance = installation.provenance {
+                try await database.write { db in
+                    try InstalledEventRecord.upsert {
+                        InstalledEventRecord(
+                            id: eventID,
+                            sourceProvenance: provenance.sourceProvenance
                         )
                     }
-                },
-                synchronizeInstalledEvent: { eventID in
-                    try await dependencies.yield {
-                        @Dependency(\.defaultDatabase) var database
-
-                        let provenance = try await database.read { db in
-                            try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
-                        }
-                        let eventURI = OME.Event.reference(id: eventID).uri
-                        guard let provenance else {
-                            throw OMEEventInstallationError.eventIsNotInstalled(eventURI)
-                        }
-                        guard let workspace = provenance.workspace else {
-                            throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-                        }
-                        NotificationRefreshDiagnostics.notice("""
-                        Installed event source resolved
-                        event: \(eventURI)
-                        repository: \(workspace.repository)
-                        ref: \(workspace.defaultBranch)
-                        """)
-
-                        let published = try await publishedEventInstallation(eventID)
-                        guard published.workspace.referencesSameRepository(as: workspace) else {
-                            throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
-                        }
-                        NotificationRefreshDiagnostics.notice("""
-                        Installed event source validated
-                        event: \(eventURI)
-                        repository: \(published.workspace.repository)
-                        installed ref: \(workspace.defaultBranch)
-                        published ref: \(published.workspace.defaultBranch)
-                        """)
-
-                        try await published.insertion.replacePublishedEvent(
-                            eventID,
-                            from: published.workspace,
-                            replacing: workspace,
-                            in: database
+                    .execute(db)
+                    if installation.installedEvent == nil {
+                        try initializeCommsPostReadState(
+                            for: eventID,
+                            now: now(),
+                            in: db
                         )
-                        NotificationRefreshDiagnostics.notice("""
-                        Installed event source committed
-                        event: \(eventURI)
-                        repository: \(published.workspace.repository)
-                        ref: \(published.workspace.defaultBranch)
-                        """)
-                    }
-                },
-                install: { eventURI in
-                    AsyncThrowingStream { continuation in
-                        let task = Task {
-                            do {
-                                let eventID = try await install(eventURI) { preview in
-                                    continuation.yield(.preview(preview))
-                                }
-                                continuation.yield(.installed(eventID))
-                                continuation.finish()
-                            } catch {
-                                continuation.finish(throwing: error)
-                            }
-                        }
-                        continuation.onTermination = { _ in task.cancel() }
                     }
                 }
+                return eventID
+            }
+
+            let catalogEvent = try await CalendarEventsClient.openMusicEvent(eventURI)
+            preview(
+                EventEntryPreview(
+                    title: catalogEvent.name,
+                    logoURL: catalogEvent.eventEntryLogoURL
+                )
             )
+            let published = try await publishedEventInstallation(
+                eventID,
+                catalogEvent: catalogEvent
+            )
+            try await published.insertion.installPublishedEvent(
+                eventID,
+                from: published.workspace,
+                in: database,
+                initializeInstalledEvent: { database in
+                    try initializeCommsPostReadState(
+                        for: eventID,
+                        now: now(),
+                        in: database
+                    )
+                }
+            )
+            return eventID
         }
+
+        return Self(
+            ensureInstalled: { eventURI in
+                try await install(eventURI) { _ in }
+            },
+            restorePublishedEvents: { workspace in
+                let installedEvents: [InstalledEventRecord] = try await database.read { db in
+                    try InstalledEventRecord.all.fetchAll(db)
+                }
+                let installedEventIDs = installedEvents
+                    .filter { $0.workspace?.id == workspace.id }
+                    .map(\.id)
+                    .sorted { $0.eventID.rawValue < $1.eventID.rawValue }
+                guard !installedEventIDs.isEmpty else {
+                    throw OMEEventInstallationError.noInstalledEvents(workspace.id)
+                }
+
+                var publishedEvents: [OME.SourceDatabaseInsertion] = []
+                publishedEvents.reserveCapacity(installedEventIDs.count)
+                for eventID in installedEventIDs {
+                    let published = try await publishedEventInstallation(eventID)
+                    guard published.workspace.referencesSameRepository(as: workspace) else {
+                        throw OMEEventInstallationError.installationSourceUnavailable(
+                            OME.Event.reference(id: eventID).uri
+                        )
+                    }
+                    publishedEvents.append(published.insertion)
+                }
+                try await OME.SourceDatabaseInsertion.restorePublishedEvents(
+                    publishedEvents,
+                    replacing: workspace,
+                    in: database
+                )
+            },
+            synchronizeInstalledEvent: { eventID in
+                let provenance = try await database.read { db in
+                    try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+                }
+                let eventURI = OME.Event.reference(id: eventID).uri
+                guard let provenance else {
+                    throw OMEEventInstallationError.eventIsNotInstalled(eventURI)
+                }
+                guard let workspace = provenance.workspace else {
+                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+                }
+                NotificationRefreshDiagnostics.notice("""
+                Installed event source resolved
+                event: \(eventURI)
+                repository: \(workspace.repository)
+                ref: \(workspace.defaultBranch)
+                """)
+
+                let published = try await publishedEventInstallation(eventID)
+                guard published.workspace.referencesSameRepository(as: workspace) else {
+                    throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
+                }
+                NotificationRefreshDiagnostics.notice("""
+                Installed event source validated
+                event: \(eventURI)
+                repository: \(published.workspace.repository)
+                installed ref: \(workspace.defaultBranch)
+                published ref: \(published.workspace.defaultBranch)
+                """)
+
+                try await published.insertion.replacePublishedEvent(
+                    eventID,
+                    from: published.workspace,
+                    replacing: workspace,
+                    in: database
+                )
+                NotificationRefreshDiagnostics.notice("""
+                Installed event source committed
+                event: \(eventURI)
+                repository: \(published.workspace.repository)
+                ref: \(published.workspace.defaultBranch)
+                """)
+            },
+            install: { eventURI in
+                AsyncThrowingStream { continuation in
+                    let task = Task {
+                        do {
+                            let eventID = try await install(eventURI) { preview in
+                                continuation.yield(.preview(preview))
+                            }
+                            continuation.yield(.installed(eventID))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            }
+        )
     }
 
     public static var testValue: Self {

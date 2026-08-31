@@ -254,6 +254,7 @@ extension OME {
             database: database,
             appViewHost: environment.appViewHost
         )
+        dependencies.omeEventInstallation = .live(database: database)
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventNotificationAuthorization.prepareDependencies(
             &dependencies,
