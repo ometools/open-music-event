@@ -43,18 +43,22 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
 
     func body(content: Content) -> some FeatureProtocol<State, Action> {
         content
-            .onEvent(OpenMusicEventSelectedAccountChanged.self) { _, _ in
+            .onEvent(OpenMusicEventSelectedAccountChanged.self) { _, state in
+                let invalidation = state.content.destination?.eventViewer?
+                    .authoring.content.content
+                    .authoringAuthorizationInvalidated
                 store.addTask {
-                    try store.content.destination?.eventViewer?
-                        .authoring.content.content
-                        .authoringAuthorizationInvalidated()
+                    let reaction = try invalidation?()
+                    await reaction?.value
                 }
             }
-            .onEvent(OAuthAuthorizationInvalidated.self) { _, _ in
+            .onEvent(OAuthAuthorizationInvalidated.self) { _, state in
+                let invalidation = state.content.destination?.eventViewer?
+                    .authoring.content.content
+                    .authoringAuthorizationInvalidated
                 store.addTask {
-                    try store.content.destination?.eventViewer?
-                        .authoring.content.content
-                        .authoringAuthorizationInvalidated()
+                    let reaction = try invalidation?()
+                    await reaction?.value
                 }
             }
     }

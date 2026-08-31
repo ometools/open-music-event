@@ -116,13 +116,11 @@ public struct WorkspaceProposalDraft {
                 }
 
             case .proposeButtonTapped:
+                let value = state.form.value
                 store.addTask {
                     let validation = try store.send(.form(.submittedForm))
                     await validation?.value
-                    guard store.state.form.canSubmit else { return }
-                    let submission = try store.send(
-                        .formSubmitted(store.state.form.value)
-                    )
+                    let submission = try store.send(.formSubmitted(value))
                     await submission?.value
                 }
             }

@@ -374,30 +374,29 @@ public struct OpenMusicEventApp {
 
     public var body: some FeatureProtocol<State, Action> {
         Features {
-            Update { _, action in
+            Update { state, action in
                 switch action {
                 case .content:
                     break
 
                 case let .lifecycle(event):
+                    let trigger = state.content[keyPath: eventTrigger]
                     store.addTask {
-                        let reaction = try store.state.content[keyPath: eventTrigger](event)
+                        let reaction = try trigger(event)
                         await reaction?.value
                     }
 
                 case let .notification(event):
+                    let trigger = state.content[keyPath: notificationEventTrigger]
                     store.addTask {
-                        let reaction = try store.state.content[keyPath: notificationEventTrigger](
-                            event
-                        )
+                        let reaction = try trigger(event)
                         await reaction?.value
                     }
 
                 case let .notificationDestination(destination):
+                    let trigger = state.content[keyPath: notificationDestinationTrigger]
                     store.addTask {
-                        let reaction = try store.state.content[
-                            keyPath: notificationDestinationTrigger
-                        ](destination)
+                        let reaction = try trigger(destination)
                         await reaction?.value
                     }
                 }

@@ -59,9 +59,12 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                         .authoring(.restoreAuthorization)
                     )
                     await restoration?.value
-                    guard requestsEntry,
-                          store.state.authoring.phase.canRequestEntry
-                    else { return }
+                    var canRequestEntry = false
+                    let check = try store.modify { state in
+                        canRequestEntry = state.authoring.phase.canRequestEntry
+                    }
+                    await check?.value
+                    guard requestsEntry, canRequestEntry else { return }
                     let entry = try store.send(
                         .authoring(.entryRequested)
                     )
@@ -100,8 +103,8 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                         .authoring(.exitButtonTapped)
                     )
                     await exit?.value
-                    guard store.state.authoring.grant == nil else { return }
                     let reset = try store.modify { state in
+                        guard state.authoring.grant == nil else { return }
                         // Published content is already committed to SQLite. Preserve the mounted
                         // EventViewer read model, but discard the authorized source/phase so a
                         // later authoring entry must restore the selected branch.

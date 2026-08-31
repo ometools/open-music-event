@@ -204,7 +204,12 @@ public struct OpenMusicEventAppRoot {
                         store.addTask {
                             do {
                                 for try await progress in eventInstallation.install(eventURI) {
-                                    guard store.state.activeRouteRequestID == routeRequestID else {
+                                    var routeIsActive = false
+                                    let activeRouteCheck = try store.modify {
+                                        routeIsActive = $0.activeRouteRequestID == routeRequestID
+                                    }
+                                    await activeRouteCheck?.value
+                                    guard routeIsActive else {
                                         return
                                     }
                                     switch progress {
@@ -218,11 +223,17 @@ public struct OpenMusicEventAppRoot {
                                         let eventViewer: OpenMusicEventWorkspace.State
                                         do {
                                             eventViewer = try Self.eventViewerState(
-                                                eventID: installedEventID,
-                                                target: target
-                                            )
+                                            eventID: installedEventID,
+                                            target: target
+                                        )
                                         } catch {
-                                            guard store.state.activeRouteRequestID == routeRequestID else {
+                                            var routeIsActive = false
+                                            let activeRouteCheck = try store.modify {
+                                                routeIsActive =
+                                                    $0.activeRouteRequestID == routeRequestID
+                                            }
+                                            await activeRouteCheck?.value
+                                            guard routeIsActive else {
                                                 return
                                             }
                                             await store.reportError(
@@ -244,11 +255,17 @@ public struct OpenMusicEventAppRoot {
                                             $0.eventEntry = nil
                                         }
                                         await mount?.value
-                                        guard store.state.activeRouteRequestID == routeRequestID else {
-                                            return
+                                        var routeIsActive = false
+                                        let activeRouteCheck = try store.modify { state in
+                                            routeIsActive =
+                                                state.activeRouteRequestID == routeRequestID
+                                            if routeIsActive, persistsSelectedEvent {
+                                                persistSelectedEvent(installedEventID, state)
+                                            }
                                         }
-                                        if persistsSelectedEvent {
-                                            persistSelectedEvent(installedEventID, store.state)
+                                        await activeRouteCheck?.value
+                                        guard routeIsActive else {
+                                            return
                                         }
                                         do {
                                             try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
@@ -257,7 +274,12 @@ public struct OpenMusicEventAppRoot {
                                     }
                                 }
                             } catch {
-                                guard store.state.activeRouteRequestID == routeRequestID else {
+                                var routeIsActive = false
+                                let activeRouteCheck = try store.modify {
+                                    routeIsActive = $0.activeRouteRequestID == routeRequestID
+                                }
+                                await activeRouteCheck?.value
+                                guard routeIsActive else {
                                     return
                                 }
                                 await store.reportError(
@@ -424,11 +446,12 @@ public struct OpenMusicEventAppRoot {
                 }
             }
         }
-        .onTrigger(store.appDelegateEvent) { event, _ in
+        .onTrigger(store.appDelegateEvent) { event, state in
             switch event {
             case .launched, .resumed:
+                let permissions = state.$permissions
                 store.addTask {
-                    try await store.state.$permissions.load()
+                    try await permissions.load()
                 }
                 guard event == .resumed else { return }
                 store.addTask {
