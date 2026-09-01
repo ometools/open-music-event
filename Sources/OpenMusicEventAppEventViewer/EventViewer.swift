@@ -882,19 +882,12 @@ public struct EventViewer {
             source.applicationDatabaseID == ObjectIdentifier(database),
             "A prepared source must use EventViewer's application database."
         )
-        let selectedPage = state.eventWorkspace?.selectedPage ?? .changes
-        var preparedEventWorkspace: EventWorkspace.State?
         state.withEventDependencies {
-            preparedEventWorkspace = EventWorkspace.State(
+            state.eventWorkspace?.changes = WorkspaceChanges.State(
                 workspace: source.workspace,
-                eventID: state.eventID,
-                workspaceState: workspace.state,
                 referenceDatabase: source.referenceDatabase
             )
         }
-        guard var eventWorkspace = preparedEventWorkspace else { return }
-        eventWorkspace.selectedPage = selectedPage
-        state.eventWorkspace = eventWorkspace
     }
 
     public var body: some Feature {
@@ -1044,13 +1037,7 @@ public struct EventViewer {
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
                     state.eventWorkspace?.changes.proposalDraft = nil
-                    state.eventWorkspace?.selectedPage = .proposals
-                    state.eventWorkspace?.reviews.open(proposal)
-                    store.addTask {
-                        try store.send(
-                            .eventWorkspace(.reviews(.refreshButtonTapped))
-                        )
-                    }
+                    state.eventWorkspace?.openProposalList(proposal)
                 }
             )
 

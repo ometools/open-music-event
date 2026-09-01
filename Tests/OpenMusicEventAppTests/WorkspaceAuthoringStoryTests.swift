@@ -1196,8 +1196,7 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(repairingWorkspace.changes.proposalDraft == nil)
                 #expect(repairingWorkspace.workspaceIsReady)
                 expectNoDifference(repairingWorkspace.selectedContext, .published(initialBranch))
-                expectNoDifference(repairingWorkspace.selectedPage, .proposals)
-                guard case let .reviewDetail(detail)? = repairingWorkspace.reviews.destination else {
+                guard case let .reviewDetail(detail)? = repairingWorkspace.reviews?.destination else {
                     Issue.record("A published proposal must open its server-backed detail immediately.")
                     return
                 }
@@ -1705,6 +1704,17 @@ struct WorkspaceAuthoringStoryTests {
                 failure
             )
 
+            // Proposals are a destination from Workspace, not a Workspace page. Opening the list
+            // mounts its own loading lifecycle while the source remains unavailable.
+            await opened.send(
+                workspaceStoryWorkspaceAction(.proposalsRowTapped)
+            )?.value
+            let failedWorkspaceWithProposals = try #require(
+                opened.state.content.destination?.eventViewer?.authoring.content.content
+                    .eventWorkspace
+            )
+            expectNoDifference(failedWorkspaceWithProposals.reviews?.status, .loaded([]))
+
             // Retry starts at EventWorkspace, crosses the app event bridge, and reaches the shared
             // Workspace state machine before executing the real source preparation implementation.
             await opened.send(
@@ -1723,6 +1733,10 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(
                 readyAuthoring.content.content.eventWorkspace?.selectedContext,
                 .published(selectedBranch)
+            )
+            expectNoDifference(
+                readyAuthoring.content.content.eventWorkspace?.reviews?.status,
+                .loaded([])
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
             expectNoDifference(operations.count(of: "clone"), 0)

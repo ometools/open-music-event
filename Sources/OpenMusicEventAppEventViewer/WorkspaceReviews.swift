@@ -72,12 +72,6 @@ public struct WorkspaceReviews {
             }
         }
 
-        public var canReview: Bool {
-            guard authoringGrant?.workspaceID == workspace.id else { return false }
-            let access = authoringGrant?.access ?? .attendee
-            return access.canPropose || access.canMerge
-        }
-
         public mutating func open(_ proposal: WorkspaceProposal) {
             guard let uri = ATProto.URI(proposal.id.rawValue) else { return }
             destination = .reviewDetail(
@@ -132,17 +126,14 @@ public struct WorkspaceReviews {
                 break
 
             case let .pendingProposalButtonTapped(proposal):
-                guard state.canReview else { return }
                 state.open(proposal)
 
             case let .proposalButtonTapped(proposal):
-                guard state.canReview,
-                      state.proposals.contains(where: { $0.uri == proposal.uri })
+                guard state.proposals.contains(where: { $0.uri == proposal.uri })
                 else { return }
                 state.open(proposal)
 
             case .refreshButtonTapped:
-                guard state.canReview else { return }
                 loadProposals(state: &state)
             }
         }
@@ -178,7 +169,7 @@ public struct WorkspaceReviews {
     }
 
     func loadProposals(state: inout State) {
-        guard state.canReview, state.status != .loading else { return }
+        guard state.status != .loading else { return }
         let request: OpenMusicEventWorkspaceProposalListRequest
         do {
             request = try OpenMusicEventWorkspaceProposalListRequest(workspace: state.workspace)
@@ -551,7 +542,7 @@ public struct WorkspaceReviewsView: View {
     }
 
     public var body: some View {
-        Group {
+        List {
             if showsTechnicalDetails {
                 Section("Source details") {
                     WorkspaceTechnicalValueView(
@@ -642,6 +633,10 @@ public struct WorkspaceReviewsView: View {
                 .accessibilityIdentifier("workspace.proposals.refresh")
             }
         }
+        .navigationTitle("Proposals")
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .navigationDestination(
             item: $store.scope(\.destination, action: \.destination).reviewDetail
         ) { detailStore in

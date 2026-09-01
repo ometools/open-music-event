@@ -8,6 +8,7 @@ import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
 import SourceEditing
+import SwiftUITabFeatures
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -23,7 +24,6 @@ public struct EventWorkspace {
     public enum Page: String, CaseIterable, Equatable, Identifiable, Sendable {
         case changes
         case collaborators
-        case proposals
 
         public var id: Self { self }
 
@@ -31,7 +31,6 @@ public struct EventWorkspace {
             switch self {
             case .changes: "Changes"
             case .collaborators: "Collaborators"
-            case .proposals: "Proposals"
             }
         }
     }
@@ -54,7 +53,6 @@ public struct EventWorkspace {
                 workspace: workspace,
                 referenceDatabase: referenceDatabase
             )
-            self.reviews = WorkspaceReviews.State(workspace: workspace)
         }
 
         public let workspace: SourceWorkspace
@@ -67,7 +65,7 @@ public struct EventWorkspace {
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
-        public var reviews: WorkspaceReviews.State
+        public var reviews: WorkspaceReviews.State?
         public var requestedBranch = ""
         public var selectedPage: Page = .changes
 
@@ -92,22 +90,23 @@ public struct EventWorkspace {
 
         public var availablePages: [Page] {
             EventWorkspace.availablePages(
-                hasCollaborators: collaborators != nil,
-                authoringAccess: authoringAccess
+                hasCollaborators: collaborators != nil
             )
         }
 
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
             let scopedGrant = grant?.workspaceID == workspace.id ? grant : nil
-            reviews.authoringGrant = scopedGrant
-            if case var .reviewDetail(detail)? = reviews.destination {
-                detail.authoringGrant = scopedGrant
-                reviews.destination = scopedGrant.map { _ in .reviewDetail(detail) }
+            if var reviews {
+                reviews.authoringGrant = scopedGrant
+                if case var .reviewDetail(detail)? = reviews.destination {
+                    detail.authoringGrant = scopedGrant
+                    reviews.destination = .reviewDetail(detail)
+                }
+                self.reviews = reviews
             }
 
             guard scopedGrant != nil else {
                 collaborators = nil
-                reviews.status = .notLoaded
                 changes.proposalDraft = nil
                 if selectedPage == .collaborators { selectedPage = .changes }
                 return
@@ -118,17 +117,27 @@ public struct EventWorkspace {
                 )
             }
         }
+
+        mutating func openProposalList(_ proposal: WorkspaceProposal? = nil) {
+            let scopedGrant = authoringGrant?.workspaceID == workspace.id
+                ? authoringGrant
+                : nil
+            var reviews = reviews ?? WorkspaceReviews.State(
+                workspace: workspace,
+                authoringGrant: scopedGrant
+            )
+            if let proposal {
+                reviews.open(proposal)
+            }
+            self.reviews = reviews
+        }
     }
 
     public static func availablePages(
-        hasCollaborators: Bool,
-        authoringAccess: AuthoringAccess
+        hasCollaborators: Bool
     ) -> [Page] {
         var pages: [Page] = [.changes]
         if hasCollaborators { pages.append(.collaborators) }
-        if authoringAccess.canPropose || authoringAccess.canMerge {
-            pages.append(.proposals)
-        }
         return pages
     }
 
@@ -136,6 +145,7 @@ public struct EventWorkspace {
         case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
         case reviews(WorkspaceReviews.Action)
+        case proposalsRowTapped
         case sourcePreparationRetryButtonTapped
         case switchBranchButtonTapped
         case viewProposalButtonTapped
@@ -145,6 +155,9 @@ public struct EventWorkspace {
         Features {
             Update { state, action in
                 switch action {
+                case .proposalsRowTapped:
+                    state.openProposalList()
+
                 case .sourcePreparationRetryButtonTapped:
                     store.addTask {
                         let retry = try store.post(
@@ -175,37 +188,25 @@ public struct EventWorkspace {
                     }
 
                 case .viewProposalButtonTapped:
-                    guard state.authoringAccess.canPropose || state.authoringAccess.canMerge,
-                          let proposal = state.selectedProposal
-                    else {
-                        return
-                    }
-                    state.selectedPage = .proposals
-                    state.reviews.open(proposal)
-                    store.addTask {
-                        try store.send(.reviews(.refreshButtonTapped))
-                    }
+                    guard let proposal = state.selectedProposal else { return }
+                    state.openProposalList(proposal)
 
                 case .changes, .collaborators, .reviews:
                     break
                 }
             }
             Scope(\.changes, action: \.changes) { WorkspaceChanges() }
-            Scope(\.reviews, action: \.reviews) { WorkspaceReviews() }
         }
         .ifLet(\.collaborators, action: \.collaborators) {
             WorkspaceCollaborators()
+        }
+        .ifLet(\.reviews, action: \.reviews) {
+            WorkspaceReviews()
         }
         .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
             state.updateAuthoringGrant(grant)
             if !state.availablePages.contains(state.selectedPage) {
                 state.selectedPage = .changes
-            }
-            guard state.reviews.canReview,
-                  state.reviews.status == .notLoaded
-            else { return }
-            store.addTask {
-                try store.send(.reviews(.refreshButtonTapped))
             }
         }
     }
@@ -222,8 +223,7 @@ public struct EventWorkspaceView: View {
     public var body: some View {
         let changesStore = store.scope(\.changes, action: \.changes)
         let pages = EventWorkspace.availablePages(
-            hasCollaborators: store.collaborators != nil,
-            authoringAccess: store.authoringAccess
+            hasCollaborators: store.collaborators != nil
         )
 
         List {
@@ -244,6 +244,14 @@ public struct EventWorkspaceView: View {
                 propose: { changesStore.send(.proposalActionButtonTapped) },
                 viewProposal: { store.send(.viewProposalButtonTapped) }
             )
+
+            Section {
+                Button("Proposals") {
+                    store.send(.proposalsRowTapped)
+                }
+                .navigationLinkListRowStyle()
+                .accessibilityIdentifier("workspace.proposals")
+            }
 
             Section("Switch branch") {
                 TextField("Branch name", text: $store.requestedBranch)
@@ -293,15 +301,15 @@ public struct EventWorkspaceView: View {
                 if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
                     WorkspaceCollaboratorsView(store: collaborators)
                 }
-
-            case .proposals:
-                WorkspaceReviewsView(store: store.scope(\.reviews, action: \.reviews))
             }
         }
         .navigationTitle("Workspace")
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .navigationDestination(item: $store.scope(\.reviews, action: \.reviews)) { reviewsStore in
+            WorkspaceReviewsView(store: reviewsStore)
+        }
     }
 }
 

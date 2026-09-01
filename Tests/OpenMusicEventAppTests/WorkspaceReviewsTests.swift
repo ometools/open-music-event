@@ -59,7 +59,6 @@ struct WorkspaceReviewsTests {
         )
 
         await waitUntil { store.proposals == [item] }
-        #expect(store.canReview)
         await store.send(.proposalButtonTapped(item))?.value
         await waitUntil {
             guard case let .reviewDetail(state)? = store.destination,
@@ -220,7 +219,6 @@ struct WorkspaceReviewsTests {
         )
 
         await waitUntil { store.proposals == [item] }
-        #expect(store.canReview)
         await store.send(.proposalButtonTapped(item))?.value
         await waitUntil {
             guard case let .reviewDetail(state)? = store.destination,
@@ -290,7 +288,7 @@ struct WorkspaceReviewsTests {
     }
 
     @Test
-    func grantForAnotherWorkspaceCannotChangeAProposal() async throws {
+    func `a grant for another workspace can read but cannot change a proposal`() async throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
         let item = proposalListItem()
@@ -318,7 +316,17 @@ struct WorkspaceReviewsTests {
         )
 
         await store.send(.proposalButtonTapped(item))?.value
-        #expect(store.destination == nil)
+        guard case let .reviewDetail(state)? = store.destination,
+              case .loaded = state.status
+        else {
+            Issue.record("The proposal should remain readable without a matching authoring grant.")
+            return
+        }
+        #expect(!state.canClose)
+        #expect(!state.canMerge)
+
+        await store.send(.destination(.reviewDetail(.mergeButtonTapped)))?.value
+        await store.send(.destination(.reviewDetail(.closeButtonTapped)))?.value
         #expect(mutations.value.isEmpty)
     }
 

@@ -113,24 +113,9 @@ struct WorkspaceCollaboratorsTests {
             )
             expectNoDifference(
                 EventWorkspace.availablePages(
-                    hasCollaborators: false,
-                    authoringAccess: .attendee
+                    hasCollaborators: false
                 ),
                 [.changes]
-            )
-            expectNoDifference(
-                EventWorkspace.availablePages(
-                    hasCollaborators: false,
-                    authoringAccess: .authoring(.collaborator([.propose]))
-                ),
-                [.changes, .proposals]
-            )
-            expectNoDifference(
-                EventWorkspace.availablePages(
-                    hasCollaborators: false,
-                    authoringAccess: .authoring(.collaborator([.merge]))
-                ),
-                [.changes, .proposals]
             )
         }
     }
