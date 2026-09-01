@@ -1142,6 +1142,7 @@ struct StageScheduleView: View {
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
+    @Environment(\.eventTimePresentation) var eventTimePresentation
 
     init(
         stage: OMERecord.Stage,
@@ -1166,12 +1167,11 @@ struct StageScheduleView: View {
             }
 
             if let timeRange,
-               let eventTimePresentation = store.state.eventTimePresentation {
+               eventTimePresentation != nil {
                 ScheduleFixedStageTimeline(
                     stage: stage,
                     performances: store.selectedSchedulePerformances,
                     timeRange: timeRange,
-                    eventTimePresentation: eventTimePresentation,
                     pageHeight: scheduleHeight(for: timeRange),
                     userScheduleOverlay: UserScheduleOverlay(
                         schedules: [],

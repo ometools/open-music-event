@@ -142,6 +142,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     let minimumHorizontalPointsPerHour: CGFloat = 160
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    @Environment(\.eventTimePresentation) var eventTimePresentation
     @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
@@ -503,7 +504,7 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     var timelinePage: some View {
         Group {
-            if let eventTimePresentation = store.state.eventTimePresentation {
+            if let eventTimePresentation {
                 SchedulePageView(
                     timelineCards,
                     groups: timelineGroups,

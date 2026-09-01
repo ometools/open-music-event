@@ -273,6 +273,7 @@ public struct ScheduleSingleStageAtOnceView: View {
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    @Environment(\.eventTimePresentation) var eventTimePresentation
 
     public init(
         store: StoreOf<ScheduleSingleStageAtOnce>,
@@ -348,13 +349,12 @@ public struct ScheduleSingleStageAtOnceView: View {
                     store.send(.scheduleDivisionButtonTapped(division))
                 }
             )
-        } else if let eventTimePresentation = store.state.eventTimePresentation {
+        } else if eventTimePresentation != nil {
             ScheduleStagePager(
                 selectedStageID: $store.selectedStageID,
                 stages: visibleStages,
                 performances: visiblePerformances,
                 timeRange: timeRange,
-                eventTimePresentation: eventTimePresentation,
                 pageHeight: timeRange.map { scheduleHeight(for: $0) },
                 userScheduleOverlay: userScheduleOverlay,
                 scheduleDivision: store.scheduleDivision,
@@ -483,7 +483,6 @@ struct ScheduleStagePager: View {
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval?
-    let eventTimePresentation: EventTimePresentation
     let pageHeight: CGFloat?
     let userScheduleOverlay: UserScheduleOverlay
     let scheduleDivision: ScheduleViewer.ScheduleDivision
@@ -559,7 +558,6 @@ struct ScheduleStagePager: View {
             stage: stage,
             performances: performances(for: stage),
             timeRange: timeRange,
-            eventTimePresentation: eventTimePresentation,
             pageHeight: pageHeight,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: ScheduleViewer.emptyStageTitle(
@@ -606,7 +604,6 @@ struct ScheduleFixedStageTimeline: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
-    let eventTimePresentation: EventTimePresentation
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
@@ -626,7 +623,6 @@ struct ScheduleFixedStageTimeline: View {
         stage: OMERecord.Stage,
         performances: [OMERecord.Performance],
         timeRange: DateInterval,
-        eventTimePresentation: EventTimePresentation,
         pageHeight: CGFloat,
         userScheduleOverlay: UserScheduleOverlay,
         emptyTitle: String,
@@ -645,7 +641,6 @@ struct ScheduleFixedStageTimeline: View {
         self.stage = stage
         self.performances = performances
         self.timeRange = timeRange
-        self.eventTimePresentation = eventTimePresentation
         self.pageHeight = pageHeight
         self.userScheduleOverlay = userScheduleOverlay
         self.emptyTitle = emptyTitle
@@ -664,7 +659,6 @@ struct ScheduleFixedStageTimeline: View {
             stage: stage,
             performances: performances,
             timeRange: timeRange,
-            eventTimePresentation: eventTimePresentation,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: emptyTitle,
             otherScheduleDivisions: otherScheduleDivisions,
@@ -684,11 +678,11 @@ struct ScheduleFixedStageTimeline: View {
 }
 
 struct ScheduleStageTimelinePage: View {
+    @Environment(\.eventTimePresentation) var eventTimePresentation
     @Environment(\.timeZone) var deviceTimeZone
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
-    let eventTimePresentation: EventTimePresentation
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
@@ -704,44 +698,46 @@ struct ScheduleStageTimelinePage: View {
     let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
 
     var body: some View {
-        SchedulePageView(
-            timelineCards,
-            currentTimeLabel: {
-                eventTimePresentation.currentTimeLabel(
-                    for: $0,
-                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
-                )
-            },
-            hourLabel: {
-                eventTimePresentation.hourLabel(for: $0)
-            }
-        ) { card in
-            ScheduleTimelineCardView(
-                performance: card.item.performance,
-                stage: stage,
-                timeRangeText: eventTimePresentation.performanceRowTimeRange(
-                    for: card.item.performance
-                ),
-                userScheduleOverlay: userScheduleOverlay,
-                showsAuthoringControls: showsAuthoringControls,
-                userScheduleMembershipAction: { scheduleID in
-                    onUserScheduleMembershipTapped(card.item.id, scheduleID)
+        if let eventTimePresentation {
+            SchedulePageView(
+                timelineCards,
+                currentTimeLabel: {
+                    eventTimePresentation.currentTimeLabel(
+                        for: $0,
+                        disclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                    )
                 },
-                newUserScheduleAction: {
-                    onNewUserScheduleTapped(card.item.id)
-                },
-                editAction: {
-                    onEditPerformanceTapped(card.item.id)
-                },
-                deleteAction: {
-                    onDeletePerformanceTapped(card.item.id)
-                },
-                action: {
-                    onPerformanceTapped(card.item.id)
+                hourLabel: {
+                    eventTimePresentation.hourLabel(for: $0)
                 }
-            )
-        } emptyContent: {
-            emptyContent
+            ) { card in
+                ScheduleTimelineCardView(
+                    performance: card.item.performance,
+                    stage: stage,
+                    timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                        for: card.item.performance
+                    ),
+                    userScheduleOverlay: userScheduleOverlay,
+                    showsAuthoringControls: showsAuthoringControls,
+                    userScheduleMembershipAction: { scheduleID in
+                        onUserScheduleMembershipTapped(card.item.id, scheduleID)
+                    },
+                    newUserScheduleAction: {
+                        onNewUserScheduleTapped(card.item.id)
+                    },
+                    editAction: {
+                        onEditPerformanceTapped(card.item.id)
+                    },
+                    deleteAction: {
+                        onDeletePerformanceTapped(card.item.id)
+                    },
+                    action: {
+                        onPerformanceTapped(card.item.id)
+                    }
+                )
+            } emptyContent: {
+                emptyContent
+            }
         }
     }
 

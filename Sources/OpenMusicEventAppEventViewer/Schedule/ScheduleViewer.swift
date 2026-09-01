@@ -21,6 +21,41 @@ struct EventTimePresentation: Equatable, Sendable {
     }
 
     let timeZone: TimeZone
+    let calendar: Calendar
+    let timeWithoutMeridiemStyle: Date.FormatStyle
+    let timeStyle: Date.FormatStyle
+    let hourStyle: Date.FormatStyle
+    let weekdayStyle: Date.FormatStyle
+    let shortTimeZoneStyle: Date.FormatStyle
+    let longTimeZoneStyle: Date.FormatStyle
+
+    init(timeZone: TimeZone) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        let baseStyle = Date.FormatStyle(
+            locale: Locale(identifier: "en_US_POSIX"),
+            calendar: calendar,
+            timeZone: timeZone
+        )
+
+        self.timeZone = timeZone
+        self.calendar = calendar
+        self.timeWithoutMeridiemStyle = baseStyle
+            .hour(.defaultDigits(amPM: .omitted))
+            .minute(.twoDigits)
+        self.timeStyle = baseStyle
+            .hour(.defaultDigits(amPM: .abbreviated))
+            .minute(.twoDigits)
+        self.hourStyle = baseStyle
+            .hour(.defaultDigits(amPM: .abbreviated))
+        self.weekdayStyle = baseStyle
+            .weekday(.wide)
+        self.shortTimeZoneStyle = baseStyle
+            .timeZone(.specificName(.short))
+        self.longTimeZoneStyle = baseStyle
+            .timeZone(.specificName(.long))
+    }
 
     func performanceRowTimeRange(
         for performance: OMERecord.Performance,
@@ -38,23 +73,13 @@ struct EventTimePresentation: Equatable, Sendable {
         end: Date,
         disclosure: Disclosure = .never
     ) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
         let startMeridiem = calendar.component(.hour, from: start) < 12 ? "AM" : "PM"
         let endMeridiem = calendar.component(.hour, from: end) < 12 ? "AM" : "PM"
 
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = timeZone
-        timeFormatter.dateFormat = startMeridiem == endMeridiem ? "h:mm" : "h:mm a"
-
-        let endFormatter = DateFormatter()
-        endFormatter.locale = Locale(identifier: "en_US_POSIX")
-        endFormatter.timeZone = timeZone
-        endFormatter.dateFormat = "h:mm a"
-
-        let timeRange = "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
-            .lowercased()
+        let startStyle = startMeridiem == endMeridiem
+            ? timeWithoutMeridiemStyle
+            : timeStyle
+        let timeRange = "\(normalizedTime(start, style: startStyle)) - \(normalizedTime(end, style: timeStyle))"
         return timeRange + timeZoneSuffix(for: start, disclosure: disclosure)
     }
 
@@ -62,29 +87,18 @@ struct EventTimePresentation: Equatable, Sendable {
         for date: Date,
         disclosure: Disclosure = .never
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: date).lowercased()
+        return normalizedTime(date, style: timeStyle)
             + timeZoneSuffix(for: date, disclosure: disclosure)
     }
 
     func hourLabel(for date: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
         switch calendar.component(.hour, from: date) {
         case 0:
             return "mdnt"
         case 12:
             return "noon"
         default:
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = timeZone
-            formatter.dateFormat = "ha"
-            return formatter.string(from: date)
-                .lowercased()
+            return normalizedTime(date, style: hourStyle)
                 .replacingOccurrences(of: " ", with: "")
         }
     }
@@ -93,12 +107,8 @@ struct EventTimePresentation: Equatable, Sendable {
         for date: Date,
         disclosure: Disclosure = .never
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mma"
-        let time = formatter.string(from: date)
-            .lowercased()
+        let time = normalizedTime(date, style: timeStyle)
+            .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "am", with: "a")
             .replacingOccurrences(of: "pm", with: "p")
         return time + timeZoneSuffix(for: date, disclosure: disclosure)
@@ -108,9 +118,6 @@ struct EventTimePresentation: Equatable, Sendable {
         for date: Date,
         policy: DateTimeRangeResolutionPolicy = .default
     ) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-
         var displayDate = date
         let hour = calendar.component(.hour, from: date)
         let segment: String
@@ -128,11 +135,7 @@ struct EventTimePresentation: Equatable, Sendable {
             segment = "Night"
         }
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "EEEE"
-        return "\(formatter.string(from: displayDate)) \(segment)"
+        return "\(displayDate.formatted(weekdayStyle)) \(segment)"
     }
 
     func timeZoneSuffix(
@@ -147,24 +150,37 @@ struct EventTimePresentation: Equatable, Sendable {
     }
 
     func timeZoneAbbreviation(for date: Date) -> String? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "zzz"
-
-        let shortName = formatter.string(from: date).uppercased()
+        let shortName = date.formatted(shortTimeZoneStyle).uppercased()
         guard shortName.contains(where: { !$0.isLetter }) else {
             return shortName.isEmpty ? nil : shortName
         }
 
-        formatter.dateFormat = "zzzz"
-        let initials = formatter.string(from: date)
+        let initials = date.formatted(longTimeZoneStyle)
             .split(whereSeparator: { !$0.isLetter })
             .compactMap(\.first)
             .map(String.init)
             .joined()
             .uppercased()
         return initials.count > 1 ? initials : nil
+    }
+
+    func normalizedTime(_ date: Date, style: Date.FormatStyle) -> String {
+        let time = date.formatted(style)
+            .lowercased()
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+        return time.hasPrefix("0") ? String(time.dropFirst()) : time
+    }
+}
+
+enum EventTimePresentationEnvironmentKey: EnvironmentKey {
+    static let defaultValue: EventTimePresentation? = nil
+}
+
+extension EnvironmentValues {
+    var eventTimePresentation: EventTimePresentation? {
+        get { self[EventTimePresentationEnvironmentKey.self] }
+        set { self[EventTimePresentationEnvironmentKey.self] = newValue }
     }
 }
 
@@ -517,7 +533,7 @@ public struct ScheduleViewer {
            !customTitle.isEmpty {
             return customTitle
         }
-        return schedule.date.formatted(dateFormat: "EEEE", in: timeZone)
+        return schedule.date.formattedWeekday(in: timeZone)
     }
 
     static func emptyStageTitle(
@@ -1057,11 +1073,16 @@ extension OMERecord.Performance {
 }
 
 private extension LocalDate {
-    func formatted(dateFormat: String, in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = dateFormat
-        formatter.timeZone = timeZone
-        return formatter.string(from: atStartOfDay(in: timeZone))
+    func formattedWeekday(in timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let weekdayStyle = Date.FormatStyle(
+            locale: Locale(identifier: "en_US_POSIX"),
+            calendar: calendar,
+            timeZone: timeZone
+        )
+        .weekday(.wide)
+        return atStartOfDay(in: timeZone).formatted(weekdayStyle)
     }
 }
 

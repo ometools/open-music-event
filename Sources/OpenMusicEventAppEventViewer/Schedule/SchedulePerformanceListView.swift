@@ -136,6 +136,7 @@ public struct SchedulePerformanceList {
 
 public struct SchedulePerformanceListView: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.eventTimePresentation) var eventTimePresentation
     @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     @Bindable var store: StoreOf<SchedulePerformanceList>
@@ -178,7 +179,7 @@ public struct SchedulePerformanceListView: View {
                     )
                     .padding()
                 }
-        } else if let eventTimePresentation = store.state.eventTimePresentation {
+        } else if let eventTimePresentation {
             PeriodicTimelineView(every: 1) { currentDate in
                 ScrollViewReader { proxy in
                     List(rows) { row in

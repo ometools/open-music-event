@@ -1176,6 +1176,10 @@ public struct EventViewerView: View {
     public var body: some View {
         tabContent
             .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
+            .environment(
+                \.eventTimePresentation,
+                store.event.map { EventTimePresentation(timeZone: $0.timeZone) }
+            )
             .environment(\.performanceReactionMenuContext, reactionMenuContext)
             .sheet(item: $store.scope(\.destination, action: \.destination)) { _ in
                 if let destinationStore = store.scope(\.destination, action: \.destination) {
