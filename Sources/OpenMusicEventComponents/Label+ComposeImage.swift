@@ -92,10 +92,16 @@ struct MaterialSystemImageComposer: ContentComposer {
         switch systemName {
         case "arrow.clockwise":
             imageVector = Icons.Outlined.Refresh
+        case "arrow.triangle.branch":
+            imageVector = Icons.Outlined.CallSplit
+        case "arrow.triangle.pull":
+            imageVector = Icons.Outlined.CallMerge
         case "arrow.up.right":
             imageVector = Icons.Outlined.OpenInNew
         case "arrow.triangle.turn.up.right.diamond":
             imageVector = Icons.Outlined.Directions
+        case "arrow.uturn.backward":
+            imageVector = Icons.Outlined.Undo
         case "bubble.left.and.bubble.right":
             imageVector = Icons.Outlined.Forum
         case "calendar":

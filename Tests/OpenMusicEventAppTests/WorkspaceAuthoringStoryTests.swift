@@ -468,14 +468,8 @@ struct WorkspaceAuthoringStoryTests {
                 git.alternateRevision
             )
 
-            store.modify {
-                guard var eventViewer = $0.content.destination?.eventViewer else { return }
-                eventViewer.authoring.content.content.eventWorkspace?.requestedBranch =
-                    workspace.defaultBranch
-                $0.content.destination = .eventViewer(eventViewer)
-            }
             await store.send(
-                workspaceStoryWorkspaceAction(.switchBranchButtonTapped)
+                workspaceStoryWorkspaceAction(.goToMainButtonTapped)
             )?.value
             let selectedMain = WorkspaceBranchReference(
                 branch: WorkspaceBranch(rawValue: workspace.defaultBranch),

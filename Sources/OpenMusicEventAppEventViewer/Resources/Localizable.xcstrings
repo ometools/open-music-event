@@ -447,6 +447,9 @@
     "Enter a proposal title." : {
 
     },
+    "Enter the branch to use as this workspace’s comparison reference." : {
+
+    },
     "Enter one emoji." : {
 
     },
@@ -487,6 +490,12 @@
 
     },
     "From Other Event" : {
+
+    },
+    "Go to main" : {
+
+    },
+    "Go to main or select a proposal before publishing these changes." : {
 
     },
     "Google Maps" : {
@@ -900,6 +909,9 @@
     "Publication" : {
 
     },
+    "Published" : {
+
+    },
     "Published branch" : {
 
     },
@@ -1062,6 +1074,9 @@
     "Selected proposal snapshot" : {
 
     },
+    "Selected revision" : {
+
+    },
     "Selected schedule" : {
 
     },
@@ -1149,10 +1164,16 @@
     "Status" : {
 
     },
+    "Switch" : {
+
+    },
     "Switch branch" : {
 
     },
     "Switch Branch" : {
+
+    },
+    "Switch branch…" : {
 
     },
     "System icon" : {
@@ -1311,7 +1332,7 @@
     "URL" : {
 
     },
-    "View Proposal" : {
+    "View proposal" : {
 
     },
     "Waiting for its server projection." : {
@@ -1335,6 +1356,9 @@
     "Workspace" : {
       "comment" : "Settings section for entering or leaving the event workspace"
     },
+    "Workspace not prepared" : {
+
+    },
     "Workspace overview" : {
 
     },
@@ -1347,10 +1371,19 @@
     "Workspace source unavailable" : {
 
     },
+    "Workspace unavailable" : {
+
+    },
     "Write" : {
 
     },
     "You can review this proposal, but you do not have permission to change its state." : {
+
+    },
+    "You do not have permission to create a proposal." : {
+
+    },
+    "You do not have permission to update this proposal." : {
 
     },
     "Your changes and proposal details are still here. You can try again." : {

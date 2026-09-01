@@ -21,20 +21,6 @@ import SwiftUI
 public struct EventWorkspace {
     public init() {}
 
-    public enum Page: String, CaseIterable, Equatable, Identifiable, Sendable {
-        case changes
-        case collaborators
-
-        public var id: Self { self }
-
-        public var title: String {
-            switch self {
-            case .changes: "Changes"
-            case .collaborators: "Collaborators"
-            }
-        }
-    }
-
     public struct State: Identifiable {
         public init(
             workspace: SourceWorkspace,
@@ -67,7 +53,6 @@ public struct EventWorkspace {
         public var collaborators: WorkspaceCollaborators.State?
         public var reviews: WorkspaceReviews.State?
         public var requestedBranch = ""
-        public var selectedPage: Page = .changes
 
         public var changeCount: Int? { changes.badgeCount }
 
@@ -88,12 +73,6 @@ public struct EventWorkspace {
             return authoringGrant?.access ?? .attendee
         }
 
-        public var availablePages: [Page] {
-            EventWorkspace.availablePages(
-                hasCollaborators: collaborators != nil
-            )
-        }
-
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
             let scopedGrant = grant?.workspaceID == workspace.id ? grant : nil
             if var reviews {
@@ -108,7 +87,6 @@ public struct EventWorkspace {
             guard scopedGrant != nil else {
                 collaborators = nil
                 changes.proposalDraft = nil
-                if selectedPage == .collaborators { selectedPage = .changes }
                 return
             }
             if collaborators?.workspaceID != workspace.id {
@@ -133,17 +111,10 @@ public struct EventWorkspace {
         }
     }
 
-    public static func availablePages(
-        hasCollaborators: Bool
-    ) -> [Page] {
-        var pages: [Page] = [.changes]
-        if hasCollaborators { pages.append(.collaborators) }
-        return pages
-    }
-
     public enum Action {
         case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
+        case goToMainButtonTapped
         case reviews(WorkspaceReviews.Action)
         case proposalsRowTapped
         case sourcePreparationRetryButtonTapped
@@ -165,6 +136,23 @@ public struct EventWorkspace {
                             value: ()
                         )
                         await retry?.value
+                    }
+
+                case .goToMainButtonTapped:
+                    guard state.authoringAccess.canEditContent,
+                          let currentContext = state.selectedContext,
+                          state.changeCount == nil
+                    else { return }
+                    let requestedBranch = WorkspaceBranch(
+                        rawValue: SourceWorkspace.normalizedBranch(state.workspace.defaultBranch)
+                    )
+                    guard requestedBranch != currentContext.selectedBranch else { return }
+                    store.addTask {
+                        let task = try store.post(
+                            key: WorkspaceBranchRequested.self,
+                            value: requestedBranch
+                        )
+                        await task?.value
                     }
 
                 case .switchBranchButtonTapped:
@@ -205,9 +193,6 @@ public struct EventWorkspace {
         }
         .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
             state.updateAuthoringGrant(grant)
-            if !state.availablePages.contains(state.selectedPage) {
-                state.selectedPage = .changes
-            }
         }
     }
 }
@@ -215,6 +200,7 @@ public struct EventWorkspace {
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @State var isBranchPromptPresented = false
 
     public init(store: StoreOf<EventWorkspace>) {
         self.store = store
@@ -222,9 +208,6 @@ public struct EventWorkspaceView: View {
 
     public var body: some View {
         let changesStore = store.scope(\.changes, action: \.changes)
-        let pages = EventWorkspace.availablePages(
-            hasCollaborators: store.collaborators != nil
-        )
 
         List {
             if store.pendingProposalRepair != nil {
@@ -235,72 +218,54 @@ public struct EventWorkspaceView: View {
                 }
             }
 
-            WorkspaceOverviewSection(
+            WorkspaceContextSection(
                 workspace: store.workspace,
-                eventID: store.eventID,
                 workspaceState: store.workspaceState,
-                summary: changesStore.summary,
-                canPropose: store.authoringAccess.canPropose,
-                propose: { changesStore.send(.proposalActionButtonTapped) },
-                viewProposal: { store.send(.viewProposalButtonTapped) }
+                canSwitchBranch: store.authoringAccess.canEditContent
+                    && store.workspaceIsReady
+                    && store.changeCount == nil,
+                viewProposal: {
+                    store.send(.viewProposalButtonTapped)
+                },
+                switchBranch: {
+                    isBranchPromptPresented = true
+                },
+                goToMain: {
+                    store.send(.goToMainButtonTapped)
+                }
             )
 
             Section {
-                Button("Proposals") {
+                Button {
                     store.send(.proposalsRowTapped)
+                } label: {
+                    Label("Proposals", mappedSystemImage: "arrow.triangle.pull")
                 }
                 .navigationLinkListRowStyle()
                 .accessibilityIdentifier("workspace.proposals")
-            }
 
-            Section("Switch branch") {
-                TextField("Branch name", text: $store.requestedBranch)
-                    .autocorrectionDisabled()
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .accessibilityIdentifier("workspace.branch.name")
-                Button("Switch Branch") {
-                    store.send(.switchBranchButtonTapped)
-                }
-                .disabled(
-                    !store.workspaceIsReady
-                        || store.changeCount != nil
-                        || store.requestedBranch.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ).isEmpty
-                )
-                .accessibilityIdentifier("workspace.branch.switch")
-                if store.changeCount != nil {
-                    Text("Create a proposal or reset your local changes before switching branches.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if pages.count > 1 {
-                Section {
-                    Picker("Workspace section", selection: $store.selectedPage) {
-                        ForEach(pages) { page in
-                            Text(page.title).tag(page)
-                        }
+                if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
+                    NavigationLink {
+                        WorkspaceCollaboratorsView(store: collaborators)
+                    } label: {
+                        Label("Collaborators", mappedSystemImage: "person.3")
                     }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("workspace.page-selection")
+                    .navigationLinkListRowStyle()
+                    .accessibilityIdentifier("workspace.collaborators")
                 }
             }
 
-            switch store.selectedPage {
-            case .changes:
-                WorkspaceChangesView(
-                    store: changesStore,
+            WorkspaceChangesView(
+                store: changesStore,
+                workspaceState: store.workspaceState
+            )
+
+            if showsTechnicalDetails {
+                WorkspaceTechnicalDetailsSection(
+                    workspace: store.workspace,
+                    eventID: store.eventID,
                     workspaceState: store.workspaceState
                 )
-
-            case .collaborators:
-                if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
-                    WorkspaceCollaboratorsView(store: collaborators)
-                }
             }
         }
         .navigationTitle("Workspace")
@@ -310,199 +275,166 @@ public struct EventWorkspaceView: View {
         .navigationDestination(item: $store.scope(\.reviews, action: \.reviews)) { reviewsStore in
             WorkspaceReviewsView(store: reviewsStore)
         }
+        .alert("Switch branch", isPresented: $isBranchPromptPresented) {
+            TextField("Branch name", text: $store.requestedBranch)
+                .autocorrectionDisabled()
+                #if !os(macOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .accessibilityIdentifier("workspace.branch.name")
+            Button("Switch") {
+                store.send(.switchBranchButtonTapped)
+            }
+            .disabled(
+                store.requestedBranch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+            )
+            .accessibilityIdentifier("workspace.branch.switch")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the branch to use as this workspace’s comparison reference.")
+        }
     }
 }
 
-struct WorkspaceOverviewSection: View {
+struct WorkspaceContextSection: View {
     let workspace: SourceWorkspace
-    let eventID: OME.Event.ID
     let workspaceState: WorkspaceState<SourceWorkspaceResource>
-    let summary: SourceWorkspaceEditSummary
-    let canPropose: Bool
-    let propose: () -> Void
+    let canSwitchBranch: Bool
     let viewProposal: () -> Void
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    let switchBranch: () -> Void
+    let goToMain: () -> Void
 
-    var changeCount: Int {
-        summary.groups.reduce(0) { $0 + $1.totalCount }
-    }
-
-    var selectedContext: WorkspaceEditingContext? {
-        workspaceState.selectedContext
-    }
-
-    var selectedProposal: WorkspaceProposal? {
-        workspaceState.selectedProposal
-    }
-
-    var availabilityMessage: String? {
-        switch workspaceState.availability {
-        case .inactive:
-            "Enter authoring to prepare this workspace."
-        case .preparing:
-            nil
-        case .preparationFailed:
-            "Workspace preparation stopped, so changes cannot currently be compared."
-        case .ready:
-            nil
+    var contextTitle: String {
+        switch workspaceState.selectedContext {
+        case .published:
+            "Published"
+        case .branch:
+            "Branch"
+        case .proposal:
+            "Proposal"
+        case nil:
+            switch workspaceState.availability {
+            case .preparing:
+                "Preparing workspace"
+            case .inactive:
+                "Workspace not prepared"
+            case .preparationFailed, .ready:
+                "Workspace unavailable"
+            }
         }
+    }
+
+    var selectedBranch: String? {
+        workspaceState.selectedContext?.selectedBranch.rawValue
+    }
+
+    var canGoToMain: Bool {
+        guard let selectedBranch else { return false }
+        return canSwitchBranch && selectedBranch != workspace.defaultBranch
+    }
+
+    var accessibilityLabel: String {
+        guard let selectedBranch else { return contextTitle }
+        return "Current workspace context: \(contextTitle), branch \(selectedBranch)"
     }
 
     var body: some View {
-        Section("Workspace overview") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Current context")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+        Section {
+            Menu {
+                if workspaceState.selectedProposal != nil {
+                    Button(action: viewProposal) {
+                        Label("View proposal", mappedSystemImage: "arrow.triangle.pull")
+                    }
+                    .accessibilityIdentifier("workspace.proposal.view")
+                }
 
-                if let selectedContext {
-                    switch selectedContext {
-                    case let .published(reference):
-                        LabeledContent("Published branch") {
-                            WorkspaceBranchNameView(branch: reference.branch.rawValue)
-                        }
-                    case let .branch(reference):
-                        LabeledContent("Branch") {
-                            WorkspaceBranchNameView(branch: reference.branch.rawValue)
-                        }
-                    case let .proposal(proposal):
-                        LabeledContent("Proposal") {
-                            Text(proposal.id.rawValue)
-                                .font(.caption.monospaced())
-                                .multilineTextAlignment(.trailing)
-                                .selectableText()
+                Button(action: switchBranch) {
+                    Label("Switch branch…", mappedSystemImage: "arrow.triangle.branch")
+                }
+                .disabled(!canSwitchBranch)
+                .accessibilityIdentifier("workspace.branch.prompt")
+
+                if let selectedBranch, selectedBranch != workspace.defaultBranch {
+                    Button(action: goToMain) {
+                        Label("Go to main", mappedSystemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!canGoToMain)
+                    .accessibilityIdentifier("workspace.branch.main")
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    MappedSystemImage(systemName: "arrow.triangle.branch")
+                        .frame(width: 20, height: 20)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(verbatim: contextTitle)
+
+                        if let selectedBranch {
+                            WorkspaceBranchChip(branch: selectedBranch)
                         }
                     }
-                } else {
-                    Text("The workspace is not currently prepared.")
-                    WorkspaceBranchNameView(branch: workspace.defaultBranch)
-                }
-            }
 
-            if let selectedProposal {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Selected proposal snapshot")
-                        .font(.caption.weight(.semibold))
+                    Spacer()
+
+                    MappedSystemImage(systemName: "chevron.down")
                         .foregroundStyle(.secondary)
-                    LabeledContent("Proposal revision") {
-                        Text(selectedProposal.revision.rawValue)
-                            .font(.body.monospaced())
-                            .multilineTextAlignment(.trailing)
-                    }
-                    LabeledContent("Target branch") {
-                        Text(selectedProposal.target.branch.rawValue)
-                            .font(.body.monospaced())
-                            .multilineTextAlignment(.trailing)
-                    }
+                        .frame(width: 12, height: 12)
                 }
+                .contentShape(Rectangle())
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Where are my changes?")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                switch summary.availability {
-                case .available:
-                    if selectedProposal != nil {
-                        Text("The selected proposal is the comparison reference.")
-                        Text(changeCount == 1
-                            ? "1 newer local change is waiting to be added."
-                            : "\(changeCount) newer local changes are waiting to be added.")
-                    } else {
-                        Text(changeCount == 1
-                            ? "1 local change has not been proposed."
-                            : "\(changeCount) local changes have not been proposed.")
-                    }
-                case .workspaceNeedsPreparation:
-                    Text("Change location will be available after the workspace is prepared.")
-                case .unavailable:
-                    Text("Change location cannot currently be calculated.")
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("What should I do next?")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                if case .preparing = workspaceState.availability {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("Preparing workspace")
-                    }
-                    .portableAccessibilityElement()
-                    .accessibilityIdentifier("workspace.preparation.progress")
-                } else if let availabilityMessage {
-                    Text(availabilityMessage)
-                } else if case .available = summary.availability,
-                          let selectedContext
-                {
-                    if changeCount > 0 {
-                        switch selectedContext {
-                        case .published:
-                            if canPropose {
-                                Button("Create Proposal", action: propose)
-                                    .buttonStyle(.borderedProminent)
-                                    .accessibilityIdentifier("workspace.proposal.create")
-                            } else {
-                                Text("Your local changes are waiting, but you do not have permission to create a proposal.")
-                            }
-                        case .proposal:
-                            if canPropose {
-                                Button("Update Proposal", action: propose)
-                                    .buttonStyle(.borderedProminent)
-                                    .accessibilityIdentifier("workspace.proposal.update")
-                            } else {
-                                Text("Newer local changes are waiting, but you do not have permission to update this proposal.")
-                            }
-                            Button("View Proposal", action: viewProposal)
-                                .accessibilityIdentifier("workspace.proposal.view")
-                        case .branch:
-                            Text("Select Published or a proposal before publishing these changes.")
-                        }
-                    } else if selectedProposal != nil {
-                        Button("View Proposal", action: viewProposal)
-                            .accessibilityIdentifier("workspace.proposal.view")
-                    } else {
-                        Text("Continue editing. There are no local changes waiting to be proposed.")
-                    }
-                }
-            }
-
-            if showsTechnicalDetails {
-                PortableDisclosureGroup("Technical Details") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
-                        WorkspaceTechnicalValueView(label: "Default branch", value: workspace.defaultBranch)
-                        WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
-                        WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
-                        if let selectedProposal {
-                            WorkspaceTechnicalValueView(
-                                label: "Selected proposal",
-                                value: selectedProposal.id.rawValue
-                            )
-                        }
-                        if let failure = workspaceState.preparationFailure {
-                            WorkspaceTechnicalValueView(label: "Diagnostic", value: failure.message)
-                        }
-                    }
-                    .padding(.top, 8)
-                }
-                .font(.caption)
-            }
+            .tint(.primary)
+            .accessibilityLabel(Text(verbatim: accessibilityLabel))
+            .accessibilityIdentifier("workspace.context")
         }
     }
 }
 
-struct WorkspaceBranchNameView: View {
+struct WorkspaceBranchChip: View {
     let branch: String
 
     var body: some View {
-        Text(branch)
-            .font(.body.monospaced())
-            .selectableText()
-            .fixedSize(horizontal: false, vertical: true)
+        Text(verbatim: branch)
+            .font(.caption.monospaced())
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Color.accentColor.opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 5)
+            )
+    }
+}
+
+struct WorkspaceTechnicalDetailsSection: View {
+    let workspace: SourceWorkspace
+    let eventID: OME.Event.ID
+    let workspaceState: WorkspaceState<SourceWorkspaceResource>
+
+    var body: some View {
+        Section("Technical details") {
+            WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
+            WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
+            WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
+            if let selectedContext = workspaceState.selectedContext {
+                WorkspaceTechnicalValueView(
+                    label: "Selected revision",
+                    value: selectedContext.revision.rawValue
+                )
+            }
+            if let selectedProposal = workspaceState.selectedProposal {
+                WorkspaceTechnicalValueView(
+                    label: "Selected proposal",
+                    value: selectedProposal.id.rawValue
+                )
+            }
+            if let failure = workspaceState.preparationFailure {
+                WorkspaceTechnicalValueView(label: "Diagnostic", value: failure.message)
+            }
+        }
     }
 }
 

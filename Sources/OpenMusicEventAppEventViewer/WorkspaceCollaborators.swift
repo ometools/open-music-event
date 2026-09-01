@@ -428,13 +428,13 @@ public struct WorkspaceCollaboratorsView: View {
     }
 
     public var body: some View {
-        Group {
+        List {
             if store.role.canManageCollaborators {
                 Section {
                     Button {
                         store.send(.addCollaboratorButtonTapped)
                     } label: {
-                        Label("Add Collaborator", systemImage: "people")
+                        Label("Add Collaborator", mappedSystemImage: "person.3")
                     }
                     .accessibilityIdentifier("workspace.collaborator.add")
                 }
@@ -442,11 +442,11 @@ public struct WorkspaceCollaboratorsView: View {
 
             Section("Collaborators") {
                 if store.relationships.isEmpty {
-                    ContentUnavailableView(
-                        "No Collaborators",
-                        systemImage: "people",
-                        description: Text("No one else has access to propose or merge workspace changes.")
-                    )
+                    ContentUnavailableView {
+                        Label("No Collaborators", mappedSystemImage: "person.3")
+                    } description: {
+                        Text("No one else has access to propose or merge workspace changes.")
+                    }
                 }
 
                 ForEach(store.relationships) { stored in
@@ -472,6 +472,10 @@ public struct WorkspaceCollaboratorsView: View {
                 }
             }
         }
+        .navigationTitle("Collaborators")
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .sheet(item: $store.scope(\.destination, action: \.destination).collaboratorForm) {
             formStore in
             NavigationStack {

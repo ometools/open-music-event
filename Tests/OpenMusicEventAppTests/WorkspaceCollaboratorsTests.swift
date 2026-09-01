@@ -107,21 +107,11 @@ struct WorkspaceCollaboratorsTests {
             let collaborators = try #require(state.collaborators)
             expectNoDifference(collaborators.role, grant.role)
             #expect(collaborators.relationships.isEmpty)
-            expectNoDifference(
-                state.availablePages,
-                EventWorkspace.Page.allCases
-            )
-            expectNoDifference(
-                EventWorkspace.availablePages(
-                    hasCollaborators: false
-                ),
-                [.changes]
-            )
         }
     }
 
     @Test
-    func `a grant for another workspace does not expose authoring pages`() throws {
+    func `a grant for another workspace does not expose authoring tools`() throws {
         try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -160,7 +150,7 @@ struct WorkspaceCollaboratorsTests {
             }
 
             expectNoDifference(state.authoringAccess, .attendee)
-            expectNoDifference(state.availablePages, [.changes])
+            #expect(state.collaborators == nil)
             #expect(!state.changes.canPropose)
         }
     }

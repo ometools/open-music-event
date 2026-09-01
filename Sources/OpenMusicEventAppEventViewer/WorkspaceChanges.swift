@@ -3,6 +3,7 @@ import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
@@ -194,11 +195,12 @@ public struct WorkspaceChangesView: View {
                     presentation: store.summary.presentation,
                     emptyMessage: workspaceState.selectedProposal == nil
                         ? "No local changes."
-                        : "No newer changes are waiting to be added to this proposal."
+                        : "No newer changes are waiting to be added to this proposal.",
+                    title: "Changes"
                 )
 
             case .workspaceNeedsPreparation:
-                Section("What changed") {
+                Section("Changes") {
                     if case .preparing = workspaceState.availability {
                         HStack(spacing: 10) {
                             ProgressView()
@@ -218,7 +220,7 @@ public struct WorkspaceChangesView: View {
                 }
 
             case let .unavailable(reason):
-                Section("What changed") {
+                Section("Changes") {
                     Text("Changes couldn’t be compared")
                     Text("The workspace source does not match the app’s data model.")
                         .font(.caption)
@@ -231,6 +233,8 @@ public struct WorkspaceChangesView: View {
                     }
                 }
             }
+
+            proposalActionSection
 
             if store.canResetChanges || store.resetStatus != .idle {
                 Section("Reset") {
@@ -261,6 +265,54 @@ public struct WorkspaceChangesView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This restores every record owned by this organization source to its reference copy.")
+        }
+    }
+
+    @ViewBuilder
+    var proposalActionSection: some View {
+        if case .available = store.summary.availability,
+           store.changeCount > 0,
+           let selectedContext = workspaceState.selectedContext
+        {
+            switch selectedContext {
+            case .published:
+                Section("Proposal") {
+                    if store.canPropose {
+                        Button {
+                            store.send(.proposalActionButtonTapped)
+                        } label: {
+                            Label("Create Proposal", mappedSystemImage: "arrow.triangle.pull")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("workspace.proposal.create")
+                    } else {
+                        Text("You do not have permission to create a proposal.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+            case .proposal:
+                Section("Proposal") {
+                    if store.canPropose {
+                        Button {
+                            store.send(.proposalActionButtonTapped)
+                        } label: {
+                            Label("Update Proposal", mappedSystemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("workspace.proposal.update")
+                    } else {
+                        Text("You do not have permission to update this proposal.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+            case .branch:
+                Section("Proposal") {
+                    Text("Go to main or select a proposal before publishing these changes.")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
