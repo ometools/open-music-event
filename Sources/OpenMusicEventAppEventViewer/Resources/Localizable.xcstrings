@@ -54,9 +54,6 @@
     "Account" : {
 
     },
-    "Actions" : {
-
-    },
     "Add" : {
 
     },
@@ -177,9 +174,6 @@
     "Branch name" : {
 
     },
-    "Branches" : {
-
-    },
     "Calendar" : {
 
     },
@@ -247,9 +241,6 @@
 
     },
     "Close" : {
-
-    },
-    "Close Proposal" : {
 
     },
     "Close proposal" : {
@@ -619,9 +610,6 @@
 
     },
     "Markdown is saved as entered. Use Preview to see the published post." : {
-
-    },
-    "Merge into %@" : {
 
     },
     "Merge proposal" : {
@@ -1110,9 +1098,6 @@
     "Source" : {
 
     },
-    "Source branch" : {
-
-    },
     "Source details" : {
 
     },
@@ -1161,16 +1146,7 @@
     "Starts in" : {
 
     },
-    "State" : {
-
-    },
     "Status" : {
-
-    },
-    "Submitted" : {
-
-    },
-    "Submitted by" : {
 
     },
     "Switch branch" : {
@@ -1222,9 +1198,6 @@
 
     },
     "The selected proposal is the comparison reference." : {
-
-    },
-    "The source branch is in another repository." : {
 
     },
     "The workspace is not currently prepared." : {
