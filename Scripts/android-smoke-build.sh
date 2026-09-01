@@ -910,6 +910,8 @@ CONFIG
 
 invalidate_stale_package_resolution_state() {
   local workspace_state="$APP_ROOT/.build/workspace-state.json"
+  local manifest_cache="$CFFIXED_USER_HOME/Library/Caches/org.swift.swiftpm/manifests/manifest.db"
+  local nested_workspace_state
 
   if [[ -f "$PACKAGE_RESOLUTION_CONFIG_FILE" ]] \
     && cmp -s "$PACKAGE_RESOLUTION_CONFIG_FILE" <(package_resolution_config)
@@ -920,6 +922,24 @@ invalidate_stale_package_resolution_state() {
   if [[ -f "$workspace_state" ]]; then
     echo "Invalidating stale Android SwiftPM workspace state: $workspace_state"
     run rm -f "$workspace_state"
+  fi
+
+  # The generated Fuse build has its own SwiftPM scratch graph. Local package
+  # routes can change in place without changing their path, so invalidate both
+  # its resolved workspace state and SwiftPM's cached manifest evaluations.
+  while IFS= read -r -d '' nested_workspace_state; do
+    echo "Invalidating stale generated Android SwiftPM workspace state: $nested_workspace_state"
+    run rm -f "$nested_workspace_state"
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path '*/destination/skipstone/*/build/swift/workspace-state.json' \
+      -print0 2>/dev/null
+  )
+
+  if [[ -f "$manifest_cache" ]]; then
+    echo "Invalidating stale Android SwiftPM manifest cache: $manifest_cache"
+    run rm -f "$manifest_cache" "$manifest_cache-shm" "$manifest_cache-wal"
   fi
 }
 
