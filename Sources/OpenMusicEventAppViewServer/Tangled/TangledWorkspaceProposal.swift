@@ -274,6 +274,7 @@ enum TangledWorkspaceProposalProcessingError: Error, Equatable, Sendable {
 
 struct TangledWorkspaceProposalService: Service {
   let processor: TangledWorkspaceProposalProcessor
+  let renderProcessor: WorkspaceProposalRenderProcessor
   let clock = ContinuousClock()
 
   func run() async throws {
@@ -283,6 +284,13 @@ struct TangledWorkspaceProposalService: Service {
           for pull in try await processor.pendingPulls() {
             do {
               try await processor.process(pull)
+            } catch {
+              reportIssue(error)
+            }
+          }
+          for proposal in try await renderProcessor.candidates() {
+            do {
+              try await renderProcessor.process(proposal)
             } catch {
               reportIssue(error)
             }
@@ -337,6 +345,22 @@ extension OpenMusicEventAppViewStore {
       try TangledWorkspaceProposalRow.find(id.description)
         .fetchOne(database)
         .map { try $0.proposal() }
+    }
+  }
+
+  func workspaceProposalRenderCandidates() async throws -> [TangledWorkspaceProposal] {
+    try await database.read { database in
+      try TangledWorkspaceProposalRow.all.fetchAll(database)
+        .map { try $0.proposal() }
+        .filter { proposal in
+          guard proposal.lifecycle == .open,
+            proposal.webhook != nil,
+            case .present = proposal.record
+          else {
+            return false
+          }
+          return true
+        }
     }
   }
 

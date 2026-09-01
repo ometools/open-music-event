@@ -1033,6 +1033,161 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func archiveCheckoutDownloadsTheAdvertisedArtifactWithoutResolvingTheRepositoryOwner() async throws {
+        let wickedWoodsDID = try #require(
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let wickedWoodsHandle = Atmosphere.Account.Handle("wickedwoods.ca")
+        let artifactURL = try #require(
+            URL(
+                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
+            )
+        )
+        let archiveData = Data("archive".utf8)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-wicked-woods-artifact-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let resolvedDIDs = Mutex([DID]())
+        let requestedURLs = Mutex([URL]())
+
+        _ = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Did not expect handle resolution: \(handle)")
+                    return (
+                        Atmosphere.Account(id: .init(wickedWoodsDID), handle: wickedWoodsHandle),
+                        try didDocument(did: wickedWoodsDID, handle: wickedWoodsHandle)
+                    )
+                },
+                resolveDID: { did in
+                    resolvedDIDs.withLock { $0.append(did) }
+                    return (
+                        Atmosphere.Account(id: .init(did), handle: wickedWoodsHandle),
+                        try didDocument(did: did, handle: wickedWoodsHandle)
+                    )
+                }
+            )
+            $0.httpClient = HTTPClient { request, _ in
+                if let url = request.url {
+                    requestedURLs.withLock { $0.append(url) }
+                }
+                return archiveData
+            }
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { downloaded, output in
+                expectNoDifference(downloaded, archiveData)
+                expectNoDifference(output, outputURL)
+            }
+        } operation: {
+            try await TangledSourceCheckoutClient.archive.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: wickedWoodsDID.description,
+                        repository: "ome-workspace"
+                    ),
+                    ref: "3cc283a5d07218f4dfc55652513e9191d2040a06",
+                    archive: SourceArchiveReference(
+                        url: artifactURL,
+                        checksumSHA256: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM=",
+                        byteCount: archiveData.count
+                    ),
+                    outputURL: outputURL
+                )
+            )
+        }
+
+        expectNoDifference(resolvedDIDs.withLock { $0 }, [])
+        expectNoDifference(requestedURLs.withLock { $0 }, [artifactURL])
+    }
+
+    @Test
+    func advertisedArchiveRejectsAnUnexpectedByteCountBeforeExtraction() async throws {
+        let archiveData = Data("archive".utf8)
+        let didExtractArchive = Mutex(false)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-artifact-size-mismatch-\(UUID().uuidString)")
+
+        let error = await #expect(throws: SourceArchiveIntegrityError.self) {
+            try await withDependencies {
+                $0.httpClient = HTTPClient { _, _ in archiveData }
+                $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { _, _ in
+                    didExtractArchive.withLock { $0 = true }
+                }
+            } operation: {
+                try await TangledSourceCloner(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "wickedwoods.ca",
+                        repository: "ome-workspace"
+                    ),
+                    ref: "revision",
+                    archive: SourceArchiveReference(
+                        url: try #require(URL(string: "https://resources.example/archive.tar.gz")),
+                        checksumSHA256: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM=",
+                        byteCount: archiveData.count + 1
+                    ),
+                    outputURL: outputURL
+                )
+                .clone()
+            }
+        }
+
+        expectNoDifference(
+            error,
+            SourceArchiveIntegrityError.byteCount(
+                expected: archiveData.count + 1,
+                actual: archiveData.count
+            )
+        )
+        expectNoDifference(didExtractArchive.withLock { $0 }, false)
+    }
+
+    @Test
+    func advertisedArchiveRejectsAnUnexpectedChecksumBeforeExtraction() async throws {
+        let archiveData = Data("archive".utf8)
+        let didExtractArchive = Mutex(false)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-artifact-checksum-mismatch-\(UUID().uuidString)")
+
+        let error = await #expect(throws: SourceArchiveIntegrityError.self) {
+            try await withDependencies {
+                $0.httpClient = HTTPClient { _, _ in archiveData }
+                $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { _, _ in
+                    didExtractArchive.withLock { $0 = true }
+                }
+            } operation: {
+                try await TangledSourceCloner(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "wickedwoods.ca",
+                        repository: "ome-workspace"
+                    ),
+                    ref: "revision",
+                    archive: SourceArchiveReference(
+                        url: try #require(URL(string: "https://resources.example/archive.tar.gz")),
+                        checksumSHA256: "unexpected-checksum",
+                        byteCount: archiveData.count
+                    ),
+                    outputURL: outputURL
+                )
+                .clone()
+            }
+        }
+
+        expectNoDifference(
+            error,
+            SourceArchiveIntegrityError.checksumSHA256(
+                expected: "unexpected-checksum",
+                actual: "DrPja/sk3Nm7HRvs4VMSFrWVOaj94X7oAiSvBlPJKqM="
+            )
+        )
+        expectNoDifference(didExtractArchive.withLock { $0 }, false)
+    }
+
+    @Test
     func cloneCommandDownloadsBinaryArchiveWithoutBodyLogging() async throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-clone-\(UUID().uuidString)")

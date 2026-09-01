@@ -14,17 +14,20 @@ public struct TangledSourceCheckoutRequest: Equatable, Sendable {
     public var repository: TangledRepositoryReference
     public var repositoryDID: String?
     public var ref: String
+    public var archive: SourceArchiveReference?
     public var outputURL: URL
 
     public init(
         repository: TangledRepositoryReference,
         repositoryDID: String? = nil,
         ref: String,
+        archive: SourceArchiveReference? = nil,
         outputURL: URL
     ) {
         self.repository = repository
         self.repositoryDID = repositoryDID
         self.ref = ref
+        self.archive = archive
         self.outputURL = outputURL.standardizedFileURL
     }
 }
@@ -62,7 +65,7 @@ public extension TangledSourceCheckoutClient {
             }
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
             var repository = request.repository
-            if let ownerDID = DID(repository.owner) {
+            if request.archive == nil, let ownerDID = DID(repository.owner) {
                 @Dependency(Atmosphere.Account.Client.self) var accountClient
                 let (account, _) = try await accountClient.resolveDID(ownerDID)
                 repository.owner = account.handle.rawValue
@@ -70,6 +73,7 @@ public extension TangledSourceCheckoutClient {
             try await TangledSourceCloner(
                 repository: repository,
                 ref: request.ref,
+                archive: request.archive,
                 outputURL: request.outputURL
             )
             .clone()

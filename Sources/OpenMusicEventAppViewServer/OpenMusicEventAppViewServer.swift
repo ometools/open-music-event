@@ -55,6 +55,10 @@ public enum OpenMusicEventAppViewServer {
                     processor: TangledWorkspaceProposalProcessor(
                         configuration: tangledWebhook,
                         store: store
+                    ),
+                    renderProcessor: WorkspaceProposalRenderProcessor(
+                        configuration: tangledWebhook,
+                        store: store
                     )
                 )
             )

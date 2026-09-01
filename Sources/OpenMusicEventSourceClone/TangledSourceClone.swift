@@ -1,5 +1,6 @@
 import ArgumentParser
 import ATProto
+import Crypto
 import Dependencies
 import Foundation
 import Gzip
@@ -310,9 +311,47 @@ public struct TangledRepositoryReference: Equatable, Sendable {
     }
 }
 
+public struct SourceArchiveReference: Equatable, Sendable {
+    public var byteCount: Int
+    public var checksumSHA256: String
+    public var url: URL
+
+    public init(
+        url: URL,
+        checksumSHA256: String,
+        byteCount: Int
+    ) {
+        self.url = url
+        self.checksumSHA256 = checksumSHA256
+        self.byteCount = byteCount
+    }
+
+    func validate(_ data: Data) throws {
+        guard data.count == byteCount else {
+            throw SourceArchiveIntegrityError.byteCount(
+                expected: byteCount,
+                actual: data.count
+            )
+        }
+        let checksumSHA256 = Data(SHA256.hash(data: data)).base64EncodedString()
+        guard checksumSHA256 == self.checksumSHA256 else {
+            throw SourceArchiveIntegrityError.checksumSHA256(
+                expected: self.checksumSHA256,
+                actual: checksumSHA256
+            )
+        }
+    }
+}
+
+public enum SourceArchiveIntegrityError: Equatable, Error, Sendable {
+    case byteCount(expected: Int, actual: Int)
+    case checksumSHA256(expected: String, actual: String)
+}
+
 public struct TangledSourceCloner: Sendable {
     public var repository: TangledRepositoryReference
     public var ref: String
+    public var archive: SourceArchiveReference?
     public var outputURL: URL
 
     public static func temporaryOutputURL(uuid: UUID) -> URL {
@@ -324,10 +363,12 @@ public struct TangledSourceCloner: Sendable {
     public init(
         repository: TangledRepositoryReference,
         ref: String = "HEAD",
+        archive: SourceArchiveReference? = nil,
         outputURL: URL
     ) {
         self.repository = repository
         self.ref = ref
+        self.archive = archive
         self.outputURL = outputURL
     }
 
@@ -335,12 +376,13 @@ public struct TangledSourceCloner: Sendable {
         @Dependency(\.httpClient) var httpClient
         @Dependency(\.tangledSourceArchiveExtractor) var extractor
 
-        let archiveURL = try repository.archiveURL(ref: ref)
+        let archiveURL = try archive?.url ?? repository.archiveURL(ref: ref)
         let archiveData: Data = try await withDependencies {
             $0.logBody = false
         } operation: {
             try await httpClient.get(archiveURL, decodingTo: Data.self)
         }
+        try archive?.validate(archiveData)
         try await extractor.extract(archiveData, outputURL)
     }
 }
