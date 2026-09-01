@@ -33,7 +33,7 @@ public struct SubmitButton: View {
             ProgressView()
         } else {
             Button(action: action) {
-                Label(kind.title, systemImage: kind.systemImage)
+                Label(kind.title, mappedSystemImage: kind.systemImage)
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderedProminent)
@@ -57,7 +57,7 @@ extension SubmitButton.Kind {
         case .save:
             "checkmark"
         case .propose:
-            "paper-plane"
+            "paperplane"
         }
     }
 }

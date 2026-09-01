@@ -90,6 +90,8 @@ struct MaterialSystemImageComposer: ContentComposer {
     @Composable func Compose(context: ComposeContext) {
         let imageVector: ImageVector
         switch systemName {
+        case "arrow.clockwise":
+            imageVector = Icons.Outlined.Refresh
         case "arrow.up.right":
             imageVector = Icons.Outlined.OpenInNew
         case "arrow.triangle.turn.up.right.diamond":
@@ -118,6 +120,8 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.ViewTimeline
         case "checkmark.circle", "checkmark-circle":
             imageVector = Icons.Outlined.CheckCircle
+        case "chevron.forward":
+            imageVector = Icons.Outlined.ChevronRight
         case "ellipsis":
             imageVector = Icons.Outlined.MoreHoriz
         case "figure.mind.and.body":
@@ -144,6 +148,8 @@ struct MaterialSystemImageComposer: ContentComposer {
             imageVector = Icons.Outlined.Person
         case "person.3":
             imageVector = Icons.Outlined.Groups
+        case "paperplane":
+            imageVector = Icons.Outlined.Send
         case "phone":
             imageVector = Icons.Outlined.Phone
         case "photo.on.rectangle":

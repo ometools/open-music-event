@@ -580,7 +580,8 @@ public struct WorkspaceReviewsView: View {
                                 }
                             }
                             Spacer()
-                            Image(systemName: "chevron-forward")
+                            MappedSystemImage(systemName: "chevron.forward")
+                                .frame(width: 8, height: 12)
                                 .accessibilityHidden(true)
                         }
                     }
@@ -627,7 +628,7 @@ public struct WorkspaceReviewsView: View {
                 Button {
                     store.send(.refreshButtonTapped)
                 } label: {
-                    Label("Refresh proposals", systemImage: "refresh")
+                    Label("Refresh proposals", mappedSystemImage: "arrow.clockwise")
                 }
                 .disabled(store.status == .loading)
                 .accessibilityIdentifier("workspace.proposals.refresh")
@@ -671,7 +672,8 @@ struct WorkspaceProposalRow: View {
                 if proposal.renderStatus != .ready {
                     Text("Preparing changes")
                 }
-                Image(systemName: "chevron-forward")
+                MappedSystemImage(systemName: "chevron.forward")
+                    .frame(width: 8, height: 12)
                     .accessibilityHidden(true)
             }
             .font(.caption)
@@ -698,27 +700,18 @@ public struct WorkspaceReviewDetailView: View {
 
     public var body: some View {
         List {
-            statusSection
-
             if let proposal = store.proposal {
                 proposalSection(proposal)
-                branchesSection(proposal)
+                changesSection
                 if store.validatedProposal != nil {
-                    actionsSection
+                    reviewStatusSection
                 }
-                if let body = proposal.body, !body.isEmpty {
-                    Section("Description") {
-                        Text(body)
-                            .selectableText()
-                    }
-                }
-                linksSection(proposal)
                 if showsTechnicalDetails {
                     technicalSection(proposal)
                 }
+            } else {
+                loadStateSection
             }
-
-            changesSection
         }
         .navigationTitle(store.proposal?.title ?? "Proposal")
         #if !os(macOS)
@@ -727,7 +720,7 @@ public struct WorkspaceReviewDetailView: View {
     }
 
     @ViewBuilder
-    var statusSection: some View {
+    var loadStateSection: some View {
         switch store.status {
         case .failed(let message):
             Section("Proposal") {
@@ -773,71 +766,136 @@ public struct WorkspaceReviewDetailView: View {
         }
     }
 
-    @ViewBuilder
     func proposalSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
-        Section("Proposal") {
+        let statusTitle = proposal.status.rawValue.workspaceProposalStateTitle
+        let statusColor = proposalStatusColor(proposal.status)
+        let authorTitle = store.authorIdentity?.displayTitle(showsTechnicalDetails: false)
+            ?? proposal.authorDID.description.workspaceProposalFriendlyAuthorTitle
+        let bylineTitle = proposal.createdAt.map {
+            "\(authorTitle) · \($0.workspaceProposalDateTitle)"
+        } ?? authorTitle
+        let bylineAccessibilityLabel = proposal.createdAt.map {
+            "Submitted by \(authorTitle), \($0.workspaceProposalDateTitle)"
+        } ?? "Submitted by \(authorTitle)"
+
+        return Section {
             if let title = proposal.title {
                 Text(title)
                     .font(.title3.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if let authorIdentity = store.authorIdentity {
-                ContributorActorIdentityRow(
-                    identity: authorIdentity,
-                    isSelected: false
-                )
-            } else {
-                LabeledContent(
-                    "Submitted by",
-                    value: proposal.authorDID.description.workspaceProposalFriendlyAuthorTitle
-                )
-            }
-            LabeledContent(
-                "State",
-                value: proposal.status.rawValue.workspaceProposalStateTitle
-            )
-            if let createdAt = proposal.createdAt {
-                LabeledContent(
-                    "Submitted",
-                    value: createdAt.workspaceProposalDateTitle
-                )
-            }
-        }
-    }
 
-    @ViewBuilder
-    func branchesSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
-        if let targetBranch = proposal.targetBranch {
-            Section("Branches") {
-                WorkspaceBranchRelationshipView(
-                    source: proposal.source?.branch ?? "Unavailable",
-                    target: targetBranch
-                )
-                if let sourceRepositoryDID = proposal.source?.repositoryDID,
-                   sourceRepositoryDID != proposal.targetRepositoryDID {
-                    Text("The source branch is in another repository.")
-                        .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Text(verbatim: statusTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(statusColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(statusColor.opacity(0.14), in: Capsule())
+
+                    if let sourceBranch = proposal.source?.branch,
+                       !sourceBranch.isEmpty,
+                       let targetBranch = proposal.targetBranch,
+                       !targetBranch.isEmpty {
+                        Text(verbatim: targetBranch)
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                Color.accentColor.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+
+                        Text(verbatim: "←")
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+
+                        Text(verbatim: sourceBranch)
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                Color.accentColor.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+                    }
                 }
             }
+            .portableAccessibilityElementIgnoringChildren()
+            .accessibilityLabel(
+                Text(verbatim: proposalRelationshipAccessibilityLabel(proposal))
+            )
+
+            HStack(spacing: 10) {
+                if let authorIdentity = store.authorIdentity {
+                    ContributorActorAvatar(identity: authorIdentity)
+                }
+
+                Text(verbatim: bylineTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .portableAccessibilityElementIgnoringChildren()
+            .accessibilityLabel(Text(verbatim: bylineAccessibilityLabel))
+
+            if let body = proposal.body, !body.isEmpty {
+                Text(body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .selectableText()
+            }
         }
     }
 
+    func proposalStatusColor(_ status: OME.WorkspaceProposal.Status) -> Color {
+        switch status {
+        case .open:
+            .green
+        case .closed:
+            .red
+        case .merged:
+            .purple
+        default:
+            .secondary
+        }
+    }
+
+    func proposalRelationshipAccessibilityLabel(
+        _ proposal: OME.WorkspaceProposal.Detail
+    ) -> String {
+        let status = proposal.status.rawValue.workspaceProposalStateTitle
+        guard let sourceBranch = proposal.source?.branch,
+              !sourceBranch.isEmpty,
+              let targetBranch = proposal.targetBranch,
+              !targetBranch.isEmpty
+        else { return "Status: \(status)" }
+
+        return "Status: \(status). Changes from \(sourceBranch) into \(targetBranch)."
+    }
+
     @ViewBuilder
-    var actionsSection: some View {
+    var reviewStatusSection: some View {
         switch store.operation {
         case .closing:
-            Section("Actions") {
+            Section("Status") {
                 ProgressView("Closing proposal")
                     .accessibilityIdentifier("workspace.proposal.close.progress")
             }
         case .merging:
-            Section("Actions") {
+            Section("Status") {
                 ProgressView("Merging proposal")
                     .accessibilityIdentifier("workspace.proposal.merge.progress")
             }
         case .idle:
-            Section("Actions") {
-                if store.canMergeProposals, let targetBranch = store.targetBranch {
-                    Button("Merge into \(targetBranch.rawValue)") {
+            Section("Status") {
+                if store.canMergeProposals, store.targetBranch != nil {
+                    Button("Merge proposal") {
                         store.send(.mergeButtonTapped)
                     }
                     .buttonStyle(.borderedProminent)
@@ -846,7 +904,7 @@ public struct WorkspaceReviewDetailView: View {
                 }
 
                 if store.canClose {
-                    Button("Close Proposal") {
+                    Button("Close proposal") {
                         store.send(.closeButtonTapped)
                     }
                     .accessibilityIdentifier("workspace.proposal.close")
@@ -861,32 +919,18 @@ public struct WorkspaceReviewDetailView: View {
     }
 
     @ViewBuilder
-    func linksSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
-        if proposal.pageURL != nil || proposal.patchURL != nil {
-            Section("Links") {
-                if let pageURL = proposal.pageURL {
-                    Link("Open proposal page", destination: pageURL)
-                }
-                if let patchURL = proposal.patchURL {
-                    Link("Open patch", destination: patchURL)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
     var changesSection: some View {
         switch store.status {
         case let .loaded(proposal):
             switch proposal.renderStatus {
             case .awaitingInput:
-                Section("What changed") {
+                Section("Changes") {
                     Text("A change preview is not available for this proposal.")
                         .foregroundStyle(.secondary)
                 }
 
             case .pending:
-                Section("What changed") {
+                Section("Changes") {
                     ProgressView("Preparing proposal changes")
                 }
 
@@ -894,17 +938,18 @@ public struct WorkspaceReviewDetailView: View {
                 if let presentation = proposal.presentation {
                     SourceChangePresentationSection(
                         presentation: presentation,
-                        emptyMessage: "No changes"
+                        emptyMessage: "No changes",
+                        title: "Changes"
                     )
                 }
             }
 
-        case .loading, .pending:
-            Section("What changed") {
+        case .pending:
+            Section("Changes") {
                 ProgressView("Preparing proposal changes")
             }
 
-        case .failed, .notLoaded, .unavailable:
+        case .failed, .loading, .notLoaded, .unavailable:
             EmptyView()
         }
     }
@@ -926,9 +971,6 @@ public struct WorkspaceReviewDetailView: View {
                     value: canonicalSource.description
                 )
             }
-            if let targetBranch = proposal.targetBranch {
-                WorkspaceTechnicalValueView(label: "Target branch", value: targetBranch)
-            }
             if let targetRepositoryDID = proposal.targetRepositoryDID {
                 WorkspaceTechnicalValueView(
                     label: "Target repository ID",
@@ -936,7 +978,6 @@ public struct WorkspaceReviewDetailView: View {
                 )
             }
             if let source = proposal.source {
-                WorkspaceTechnicalValueView(label: "Source branch", value: source.branch)
                 if let sourceRepositoryDID = source.repositoryDID {
                     WorkspaceTechnicalValueView(
                         label: "Source repository ID",
@@ -957,6 +998,12 @@ public struct WorkspaceReviewDetailView: View {
             )
             if let recordCID = proposal.recordCID {
                 WorkspaceTechnicalValueView(label: "Record CID", value: recordCID.rawValue)
+            }
+            if let pageURL = proposal.pageURL {
+                Link("Open proposal page", destination: pageURL)
+            }
+            if let patchURL = proposal.patchURL {
+                Link("Open patch", destination: patchURL)
             }
             if !sourceFiles(in: proposal).isEmpty {
                 PortableDisclosureGroup("Source files") {

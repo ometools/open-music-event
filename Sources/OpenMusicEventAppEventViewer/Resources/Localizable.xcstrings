@@ -252,6 +252,9 @@
     "Close Proposal" : {
 
     },
+    "Close proposal" : {
+
+    },
     "Closing proposal" : {
 
     },
@@ -619,6 +622,9 @@
 
     },
     "Merge into %@" : {
+
+    },
+    "Merge proposal" : {
 
     },
     "Merging proposal" : {

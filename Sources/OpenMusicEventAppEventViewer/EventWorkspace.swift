@@ -506,27 +506,6 @@ struct WorkspaceBranchNameView: View {
     }
 }
 
-struct WorkspaceBranchRelationshipView: View {
-    let source: String
-    let target: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent("Source branch") {
-                Text(source)
-                    .font(.body.monospaced())
-                    .multilineTextAlignment(.trailing)
-            }
-            LabeledContent("Target branch") {
-                Text(target)
-                    .font(.body.monospaced())
-                    .multilineTextAlignment(.trailing)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
 struct SourceChangeSummarySection: View {
     let groups: [SourceChangeGroup]
     let fieldComparisons: SourceFieldComparisons
@@ -565,9 +544,20 @@ struct SourceChangeSummarySection: View {
 struct SourceChangePresentationSection: View {
     let presentation: OME.WorkspaceProposal.Presentation
     let emptyMessage: String
+    let title: LocalizedStringKey
+
+    init(
+        presentation: OME.WorkspaceProposal.Presentation,
+        emptyMessage: String,
+        title: LocalizedStringKey = "What changed"
+    ) {
+        self.presentation = presentation
+        self.emptyMessage = emptyMessage
+        self.title = title
+    }
 
     var body: some View {
-        Section("What changed") {
+        Section(title) {
             if presentation.totalCount == 0 {
                 Text(emptyMessage)
                     .foregroundStyle(.secondary)
