@@ -87,6 +87,62 @@ struct WorkspaceReviewsTests {
         )
     }
 
+    @Test(arguments: [
+        OME.WorkspaceProposal.RenderStatus.awaitingInput,
+        .pending,
+    ])
+    func `a hydrated proposal remains available before its changes are rendered`(
+        renderStatus: OME.WorkspaceProposal.RenderStatus
+    ) async throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let receipt = workspaceProposal(revision: "source-revision")
+        var item = proposalListItem()
+        item.renderStatus = renderStatus
+        var detail = proposalDetail()
+        detail.renderStatus = renderStatus
+        detail.presentation = nil
+        let hydratedDetail = detail
+
+        // The app has durably recorded its successful publication receipt.
+        try await SourceWorkspaceContextStore(database: database).saveProposalContext(
+            receipt,
+            workspaceID: workspace.id
+        )
+
+        let store = makeStore(
+            database: database,
+            workspace: workspace,
+            proposals: [item],
+            detail: { _ in hydratedDetail },
+            grant: try ownerGrant(workspace: workspace)
+        )
+
+        // Hydration replaces the local publication placeholder even without a rendered preview.
+        await waitUntil {
+            store.proposals == [item]
+                && store.pendingProjectionReceipts.isEmpty
+        }
+        expectNoDifference(store.proposals, [item])
+        expectNoDifference(store.pendingProjectionReceipts, [])
+
+        // The organizer can inspect and close the proposal, but cannot merge unseen changes.
+        await store.send(.proposalButtonTapped(item))?.value
+        await waitUntil {
+            guard case let .reviewDetail(state)? = store.destination,
+                  case let .loaded(loaded) = state.status
+            else { return false }
+            return loaded == detail && state.canClose && !state.canMerge
+        }
+        guard case let .reviewDetail(state)? = store.destination else {
+            Issue.record("The hydrated proposal should open from the server projection.")
+            return
+        }
+        expectNoDifference(state.proposal, detail)
+        #expect(state.canClose)
+        #expect(!state.canMerge)
+    }
+
     @Test
     func publishedReceiptOpensImmediatelyAndWaitsForItsExactRevision() async throws {
         let database = try makePreparedDatabase()

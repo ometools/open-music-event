@@ -212,7 +212,7 @@ public struct WorkspaceReviews {
                             request: request,
                             expectedProposal: receipt
                         ) {
-                        case .deleted, .ready:
+                        case .available, .deleted:
                             acknowledgedProposalIDs.append(receipt.id)
                         case .pending:
                             break
@@ -333,7 +333,10 @@ public struct WorkspaceReviewDetail {
         }
 
         public var canMerge: Bool {
-            validatedProposal != nil && canMergeProposals && targetBranch != nil
+            validatedProposal?.renderStatus == .ready
+                && validatedProposal?.presentation != nil
+                && canMergeProposals
+                && targetBranch != nil
         }
 
         public var targetBranch: WorkspaceBranch? {
@@ -491,7 +494,7 @@ public struct WorkspaceReviewDetail {
                     case let .pending(detail):
                         try store.modify { $0.status = .pending(detail) }
 
-                    case let .ready(detail):
+                    case let .available(detail):
                         try store.modify { $0.status = .loaded(detail) }
                         if let expectedProposal {
                             do {
@@ -880,11 +883,25 @@ public struct WorkspaceReviewDetailView: View {
     var changesSection: some View {
         switch store.status {
         case let .loaded(proposal):
-            if let presentation = proposal.presentation {
-                SourceChangePresentationSection(
-                    presentation: presentation,
-                    emptyMessage: "No changes"
-                )
+            switch proposal.renderStatus {
+            case .awaitingInput:
+                Section("What changed") {
+                    Text("A change preview is not available for this proposal.")
+                        .foregroundStyle(.secondary)
+                }
+
+            case .pending:
+                Section("What changed") {
+                    ProgressView("Preparing proposal changes")
+                }
+
+            case .ready:
+                if let presentation = proposal.presentation {
+                    SourceChangePresentationSection(
+                        presentation: presentation,
+                        emptyMessage: "No changes"
+                    )
+                }
             }
 
         case .loading, .pending:

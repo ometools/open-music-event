@@ -6,9 +6,9 @@ import OpenMusicEventSourceEditing
 
 enum WorkspaceProposalObservation {
     enum Result: Equatable, Sendable {
+        case available(OME.WorkspaceProposal.Detail)
         case deleted
         case pending(OME.WorkspaceProposal.Detail?)
-        case ready(OME.WorkspaceProposal.Detail)
     }
 
     enum Error: Equatable, Swift.Error, Sendable {
@@ -79,20 +79,19 @@ enum WorkspaceProposalObservation {
            proposal.source?.revision != expectedProposal.revision.rawValue {
             return .pending(proposal)
         }
-        guard proposal.renderStatus == .ready else {
-            return .pending(proposal)
+        if proposal.renderStatus == .ready {
+            guard let presentation = proposal.presentation else {
+                throw Error.missingPresentation(proposal.uri)
+            }
+            guard presentation.formatVersion == OME.WorkspaceProposal.Presentation.currentFormatVersion
+            else {
+                throw Error.unsupportedPresentationVersion(
+                    expected: OME.WorkspaceProposal.Presentation.currentFormatVersion,
+                    actual: presentation.formatVersion
+                )
+            }
         }
-        guard let presentation = proposal.presentation else {
-            throw Error.missingPresentation(proposal.uri)
-        }
-        guard presentation.formatVersion == OME.WorkspaceProposal.Presentation.currentFormatVersion
-        else {
-            throw Error.unsupportedPresentationVersion(
-                expected: OME.WorkspaceProposal.Presentation.currentFormatVersion,
-                actual: presentation.formatVersion
-            )
-        }
-        return .ready(proposal)
+        return .available(proposal)
     }
 }
 
