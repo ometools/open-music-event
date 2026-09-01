@@ -1045,7 +1045,7 @@ public struct EventViewer {
                     guard state.eventWorkspace != nil else { return }
                     state.eventWorkspace?.changes.proposalDraft = nil
                     state.eventWorkspace?.selectedPage = .proposals
-                    state.eventWorkspace?.reviews.requestedReviewID = proposal.id.rawValue
+                    state.eventWorkspace?.reviews.open(proposal)
                     store.addTask {
                         try store.send(
                             .eventWorkspace(.reviews(.refreshButtonTapped))

@@ -6,12 +6,9 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import IssueReporting
-import GRDB
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
-import Sharing
-import SourceEditing
 import SQLiteData
 #if os(Android)
 import SkipSwiftUI
@@ -25,7 +22,7 @@ public struct WorkspaceReviews {
 
     public enum Status: Equatable, Sendable {
         case failed(String)
-        case loaded([TangledPullReview])
+        case loaded([OME.WorkspaceProposal.ListItem])
         case loading
         case notLoaded
     }
@@ -53,22 +50,26 @@ public struct WorkspaceReviews {
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @Fetch public var publicationReceipts: [WorkspaceProposal]
         public var destination: Destination.State?
-        public var locallyRemovedReviewIDs: Set<String> = []
-        public var requestedReviewID: String?
+        public var locallyRemovedProposalURIs: Set<String> = []
         public var status: Status = .notLoaded
 
-        public var reviewAuthorReferences: [String] {
-            Array(Set(reviews.map(\.author).filter { !$0.isEmpty })).sorted()
+        public var proposalAuthorReferences: [String] {
+            Array(Set(proposals.map { $0.authorDID.description })).sorted()
         }
 
-        public var reviews: [TangledPullReview] {
-            guard case let .loaded(reviews) = status else { return [] }
-            return reviews
+        public var proposals: [OME.WorkspaceProposal.ListItem] {
+            guard case let .loaded(proposals) = status else { return [] }
+            let pendingURIs = Set(publicationReceipts.map { $0.id.rawValue })
+            return proposals.filter {
+                !pendingURIs.contains($0.uri.description)
+                    && !locallyRemovedProposalURIs.contains($0.uri.description)
+            }
         }
 
         public var pendingProjectionReceipts: [WorkspaceProposal] {
-            let projectedIDs = Set(reviews.map(\.id))
-            return publicationReceipts.filter { !projectedIDs.contains($0.id.rawValue) }
+            publicationReceipts.filter {
+                !locallyRemovedProposalURIs.contains($0.id.rawValue)
+            }
         }
 
         public var canReview: Bool {
@@ -77,24 +78,32 @@ public struct WorkspaceReviews {
             return access.canPropose || access.canMerge
         }
 
-        public mutating func openRequestedReviewIfAvailable() {
-            guard let requestedReviewID,
-                  let review = reviews.first(where: { $0.id == requestedReviewID })
-            else { return }
+        public mutating func open(_ proposal: WorkspaceProposal) {
+            guard let uri = ATProto.URI(proposal.id.rawValue) else { return }
             destination = .reviewDetail(
                 WorkspaceReviewDetail.State(
                     workspace: workspace,
-                    review: review,
+                    proposalURI: uri,
+                    expectedProposal: proposal,
                     authoringGrant: authoringGrant
                 )
             )
-            self.requestedReviewID = nil
         }
 
-        mutating func remove(_ review: TangledPullReview) {
-            locallyRemovedReviewIDs.insert(review.id)
-            if case let .loaded(reviews) = status {
-                status = .loaded(reviews.filter { $0.id != review.id })
+        public mutating func open(_ proposal: OME.WorkspaceProposal.ListItem) {
+            destination = .reviewDetail(
+                WorkspaceReviewDetail.State(
+                    workspace: workspace,
+                    proposalURI: proposal.uri,
+                    authoringGrant: authoringGrant
+                )
+            )
+        }
+
+        mutating func remove(_ proposalURI: ATProto.URI) {
+            locallyRemovedProposalURIs.insert(proposalURI.description)
+            if case let .loaded(proposals) = status {
+                status = .loaded(proposals.filter { $0.uri != proposalURI })
             }
             destination = nil
         }
@@ -102,8 +111,9 @@ public struct WorkspaceReviews {
 
     public enum Action {
         case destination(Destination.Action)
+        case pendingProposalButtonTapped(WorkspaceProposal)
+        case proposalButtonTapped(OME.WorkspaceProposal.ListItem)
         case refreshButtonTapped
-        case reviewButtonTapped(TangledPullReview)
     }
 
     @Feature
@@ -113,7 +123,7 @@ public struct WorkspaceReviews {
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.tangledPullReviewClient) var reviewClient
+    @Dependency(\.workspaceProposalClient) var proposalClient
 
     public var body: some Feature {
         Update { state, action in
@@ -121,34 +131,32 @@ public struct WorkspaceReviews {
             case .destination:
                 break
 
+            case let .pendingProposalButtonTapped(proposal):
+                guard state.canReview else { return }
+                state.open(proposal)
+
+            case let .proposalButtonTapped(proposal):
+                guard state.canReview,
+                      state.proposals.contains(where: { $0.uri == proposal.uri })
+                else { return }
+                state.open(proposal)
+
             case .refreshButtonTapped:
                 guard state.canReview else { return }
-                loadReviews(state: &state)
-
-            case let .reviewButtonTapped(review):
-                guard state.canReview,
-                      state.reviews.contains(where: { $0.id == review.id })
-                else { return }
-                state.destination = .reviewDetail(
-                    WorkspaceReviewDetail.State(
-                        workspace: state.workspace,
-                        review: review,
-                        authoringGrant: state.authoringGrant
-                    )
-                )
+                loadProposals(state: &state)
             }
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
-        .onEvent(WorkspaceReviewRemoved.self) { review, state in
-            state.remove(review)
+        .onEvent(WorkspaceProposalRemoved.self) { proposalURI, state in
+            state.remove(proposalURI)
             return .continue
         }
         .onMount { state in
-            loadReviews(state: &state)
+            loadProposals(state: &state)
         }
-        .onChange(of: store.reviewAuthorReferences, initial: true) { _, authors, _ in
+        .onChange(of: store.proposalAuthorReferences, initial: true) { _, authors, _ in
             guard !authors.isEmpty else { return }
             let blueskyActorProfileCache = blueskyActorProfileCache
             store.addTask {
@@ -169,31 +177,64 @@ public struct WorkspaceReviews {
         }
     }
 
-    func loadReviews(state: inout State) {
+    func loadProposals(state: inout State) {
         guard state.canReview, state.status != .loading else { return }
-        let target = OpenMusicEventSourceTarget(workspace: state.workspace)
+        let request: OpenMusicEventWorkspaceProposalListRequest
+        do {
+            request = try OpenMusicEventWorkspaceProposalListRequest(workspace: state.workspace)
+        } catch {
+            state.status = .failed(String(describing: error))
+            reportIssue(error)
+            return
+        }
+        let receipts = state.publicationReceipts
         let receiptStore = SourceWorkspaceProposalReceiptStore(database: database)
-        let reviewClient = reviewClient
+        let proposalClient = proposalClient
         state.status = .loading
         store.addTask {
             do {
-                let reviews = try await reviewClient.list(
-                    OpenMusicEventTangledPullReviewRequest(target: target)
+                let proposals = try await proposalClient.list(request)
+                try WorkspaceProposalObservation.validate(
+                    proposals,
+                    request: request
                 )
-                let transition = try store.modify {
-                    let removed = $0.locallyRemovedReviewIDs
-                    $0.status = .loaded(
-                        reviews
-                            .filter { !removed.contains($0.id) }
-                            .sorted { $0.createdAt > $1.createdAt }
-                    )
-                    $0.openRequestedReviewIfAvailable()
+                var acknowledgedProposalIDs: [WorkspaceProposalID] = []
+                for receipt in receipts {
+                    guard let uri = ATProto.URI(receipt.id.rawValue) else {
+                        reportIssue(WorkspaceProposalObservation.Error.invalidURI(receipt.id.rawValue))
+                        continue
+                    }
+                    do {
+                        let detail = try await proposalClient.detail(uri)
+                        switch try WorkspaceProposalObservation.observe(
+                            detail,
+                            proposalURI: uri,
+                            request: request,
+                            expectedProposal: receipt
+                        ) {
+                        case .deleted, .ready:
+                            acknowledgedProposalIDs.append(receipt.id)
+                        case .pending:
+                            break
+                        }
+                    } catch WorkspaceProposalClientError.proposalNotFound {
+                        continue
+                    } catch {
+                        reportIssue(error)
+                    }
                 }
-                await transition?.value
-                do {
-                    try await receiptStore.acknowledge(
-                        reviews.map { WorkspaceProposalID(rawValue: $0.id) }
+                try store.modify {
+                    let removed = $0.locallyRemovedProposalURIs
+                    $0.status = .loaded(
+                        proposals
+                            .filter { !removed.contains($0.uri.description) }
+                            .sorted { $0.updatedAt > $1.updatedAt }
                     )
+                }
+                do {
+                    try await receiptStore.acknowledge(acknowledgedProposalIDs)
+                } catch is CancellationError {
+                    return
                 } catch {
                     reportIssue(error)
                 }
@@ -205,26 +246,21 @@ public struct WorkspaceReviews {
     }
 }
 
-enum WorkspaceReviewRemoved: FeatureEventKey {
-    typealias Value = TangledPullReview
+enum WorkspaceProposalRemoved: FeatureEventKey {
+    typealias Value = ATProto.URI
 }
 
 @Feature
 public struct WorkspaceReviewDetail {
     public init() {}
 
-    public enum SemanticDiffStatus: Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
         case failed(String)
-        case loaded(SemanticDiff)
+        case loaded(OME.WorkspaceProposal.Detail)
         case loading
+        case pending(OME.WorkspaceProposal.Detail?)
         case notLoaded
-    }
-
-    public enum RawDiffStatus: Equatable, Sendable {
-        case failed(String)
-        case loaded(String)
-        case loading
-        case notLoaded
+        case unavailable
     }
 
     public enum Operation: Equatable, Sendable {
@@ -240,34 +276,16 @@ public struct WorkspaceReviewDetail {
         }
     }
 
-    public struct SemanticDiff: Equatable, Sendable {
-        public init(
-            groups: [SourceChangeGroup],
-            fieldComparisons: SourceFieldComparisons,
-            recordComparisons: SourceRecordComparisons,
-            sourceFileAttributions: [SourceFileAttribution]
-        ) {
-            self.groups = groups
-            self.fieldComparisons = fieldComparisons
-            self.recordComparisons = recordComparisons
-            self.sourceFileAttributions = sourceFileAttributions
-        }
-
-        public var groups: [SourceChangeGroup]
-        public var fieldComparisons: SourceFieldComparisons
-        public var recordComparisons: SourceRecordComparisons
-        public var sourceFileAttributions: [SourceFileAttribution]
-        public var totalCount: Int { groups.reduce(0) { $0 + $1.totalCount } }
-    }
-
     public struct State {
         public init(
             workspace: SourceWorkspace,
-            review: TangledPullReview,
+            proposalURI: ATProto.URI,
+            expectedProposal: WorkspaceProposal? = nil,
             authoringGrant: AuthoringGrant? = nil
         ) {
             self.workspace = workspace
-            self.review = review
+            self.proposalURI = proposalURI
+            self.expectedProposal = expectedProposal
             self.authoringGrant = authoringGrant
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
@@ -276,22 +294,38 @@ public struct WorkspaceReviewDetail {
         }
 
         public let workspace: SourceWorkspace
-        public let review: TangledPullReview
+        public let proposalURI: ATProto.URI
+        public let expectedProposal: WorkspaceProposal?
         public var authoringGrant: AuthoringGrant?
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
-        @Trigger public var loadRawDiff
-        @Trigger public var loadSemanticDiff
         public var operation: Operation = .idle
-        public var rawDiffStatus: RawDiffStatus = .notLoaded
-        public var semanticDiffStatus: SemanticDiffStatus = .notLoaded
+        public var status: Status = .notLoaded
+
+        public var proposal: OME.WorkspaceProposal.Detail? {
+            switch status {
+            case let .loaded(proposal), let .pending(.some(proposal)):
+                proposal
+            case .failed, .loading, .notLoaded, .pending(nil), .unavailable:
+                nil
+            }
+        }
+
+        public var validatedProposal: OME.WorkspaceProposal.Detail? {
+            guard case let .loaded(proposal) = status else { return nil }
+            return proposal
+        }
 
         public var authorIdentity: ActorIdentity? {
-            cachedActorIdentities[review.author]
+            proposal.flatMap { cachedActorIdentities[$0.authorDID.description] }
+        }
+
+        public var proposalAuthorReference: String? {
+            proposal?.authorDID.description
         }
 
         public var canClose: Bool {
-            authoringGrantForWorkspace != nil
+            validatedProposal != nil && authoringGrantForWorkspace != nil
         }
 
         public var canMergeProposals: Bool {
@@ -299,11 +333,12 @@ public struct WorkspaceReviewDetail {
         }
 
         public var canMerge: Bool {
-            canMergeProposals && targetBranch != nil
+            validatedProposal != nil && canMergeProposals && targetBranch != nil
         }
 
         public var targetBranch: WorkspaceBranch? {
-            let value = SourceWorkspace.normalizedBranch(review.targetBranch)
+            guard let branch = validatedProposal?.targetBranch else { return nil }
+            let value = SourceWorkspace.normalizedBranch(branch)
             return value.isEmpty ? nil : WorkspaceBranch(rawValue: value)
         }
 
@@ -318,53 +353,55 @@ public struct WorkspaceReviewDetail {
     public enum Action {
         case closeButtonTapped
         case mergeButtonTapped
-        case retryRawDiffButtonTapped
-        case retrySemanticDiffButtonTapped
+        case retryButtonTapped
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-    @Dependency(\.tangledPullReviewClient) var reviewClient
-    @Dependency(\.tangledPullReviewSourceSnapshot) var sourceSnapshot
-    @Dependency(\.uuid) var uuid
+    @Dependency(\.continuousClock) var clock
+    @Dependency(\.defaultDatabase) var database
+    @Dependency(\.workspaceProposalClient) var proposalClient
+    @Dependency(\.workspaceProposalProjectionRetryDelays) var projectionRetryDelays
 
     public var body: some Feature {
         Update { state, action in
             switch action {
             case .closeButtonTapped:
-                guard state.canClose, !state.operation.isRunning else { return }
-                let review = state.review
-                let reviewClient = reviewClient
+                guard state.canClose,
+                      let proposal = state.validatedProposal,
+                      !state.operation.isRunning
+                else { return }
+                let proposalClient = proposalClient
                 state.operation = .closing
                 store.addTask {
                     let result: Void? = await store.withErrorHandling(
                         fallbackMessage: .workspaceReviewCloseFailed,
                         operation: .workspaceReviewClose
                     ) {
-                        try await reviewClient.close(review)
+                        try await proposalClient.close(proposal.uri)
                     } cleanup: {
                         $0.operation = .idle
                     }
                     guard result != nil else { return }
-                    try store.post(key: WorkspaceReviewRemoved.self, value: review)
+                    try store.post(key: WorkspaceProposalRemoved.self, value: proposal.uri)
                 }
 
             case .mergeButtonTapped:
                 guard state.canMerge,
+                      let proposal = state.validatedProposal,
                       !state.operation.isRunning
                 else { return }
-                let request = OpenMusicEventTangledPullReviewMergeRequest(
+                let request = OpenMusicEventWorkspaceProposalMergeRequest(
                     target: OpenMusicEventSourceTarget(workspace: state.workspace),
-                    review: state.review
+                    proposal: proposal
                 )
-                let review = state.review
-                let reviewClient = reviewClient
+                let proposalClient = proposalClient
                 state.operation = .merging
                 store.addTask {
                     let result: Void? = await store.withErrorHandling(
                         fallbackMessage: .workspaceReviewMergeFailed,
                         operation: .workspaceReviewMerge
                     ) {
-                        try await reviewClient.merge(request)
+                        try await proposalClient.merge(request)
                     } cleanup: {
                         $0.operation = .idle
                     }
@@ -372,83 +409,28 @@ public struct WorkspaceReviewDetail {
                     do {
                         let selection = try store.post(
                             key: WorkspaceProposalMerged.self,
-                            value: WorkspaceProposalID(rawValue: review.id)
+                            value: WorkspaceProposalID(rawValue: proposal.uri.description)
                         )
                         await selection?.value
-                        try store.post(key: WorkspaceReviewRemoved.self, value: review)
+                        try store.post(
+                            key: WorkspaceProposalRemoved.self,
+                            value: proposal.uri
+                        )
                     } catch {
                         reportIssue(error)
                     }
                 }
 
-            case .retryRawDiffButtonTapped:
-                let loadRawDiff = state.loadRawDiff
-                store.addTask { try loadRawDiff() }
-
-            case .retrySemanticDiffButtonTapped:
-                let loadSemanticDiff = state.loadSemanticDiff
-                store.addTask { try loadSemanticDiff() }
-            }
-        }
-        .onTrigger(store.loadRawDiff) { state in
-            switch state.rawDiffStatus {
-            case .loaded, .loading:
-                return
-            case .failed, .notLoaded:
-                break
-            }
-            let review = state.review
-            let reviewClient = reviewClient
-            state.rawDiffStatus = .loading
-            store.addTask {
-                do {
-                    let rawDiff = try await reviewClient.rawDiff(review)
-                    try store.modify { $0.rawDiffStatus = .loaded(rawDiff) }
-                } catch {
-                    try store.modify {
-                        $0.rawDiffStatus = .failed(String(describing: error))
-                    }
-                    reportIssue(error)
-                }
-            }
-        }
-        .onTrigger(store.loadSemanticDiff) { state in
-            switch state.semanticDiffStatus {
-            case .loaded, .loading:
-                return
-            case .failed, .notLoaded:
-                break
-            }
-            let workspace = state.workspace
-            let review = state.review
-            let scratchID = uuid()
-            let sourceSnapshot = sourceSnapshot
-            state.semanticDiffStatus = .loading
-            store.addTask {
-                do {
-                    let diff = try await SemanticDiff.load(
-                        workspace: workspace,
-                        review: review,
-                        scratchID: scratchID,
-                        sourceSnapshot: sourceSnapshot
-                    )
-                    try store.modify { $0.semanticDiffStatus = .loaded(diff) }
-                } catch {
-                    try store.modify {
-                        $0.semanticDiffStatus = .failed(String(describing: error))
-                    }
-                    reportIssue(error)
-                }
+            case .retryButtonTapped:
+                loadProposal(state: &state)
             }
         }
         .onMount { state in
-            let loadRawDiff = state.loadRawDiff
-            let loadSemanticDiff = state.loadSemanticDiff
-            let author = state.review.author
+            loadProposal(state: &state)
+        }
+        .onChange(of: store.proposalAuthorReference, initial: true) { _, author, _ in
+            guard let author else { return }
             let blueskyActorProfileCache = blueskyActorProfileCache
-            store.addTask { try loadRawDiff() }
-            store.addTask { try loadSemanticDiff() }
-            guard !author.isEmpty else { return }
             store.addTask {
                 do {
                     _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
@@ -464,6 +446,97 @@ public struct WorkspaceReviewDetail {
             }
         }
     }
+
+    func loadProposal(state: inout State) {
+        guard state.status != .loading else { return }
+        let request: OpenMusicEventWorkspaceProposalListRequest
+        do {
+            request = try OpenMusicEventWorkspaceProposalListRequest(workspace: state.workspace)
+        } catch {
+            state.status = .failed(String(describing: error))
+            reportIssue(error)
+            return
+        }
+        let expectedProposal = state.expectedProposal
+        let proposalURI = state.proposalURI
+        let proposalClient = proposalClient
+        let receiptStore = SourceWorkspaceProposalReceiptStore(database: database)
+        let clock = clock
+        let projectionRetryDelays = projectionRetryDelays
+        state.status = .loading
+        store.addTask {
+            var retries = projectionRetryDelays.makeIterator()
+            while !Task.isCancelled {
+                do {
+                    let detail = try await proposalClient.detail(proposalURI)
+                    switch try WorkspaceProposalObservation.observe(
+                        detail,
+                        proposalURI: proposalURI,
+                        request: request,
+                        expectedProposal: expectedProposal
+                    ) {
+                    case .deleted:
+                        try store.modify { $0.status = .unavailable }
+                        if let expectedProposal {
+                            do {
+                                try await receiptStore.acknowledge([expectedProposal.id])
+                            } catch is CancellationError {
+                                return
+                            } catch {
+                                reportIssue(error)
+                            }
+                        }
+                        return
+
+                    case let .pending(detail):
+                        try store.modify { $0.status = .pending(detail) }
+
+                    case let .ready(detail):
+                        try store.modify { $0.status = .loaded(detail) }
+                        if let expectedProposal {
+                            do {
+                                try await receiptStore.acknowledge([expectedProposal.id])
+                            } catch is CancellationError {
+                                return
+                            } catch {
+                                reportIssue(error)
+                            }
+                        }
+                        return
+                    }
+                } catch WorkspaceProposalClientError.proposalNotFound {
+                    try store.modify { $0.status = .pending(nil) }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try store.modify { $0.status = .failed(String(describing: error)) }
+                    reportIssue(error)
+                    return
+                }
+
+                guard let retryDelay = retries.next() else { return }
+                do { try await clock.sleep(for: retryDelay) } catch { return }
+            }
+        }
+    }
+}
+
+extension DependencyValues {
+    var workspaceProposalProjectionRetryDelays: [Duration] {
+        get { self[WorkspaceProposalProjectionRetryDelaysKey.self] }
+        set { self[WorkspaceProposalProjectionRetryDelaysKey.self] = newValue }
+    }
+}
+
+private enum WorkspaceProposalProjectionRetryDelaysKey: DependencyKey {
+    static let liveValue: [Duration] = [
+        .seconds(1),
+        .seconds(2),
+        .seconds(4),
+        .seconds(8),
+        .seconds(8),
+    ]
+    static let testValue: [Duration] = []
 }
 
 public struct WorkspaceReviewsView: View {
@@ -495,21 +568,29 @@ public struct WorkspaceReviewsView: View {
 
             Section("Open proposals") {
                 ForEach(store.pendingProjectionReceipts, id: \.id) { proposal in
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Proposal published")
-                            Text("Loading its proposal details.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if showsTechnicalDetails {
-                                Text(proposal.id.rawValue)
-                                    .font(.caption.monospaced())
+                    Button {
+                        store.send(.pendingProposalButtonTapped(proposal))
+                    } label: {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Updating proposal")
+                                Text("Waiting for its server projection.")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .selectableText()
+                                if showsTechnicalDetails {
+                                    Text(proposal.id.rawValue)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .selectableText()
+                                }
                             }
+                            Spacer()
+                            Image(systemName: "chevron-forward")
+                                .accessibilityHidden(true)
                         }
                     }
+                    .buttonStyle(.plain)
                     .portableAccessibilityElement()
                     .accessibilityIdentifier("workspace.proposals.pending")
                 }
@@ -522,22 +603,26 @@ public struct WorkspaceReviewsView: View {
                     Text(showsTechnicalDetails ? message : "Proposals could not be loaded")
                         .foregroundStyle(.secondary)
 
-                case let .loaded(reviews):
-                    if reviews.isEmpty && store.pendingProjectionReceipts.isEmpty {
+                case .loaded:
+                    if store.proposals.isEmpty && store.pendingProjectionReceipts.isEmpty {
                         Text("No open proposals")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(reviews) { review in
+                    ForEach(store.proposals) { proposal in
                         Button {
-                            store.send(.reviewButtonTapped(review))
+                            store.send(.proposalButtonTapped(proposal))
                         } label: {
-                            WorkspaceReviewRow(
-                                review: review,
-                                authorIdentity: store.cachedActorIdentities[review.author]
+                            WorkspaceProposalRow(
+                                proposal: proposal,
+                                authorIdentity: store.cachedActorIdentities[
+                                    proposal.authorDID.description
+                                ]
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("workspace.proposal.row.\(review.id)")
+                        .accessibilityIdentifier(
+                            "workspace.proposal.row.\(proposal.uri.description)"
+                        )
                     }
 
                 case .notLoaded:
@@ -562,18 +647,18 @@ public struct WorkspaceReviewsView: View {
     }
 }
 
-struct WorkspaceReviewRow: View {
-    let review: TangledPullReview
+struct WorkspaceProposalRow: View {
+    let proposal: OME.WorkspaceProposal.ListItem
     let authorIdentity: ActorIdentity?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(review.title)
+                Text(proposal.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
                 Spacer()
-                Text(review.state.workspaceReviewStateTitle)
+                Text(proposal.status.rawValue.workspaceProposalStateTitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -583,9 +668,11 @@ struct WorkspaceReviewRow: View {
                 .foregroundStyle(.primary)
 
             HStack(alignment: .firstTextBaseline) {
-                Text(review.createdAt.workspaceReviewDateTitle)
+                Text(proposal.updatedAt.workspaceProposalDateTitle)
                 Spacer()
-                Text(review.commentCount == 1 ? "1 comment" : "\(review.commentCount) comments")
+                if proposal.renderStatus != .ready {
+                    Text("Preparing changes")
+                }
                 Image(systemName: "chevron-forward")
                     .accessibilityHidden(true)
             }
@@ -599,7 +686,7 @@ struct WorkspaceReviewRow: View {
         if let authorIdentity {
             return authorIdentity.displayTitle(showsTechnicalDetails: false)
         }
-        return review.author.workspaceReviewFriendlyAuthorTitle
+        return proposal.authorDID.description.workspaceProposalFriendlyAuthorTitle
     }
 }
 
@@ -613,67 +700,127 @@ public struct WorkspaceReviewDetailView: View {
 
     public var body: some View {
         List {
-            Section("Proposal") {
-                Text(store.review.title)
-                    .font(.title3.weight(.semibold))
-                if let authorIdentity = store.authorIdentity {
-                    ContributorActorIdentityRow(
-                        identity: authorIdentity,
-                        isSelected: false
-                    )
-                } else {
-                    LabeledContent(
-                        "Submitted by",
-                        value: store.review.author.workspaceReviewFriendlyAuthorTitle
-                    )
+            statusSection
+
+            if let proposal = store.proposal {
+                proposalSection(proposal)
+                branchesSection(proposal)
+                if store.validatedProposal != nil {
+                    actionsSection
                 }
-                LabeledContent(
-                    "State",
-                    value: store.review.state.workspaceReviewStateTitle
-                )
-                LabeledContent(
-                    "Submitted",
-                    value: store.review.createdAt.workspaceReviewDateTitle
-                )
-                LabeledContent(
-                    "Discussion",
-                    value: store.review.commentCount == 1
-                        ? "1 comment"
-                        : "\(store.review.commentCount) comments"
-                )
+                if let body = proposal.body, !body.isEmpty {
+                    Section("Description") {
+                        Text(body)
+                            .selectableText()
+                    }
+                }
+                linksSection(proposal)
+                if showsTechnicalDetails {
+                    technicalSection(proposal)
+                }
             }
 
+            changesSection
+        }
+        .navigationTitle(store.proposal?.title ?? "Proposal")
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    @ViewBuilder
+    var statusSection: some View {
+        switch store.status {
+        case .failed(let message):
+            Section("Proposal") {
+                Text("Proposal details could not be loaded")
+                if showsTechnicalDetails {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .selectableText()
+                }
+                Button("Try Again") {
+                    store.send(.retryButtonTapped)
+                }
+            }
+
+        case .loading:
+            Section("Proposal") {
+                ProgressView("Loading proposal")
+            }
+
+        case .pending:
+            Section("Proposal status") {
+                ProgressView("Waiting for the server projection")
+                Text("The proposal was published successfully. Its details are still being prepared.")
+                    .foregroundStyle(.secondary)
+            }
+
+        case .unavailable:
+            Section("Proposal") {
+                Text("This proposal is no longer available.")
+                    .foregroundStyle(.secondary)
+            }
+
+        case .notLoaded:
+            Section("Proposal") {
+                Button("Load proposal") {
+                    store.send(.retryButtonTapped)
+                }
+            }
+
+        case .loaded:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func proposalSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
+        Section("Proposal") {
+            if let title = proposal.title {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+            }
+            if let authorIdentity = store.authorIdentity {
+                ContributorActorIdentityRow(
+                    identity: authorIdentity,
+                    isSelected: false
+                )
+            } else {
+                LabeledContent(
+                    "Submitted by",
+                    value: proposal.authorDID.description.workspaceProposalFriendlyAuthorTitle
+                )
+            }
+            LabeledContent(
+                "State",
+                value: proposal.status.rawValue.workspaceProposalStateTitle
+            )
+            if let createdAt = proposal.createdAt {
+                LabeledContent(
+                    "Submitted",
+                    value: createdAt.workspaceProposalDateTitle
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    func branchesSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
+        if let targetBranch = proposal.targetBranch {
             Section("Branches") {
                 WorkspaceBranchRelationshipView(
-                    source: store.review.sourceBranch ?? "Unavailable",
-                    target: store.review.targetBranch
+                    source: proposal.source?.branch ?? "Unavailable",
+                    target: targetBranch
                 )
-                if let sourceRepositoryDID = store.review.sourceRepositoryDID,
-                   sourceRepositoryDID != store.review.targetRepositoryDID {
+                if let sourceRepositoryDID = proposal.source?.repositoryDID,
+                   sourceRepositoryDID != proposal.targetRepositoryDID {
                     Text("The source branch is in another repository.")
                         .foregroundStyle(.secondary)
                 }
             }
-
-            actionsSection
-
-            if let body = store.review.body, !body.isEmpty {
-                Section("Description") {
-                    Text(body)
-                        .selectableText()
-                }
-            }
-
-            semanticDiffSections
-
-            if showsTechnicalDetails {
-                technicalSections
-            }
         }
-        .navigationTitle(store.review.title)
-        #if !os(macOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 
     @ViewBuilder
@@ -691,18 +838,13 @@ public struct WorkspaceReviewDetailView: View {
             }
         case .idle:
             Section("Actions") {
-                if store.canMergeProposals {
-                    Button("Merge into \(store.review.targetBranch)") {
+                if store.canMergeProposals, let targetBranch = store.targetBranch {
+                    Button("Merge into \(targetBranch.rawValue)") {
                         store.send(.mergeButtonTapped)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canMerge)
                     .accessibilityIdentifier("workspace.proposal.merge")
-
-                    if !store.canMerge {
-                        Text("This proposal does not identify a target branch, so it cannot be merged.")
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 if store.canClose {
@@ -721,157 +863,106 @@ public struct WorkspaceReviewDetailView: View {
     }
 
     @ViewBuilder
-    var semanticDiffSections: some View {
-        switch store.semanticDiffStatus {
-        case let .failed(message):
-            Section("What changed") {
-                Text("Proposal changes could not be rendered")
-                if showsTechnicalDetails {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .selectableText()
+    func linksSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
+        if proposal.pageURL != nil || proposal.patchURL != nil {
+            Section("Links") {
+                if let pageURL = proposal.pageURL {
+                    Link("Open proposal page", destination: pageURL)
                 }
-                Button("Try Again") {
-                    store.send(.retrySemanticDiffButtonTapped)
-                }
-            }
-
-        case let .loaded(diff):
-            SourceChangeSummarySection(
-                groups: diff.groups,
-                fieldComparisons: diff.fieldComparisons,
-                recordComparisons: diff.recordComparisons
-            )
-
-        case .loading:
-            Section("What changed") {
-                ProgressView("Rendering proposal changes")
-            }
-
-        case .notLoaded:
-            Section("What changed") {
-                Button("Render proposal changes") {
-                    store.send(.retrySemanticDiffButtonTapped)
+                if let patchURL = proposal.patchURL {
+                    Link("Open patch", destination: patchURL)
                 }
             }
         }
     }
 
     @ViewBuilder
-    var technicalSections: some View {
-        Section("Technical details") {
-            WorkspaceTechnicalValueView(label: "Review URI", value: store.review.uri)
-            WorkspaceTechnicalValueView(label: "Author ID", value: store.review.author)
-            WorkspaceTechnicalValueView(label: "Created at", value: store.review.createdAt)
-            WorkspaceTechnicalValueView(
-                label: "Target branch",
-                value: store.review.targetBranch
-            )
-            WorkspaceTechnicalValueView(
-                label: "Target repository ID",
-                value: store.review.targetRepositoryDID
-            )
-            if let sourceBranch = store.review.sourceBranch {
-                WorkspaceTechnicalValueView(label: "Source branch", value: sourceBranch)
-            }
-            if let sourceRepositoryDID = store.review.sourceRepositoryDID {
-                WorkspaceTechnicalValueView(
-                    label: "Source repository ID",
-                    value: sourceRepositoryDID
+    var changesSection: some View {
+        switch store.status {
+        case let .loaded(proposal):
+            if let presentation = proposal.presentation {
+                SourceChangePresentationSection(
+                    presentation: presentation,
+                    emptyMessage: "No changes"
                 )
             }
 
-            PortableDisclosureGroup("Patch metadata") {
-                if store.review.patchBlobs.isEmpty {
-                    Text("No patch metadata")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(store.review.patchBlobs) { patchBlob in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Round \(patchBlob.index)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            WorkspaceTechnicalValueView(label: "Blob ID", value: patchBlob.cid)
-                            WorkspaceTechnicalValueView(
-                                label: "Media type",
-                                value: patchBlob.mimeType
-                            )
-                            if let size = patchBlob.size {
-                                WorkspaceTechnicalValueView(
-                                    label: "Size",
-                                    value: "\(size) bytes"
-                                )
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
+        case .loading, .pending:
+            Section("What changed") {
+                ProgressView("Preparing proposal changes")
+            }
+
+        case .failed, .notLoaded, .unavailable:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func technicalSection(_ proposal: OME.WorkspaceProposal.Detail) -> some View {
+        Section("Technical details") {
+            WorkspaceTechnicalValueView(
+                label: "Proposal URI",
+                value: proposal.uri.description
+            )
+            WorkspaceTechnicalValueView(
+                label: "Author ID",
+                value: proposal.authorDID.description
+            )
+            if let canonicalSource = proposal.canonicalSource {
+                WorkspaceTechnicalValueView(
+                    label: "Canonical source",
+                    value: canonicalSource.description
+                )
+            }
+            if let targetBranch = proposal.targetBranch {
+                WorkspaceTechnicalValueView(label: "Target branch", value: targetBranch)
+            }
+            if let targetRepositoryDID = proposal.targetRepositoryDID {
+                WorkspaceTechnicalValueView(
+                    label: "Target repository ID",
+                    value: targetRepositoryDID.description
+                )
+            }
+            if let source = proposal.source {
+                WorkspaceTechnicalValueView(label: "Source branch", value: source.branch)
+                if let sourceRepositoryDID = source.repositoryDID {
+                    WorkspaceTechnicalValueView(
+                        label: "Source repository ID",
+                        value: sourceRepositoryDID.description
+                    )
+                }
+                if let revision = source.revision {
+                    WorkspaceTechnicalValueView(label: "Source revision", value: revision)
                 }
             }
-
-            PortableDisclosureGroup("Raw review") {
-                Text(store.review.rawReviewText)
-                    .font(.caption)
-                    .monospaced()
-                    .selectableText()
+            WorkspaceTechnicalValueView(
+                label: "Record availability",
+                value: proposal.recordAvailability.rawValue
+            )
+            WorkspaceTechnicalValueView(
+                label: "Render status",
+                value: proposal.renderStatus.rawValue
+            )
+            if let recordCID = proposal.recordCID {
+                WorkspaceTechnicalValueView(label: "Record CID", value: recordCID.rawValue)
             }
-
-            if case let .loaded(diff) = store.semanticDiffStatus,
-               !diff.sourceFileAttributions.isEmpty
-            {
+            if !sourceFiles(in: proposal).isEmpty {
                 PortableDisclosureGroup("Source files") {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(diff.sourceFileAttributions) { attribution in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(attribution.filePath)
-                                    .monospaced()
-                                Text(
-                                    attribution.recordChangeIDs.count == 1
-                                        ? "1 rendered change"
-                                        : "\(attribution.recordChangeIDs.count) rendered changes"
-                                )
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
+                        ForEach(sourceFiles(in: proposal), id: \.self) { file in
+                            Text(file)
+                                .monospaced()
                         }
                     }
                     .padding(.top, 8)
                 }
             }
         }
-
-        Section("Raw source diff") {
-            rawDiffContent
-        }
     }
 
-    @ViewBuilder
-    var rawDiffContent: some View {
-        switch store.rawDiffStatus {
-        case let .failed(message):
-            Text("Raw source changes could not be loaded")
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .selectableText()
-            Button("Try Again") {
-                store.send(.retryRawDiffButtonTapped)
-            }
-
-        case let .loaded(rawDiff):
-            Text(rawDiff.isEmpty ? "No raw source changes" : rawDiff)
-                .font(.caption)
-                .monospaced()
-                .selectableText()
-
-        case .loading:
-            ProgressView("Loading raw source changes")
-
-        case .notLoaded:
-            Button("Load raw source changes") {
-                store.send(.retryRawDiffButtonTapped)
-            }
-        }
+    func sourceFiles(in proposal: OME.WorkspaceProposal.Detail) -> [String] {
+        Array(Set(proposal.presentation?.groups.flatMap(\.records).flatMap(\.sourceFiles) ?? []))
+            .sorted()
     }
 }
 
@@ -891,196 +982,29 @@ extension ErrorOperation {
     static let workspaceReviewMerge = Self("workspace.review.merge")
 }
 
-private extension WorkspaceReviewDetail.SemanticDiff {
-    static func load(
-        workspace: SourceWorkspace,
-        review: TangledPullReview,
-        scratchID: UUID,
-        sourceSnapshot: TangledPullReviewSourceSnapshotClient
-    ) async throws -> Self {
-        guard let sourceBranch = review.sourceBranch?.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ), !sourceBranch.isEmpty else {
-            throw WorkspaceReviewSemanticDiffError.missingSourceBranch
-        }
-        let targetBranch = SourceWorkspace.normalizedBranch(review.targetBranch)
-        guard !targetBranch.isEmpty else {
-            throw WorkspaceReviewSemanticDiffError.missingTargetBranch
-        }
-        let sourceRepositoryDID = review.sourceRepositoryDID?.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ) ?? ""
-        guard !sourceRepositoryDID.isEmpty else {
-            throw WorkspaceReviewSemanticDiffError.missingSourceRepository
-        }
-        let targetRepositoryDID = review.targetRepositoryDID.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard !targetRepositoryDID.isEmpty else {
-            throw WorkspaceReviewSemanticDiffError.missingTargetRepository
-        }
-
-        let scratchRootURL = FileManager.default.temporaryDirectory
-            .appending(
-                path: "ome-review-semantic-diff-\(scratchID.uuidString)",
-                directoryHint: .isDirectory
-            )
-            .standardizedFileURL
-        try FileManager.default.createDirectory(
-            at: scratchRootURL,
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: scratchRootURL) }
-
-        let targetInsertion = try await sourceSnapshot.insertion(
-            TangledPullReviewSourceSnapshotRequest(
-                organizerID: workspace.organizerID,
-                repository: .target(targetRepositoryDID),
-                ref: targetBranch,
-                sourceProvenance: workspace.sourceProvenance
-            )
-        )
-        let sourceInsertion = try await sourceSnapshot.insertion(
-            TangledPullReviewSourceSnapshotRequest(
-                organizerID: workspace.organizerID,
-                repository: .source(sourceRepositoryDID),
-                ref: sourceBranch,
-                sourceProvenance: workspace.sourceProvenance
-            )
-        )
-
-        let targetDatabasePath = scratchRootURL.appending(path: "target.sqlite").path
-        let targetDatabase = try DatabasePool(path: targetDatabasePath)
-        let sourceDatabase = try DatabasePool(
-            path: scratchRootURL.appending(path: "source.sqlite").path
-        )
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(targetDatabase)
-        try migrator.migrate(sourceDatabase)
-
-        try await withDependencies {
-            $0.localImageFileStore = .reviewScratch(
-                rootURL: scratchRootURL.appending(path: "target-assets")
-            )
-        } operation: {
-            try await targetInsertion.insert(into: targetDatabase)
-        }
-        try await withDependencies {
-            $0.localImageFileStore = .reviewScratch(
-                rootURL: scratchRootURL.appending(path: "source-assets")
-            )
-        } operation: {
-            try await sourceInsertion.insert(into: sourceDatabase)
-        }
-
-        let referenceDatabase = SourceBaselineDatabase(
-            path: targetDatabasePath,
-            database: targetDatabase
-        )
-        return try await sourceDatabase.read { db in
-            let summary = try SourceWorkspaceEditSummary.query(
-                workspace: workspace,
-                in: db,
-                referenceDatabase: referenceDatabase
-            )
-            guard case .available = summary.availability else {
-                throw WorkspaceReviewSemanticDiffError.unavailable(summary.availability)
-            }
-            let sourceFileAttributions = try openMusicEventSourceFileAttributions(
-                groups: summary.groups,
-                recordComparisons: summary.recordComparisons,
-                in: db
-            )
-            return Self(
-                groups: summary.groups,
-                fieldComparisons: summary.fieldComparisons,
-                recordComparisons: summary.recordComparisons,
-                sourceFileAttributions: sourceFileAttributions
-            )
-        }
-    }
-}
-
-private enum WorkspaceReviewSemanticDiffError: Error, CustomStringConvertible {
-    case missingSourceBranch
-    case missingSourceRepository
-    case missingTargetBranch
-    case missingTargetRepository
-    case unavailable(SourceWorkspaceEditSummary.Availability)
-
-    var description: String {
-        switch self {
-        case .missingSourceBranch:
-            "The proposal does not identify a source branch."
-        case .missingSourceRepository:
-            "The proposal does not identify a source repository."
-        case .missingTargetBranch:
-            "The proposal does not identify a target branch."
-        case .missingTargetRepository:
-            "The proposal does not identify a target repository."
-        case let .unavailable(availability):
-            "Proposal changes are unavailable: \(availability)."
-        }
-    }
-}
-
-private extension LocalImageFileStoreClient {
-    static func reviewScratch(rootURL: URL) -> Self {
-        Self { assetKey, data, _ in
-            let imageRootURL = rootURL.appending(path: "images", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(
-                at: imageRootURL,
-                withIntermediateDirectories: true
-            )
-            let fileName = Data(assetKey.utf8)
-                .base64EncodedString()
-                .replacingOccurrences(of: "+", with: "-")
-                .replacingOccurrences(of: "/", with: "_")
-                .replacingOccurrences(of: "=", with: "")
-            let imageURL = imageRootURL
-                .appending(path: fileName.isEmpty ? "asset" : fileName)
-                .appendingPathExtension("data")
-            try data.write(to: imageURL, options: .atomic)
-            return imageURL
-        }
-    }
-}
-
 private extension String {
-    var workspaceReviewFriendlyAuthorTitle: String {
+    var workspaceProposalFriendlyAuthorTitle: String {
         let value = trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return "Profile unavailable" }
         if value.hasPrefix("did:") { return "Profile unavailable" }
         return value.hasPrefix("@") ? value : "@\(value)"
     }
 
-    var workspaceReviewStateTitle: String {
-        let value = replacingOccurrences(of: "-", with: " ")
+    var workspaceProposalStateTitle: String {
+        let component = split(separator: ".").last.map(String.init) ?? self
+        let value = component.replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: "_", with: " ")
         guard let first = value.first else { return "Unknown" }
         return first.uppercased() + value.dropFirst()
     }
+}
 
-    var workspaceReviewDateTitle: String {
-        let standard = ISO8601DateFormatter()
-        if let date = standard.date(from: self) {
-            return DateFormatter.localizedString(
-                from: date,
-                dateStyle: .medium,
-                timeStyle: .short
-            )
-        }
-
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: self) {
-            return DateFormatter.localizedString(
-                from: date,
-                dateStyle: .medium,
-                timeStyle: .short
-            )
-        }
-        return self
+private extension Date {
+    var workspaceProposalDateTitle: String {
+        DateFormatter.localizedString(
+            from: self,
+            dateStyle: .medium,
+            timeStyle: .short
+        )
     }
 }

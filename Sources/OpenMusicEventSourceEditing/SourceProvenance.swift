@@ -83,6 +83,25 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
         )
     }
 
+    /// The organizer-owned repository record identity used by AppView APIs.
+    ///
+    /// Workspaces created before canonical source migration may still store a public Tangled
+    /// locator. Its repository name is the canonical record key; the organizer remains the
+    /// authority.
+    public var canonicalTangledSourceURI: ATProto.URI? {
+        if let record = try? TangledRepositoryRecordReference(parsing: repository),
+           record.uri.authority.description == organizerID.description
+        {
+            return record.uri
+        }
+        guard let legacy = try? TangledRepositoryReference(parsing: repository) else {
+            return nil
+        }
+        return ATProto.URI(
+            "at://\(organizerID)/sh.tangled.repo/\(legacy.repository)"
+        )
+    }
+
     /// Whether two workspaces belong to the same organizer-owned repository.
     ///
     /// Published attendee content may advance independently of the editable branch, but it must

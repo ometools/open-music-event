@@ -1197,7 +1197,12 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(repairingWorkspace.workspaceIsReady)
                 expectNoDifference(repairingWorkspace.selectedContext, .published(initialBranch))
                 expectNoDifference(repairingWorkspace.selectedPage, .proposals)
-                expectNoDifference(repairingWorkspace.reviews.requestedReviewID, proposal.id.rawValue)
+                guard case let .reviewDetail(detail)? = repairingWorkspace.reviews.destination else {
+                    Issue.record("A published proposal must open its server-backed detail immediately.")
+                    return
+                }
+                expectNoDifference(detail.expectedProposal, proposal)
+                expectNoDifference(detail.proposalURI.description, proposal.id.rawValue)
                 expectNoDifference(operations.count(of: "putRecord"), 1)
 
                 try resource.referenceDatabase.write { db in
@@ -2527,6 +2532,25 @@ private func workspaceStoryNetwork(
                       "byteCount": \(archive.count)
                     }
                   }
+                }
+                """.utf8
+            ))
+        }
+        if path.hasSuffix("/app.openmusicevent.workspace.getProposals") {
+            return ok(Data(#"{"proposals":[]}"#.utf8))
+        }
+        if path.hasSuffix("/app.openmusicevent.workspace.getProposal") {
+            return ok(Data(
+                """
+                {
+                  "uri": "at://\(repositoryOwnerID)/sh.tangled.repo.pull/workspace-story",
+                  "canonicalSource": "at://\(eventID.organizerID)/sh.tangled.repo/ome-workspace",
+                  "title": "Expand the 2026 event experience",
+                  "authorDID": "\(repositoryOwnerID)",
+                  "status": "sh.tangled.repo.pull.status.open",
+                  "targetBranch": "main",
+                  "recordAvailability": "app.openmusicevent.workspace.defs#awaitingRecord",
+                  "renderStatus": "app.openmusicevent.workspace.defs#awaitingInput"
                 }
                 """.utf8
             ))

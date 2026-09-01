@@ -107,7 +107,6 @@ public struct EventWorkspace {
 
             guard scopedGrant != nil else {
                 collaborators = nil
-                reviews.requestedReviewID = nil
                 reviews.status = .notLoaded
                 changes.proposalDraft = nil
                 if selectedPage == .collaborators { selectedPage = .changes }
@@ -177,13 +176,12 @@ public struct EventWorkspace {
 
                 case .viewProposalButtonTapped:
                     guard state.authoringAccess.canPropose || state.authoringAccess.canMerge,
-                          let proposalID = state.selectedProposal?.id.rawValue
+                          let proposal = state.selectedProposal
                     else {
                         return
                     }
                     state.selectedPage = .proposals
-                    state.reviews.requestedReviewID = proposalID
-                    state.reviews.openRequestedReviewIfAvailable()
+                    state.reviews.open(proposal)
                     store.addTask {
                         try store.send(.reviews(.refreshButtonTapped))
                     }
