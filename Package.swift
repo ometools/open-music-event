@@ -386,7 +386,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     isAndroidAppBuild
         ? .package(name: "sqlite-data", path: workspacePackagePath("sqlite-data"), traits: sqliteDataTraits)
-        : .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
+        : .package(url: "https://github.com/pointfreeco/sqlite-data", exact: "1.6.6", traits: ["SQLiteDataTagged"]),
     isAndroidAppBuild
         ? .package(name: "swift-structured-queries", path: workspacePackagePath("swift-structured-queries"), traits: ["StructuredQueriesTagged"])
         : .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged"]),
@@ -455,7 +455,7 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
     .package(
         url: "https://github.com/pointfreeco/sqlite-data",
-        from: "1.0.0",
+        exact: "1.6.6",
         traits: ["SQLiteDataTagged"]
     ),
     .package(

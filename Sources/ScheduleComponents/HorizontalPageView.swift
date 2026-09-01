@@ -21,7 +21,7 @@ public struct HorizontalPageView<Content: View, ID: Hashable>: View {
     public var body: some View {
         #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
         ScrollView(.horizontal) {
-            HStack(spacing: 0) {
+            LazyHStack(spacing: 0) {
                 content
                     .containerRelativeFrame(.horizontal)
             }

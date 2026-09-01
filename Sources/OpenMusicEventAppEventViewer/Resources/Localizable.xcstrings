@@ -27,19 +27,19 @@
     "%lld changes" : {
 
     },
-    "%lld comments" : {
+    "%lld local changes have not been proposed." : {
 
     },
-    "%lld rendered changes" : {
+    "%lld newer local changes are waiting to be added." : {
 
     },
     "1 change" : {
 
     },
-    "1 comment" : {
+    "1 local change has not been proposed." : {
 
     },
-    "1 rendered change" : {
+    "1 newer local change is waiting to be added." : {
 
     },
     "About" : {
@@ -165,14 +165,14 @@
     "Biography" : {
 
     },
-    "Blob ID" : {
-
-    },
     "Bluesky Actor Profile" : {
 
     },
     "Branch" : {
       "comment" : "Editable source branch name in the workspace switcher"
+    },
+    "Branch name" : {
+
     },
     "Branches" : {
 
@@ -193,6 +193,12 @@
 
     },
     "Category" : {
+
+    },
+    "Change location cannot currently be calculated." : {
+
+    },
+    "Change location will be available after the workspace is prepared." : {
 
     },
     "Changes" : {
@@ -264,6 +270,9 @@
     "Contact Numbers" : {
 
     },
+    "Continue editing. There are no local changes waiting to be proposed." : {
+
+    },
     "Contributor" : {
 
     },
@@ -294,13 +303,13 @@
     "Create/reuse contributor" : {
 
     },
-    "Created at" : {
-
-    },
     "Critical Alerts" : {
 
     },
     "Critical Alerts appear on the Lock Screen and play a sound even if a Focus is on or iPhone is muted." : {
+
+    },
+    "Current context" : {
 
     },
     "Current DID" : {
@@ -384,9 +393,6 @@
     "Directions" : {
 
     },
-    "Discussion" : {
-
-    },
     "Display" : {
 
     },
@@ -445,9 +451,6 @@
 
     },
     "Enter one emoji." : {
-
-    },
-    "Enter the workspace to prepare it." : {
 
     },
     "Enter Workspace" : {
@@ -555,7 +558,7 @@
     "Listing" : {
 
     },
-    "Load raw source changes" : {
+    "Load proposal" : {
 
     },
     "Loading contributors…" : {
@@ -564,10 +567,10 @@
     "Loading post" : {
 
     },
-    "Loading proposals" : {
+    "Loading proposal" : {
 
     },
-    "Loading raw source changes" : {
+    "Loading proposals" : {
 
     },
     "Local events, saved attendee state, preferences, caches, and unpublished workspaces stay on this device. Account credentials use platform-protected storage." : {
@@ -610,9 +613,6 @@
 
     },
     "Markdown is saved as entered. Use Preview to see the published post." : {
-
-    },
-    "Media type" : {
 
     },
     "Merge into %@" : {
@@ -684,16 +684,10 @@
     "No open proposals" : {
 
     },
-    "No patch metadata" : {
-
-    },
     "No Personal Schedules" : {
 
     },
     "No posters have been added to this event yet." : {
-
-    },
-    "No raw source changes" : {
 
     },
     "No Results" : {
@@ -710,9 +704,6 @@
     },
     "No stages match your search." : {
 
-    },
-    "Not prepared" : {
-      "comment" : "Workspace state before its source is ready"
     },
     "Not set" : {
 
@@ -762,13 +753,13 @@
     "Open Notification Settings" : {
 
     },
-    "Open proposal" : {
+    "Open patch" : {
+
+    },
+    "Open proposal page" : {
 
     },
     "Open proposals" : {
-
-    },
-    "Opening your new proposal" : {
 
     },
     "OpenMusicEvent" : {
@@ -796,9 +787,6 @@
 
     },
     "Other Reaction" : {
-
-    },
-    "Patch metadata" : {
 
     },
     "People can choose whether to receive notifications from this channel." : {
@@ -849,7 +837,13 @@
     "Posters" : {
 
     },
+    "Preparing changes" : {
+
+    },
     "Preparing proposal" : {
+
+    },
+    "Preparing proposal changes" : {
 
     },
     "Preparing workspace" : {
@@ -879,16 +873,19 @@
     "Proposal" : {
 
     },
-    "Proposal changes could not be rendered" : {
+    "Proposal details could not be loaded" : {
 
     },
-    "Proposal in review" : {
-      "comment" : "Organizer label for editing an existing proposal"
-    },
-    "Proposal publication is unavailable. Your local changes are preserved." : {
+    "Proposal not published" : {
 
     },
-    "Proposal publication stopped. Your local changes are preserved." : {
+    "Proposal published; finishing workspace refresh." : {
+
+    },
+    "Proposal revision" : {
+
+    },
+    "Proposal status" : {
 
     },
     "Proposals" : {
@@ -906,22 +903,13 @@
     "Publication" : {
 
     },
-    "Published" : {
-      "comment" : "Organizer label for the publicly released event source"
+    "Published branch" : {
+
     },
     "Quiet" : {
       "comment" : "Notification permission status when notifications are delivered provisionally or quietly"
     },
     "Raw record diff" : {
-
-    },
-    "Raw review" : {
-
-    },
-    "Raw source changes could not be loaded" : {
-
-    },
-    "Raw source diff" : {
 
     },
     "Reactions" : {
@@ -943,9 +931,6 @@
 
     },
     "Refresh proposals" : {
-
-    },
-    "Refreshing workspace" : {
 
     },
     "Remove %@ reaction" : {
@@ -990,12 +975,6 @@
     "Render" : {
 
     },
-    "Render proposal changes" : {
-
-    },
-    "Rendering proposal changes" : {
-
-    },
     "Reporting" : {
 
     },
@@ -1026,13 +1005,7 @@
     "Retry" : {
 
     },
-    "Review URI" : {
-
-    },
     "Role" : {
-
-    },
-    "Round %lld" : {
 
     },
     "Save" : {
@@ -1083,11 +1056,14 @@
     "Select or enter a collaborator." : {
 
     },
+    "Select Published or a proposal before publishing these changes." : {
+
+    },
     "Selected" : {
 
     },
-    "Selected branch" : {
-      "comment" : "Organizer label for a manually selected technical branch\nTechnical detail label for the mounted source branch"
+    "Selected proposal snapshot" : {
+
     },
     "Selected schedule" : {
 
@@ -1117,9 +1093,6 @@
 
     },
     "Site Map" : {
-
-    },
-    "Size" : {
 
     },
     "Sort Index" : {
@@ -1191,8 +1164,11 @@
     "Submitted by" : {
 
     },
-    "Switch" : {
-      "comment" : "Button that switches to the entered source branch"
+    "Switch branch" : {
+
+    },
+    "Switch Branch" : {
+
     },
     "System icon" : {
 
@@ -1233,13 +1209,16 @@
     "The proposal could not be merged." : {
 
     },
-    "The proposal does not identify a source branch." : {
+    "The proposal was published successfully. Its details are still being prepared." : {
+
+    },
+    "The selected proposal is the comparison reference." : {
 
     },
     "The source branch is in another repository." : {
 
     },
-    "The workspace changed while you were editing. Publication is unavailable until it is refreshed." : {
+    "The workspace is not currently prepared." : {
 
     },
     "The workspace source does not match the app’s data model." : {
@@ -1250,9 +1229,6 @@
     },
     "They will no longer be able to propose or merge changes in this workspace." : {
 
-    },
-    "This branch is not associated with Published or a known proposal. Your local changes are preserved, but they cannot be proposed from here." : {
-      "comment" : "Explains why changes on a manually selected branch cannot be proposed"
     },
     "This calendar could not be loaded." : {
 
@@ -1278,7 +1254,7 @@
     "This poster could not be loaded." : {
 
     },
-    "This proposal does not identify a target branch, so it cannot be merged." : {
+    "This proposal is no longer available." : {
 
     },
     "This removes saved performances that are no longer in the published event." : {
@@ -1347,13 +1323,19 @@
     "Update Proposal" : {
 
     },
+    "Updating proposal" : {
+
+    },
     "URL" : {
 
     },
     "View Proposal" : {
 
     },
-    "Waiting for it to appear in the proposal list." : {
+    "Waiting for its server projection." : {
+
+    },
+    "Waiting for the server projection" : {
 
     },
     "What changed" : {
@@ -1362,11 +1344,17 @@
     "What is this channel for?" : {
 
     },
-    "Working from" : {
-      "comment" : "Label for the organizer's current editing context"
+    "What should I do next?" : {
+
+    },
+    "Where are my changes?" : {
+
     },
     "Workspace" : {
       "comment" : "Settings section for entering or leaving the event workspace"
+    },
+    "Workspace overview" : {
+
     },
     "Workspace preparation stopped, so changes cannot currently be compared." : {
 
@@ -1381,6 +1369,9 @@
 
     },
     "You can review this proposal, but you do not have permission to change its state." : {
+
+    },
+    "Your changes and proposal details are still here. You can try again." : {
 
     },
     "Your changes will appear here when the source is ready." : {
