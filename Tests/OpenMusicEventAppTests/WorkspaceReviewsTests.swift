@@ -8,8 +8,9 @@ import Dependencies
 import Foundation
 import IssueReporting
 import OpenMusicEventLexicon
-import OpenMusicEventSourceEditing
+@testable import OpenMusicEventSourceEditing
 import SQLiteData
+import SourceEditing
 import Testing
 
 @testable import OpenMusicEventAppEventViewer
@@ -90,22 +91,34 @@ struct WorkspaceReviewsTests {
         OME.WorkspaceProposal.RenderStatus.awaitingInput,
         .pending,
     ])
-    func `a hydrated proposal remains available before its changes are rendered`(
+    func `a hydrated patch proposal remains available before its changes are rendered`(
         renderStatus: OME.WorkspaceProposal.RenderStatus
     ) async throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
-        let receipt = workspaceProposal(revision: "source-revision")
+        let receipt = workspaceProposal(revision: "0cfcf74f19973c463bcb34fb0f2e676920592c9a")
         var item = proposalListItem()
         item.renderStatus = renderStatus
         var detail = proposalDetail()
+        detail.source = nil
         detail.renderStatus = renderStatus
         detail.presentation = nil
         let hydratedDetail = detail
 
-        // The app has durably recorded its successful publication receipt.
-        try await SourceWorkspaceContextStore(database: database).saveProposalContext(
-            receipt,
+        expectNoDifference(
+            try WorkspaceProposalObservation.observe(
+                detail,
+                proposalURI: proposalURI,
+                request: OpenMusicEventWorkspaceProposalListRequest(workspace: workspace),
+                expectedProposal: receipt
+            ),
+            .available(detail)
+        )
+
+        // The app has durably recorded its successful publication receipt and repair checkpoint.
+        try await WorkspacePublicationPersistence(database: database).saveReceiptAndRepair(
+            proposal: receipt,
+            patch: SourcePatch(),
             workspaceID: workspace.id
         )
 
@@ -117,7 +130,7 @@ struct WorkspaceReviewsTests {
             grant: try ownerGrant(workspace: workspace)
         )
 
-        // Hydration replaces the local publication placeholder even without a rendered preview.
+        // The patch-only record hydrates without inventing a source branch or rendered preview.
         await waitUntil {
             store.proposals == [item]
                 && store.pendingProjectionReceipts.isEmpty

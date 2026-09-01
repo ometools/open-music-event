@@ -76,7 +76,8 @@ enum WorkspaceProposalObservation {
             return .pending(proposal)
         }
         if let expectedProposal,
-           proposal.source?.revision != expectedProposal.revision.rawValue {
+           let sourceRevision = proposal.source?.revision,
+           sourceRevision != expectedProposal.revision.rawValue {
             return .pending(proposal)
         }
         if proposal.renderStatus == .ready {
