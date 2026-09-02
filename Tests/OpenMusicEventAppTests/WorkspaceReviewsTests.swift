@@ -7,6 +7,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import IssueReporting
+import Lexicon
 import OpenMusicEventLexicon
 @testable import OpenMusicEventSourceEditing
 import SQLiteData
@@ -341,6 +342,118 @@ struct WorkspaceReviewsTests {
         await store.send(.destination(.reviewDetail(.mergeButtonTapped)))?.value
         await store.send(.destination(.reviewDetail(.closeButtonTapped)))?.value
         #expect(mutations.value.isEmpty)
+    }
+
+    @Test
+    func addedProposalRecordUsesItsAfterSnapshotWithoutDatabaseHydration() {
+        let proposed = proposalCalendar(name: "Wicked Woods 2027")
+        let snapshot = proposalSnapshot(
+            title: nil,
+            kind: .added,
+            after: .known(.calendar(proposed))
+        )
+
+        expectNoDifference(snapshot.record, .calendar(proposed))
+        #expect(snapshot.previousSnapshot == nil)
+        #expect(snapshot.title == "Wicked Woods 2027")
+        #expect(snapshot.collectionName == "Calendars")
+        #expect(snapshot.contextTitle == "Added in this proposal")
+    }
+
+    @Test
+    func modifiedProposalRecordUsesAfterAndKeepsBeforeForPreviousVersion() {
+        let previous = proposalCalendar(name: "Wicked Woods 2026")
+        let proposed = proposalCalendar(name: "Wicked Woods 2027")
+        let snapshot = proposalSnapshot(
+            kind: .modified,
+            before: .known(.calendar(previous)),
+            after: .known(.calendar(proposed))
+        )
+
+        expectNoDifference(snapshot.record, .calendar(proposed))
+        expectNoDifference(snapshot.previousSnapshot?.record, .calendar(previous))
+        #expect(snapshot.contextTitle == "Proposed version")
+        #expect(snapshot.previousSnapshot?.contextTitle == "Previous version")
+    }
+
+    @Test
+    func removedProposalRecordUsesItsBeforeSnapshot() {
+        let removed = proposalCalendar(name: "Wicked Woods 2026")
+        let snapshot = proposalSnapshot(
+            kind: .deleted,
+            before: .known(.calendar(removed))
+        )
+
+        expectNoDifference(snapshot.record, .calendar(removed))
+        #expect(snapshot.previousSnapshot == nil)
+        #expect(snapshot.contextTitle == "Removed by this proposal")
+    }
+
+    @Test
+    func malformedModifiedRecordStillOffersItsAvailablePreviousSnapshot() {
+        let previous = proposalCalendar(name: "Wicked Woods 2026")
+        let snapshot = proposalSnapshot(
+            title: "Wicked Woods",
+            kind: .modified,
+            before: .known(.calendar(previous)),
+            after: nil
+        )
+
+        #expect(snapshot.record == nil)
+        #expect(snapshot.title == "Wicked Woods")
+        expectNoDifference(snapshot.previousSnapshot?.record, .calendar(previous))
+    }
+
+    @Test
+    func unknownProposalRecordUsesFriendlyUnavailablePresentation() {
+        let unknown: Open<OME.WorkspaceProposal.SourceRecord> = .unknown(
+            .object(["$type": .string("example.music.customRecord")])
+        )
+        let snapshot = proposalSnapshot(
+            title: "Custom record",
+            groupName: "CommsPost",
+            kind: .added,
+            after: unknown
+        )
+
+        #expect(snapshot.record == nil)
+        #expect(snapshot.title == "Custom record")
+        #expect(snapshot.collectionName == "Posts")
+        #expect(snapshot.recordType == .unavailable)
+    }
+
+    func proposalSnapshot(
+        title: String? = nil,
+        groupName: String = "Calendars",
+        kind: OME.WorkspaceProposal.Presentation.Transition.Kind,
+        before: Open<OME.WorkspaceProposal.SourceRecord>? = nil,
+        after: Open<OME.WorkspaceProposal.SourceRecord>? = nil
+    ) -> ProposalRecordSnapshot {
+        ProposalRecordSnapshot(
+            record: OME.WorkspaceProposal.Presentation.Record(
+                id: "calendar",
+                title: title,
+                transition: OME.WorkspaceProposal.Presentation.Transition(
+                    kind: kind,
+                    before: before,
+                    after: after
+                ),
+                changedFields: ["name"],
+                sourceFiles: ["calendar.yml"]
+            ),
+            groupName: groupName
+        )
+    }
+
+    func proposalCalendar(name: String) -> OME.Calendar {
+        OME.Calendar(
+            id: OME.Calendar.ID(
+                ownerID: targetRepositoryDID,
+                calendarID: OME.ID<OME.Calendar>(rawValue: "calendar")
+            ),
+            name: name,
+            description: "The festival calendar"
+        )
     }
 
     func makeStore(
