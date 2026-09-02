@@ -53,6 +53,7 @@ public struct EventWorkspace {
         public var collaborators: WorkspaceCollaborators.State?
         public var reviews: WorkspaceReviews.State?
         public var requestedBranch = ""
+        @StoreTaskID public var contextSelection
 
         public var changeCount: Int? { changes.badgeCount }
 
@@ -62,10 +63,6 @@ public struct EventWorkspace {
 
         public var selectedContext: WorkspaceEditingContext? {
             workspaceState.selectedContext
-        }
-
-        public var selectedProposal: WorkspaceProposal? {
-            workspaceState.selectedProposal
         }
 
         public var authoringAccess: AuthoringAccess {
@@ -141,7 +138,8 @@ public struct EventWorkspace {
                 case .switchToMainButtonTapped:
                     guard state.authoringAccess.canEditContent,
                           let currentContext = state.selectedContext,
-                          state.changeCount == nil
+                          state.changeCount == nil,
+                          !state.contextSelection.isRunning
                     else { return }
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.workspace.defaultBranch)
@@ -151,7 +149,8 @@ public struct EventWorkspace {
                     {
                         return
                     }
-                    store.addTask {
+                    let contextSelection = state.contextSelection
+                    store.addTask(id: contextSelection) {
                         let task = try store.post(
                             key: WorkspacePublishedRequested.self,
                             value: requestedBranch
@@ -163,6 +162,7 @@ public struct EventWorkspace {
                     guard state.authoringAccess.canEditContent,
                           let currentContext = state.selectedContext,
                           state.changeCount == nil,
+                          !state.contextSelection.isRunning,
                           !state.requestedBranch.trimmingCharacters(
                               in: .whitespacesAndNewlines
                           ).isEmpty
@@ -171,7 +171,8 @@ public struct EventWorkspace {
                         rawValue: SourceWorkspace.normalizedBranch(state.requestedBranch)
                     )
                     guard requestedBranch != currentContext.selectedBranch else { return }
-                    store.addTask {
+                    let contextSelection = state.contextSelection
+                    store.addTask(id: contextSelection) {
                         let task = try store.post(
                             key: WorkspaceBranchRequested.self,
                             value: requestedBranch
@@ -180,7 +181,7 @@ public struct EventWorkspace {
                     }
 
                 case .viewProposalButtonTapped:
-                    guard let proposal = state.selectedProposal else { return }
+                    guard let proposal = state.workspaceState.selectedProposal else { return }
                     state.openProposalList(proposal)
 
                 case .changes, .collaborators, .reviews:
@@ -225,6 +226,7 @@ public struct EventWorkspaceView: View {
             WorkspaceContextSection(
                 workspace: store.workspace,
                 workspaceState: store.workspaceState,
+                isSelectingContext: store.contextSelection.isRunning,
                 canSwitchBranch: store.authoringAccess.canEditContent
                     && store.workspaceIsReady
                     && store.changeCount == nil,
@@ -305,6 +307,7 @@ public struct EventWorkspaceView: View {
 struct WorkspaceContextSection: View {
     let workspace: SourceWorkspace
     let workspaceState: WorkspaceState<SourceWorkspaceResource>
+    let isSelectingContext: Bool
     let canSwitchBranch: Bool
     let viewProposal: () -> Void
     let switchBranch: () -> Void
@@ -347,7 +350,8 @@ struct WorkspaceContextSection: View {
 
     var accessibilityLabel: String {
         guard let selectedBranch else { return contextTitle }
-        return "Current workspace context: \(contextTitle), branch \(selectedBranch)"
+        let current = "Current workspace context: \(contextTitle), branch \(selectedBranch)"
+        return isSelectingContext ? "\(current), switching" : current
     }
 
     var body: some View {
@@ -386,12 +390,18 @@ struct WorkspaceContextSection: View {
 
                     Spacer()
 
-                    MappedSystemImage(systemName: "chevron.down")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 12, height: 12)
+                    if isSelectingContext {
+                        ProgressView()
+                            .frame(width: 16, height: 16)
+                    } else {
+                        MappedSystemImage(systemName: "chevron.down")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12, height: 12)
+                    }
                 }
                 .contentShape(Rectangle())
             }
+            .disabled(isSelectingContext)
             .tint(.primary)
             .accessibilityLabel(Text(verbatim: accessibilityLabel))
             .accessibilityIdentifier("workspace.context")

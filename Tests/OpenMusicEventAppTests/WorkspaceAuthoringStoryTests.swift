@@ -1076,7 +1076,7 @@ struct WorkspaceAuthoringStoryTests {
                 )
                 #expect(failedWorkspace.workspaceIsReady)
                 expectNoDifference(failedWorkspace.selectedContext, .published(initialBranch))
-                expectNoDifference(failedWorkspace.selectedProposal, nil)
+                expectNoDifference(failedWorkspace.workspaceState.selectedProposal, nil)
                 guard case let .failed(message) = failedWorkspace.changes.proposalDraft?
                     .publicationProgress
                 else {
@@ -1238,7 +1238,7 @@ struct WorkspaceAuthoringStoryTests {
             let proposal = try #require(
                 opened.state.content.destination?.eventViewer?
                     .authoring.content.content.eventWorkspace?
-                    .selectedProposal
+                    .workspaceState.selectedProposal
             )
             guard case let .proposal(recordedProposal) = opened.state.content.destination?
                 .eventViewer?.authoring.content.selectedContext,
@@ -1298,7 +1298,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             expectNoDifference(
                 opened.state.content.destination?.eventViewer?.authoring.content.content
-                    .eventWorkspace?.selectedProposal,
+                    .eventWorkspace?.workspaceState.selectedProposal,
                 proposal
             )
             expectNoDifference(
@@ -1410,7 +1410,7 @@ struct WorkspaceAuthoringStoryTests {
                 return
             }
             expectNoDifference(
-                remountedAuthoring.content.content.eventWorkspace?.selectedProposal,
+                remountedAuthoring.content.content.eventWorkspace?.workspaceState.selectedProposal,
                 proposal
             )
             expectNoDifference(operations.count(of: "initialize"), 1)
