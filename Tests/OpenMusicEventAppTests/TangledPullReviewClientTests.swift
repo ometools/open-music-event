@@ -769,6 +769,7 @@ struct TangledPullReviewClientTests {
         #expect(mergeJSON["did"] as? String == "did:plc:owner")
         #expect(mergeJSON["name"] as? String == "wicked-woods-ome")
         #expect(mergeJSON["branch"] as? String == "main")
+        #expect(mergeJSON["repo"] as? String == "did:plc:targetrepo")
         #expect(mergeJSON["patch"] as? String == patchText)
         #expect(mergeJSON["commitMessage"] as? String == "Add Excision")
         #expect(mergeJSON["commitBody"] as? String == "Proposed from OME.")

@@ -329,6 +329,7 @@ public extension TangledPullReviewClient {
                         name: mergeRepository.name,
                         patch: patch,
                         branch: pullRecord.value.target.branch,
+                        repo: mergeRepository.repoDID,
                         authorName: request.review.author,
                         commitBody: pullRecord.value.body,
                         commitMessage: pullRecord.value.title
