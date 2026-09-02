@@ -253,11 +253,6 @@ public struct WorkspaceChangesView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
-            WorkspaceProposalDraftView(
-                store: draftStore
-            )
-        }
         .alert("Reset all source changes?", isPresented: $isResetConfirmationPresented) {
             Button("Reset", role: .destructive) {
                 store.send(.resetChangesButtonTapped)

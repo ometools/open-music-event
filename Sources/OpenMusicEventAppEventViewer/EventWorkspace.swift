@@ -212,7 +212,7 @@ public struct EventWorkspaceView: View {
     }
 
     public var body: some View {
-        let changesStore = store.scope(\.changes, action: \.changes)
+        @Bindable var changesStore = store.scope(\.changes, action: \.changes)
 
         List {
             if store.pendingProposalRepair != nil {
@@ -280,6 +280,9 @@ public struct EventWorkspaceView: View {
         #endif
         .navigationDestination(item: $store.scope(\.reviews, action: \.reviews)) { reviewsStore in
             WorkspaceReviewsView(store: reviewsStore)
+        }
+        .sheet(item: $changesStore.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
+            WorkspaceProposalDraftView(store: draftStore)
         }
         .alert("Switch branch", isPresented: $isBranchPromptPresented) {
             TextField("Branch name", text: $store.requestedBranch)
