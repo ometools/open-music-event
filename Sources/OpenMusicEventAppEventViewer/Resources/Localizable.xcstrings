@@ -147,6 +147,9 @@
     "Before" : {
 
     },
+    "Billing" : {
+
+    },
     "Bio" : {
 
     },
@@ -249,6 +252,9 @@
     "Contact Numbers" : {
 
     },
+    "Contribution" : {
+
+    },
     "Contributor" : {
 
     },
@@ -298,6 +304,9 @@
 
     },
     "Dates" : {
+
+    },
+    "Default" : {
 
     },
     "Default branch" : {
@@ -417,6 +426,9 @@
     "End time" : {
 
     },
+    "Ends" : {
+
+    },
     "Enter a proposal title." : {
 
     },
@@ -460,6 +472,9 @@
 
     },
     "Focus" : {
+
+    },
+    "For" : {
 
     },
     "From Other Event" : {
@@ -663,6 +678,9 @@
     "No posters have been added to this event yet." : {
 
     },
+    "No recordings" : {
+
+    },
     "No Results" : {
 
     },
@@ -825,6 +843,12 @@
     "Preview" : {
 
     },
+    "Preview unavailable" : {
+
+    },
+    "Previous version" : {
+
+    },
     "Primary" : {
 
     },
@@ -898,6 +922,9 @@
 
     },
     "Recordings" : {
+
+    },
+    "Relationship" : {
 
     },
     "Remove %@ reaction" : {
@@ -1107,6 +1134,9 @@
     "Start time" : {
 
     },
+    "Starts" : {
+
+    },
     "Starts %@" : {
 
     },
@@ -1114,6 +1144,9 @@
 
     },
     "Status" : {
+
+    },
+    "Subject" : {
 
     },
     "Switch" : {
@@ -1138,6 +1171,9 @@
 
     },
     "Technical details" : {
+
+    },
+    "Technical Details" : {
 
     },
     "Technical details changed" : {
@@ -1197,6 +1233,9 @@
     "This poster could not be loaded." : {
 
     },
+    "This proposal does not include a previewable snapshot for this record." : {
+
+    },
     "This proposal is no longer available." : {
 
     },
@@ -1248,11 +1287,11 @@
     "Unable to load contributor profile." : {
 
     },
-    "Unable to switch Workspace." : {
-      "comment" : "Transient error shown when a requested Workspace branch or proposal context could not be selected."
-    },
     "Unable to request Critical Alerts permission." : {
 
+    },
+    "Unable to switch Workspace." : {
+      "comment" : "Transient error shown when a requested Workspace branch or proposal context could not be selected."
     },
     "Unavailable" : {
 
@@ -1273,6 +1312,9 @@
 
     },
     "URL" : {
+
+    },
+    "Versions" : {
 
     },
     "View proposal" : {
