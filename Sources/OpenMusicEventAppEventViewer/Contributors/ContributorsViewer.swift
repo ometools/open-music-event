@@ -742,7 +742,7 @@ public struct EditContributor {
     @StoreTaskID var actorSearchTask
 
     public var body: some Feature {
-        let _ = Self._logChanges()
+//        let _ = Self._logChanges()
         Scope(\.form, action: \.form) {
             FormFeature()
                 .onSubmit { value in
