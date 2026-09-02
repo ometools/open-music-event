@@ -5,6 +5,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import GRDB
+import Gzip
 import HTTPClient
 import InlineSnapshotTesting
 import OpenMusicEventLexicon
@@ -63,7 +64,7 @@ struct WorkspaceProposalRendererTests {
         .appending("\n")
         try oldContributor.write(to: contributorURL, atomically: true, encoding: .utf8)
 
-        // Tangled supplies a patch that replaces the complete contributor source file.
+        // Tangled supplies a Git format-patch envelope that replaces the contributor source file.
         let newContributor = """
         ---
         name: New Artist
@@ -71,17 +72,37 @@ struct WorkspaceProposalRendererTests {
         New biography
         """
         .appending("\n")
-        let patchData = try SourcePatchGitPatchCodec().formatReviewPatch(
-            SourcePatch(
-                fileChanges: [
-                    SourcePatchFileChange(
-                        path: contributorPath,
-                        kind: .modified,
-                        oldContents: Data(oldContributor.utf8),
-                        newContents: Data(newContributor.utf8)
-                    )
-                ]
-            )
+        let gitDiff = String(
+            decoding: try SourcePatchGitPatchCodec().formatReviewPatch(
+                SourcePatch(
+                    fileChanges: [
+                        SourcePatchFileChange(
+                            path: contributorPath,
+                            kind: .modified,
+                            oldContents: Data(oldContributor.utf8),
+                            newContents: Data(newContributor.utf8)
+                        )
+                    ]
+                )
+            ),
+            as: UTF8.self
+        )
+        let patchData = Data(
+            """
+            From 9587815f1fd5678747a47c9d0499cd4a101deb09 Mon Sep 17 00:00:00 2001
+            From: Workspace Author <workspace@example.com>
+            Date: Mon, 31 Aug 2026 20:26:29 +0000
+            Subject: [PATCH] Rename the artist
+
+            ---
+             \(contributorPath) | 1 +-
+             1 file changed, 1 insertion(+), 1 deletion(-)
+
+            \(gitDiff)
+            -- 
+            2.47.0
+
+            """.utf8
         )
 
         // The server imports both exact sources and renders the same typed value as Workspace.
@@ -154,18 +175,18 @@ struct WorkspaceProposalRendererTests {
     }
 
     @Test
-    func `a created proposal renders after its record and target source arrive`() async throws {
+    func `a proposal renders from its record without a webhook`() async throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
         let targetRevision = "1111111111111111111111111111111111111111"
         let previousRevision = "0000000000000000000000000000000000000000"
+        let authorDID = try #require(DID("did:plc:proposal-author"))
+        let authorHandle = Atmosphere.Account.Handle("proposal-author.example")
         let proposalURI = try #require(
             ATProto.URI("at://did:plc:proposal-author/sh.tangled.repo.pull/server-render")
         )
         let proposalRevision = ATProto.CID("bafyreiserverrenderproposal")
-        let patchURL = try #require(
-            URL(string: "https://tangled.org/wickedwoods.ca/ome-workspace/pulls/4/round/0.patch")
-        )
+        let patchBlobCID = ATProto.CID("bafkreiserverrenderpatch")
         let watch = TangledWebhookWatch(
             repository: TangledRepositoryReference(
                 host: "tangled.org",
@@ -241,6 +262,7 @@ struct WorkspaceProposalRendererTests {
                 ]
             )
         )
+        let patchBlobData = try patchData.gzipped()
 
         // AppView already has the exact published target revision available for installation.
         let archiveData = Data("published target archive".utf8)
@@ -272,40 +294,7 @@ struct WorkspaceProposalRendererTests {
             )
         )
 
-        // The verified webhook creates the durable proposal row first.
-        _ = try await store.recordWorkspaceProposal(
-            id: proposalURI,
-            webhook: TangledWorkspaceProposal.WebhookObservation(
-                deliveryID: .init(rawValue: "proposal-created-delivery"),
-                watchID: watch.id,
-                value: TangledPullCreated.Webhook(
-                    canonicalSource: watch.canonicalSource.reference,
-                    repository: TangledPullCreated.Webhook.Repository(
-                        host: watch.repository.host,
-                        port: watch.repository.port,
-                        owner: watch.repository.owner,
-                        ownerDID: watch.repositoryOwnerDID,
-                        name: watch.repository.repository
-                    ),
-                    pullNumber: 4,
-                    authorDID: try #require(DID("did:plc:proposal-author")),
-                    title: "Render artist detail previews",
-                    body: "Carries the old and new artist values.",
-                    targetBranch: "main",
-                    source: nil,
-                    roundNumber: 0,
-                    state: "open",
-                    pageURL: try #require(
-                        URL(string: "https://tangled.org/wickedwoods.ca/ome-workspace/pulls/4")
-                    ),
-                    patchURL: patchURL,
-                    createdAt: "2026-08-24T20:00:00Z"
-                ),
-                observedAt: Date(timeIntervalSince1970: 1_787_600_000)
-            )
-        )
-
-        // Hydrant can arrive later and supplies the content-addressed pull revision.
+        // Hydrant creates the durable proposal directly from the public pull record.
         let pull = TangledPullRecord(
             target: TangledPullRecord.Target(repo: watch.repositoryDID, branch: "main"),
             title: "Render artist detail previews",
@@ -313,9 +302,9 @@ struct WorkspaceProposalRendererTests {
             rounds: [
                 TangledPullRecord.Round(
                     patchBlob: ATProto.Blob(
-                        ref: "bafkreiserverrenderpatch",
+                        ref: patchBlobCID,
                         mimeType: "application/gzip",
-                        size: patchData.count
+                        size: patchBlobData.count
                     ),
                     createdAt: "2026-08-24T20:00:00Z"
                 )
@@ -344,9 +333,10 @@ struct WorkspaceProposalRendererTests {
         let awaitingRender = try #require(
             try await store.workspaceProposal(id: proposalURI)
         )
+        expectNoDifference(awaitingRender.webhook, nil)
         expectNoDifference(awaitingRender.renderState, .awaitingInput)
 
-        // The server checks out the exact artifact, downloads the exact round, and renders it.
+        // The server reads the round blob from the author's PDS and renders it against the target.
         let processor = WorkspaceProposalRenderProcessor(
             configuration: configuration,
             store: store
@@ -355,10 +345,48 @@ struct WorkspaceProposalRendererTests {
         expectNoDifference(candidates.map(\.id), [proposalURI])
         try await withDependencies {
             $0.uuid = .incrementing
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Did not expect handle resolution for \(handle.rawValue)")
+                    return (
+                        Atmosphere.Account(id: .init(authorDID), handle: authorHandle),
+                        try didDocument(
+                            did: authorDID,
+                            handle: authorHandle,
+                            pdsHost: "proposal-author.pds.example"
+                        )
+                    )
+                },
+                resolveDID: { did in
+                    expectNoDifference(did, authorDID)
+                    return (
+                        Atmosphere.Account(id: .init(authorDID), handle: authorHandle),
+                        try didDocument(
+                            did: authorDID,
+                            handle: authorHandle,
+                            pdsHost: "proposal-author.pds.example"
+                        )
+                    )
+                }
+            )
             $0.httpClient = HTTPClient { request, _ in
                 expectNoDifference(request.method, .get)
-                expectNoDifference(request.url?.absoluteString, patchURL.absoluteString)
-                return patchData
+                let components = try #require(
+                    request.url.flatMap {
+                        URLComponents(url: $0, resolvingAgainstBaseURL: false)
+                    }
+                )
+                expectNoDifference(components.scheme, "https")
+                expectNoDifference(components.host, "proposal-author.pds.example")
+                expectNoDifference(components.path, "/xrpc/com.atproto.sync.getBlob")
+                expectNoDifference(
+                    components.queryItems,
+                    [
+                        URLQueryItem(name: "did", value: authorDID.description),
+                        URLQueryItem(name: "cid", value: patchBlobCID.rawValue),
+                    ]
+                )
+                return patchBlobData
             }
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 expectNoDifference(request.repository, watch.repository)
@@ -409,4 +437,31 @@ struct WorkspaceProposalRendererTests {
         expectNoDifference(detail.renderStatus, .ready)
         expectNoDifference(detail.presentation, presentation)
     }
+}
+
+private func didDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle,
+    pdsHost: String
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+              "id": "\(did.description)",
+              "alsoKnownAs": ["at://\(handle.rawValue)"],
+              "verificationMethod": [],
+              "service": [
+                {
+                  "id": "#atproto_pds",
+                  "type": "AtprotoPersonalDataServer",
+                  "serviceEndpoint": "https://\(pdsHost)"
+                }
+              ]
+            }
+            """
+            .utf8
+        )
+    )
 }

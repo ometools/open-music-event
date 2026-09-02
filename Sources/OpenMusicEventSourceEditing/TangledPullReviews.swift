@@ -628,17 +628,27 @@ func patchTextForLatestRound(
     guard let round = pull.rounds.max(by: { $0.createdAt < $1.createdAt }) else {
         throw TangledPullReviewClientError.missingPatchBlob(pull.title)
     }
-    let pdsHost = try await pdsHost(for: authorDID)
-    let patchBlob = try await patchBlobData(
-        did: authorDID,
-        cid: round.patchBlob.ref,
-        pdsHost: pdsHost
+    let patchData = try await tangledPullPatchData(
+        for: round.patchBlob,
+        authorDID: authorDID
     )
-    let patchData = patchBlob.isGzipped ? try patchBlob.gunzipped() : patchBlob
     guard let patch = String(data: patchData, encoding: .utf8) else {
         throw TangledPullReviewClientError.invalidPatchBlob(round.patchBlob.ref.rawValue)
     }
     return patch
+}
+
+public func tangledPullPatchData(
+    for patchBlob: ATProto.Blob,
+    authorDID: DID
+) async throws -> Data {
+    let pdsHost = try await pdsHost(for: authorDID)
+    let data = try await patchBlobData(
+        did: authorDID,
+        cid: patchBlob.ref,
+        pdsHost: pdsHost
+    )
+    return data.isGzipped ? try data.gunzipped() : data
 }
 
 private func patchBlobData(

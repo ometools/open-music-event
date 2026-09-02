@@ -4,13 +4,13 @@ import Dependencies
 import FileTree
 import Foundation
 import GRDB
-import HTTPClient
+import IssueReporting
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
-import SourceEditing
+import ServiceLifecycle
 
 struct WorkspaceProposalRenderer: Sendable {
     static let currentVersion = 1
@@ -20,7 +20,6 @@ struct WorkspaceProposalRenderer: Sendable {
         targetSourceURL: URL,
         patchData: Data
     ) async throws -> OME.WorkspaceProposal.Presentation {
-        let patch = try SourcePatchGitPatchCodec().parse(patchData)
         let scratchRootURL = FileManager.default.temporaryDirectory
             .appending(
                 path: "ome-workspace-proposal-render-\(UUID().uuidString)",
@@ -37,7 +36,11 @@ struct WorkspaceProposalRenderer: Sendable {
             directoryHint: .isDirectory
         )
         try FileManager.default.copyItem(at: targetSourceURL, to: proposedSourceURL)
-        try SourcePatchApplier.live.apply(patch, proposedSourceURL)
+        try applyGitPatch(
+            patchData,
+            to: proposedSourceURL,
+            scratchRootURL: scratchRootURL
+        )
 
         let targetInsertion = try sourceInsertion(
             workspace: workspace,
@@ -73,7 +76,6 @@ struct WorkspaceProposalRenderer: Sendable {
                     baselineDatabase: baselineDatabase
                 )
                 let sourceFiles = try openMusicEventSourceFileAttributions(
-                    patch: patch,
                     groups: summary.groups,
                     recordComparisons: summary.recordComparisons,
                     in: workingDatabase
@@ -84,6 +86,71 @@ struct WorkspaceProposalRenderer: Sendable {
                 )
             }
         }
+    }
+}
+
+enum WorkspaceProposalGitPatchError: Equatable, Error, Sendable {
+    case applicationFailed(status: Int32, message: String)
+    case symbolicLink(String)
+}
+
+private func applyGitPatch(
+    _ patchData: Data,
+    to sourceURL: URL,
+    scratchRootURL: URL
+) throws {
+    let patchURL = scratchRootURL.appending(path: "proposal.patch")
+    try patchData.write(to: patchURL, options: .atomic)
+
+    let standardErrorURL = scratchRootURL.appending(path: "git-apply.stderr")
+    try Data().write(to: standardErrorURL)
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/env")
+    process.arguments = [
+        "git",
+        "-C",
+        sourceURL.path(percentEncoded: false),
+        "apply",
+        "--no-index",
+        "--",
+        patchURL.path(percentEncoded: false),
+    ]
+    do {
+        let standardError = try FileHandle(forWritingTo: standardErrorURL)
+        defer { try? standardError.close() }
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    let standardErrorReader = try FileHandle(forReadingFrom: standardErrorURL)
+    defer { try? standardErrorReader.close() }
+    let message = String(
+        decoding: try standardErrorReader.read(upToCount: 4_096) ?? Data(),
+        as: UTF8.self
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard process.terminationStatus == 0 else {
+        throw WorkspaceProposalGitPatchError.applicationFailed(
+            status: process.terminationStatus,
+            message: message
+        )
+    }
+
+    let resourceKeys: Set<URLResourceKey> = [.isSymbolicLinkKey]
+    guard let enumerator = FileManager.default.enumerator(
+        at: sourceURL,
+        includingPropertiesForKeys: Array(resourceKeys)
+    ) else {
+        return
+    }
+    for case let url as URL in enumerator {
+        guard try url.resourceValues(forKeys: resourceKeys).isSymbolicLink == true else {
+            continue
+        }
+        throw WorkspaceProposalGitPatchError.symbolicLink(
+            url.path(percentEncoded: false)
+        )
     }
 }
 
@@ -112,11 +179,13 @@ struct WorkspaceProposalRenderProcessor: Sendable {
             return
         }
 
-        @Dependency(\.httpClient) var httpClient
         let patchData: Data = try await withDependencies {
             $0.logBody = false
         } operation: {
-            try await httpClient.get(request.patchURL, decodingTo: Data.self)
+            try await tangledPullPatchData(
+                for: request.patchBlob,
+                authorDID: request.authorDID
+            )
         }
         let input = TangledWorkspaceProposal.RenderInput(
             proposalRevision: request.proposalRevision,
@@ -165,32 +234,34 @@ struct WorkspaceProposalRenderProcessor: Sendable {
         for proposal: TangledWorkspaceProposal
     ) async throws -> Request? {
         guard proposal.lifecycle == .open,
-              let webhook = proposal.webhook,
               case let .present(proposalRevision, _, pull) = proposal.record
         else {
             return nil
         }
-        guard let watch = configuration.watchesByID[webhook.watchID] else {
-            throw WorkspaceProposalRenderError.watchUnavailable(webhook.watchID)
+        guard case let .did(authorDID) = proposal.id.authority else {
+            throw WorkspaceProposalRenderError.invalidProposalAuthor(
+                proposal.id.description
+            )
         }
-        guard pull.target.repo == watch.repositoryDID else {
-            throw WorkspaceProposalRenderError.targetRepositoryMismatch(
-                proposal: proposal.id.description,
-                expected: watch.repositoryDID.description,
-                actual: pull.target.repo.description
+        guard let watch = configuration.watches.first(where: {
+            $0.repositoryDID == pull.target.repo
+        }) else {
+            throw WorkspaceProposalRenderError.targetRepositoryUnavailable(
+                pull.target.repo.description
             )
         }
         let targetBranch = SourceWorkspace.normalizedBranch(pull.target.branch)
         let expectedBranch = SourceWorkspace.normalizedBranch(watch.ref)
-        let webhookBranch = SourceWorkspace.normalizedBranch(webhook.value.targetBranch)
-        guard targetBranch == expectedBranch, webhookBranch == targetBranch else {
+        guard targetBranch == expectedBranch else {
             throw WorkspaceProposalRenderError.targetBranchMismatch(
                 proposal: proposal.id.description,
                 expected: expectedBranch,
                 actual: targetBranch
             )
         }
-        guard pull.rounds.indices.last == webhook.value.roundNumber else {
+        guard let latestRound = pull.rounds.enumerated().max(by: {
+            $0.element.createdAt < $1.element.createdAt
+        }) else {
             return nil
         }
         guard let checkpoint = try await store.tangledSourceCheckpoint(watchID: watch.id),
@@ -209,8 +280,9 @@ struct WorkspaceProposalRenderProcessor: Sendable {
         }
         return Request(
             proposalRevision: proposalRevision,
-            roundNumber: webhook.value.roundNumber,
-            patchURL: webhook.value.patchURL,
+            authorDID: authorDID,
+            roundNumber: latestRound.offset,
+            patchBlob: latestRound.element.patchBlob,
             watch: watch,
             checkpoint: checkpoint,
             artifact: artifact,
@@ -224,8 +296,9 @@ struct WorkspaceProposalRenderProcessor: Sendable {
 
     private struct Request: Sendable {
         let proposalRevision: ATProto.CID
+        let authorDID: DID
         let roundNumber: Int
-        let patchURL: URL
+        let patchBlob: ATProto.Blob
         let watch: TangledWebhookWatch
         let checkpoint: TangledSourceCheckpoint
         let artifact: PublishedSourceArtifact
@@ -241,9 +314,32 @@ struct WorkspaceProposalRenderProcessor: Sendable {
     }
 }
 
+struct WorkspaceProposalRenderService: Service {
+    let processor: WorkspaceProposalRenderProcessor
+    let clock = ContinuousClock()
+
+    func run() async throws {
+        do {
+            try await cancelWhenGracefulShutdown {
+                while true {
+                    for proposal in try await processor.candidates() {
+                        do {
+                            try await processor.process(proposal)
+                        } catch {
+                            reportIssue(error)
+                        }
+                    }
+                    try await clock.sleep(for: .seconds(2))
+                }
+            }
+        } catch is CancellationError {
+        }
+    }
+}
+
 enum WorkspaceProposalRenderError: Error, Equatable, Sendable {
-    case watchUnavailable(WebhookInboxDelivery.WatchID)
-    case targetRepositoryMismatch(proposal: String, expected: String, actual: String)
+    case invalidProposalAuthor(String)
+    case targetRepositoryUnavailable(String)
     case targetBranchMismatch(proposal: String, expected: String, actual: String)
 }
 
