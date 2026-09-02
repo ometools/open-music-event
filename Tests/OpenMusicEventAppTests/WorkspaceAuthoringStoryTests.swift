@@ -469,7 +469,7 @@ struct WorkspaceAuthoringStoryTests {
             )
 
             await store.send(
-                workspaceStoryWorkspaceAction(.goToMainButtonTapped)
+                workspaceStoryWorkspaceAction(.switchToMainButtonTapped)
             )?.value
             let selectedMain = WorkspaceBranchReference(
                 branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
@@ -477,7 +477,7 @@ struct WorkspaceAuthoringStoryTests {
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
-                .branch(selectedMain)
+                .published(selectedMain)
             )
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
@@ -502,7 +502,7 @@ struct WorkspaceAuthoringStoryTests {
             }
             expectNoDifference(
                 store.state.content.destination?.eventViewer?.authoring.content.selectedContext,
-                .branch(selectedMain)
+                .published(selectedMain)
             )
             expectNoDifference(
                 try workspaceStoryGitRevision(at: resource.repositoryURL),

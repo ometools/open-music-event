@@ -465,9 +465,6 @@
     "From Other Event" : {
 
     },
-    "Go to main" : {
-
-    },
     "Go to main or select a proposal before publishing these changes." : {
 
     },
@@ -903,9 +900,6 @@
     "Recordings" : {
 
     },
-    "Refresh proposals" : {
-
-    },
     "Remove %@ reaction" : {
 
     },
@@ -1130,6 +1124,9 @@
     },
     "Switch branch…" : {
 
+    },
+    "Switch to main" : {
+      "comment" : "Menu action that restores the Published main branch context"
     },
     "System icon" : {
 

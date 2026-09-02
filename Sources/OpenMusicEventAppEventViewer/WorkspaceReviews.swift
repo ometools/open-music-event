@@ -107,7 +107,7 @@ public struct WorkspaceReviews {
         case destination(Destination.Action)
         case pendingProposalButtonTapped(WorkspaceProposal)
         case proposalButtonTapped(OME.WorkspaceProposal.ListItem)
-        case refreshButtonTapped
+        case didPullToRefresh
     }
 
     @Feature
@@ -133,7 +133,7 @@ public struct WorkspaceReviews {
                 else { return }
                 state.open(proposal)
 
-            case .refreshButtonTapped:
+            case .didPullToRefresh:
                 loadProposals(state: &state)
             }
         }
@@ -624,14 +624,6 @@ public struct WorkspaceReviewsView: View {
                     Text("Proposals have not been loaded")
                         .foregroundStyle(.secondary)
                 }
-
-                Button {
-                    store.send(.refreshButtonTapped)
-                } label: {
-                    Label("Refresh proposals", mappedSystemImage: "arrow.clockwise")
-                }
-                .disabled(store.status == .loading)
-                .accessibilityIdentifier("workspace.proposals.refresh")
             }
         }
         .navigationTitle("Proposals")
@@ -642,6 +634,9 @@ public struct WorkspaceReviewsView: View {
             item: $store.scope(\.destination, action: \.destination).reviewDetail
         ) { detailStore in
             WorkspaceReviewDetailView(store: detailStore)
+        }
+        .refreshable {
+            await store.send(.didPullToRefresh)?.value
         }
     }
 }

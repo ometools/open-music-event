@@ -114,7 +114,7 @@ public struct EventWorkspace {
     public enum Action {
         case changes(WorkspaceChanges.Action)
         case collaborators(WorkspaceCollaborators.Action)
-        case goToMainButtonTapped
+        case switchToMainButtonTapped
         case reviews(WorkspaceReviews.Action)
         case proposalsRowTapped
         case sourcePreparationRetryButtonTapped
@@ -138,7 +138,7 @@ public struct EventWorkspace {
                         await retry?.value
                     }
 
-                case .goToMainButtonTapped:
+                case .switchToMainButtonTapped:
                     guard state.authoringAccess.canEditContent,
                           let currentContext = state.selectedContext,
                           state.changeCount == nil
@@ -146,10 +146,14 @@ public struct EventWorkspace {
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.workspace.defaultBranch)
                     )
-                    guard requestedBranch != currentContext.selectedBranch else { return }
+                    if case let .published(reference) = currentContext,
+                       reference.branch == requestedBranch
+                    {
+                        return
+                    }
                     store.addTask {
                         let task = try store.post(
-                            key: WorkspaceBranchRequested.self,
+                            key: WorkspacePublishedRequested.self,
                             value: requestedBranch
                         )
                         await task?.value
@@ -230,8 +234,8 @@ public struct EventWorkspaceView: View {
                 switchBranch: {
                     isBranchPromptPresented = true
                 },
-                goToMain: {
-                    store.send(.goToMainButtonTapped)
+                switchToMain: {
+                    store.send(.switchToMainButtonTapped)
                 }
             )
 
@@ -304,7 +308,7 @@ struct WorkspaceContextSection: View {
     let canSwitchBranch: Bool
     let viewProposal: () -> Void
     let switchBranch: () -> Void
-    let goToMain: () -> Void
+    let switchToMain: () -> Void
 
     var contextTitle: String {
         switch workspaceState.selectedContext {
@@ -330,9 +334,15 @@ struct WorkspaceContextSection: View {
         workspaceState.selectedContext?.selectedBranch.rawValue
     }
 
-    var canGoToMain: Bool {
-        guard let selectedBranch else { return false }
-        return canSwitchBranch && selectedBranch != workspace.defaultBranch
+    var isPublishedMain: Bool {
+        guard case let .published(reference)? = workspaceState.selectedContext else {
+            return false
+        }
+        return reference.branch.rawValue == workspace.defaultBranch
+    }
+
+    var canSwitchToMain: Bool {
+        canSwitchBranch && !isPublishedMain
     }
 
     var accessibilityLabel: String {
@@ -356,13 +366,11 @@ struct WorkspaceContextSection: View {
                 .disabled(!canSwitchBranch)
                 .accessibilityIdentifier("workspace.branch.prompt")
 
-                if let selectedBranch, selectedBranch != workspace.defaultBranch {
-                    Button(action: goToMain) {
-                        Label("Go to main", mappedSystemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(!canGoToMain)
-                    .accessibilityIdentifier("workspace.branch.main")
+                Button(action: switchToMain) {
+                    Label("Switch to main", mappedSystemImage: "arrow.uturn.backward")
                 }
+                .disabled(!canSwitchToMain)
+                .accessibilityIdentifier("workspace.branch.main")
             } label: {
                 HStack(spacing: 12) {
                     MappedSystemImage(systemName: "arrow.triangle.branch")
