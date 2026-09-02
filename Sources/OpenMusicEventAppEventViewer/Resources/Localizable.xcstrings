@@ -27,19 +27,7 @@
     "%lld changes" : {
 
     },
-    "%lld local changes have not been proposed." : {
-
-    },
-    "%lld newer local changes are waiting to be added." : {
-
-    },
     "1 change" : {
-
-    },
-    "1 local change has not been proposed." : {
-
-    },
-    "1 newer local change is waiting to be added." : {
 
     },
     "A change preview is not available for this proposal." : {
@@ -192,12 +180,6 @@
     "Category" : {
 
     },
-    "Change location cannot currently be calculated." : {
-
-    },
-    "Change location will be available after the workspace is prepared." : {
-
-    },
     "Changes" : {
 
     },
@@ -267,9 +249,6 @@
     "Contact Numbers" : {
 
     },
-    "Continue editing. There are no local changes waiting to be proposed." : {
-
-    },
     "Contributor" : {
 
     },
@@ -288,9 +267,6 @@
     "Coordinates" : {
 
     },
-    "Create a proposal or reset your local changes before switching branches." : {
-
-    },
     "Create a schedule for the performances you do not want to miss." : {
 
     },
@@ -304,9 +280,6 @@
 
     },
     "Critical Alerts appear on the Lock Screen and play a sound even if a Focus is on or iPhone is muted." : {
-
-    },
-    "Current context" : {
 
     },
     "Current DID" : {
@@ -447,10 +420,10 @@
     "Enter a proposal title." : {
 
     },
-    "Enter the branch to use as this workspace’s comparison reference." : {
+    "Enter one emoji." : {
 
     },
-    "Enter one emoji." : {
+    "Enter the branch to use as this workspace’s comparison reference." : {
 
     },
     "Enter Workspace" : {
@@ -646,9 +619,6 @@
 
     },
     "New Schedule" : {
-
-    },
-    "Newer local changes are waiting, but you do not have permission to update this proposal." : {
 
     },
     "No changes" : {
@@ -888,9 +858,6 @@
     "Proposal published; finishing workspace refresh." : {
 
     },
-    "Proposal revision" : {
-
-    },
     "Proposal status" : {
 
     },
@@ -910,9 +877,6 @@
 
     },
     "Published" : {
-
-    },
-    "Published branch" : {
 
     },
     "Quiet" : {
@@ -1065,13 +1029,7 @@
     "Select or enter a collaborator." : {
 
     },
-    "Select Published or a proposal before publishing these changes." : {
-
-    },
     "Selected" : {
-
-    },
-    "Selected proposal snapshot" : {
 
     },
     "Selected revision" : {
@@ -1170,16 +1128,10 @@
     "Switch branch" : {
 
     },
-    "Switch Branch" : {
-
-    },
     "Switch branch…" : {
 
     },
     "System icon" : {
-
-    },
-    "Target branch" : {
 
     },
     "Target repository ID" : {
@@ -1189,9 +1141,6 @@
 
     },
     "Technical details" : {
-
-    },
-    "Technical Details" : {
 
     },
     "Technical details changed" : {
@@ -1216,12 +1165,6 @@
 
     },
     "The proposal was published successfully. Its details are still being prepared." : {
-
-    },
-    "The selected proposal is the comparison reference." : {
-
-    },
-    "The workspace is not currently prepared." : {
 
     },
     "The workspace source does not match the app’s data model." : {
@@ -1347,25 +1290,10 @@
     "What is this channel for?" : {
 
     },
-    "What should I do next?" : {
-
-    },
-    "Where are my changes?" : {
-
-    },
     "Workspace" : {
       "comment" : "Settings section for entering or leaving the event workspace"
     },
     "Workspace not prepared" : {
-
-    },
-    "Workspace overview" : {
-
-    },
-    "Workspace preparation stopped, so changes cannot currently be compared." : {
-
-    },
-    "Workspace section" : {
 
     },
     "Workspace source unavailable" : {
@@ -1390,9 +1318,6 @@
 
     },
     "Your changes will appear here when the source is ready." : {
-
-    },
-    "Your local changes are waiting, but you do not have permission to create a proposal." : {
 
     }
   },
