@@ -231,7 +231,7 @@ public extension FeatureStore {
             return
         }
 
-        reportIssue(error)
+        reportIssue(error, fallbackMessage.localizedString)
         _ = try? await post(key: ErrorReported.self, value: handledError)?.value
     }
 

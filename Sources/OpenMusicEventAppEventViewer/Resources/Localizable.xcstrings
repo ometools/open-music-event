@@ -1248,6 +1248,9 @@
     "Unable to load contributor profile." : {
 
     },
+    "Unable to switch Workspace." : {
+      "comment" : "Transient error shown when a requested Workspace branch or proposal context could not be selected."
+    },
     "Unable to request Critical Alerts permission." : {
 
     },

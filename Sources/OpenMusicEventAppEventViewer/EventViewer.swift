@@ -1030,9 +1030,15 @@ public struct EventViewer {
                         failure.message
                     )
                 }
-                .onTrigger(store.workspaceContextSelectionFailed) { _, _ in
-                    // Context selection is an ephemeral request. The coherent mounted session is
-                    // retained by Workspace, so there is no global failure state to install here.
+                .onTrigger(store.workspaceContextSelectionFailed) { failure, _ in
+                    store.addTask {
+                        let _: Void? = await store.withErrorHandling(
+                            fallbackMessage: .workspaceContextSelectionFailed,
+                            operation: .workspaceContextSelection
+                        ) {
+                            throw failure
+                        }
+                    }
                 }
                 .onTrigger(store.workspaceProposalRecorded) { proposal, state in
                     guard state.eventWorkspace != nil else { return }
@@ -1865,6 +1871,17 @@ private extension EventEditingIntent {
             )
         }
     }
+}
+
+extension UserFacingText {
+    static let workspaceContextSelectionFailed = Self(
+        "Unable to switch Workspace.",
+        fallback: "Unable to switch Workspace."
+    )
+}
+
+extension ErrorOperation {
+    static let workspaceContextSelection = Self("workspace.context.select")
 }
 
 struct ViewerPlaceholderView: View {

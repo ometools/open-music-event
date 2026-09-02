@@ -612,6 +612,7 @@ struct WorkspaceAuthoringStoryTests {
             // Keep OME's database, installation, source import, diff, and proposal stack live.
             OME.prepareDependencies(&$0, database: database)
             let liveSourceControl = $0.sourceControl
+            let liveSourceCheckout = $0.tangledSourceCheckout
             $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             // The sign-in scenario mutates process-wide OAuth storage from its mocked browser
@@ -664,6 +665,12 @@ struct WorkspaceAuthoringStoryTests {
                 remoteURL: git.bareRepositoryURL,
                 recorder: operations
             )
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                if operations.takeCheckoutFailure() {
+                    throw WorkspaceStoryContextSelectionFailure()
+                }
+                return try await liveSourceCheckout.checkout(request)
+            }
         } operation: {
             let opened = WorkspaceStoryLiveStore(
                 initialState: OpenMusicEventApplication.State(
@@ -1267,6 +1274,46 @@ struct WorkspaceAuthoringStoryTests {
             #expect(operations.count(of: "formatPatch") == 0)
             #expect(operations.count(of: "emailPatch") == 1)
             #expect(operations.count(of: "push") == 0)
+
+            // A failed request to return to main keeps the coherent proposal mounted. The app
+            // reports the request ephemerally, including both its user-facing message and cause.
+            operations.failNextCheckout()
+            let issueReporter = AppTestIssueRecordingReporter()
+            let contextSelectionError = try await withIssueReporters([issueReporter]) {
+                let selectionTask = opened.send(
+                    workspaceStoryWorkspaceAction(.switchToMainButtonTapped)
+                )
+                try await workspaceStoryWaitUntil {
+                    opened.state.content.errorNotifications.state.latestError != nil
+                }
+                let error = try #require(
+                    opened.state.content.errorNotifications.state.latestError
+                )
+                await selectionTask?.value
+                return error
+            }
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?.authoring.content.selectedContext,
+                .proposal(proposal)
+            )
+            expectNoDifference(
+                opened.state.content.destination?.eventViewer?.authoring.content.content
+                    .eventWorkspace?.selectedProposal,
+                proposal
+            )
+            expectNoDifference(
+                contextSelectionError.message.fallback,
+                "Unable to switch Workspace."
+            )
+            expectNoDifference(
+                contextSelectionError.operation.rawValue,
+                "workspace.context.select"
+            )
+            #expect(issueReporter.messages.count == 2)
+            #expect(issueReporter.messages.contains { message in
+                message.contains("WorkspaceStoryContextSelectionFailure")
+                    && message.contains("Unable to switch Workspace.")
+            })
 
             // Publishing leaves no unpublished database edits. Exit therefore needs no prompt.
             // The attendee read model returns to the public route while branch and proposal
@@ -2705,6 +2752,8 @@ struct WorkspaceStoryProposalScenario: CustomStringConvertible, Sendable {
 
 private struct WorkspaceStoryPatchPublicationFailure: Error {}
 
+private struct WorkspaceStoryContextSelectionFailure: Error {}
+
 @Feature
 private struct WorkspaceStoryLiveApplicationHarness {
     struct State {
@@ -3138,6 +3187,7 @@ private actor WorkspaceStoryCheckoutPause {
 }
 
 private final class WorkspaceStorySourceControlRecorder: Sendable {
+    private let failsNextCheckout = Mutex(false)
     private let operations = Mutex<[String]>([])
 
     var snapshot: [String] { operations.withLock { $0 } }
@@ -3152,6 +3202,17 @@ private final class WorkspaceStorySourceControlRecorder: Sendable {
 
     func count(prefix: String) -> Int {
         operations.withLock { $0.count(where: { $0.hasPrefix(prefix) }) }
+    }
+
+    func failNextCheckout() {
+        failsNextCheckout.withLock { $0 = true }
+    }
+
+    func takeCheckoutFailure() -> Bool {
+        failsNextCheckout.withLock { failure in
+            defer { failure = false }
+            return failure
+        }
     }
 }
 

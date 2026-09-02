@@ -91,12 +91,14 @@ struct ErrorHandlingTests {
             }
         }
 
-        await withIssueReporters([]) {
-            await store.send(.buttonTapped) {
-                $0.isRunning = true
-            }?.value
+        let reporter = ErrorHandlingIssueRecordingReporter()
+        await TestExhaustivity.$current.withValue(.off) {
+            await withIssueReporters([reporter]) {
+                await store.send(.buttonTapped)?.value
+            }
         }
 
+        #expect(reporter.messages == ["Caught error: TestError(): Fallback"])
         #expect(store.state.isRunning == false)
         let latestError = try #require(store.state.errorNotifications.state.latestError)
         #expect(latestError.kind == .unhandled)
@@ -279,6 +281,44 @@ private struct ErrorNotificationForwardingHost {
 }
 
 private struct TestError: Error {}
+
+private final class ErrorHandlingIssueRecordingReporter: @unchecked Sendable, IssueReporter {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.withLock { recordedMessages }
+    }
+
+    func reportIssue(
+        _ message: @autoclosure () -> String?,
+        severity: IssueSeverity,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(message() ?? "")
+        }
+    }
+
+    func reportIssue(
+        _ error: any Error,
+        _ message: @autoclosure () -> String?,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(
+                "Caught error: \(error)"
+                    + (message().map { ": \($0)" } ?? "")
+            )
+        }
+    }
+}
 
 private struct FriendlyError: UserFacingErrorConvertible {
     func userFacingError(in context: ErrorHandlingContext) -> ParsedError {
