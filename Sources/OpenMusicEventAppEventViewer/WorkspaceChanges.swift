@@ -283,6 +283,7 @@ public struct WorkspaceChangesView: View {
                         } label: {
                             Label("Create Proposal", mappedSystemImage: "arrow.triangle.pull")
                         }
+                        .foregroundStyle(.primary)
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("workspace.proposal.create")
                     } else {
