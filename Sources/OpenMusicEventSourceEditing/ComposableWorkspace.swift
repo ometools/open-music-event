@@ -8,7 +8,7 @@ import OpenMusicEventLexicon
 import Sharing
 import SourceEditing
 
-public protocol OpenMusicEventWorkspaceContentState {
+public protocol OpenMusicEventWorkspaceContentState: ValueObservable {
     var authoringAuthorizationInvalidated: Trigger<()> { get }
     var workspaceContextSelectionFailed: Trigger<WorkspaceFailure> { get }
     var workspaceProposalPublicationFailed: Trigger<WorkspaceFailure> { get }
