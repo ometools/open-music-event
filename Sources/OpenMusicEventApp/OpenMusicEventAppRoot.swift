@@ -404,8 +404,10 @@ public struct OpenMusicEventAppRoot {
                 }
             let refreshesBrowse = state.variant == .generic
             let authoring = state.destination?.eventViewer?.authoring
-            let refreshesAuthoringWorkspace = authoring?.grant != nil
-                && authoring?.content.content.id.map(refreshesInstalledEvents.contains) == true
+            let authoringEventID = authoring?.content.content.id
+            let hasAuthoringGrant = authoring?.grant != nil
+            let refreshesAuthoringWorkspace = hasAuthoringGrant
+                && authoringEventID.map { refreshesInstalledEvents.contains($0) } == true
             guard refreshesBrowse || !refreshesInstalledEvents.isEmpty else {
                 NotificationRefreshDiagnostics.debug("""
                 Ignoring source-available notification with no relevant installed content
@@ -430,7 +432,7 @@ public struct OpenMusicEventAppRoot {
                         version: \(source.version.rawValue)
                         """)
                         let reconciliation = try store.post(
-                            key: WorkspaceReconciliationRequested.self,
+                            key: WorkspaceContextRefreshRequested.self,
                             value: ()
                         )
                         await reconciliation?.value
