@@ -35,15 +35,6 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         SourceWorkspace.ID,
         WorkspacePublicationAttempt<SourcePatch>
     ) async throws -> PreparedWorkspacePublishedUpdate
-    public var resetToPublished: @Sendable (
-        SourceWorkspaceResource,
-        SourceWorkspace.ID
-    ) async throws -> WorkspaceBranchReference
-    public var reconcile: @Sendable (
-        SourceWorkspaceResource,
-        SourceWorkspace.ID,
-        WorkspaceProposalAttempt<SourcePatch>
-    ) async throws -> WorkspaceBranchReference
     public var refresh: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
@@ -61,15 +52,6 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
             SourceWorkspace.ID,
             WorkspacePublicationAttempt<SourcePatch>
         ) async throws -> PreparedWorkspacePublishedUpdate,
-        resetToPublished: @escaping @Sendable (
-            SourceWorkspaceResource,
-            SourceWorkspace.ID
-        ) async throws -> WorkspaceBranchReference,
-        reconcile: @escaping @Sendable (
-            SourceWorkspaceResource,
-            SourceWorkspace.ID,
-            WorkspaceProposalAttempt<SourcePatch>
-        ) async throws -> WorkspaceBranchReference,
         refresh: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
@@ -82,8 +64,6 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         ) async throws -> WorkspaceBranchReference
     ) {
         self.preparePublishedUpdate = preparePublishedUpdate
-        self.resetToPublished = resetToPublished
-        self.reconcile = reconcile
         self.refresh = refresh
         self.select = select
     }
@@ -95,8 +75,6 @@ extension WorkspaceReferenceUpdateClient: DependencyKey {
 
     private static let unconfigured = Self(
         preparePublishedUpdate: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
-        resetToPublished: { _, _ in throw WorkspaceReferenceUpdateUnavailable() },
-        reconcile: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
         refresh: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
         select: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() }
     )

@@ -110,40 +110,12 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
             publishProposal: { source, workspaceID, attempt in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 precondition(source.workspace.id == sourceWorkspaceID)
-                let proposal: WorkspaceProposal
-                do {
-                    proposal = try await publisher.publishProposal(
-                        source: source,
-                        workspaceID: sourceWorkspaceID,
-                        attempt: attempt,
-                        persistence: persistence
-                    )
-                } catch TangledPatchOnlyProposalPublisherError.defaultBranchAdvanced {
-                    let reconciled = try await referenceUpdate.reconcile(
-                        source,
-                        sourceWorkspaceID,
-                        attempt
-                    )
-                    try await persistence.reconcileCheckpoint(
-                        workspaceID: sourceWorkspaceID,
-                        attempt: attempt,
-                        target: reconciled
-                    )
-                    proposal = try await publisher.publishProposal(
-                        source: source,
-                        workspaceID: sourceWorkspaceID,
-                        attempt: attempt,
-                        persistence: persistence
-                    )
-                }
-                _ = try await referenceUpdate.resetToPublished(
-                    source,
-                    sourceWorkspaceID
+                let proposal = try await publisher.publishProposal(
+                    source: source,
+                    workspaceID: sourceWorkspaceID,
+                    attempt: attempt,
+                    persistence: persistence
                 )
-                try await persistence.completePublication(workspaceID: sourceWorkspaceID)
-                // The workspace framework keeps the proposal's editing session mounted while
-                // the remote record is reviewed. The database reset above ensures the next source
-                // refresh mounts current main without ever applying the proposal locally.
                 return WorkspaceProposalPublication(proposal: proposal)
             },
             publishChanges: { source, workspaceID, attempt in

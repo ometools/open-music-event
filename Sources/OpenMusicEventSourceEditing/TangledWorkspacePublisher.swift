@@ -46,6 +46,11 @@ struct TangledWorkspacePublisher: Sendable {
             workspaceID: workspaceID,
             checkpointID: checkpoint.id
         ) {
+            await completePublication(
+                proposal,
+                workspaceID: workspaceID,
+                persistence: persistence
+            )
             return proposal
         }
 
@@ -78,6 +83,11 @@ struct TangledWorkspacePublisher: Sendable {
                 proposal,
                 checkpoint: checkpoint,
                 workspaceID: workspaceID
+            )
+            await completePublication(
+                proposal,
+                workspaceID: workspaceID,
+                persistence: persistence
             )
         } catch {
             // The Tangled record is the publication commit point. The prepared request retains
@@ -161,6 +171,27 @@ enum TangledWorkspacePublisherError: Equatable, Error, Sendable {
 }
 
 private extension TangledWorkspacePublisher {
+    func completePublication(
+        _ proposal: WorkspaceProposal,
+        workspaceID: SourceWorkspace.ID,
+        persistence: WorkspacePublicationPersistence
+    ) async {
+        do {
+            try await persistence.completePublication(workspaceID: workspaceID)
+        } catch {
+            TangledWorkspacePublisherDiagnostics.log(
+                operation: "publication.cleanup",
+                status: .failed,
+                details: [
+                    "workspace: \(workspaceID.rawValue)",
+                    "proposal: \(proposal.id.rawValue)",
+                    "publication: recorded; transport cleanup remains pending",
+                ],
+                error: error
+            )
+        }
+    }
+
     func preparePublication(
         source: SourceWorkspaceResource,
         checkpoint: WorkspacePublicationCheckpoint

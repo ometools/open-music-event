@@ -1,5 +1,5 @@
 {
-  "originHash" : "775e4c9da69bc5fdd84c80f25e285f5cb647c396798123849acfbe09d55f37aa",
+  "originHash" : "891a14ca2d68d21a3683b5c6383a73feaae081547e17a9892c25216165a40005",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -447,7 +447,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://source.woody.fm/swift-composable-workspace",
       "state" : {
-        "revision" : "f3d2ab0bede0c6304f62914e8762e38a01a07dcc"
+        "branch" : "main",
+        "revision" : "42ee399006e6f8fa07c063e503052b30bbff817c"
       }
     },
     {
