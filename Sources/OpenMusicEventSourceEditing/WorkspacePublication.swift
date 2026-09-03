@@ -290,12 +290,23 @@ public struct SourceWorkspaceProposalReceiptStore: Sendable {
     }
 }
 
-struct WorkspacePublicationPersistence: Sendable {
+package struct WorkspacePublicationRecoverySnapshot: Equatable, Sendable {
+    var recordExisted: Bool
+    var preparedPublicationData: Data?
+    var preparedSubmissionID: String?
+    var submissionData: Data?
+}
+
+package struct WorkspacePublicationPersistence: Sendable {
     enum Error: Swift.Error {
         case baselineMissing(SourceWorkspace.ID)
     }
 
     let database: any DatabaseWriter
+
+    package init(database: any DatabaseWriter) {
+        self.database = database
+    }
 
     func checkpoint(
         workspaceID: SourceWorkspace.ID,
@@ -318,6 +329,109 @@ struct WorkspacePublicationPersistence: Sendable {
             .execute(db)
         }
         return checkpoint
+    }
+
+    package func reconcileCheckpoint(
+        workspaceID: SourceWorkspace.ID,
+        from oldTarget: WorkspaceBranchReference,
+        to newTarget: WorkspaceBranchReference,
+        changes: SourcePatch
+    ) async throws {
+        try await database.write { db in
+            try reconcileCheckpoint(
+                workspaceID: workspaceID,
+                from: oldTarget,
+                to: newTarget,
+                changes: changes,
+                in: db
+            )
+        }
+    }
+
+    package func reconcileCheckpoint(
+        workspaceID: SourceWorkspace.ID,
+        from oldTarget: WorkspaceBranchReference,
+        to newTarget: WorkspaceBranchReference,
+        changes: SourcePatch,
+        in database: Database
+    ) throws {
+        guard let record = try LegacyWorkspacePublicationRecord.find(workspaceID)
+            .fetchOne(database),
+            record.publishedSubmissionID == nil,
+            record.publishedProposalData == nil,
+            let submissionData = record.submissionData,
+            var checkpoint = try? decode(
+                WorkspacePublicationCheckpoint.self,
+                from: submissionData
+            ),
+            checkpoint.target == oldTarget
+        else { return }
+
+        checkpoint.changes = changes
+        checkpoint.target = newTarget
+        let reconciledData = try encode(checkpoint)
+        try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+            $0.submissionData = #bind(reconciledData as Data?)
+            $0.preparedSubmissionID = #bind(nil as String?)
+            $0.preparedPublicationData = #bind(nil as Data?)
+        }
+        .execute(database)
+    }
+
+    package func discardUnpublishedCheckpoint(
+        workspaceID: SourceWorkspace.ID,
+        in database: Database
+    ) throws {
+        guard let record = try LegacyWorkspacePublicationRecord.find(workspaceID)
+            .fetchOne(database),
+            record.publishedSubmissionID == nil,
+            record.publishedProposalData == nil
+        else { return }
+        try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+            $0.submissionData = #bind(nil as Data?)
+            $0.preparedSubmissionID = #bind(nil as String?)
+            $0.preparedPublicationData = #bind(nil as Data?)
+        }
+        .execute(database)
+    }
+
+    package func recoverySnapshot(
+        _ workspaceID: SourceWorkspace.ID
+    ) throws -> WorkspacePublicationRecoverySnapshot {
+        try database.read { db in
+            try recoverySnapshot(workspaceID, in: db)
+        }
+    }
+
+    package func recoverySnapshot(
+        _ workspaceID: SourceWorkspace.ID,
+        in database: Database
+    ) throws -> WorkspacePublicationRecoverySnapshot {
+        let record = try LegacyWorkspacePublicationRecord.find(workspaceID).fetchOne(database)
+        return WorkspacePublicationRecoverySnapshot(
+            recordExisted: record != nil,
+            preparedPublicationData: record?.preparedPublicationData,
+            preparedSubmissionID: record?.preparedSubmissionID,
+            submissionData: record?.submissionData
+        )
+    }
+
+    package func restoreRecoverySnapshot(
+        _ snapshot: WorkspacePublicationRecoverySnapshot,
+        workspaceID: SourceWorkspace.ID,
+        in database: Database
+    ) throws {
+        guard snapshot.recordExisted else {
+            try LegacyWorkspacePublicationRecord.find(workspaceID).delete().execute(database)
+            return
+        }
+        try ensureLegacyRecord(workspaceID, in: database)
+        try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+            $0.submissionData = #bind(snapshot.submissionData)
+            $0.preparedSubmissionID = #bind(snapshot.preparedSubmissionID)
+            $0.preparedPublicationData = #bind(snapshot.preparedPublicationData)
+        }
+        .execute(database)
     }
 
     func checkpoint(

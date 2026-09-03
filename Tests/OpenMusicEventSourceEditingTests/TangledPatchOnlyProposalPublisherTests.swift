@@ -90,15 +90,14 @@ struct TangledPatchOnlyProposalPublisherTests {
             return listRefsOutput(head: head)
         }
 
-        let error = await #expect(throws: TangledPatchOnlyProposalPublisherError.self) {
+        let error = await #expect(throws: WorkspaceHeadMismatch.self) {
             try await TangledPatchOnlyProposalPublisher(transport: transport).publish(request)
         }
 
         expectNoDifference(
             error,
-            .defaultBranchAdvanced(
-                expected: WorkspaceRevision(rawValue: "base-revision"),
-                observed: WorkspaceRevision(rawValue: "advanced-revision")
+            WorkspaceHeadMismatch(
+                observedRevision: WorkspaceRevision(rawValue: "advanced-revision")
             )
         )
         expectNoDifference(
@@ -124,15 +123,14 @@ struct TangledPatchOnlyProposalPublisherTests {
             return listRefsOutput(head: head)
         }
 
-        let error = await #expect(throws: TangledPatchOnlyProposalPublisherError.self) {
+        let error = await #expect(throws: WorkspaceHeadMismatch.self) {
             try await TangledPatchOnlyProposalPublisher(transport: transport).publish(request)
         }
 
         expectNoDifference(
             error,
-            .defaultBranchAdvanced(
-                expected: WorkspaceRevision(rawValue: "base-revision"),
-                observed: WorkspaceRevision(rawValue: "advanced-revision")
+            WorkspaceHeadMismatch(
+                observedRevision: WorkspaceRevision(rawValue: "advanced-revision")
             )
         )
         expectNoDifference(
@@ -164,11 +162,16 @@ struct TangledPatchOnlyProposalPublisherTests {
             )
         }
 
-        let error = await #expect(throws: TangledPatchOnlyProposalPublisherError.self) {
+        let error = await #expect(throws: WorkspacePublicationConflict.self) {
             try await TangledPatchOnlyProposalPublisher(transport: transport).publish(request)
         }
 
-        expectNoDifference(error, .mergeCheckRejected("Patch has conflicts"))
+        expectNoDifference(
+            error,
+            WorkspacePublicationConflict(
+                conflictingPaths: [WorkspaceConflictPath(rawValue: "event.yml")]
+            )
+        )
         expectNoDifference(
             events.values,
             [

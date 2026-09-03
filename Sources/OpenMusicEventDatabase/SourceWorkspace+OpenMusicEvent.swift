@@ -99,7 +99,7 @@ public extension SourceWorkspacePreparationClient {
 
 public extension WorkspaceReferenceUpdateClient {
     static func openMusicEvent(
-        resolveRevision: @escaping SourceWorkspaceRevisionResolver
+        resolveRevision _: @escaping SourceWorkspaceRevisionResolver
     ) -> Self {
         Self(
             preparePublishedUpdate: { source, workspaceID, attempt in
@@ -109,20 +109,25 @@ public extension WorkspaceReferenceUpdateClient {
                     attempt: attempt
                 )
             },
-            refresh: { source, workspaceID, current in
-                try await installBranchBaseline(
+            reconcile: { source, workspaceID, current in
+                try await reconcileBranchBaseline(
                     source: source,
                     workspaceID: workspaceID,
-                    branch: current.branch,
-                    resolveRevision: resolveRevision
+                    current: current
+                )
+            },
+            discardChangesAndUpdate: { source, workspaceID, current in
+                try await discardChangesAndInstallBranchBaseline(
+                    source: source,
+                    workspaceID: workspaceID,
+                    current: current
                 )
             },
             select: { source, workspaceID, branch in
                 try await installBranchBaseline(
                     source: source,
                     workspaceID: workspaceID,
-                    branch: branch,
-                    resolveRevision: resolveRevision
+                    branch: branch
                 )
             }
         )
@@ -343,11 +348,440 @@ private func prepareWorkspacePublishedUpdate(
     }
 }
 
+private func reconcileBranchBaseline(
+    source: SourceWorkspaceResource,
+    workspaceID: SourceWorkspace.ID,
+    current: WorkspaceBranchReference
+) async throws -> WorkspaceReconciliationResult<SourceWorkspaceResource> {
+    while true {
+        do {
+            return try await reconcileBranchBaselineOnce(
+                source: source,
+                workspaceID: workspaceID,
+                current: current
+            )
+        } catch SourceWorkspaceDatabaseError.concurrentLocalChanges {
+            try Task.checkCancellation()
+            continue
+        }
+    }
+}
+
+private func reconcileBranchBaselineOnce(
+    source: SourceWorkspaceResource,
+    workspaceID: SourceWorkspace.ID,
+    current: WorkspaceBranchReference
+) async throws -> WorkspaceReconciliationResult<SourceWorkspaceResource> {
+    @Dependency(\.defaultDatabase) var mainDatabase
+    @Dependency(\.sourceControl) var sourceControl
+    @Dependency(\.sourcePatchApplier) var patchApplier
+    @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
+    @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
+    @Dependency(SourceWorkspaceRepositoryInstaller.self) var repositoryInstaller
+
+    try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
+    let baselineStore = SourceWorkspaceBaselineStore(database: mainDatabase)
+    let persisted = try baselineStore.load(workspaceID).required(
+        SourceWorkspaceDatabaseError.contextMissing(workspaceID)
+    )
+    guard persisted == current else {
+        throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
+    }
+
+    let preparedRepositoryURL = source.repositoryURL
+        .deletingLastPathComponent()
+        .appending(path: "repository-reconcile-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: preparedRepositoryURL) }
+    let upstream = try await checkout.checkout(
+        source.workspace,
+        current.branch,
+        preparedRepositoryURL
+    )
+    guard upstream.reference.branch == current.branch else {
+        throw SourceWorkspaceDatabaseError.contextSelectionRevisionChanged(
+            expected: current.branch.rawValue,
+            observed: upstream.reference.branch.rawValue
+        )
+    }
+    guard upstream.reference != current else {
+        return .current(WorkspaceSession(source: source, baseline: current))
+    }
+
+    let snapshotBeforeCapture = try await mainDatabase.read { db in
+        try SourceWorkspaceDatabaseSnapshot(workspace: source.workspace, in: db)
+    }
+    let localPatch = try await patchGenerator.generate(
+        SourceWorkspacePatchRequest(workspace: source.workspace)
+    )
+    let capturedSnapshot = try await mainDatabase.read { db in
+        try SourceWorkspaceDatabaseSnapshot(workspace: source.workspace, in: db)
+    }
+    guard snapshotBeforeCapture == capturedSnapshot else {
+        throw SourceWorkspaceDatabaseError.concurrentLocalChanges(workspaceID)
+    }
+
+    var reconciledChanges: [SourcePatchFileChange] = []
+    var conflictingPaths: Set<String> = []
+    for change in localPatch.fileChanges {
+        let upstreamContents = try sourceFileContents(
+            at: change.path,
+            under: preparedRepositoryURL
+        )
+        let result = try await sourceControl.mergeFile(
+            SourceControlFileMergeRequest(
+                path: RepositoryPath(rawValue: change.path),
+                baseContents: change.oldContents,
+                localContents: change.newContents,
+                upstreamContents: upstreamContents
+            )
+        )
+        switch result {
+        case .conflicted:
+            conflictingPaths.insert(change.path)
+
+        case let .merged(mergedContents):
+            if let reconciled = sourcePatchFileChange(
+                path: change.path,
+                oldContents: upstreamContents,
+                newContents: mergedContents
+            ) {
+                reconciledChanges.append(reconciled)
+            }
+        }
+    }
+
+    guard conflictingPaths.isEmpty else {
+        return .conflicted(
+            WorkspaceReconciliationConflict(
+                baseline: current,
+                upstream: upstream.reference,
+                conflictingPaths: conflictingPaths.sorted().map {
+                    WorkspaceConflictPath(rawValue: $0)
+                }
+            )
+        )
+    }
+
+    let reconciledPatch = SourcePatch(
+        fileChanges: reconciledChanges.sorted { $0.path < $1.path }
+    )
+    let reconciledTree = try materializer.materialize(preparedRepositoryURL, nil)
+    defer { try? FileManager.default.removeItem(at: reconciledTree.workingRepositoryURL) }
+    try patchApplier.apply(reconciledPatch, reconciledTree.workingRepositoryURL)
+
+    let oldWorkingTree = try materializer.materialize(source.repositoryURL, nil)
+    defer { try? FileManager.default.removeItem(at: oldWorkingTree.workingRepositoryURL) }
+    try patchApplier.apply(localPatch, oldWorkingTree.workingRepositoryURL)
+
+    let oldCleanReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: source.repositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let oldWorkingReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: oldWorkingTree.workingRepositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let upstreamReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: preparedRepositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let reconciledReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: reconciledTree.workingRepositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let publicationPersistence = WorkspacePublicationPersistence(database: mainDatabase)
+    let recoverySnapshot = try publicationPersistence.recoverySnapshot(workspaceID)
+    var referenceDatabaseWasReplaced = false
+    var writableDatabaseWasReplaced = false
+
+    do {
+        try await upstreamReplacement.replace(
+            branch: upstream.reference.branch.rawValue,
+            revision: upstream.reference.revision.rawValue,
+            recordsReferenceRevision: true,
+            in: source.referenceDatabase.database
+        )
+        referenceDatabaseWasReplaced = true
+        try await mainDatabase.write { db in
+            let latestSnapshot = try SourceWorkspaceDatabaseSnapshot(
+                workspace: source.workspace,
+                in: db
+            )
+            guard latestSnapshot == capturedSnapshot else {
+                throw SourceWorkspaceDatabaseError.concurrentLocalChanges(workspaceID)
+            }
+            try reconciledReplacement.replace(
+                branch: upstream.reference.branch.rawValue,
+                revision: upstream.reference.revision.rawValue,
+                in: db
+            )
+            try publicationPersistence.reconcileCheckpoint(
+                workspaceID: workspaceID,
+                from: current,
+                to: upstream.reference,
+                changes: reconciledPatch,
+                in: db
+            )
+        }
+        writableDatabaseWasReplaced = true
+        let backupRepositoryURL = try repositoryInstaller.replace(
+            source.repositoryURL,
+            preparedRepositoryURL
+        )
+        try? FileManager.default.removeItem(at: backupRepositoryURL)
+    } catch {
+        let reconciliationError = error
+        var rollbackFailures: [String] = []
+        if referenceDatabaseWasReplaced {
+            do {
+                try await oldCleanReplacement.replace(
+                    branch: current.branch.rawValue,
+                    revision: current.revision.rawValue,
+                    recordsReferenceRevision: true,
+                    in: source.referenceDatabase.database
+                )
+            } catch {
+                rollbackFailures.append("Reference database: \(String(describing: error))")
+            }
+        }
+        if writableDatabaseWasReplaced {
+            do {
+                try await mainDatabase.write { db in
+                    try oldWorkingReplacement.replace(
+                        branch: current.branch.rawValue,
+                        revision: current.revision.rawValue,
+                        in: db
+                    )
+                    try publicationPersistence.restoreRecoverySnapshot(
+                        recoverySnapshot,
+                        workspaceID: workspaceID,
+                        in: db
+                    )
+                }
+            } catch {
+                rollbackFailures.append("Application database: \(String(describing: error))")
+            }
+        }
+        guard rollbackFailures.isEmpty else {
+            throw SourceWorkspaceDatabaseError.reconciliationRollbackFailed(
+                reconciliation: String(describing: reconciliationError),
+                rollback: rollbackFailures.joined(separator: "\n")
+            )
+        }
+        throw reconciliationError
+    }
+
+    return .current(
+        WorkspaceSession(source: source, baseline: upstream.reference)
+    )
+}
+
+private func discardChangesAndInstallBranchBaseline(
+    source: SourceWorkspaceResource,
+    workspaceID: SourceWorkspace.ID,
+    current: WorkspaceBranchReference
+) async throws -> WorkspaceSession<SourceWorkspaceResource> {
+    @Dependency(\.defaultDatabase) var mainDatabase
+    @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
+    @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
+    @Dependency(SourceWorkspaceRepositoryInstaller.self) var repositoryInstaller
+
+    try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
+    let persisted = try SourceWorkspaceBaselineStore(database: mainDatabase)
+        .load(workspaceID)
+        .required(SourceWorkspaceDatabaseError.contextMissing(workspaceID))
+    guard persisted == current else {
+        throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
+    }
+
+    let snapshotBeforeCapture = try await mainDatabase.read { db in
+        try SourceWorkspaceDatabaseSnapshot(workspace: source.workspace, in: db)
+    }
+    let localPatch = try await patchGenerator.generate(
+        SourceWorkspacePatchRequest(workspace: source.workspace)
+    )
+    let capturedSnapshot = try await mainDatabase.read { db in
+        try SourceWorkspaceDatabaseSnapshot(workspace: source.workspace, in: db)
+    }
+    guard snapshotBeforeCapture == capturedSnapshot else {
+        throw SourceWorkspaceDatabaseError.concurrentLocalChanges(workspaceID)
+    }
+
+    let preparedRepositoryURL = source.repositoryURL
+        .deletingLastPathComponent()
+        .appending(path: "repository-discard-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: preparedRepositoryURL) }
+    let upstream = try await checkout.checkout(
+        source.workspace,
+        current.branch,
+        preparedRepositoryURL
+    )
+    guard upstream.reference.branch == current.branch else {
+        throw SourceWorkspaceDatabaseError.contextSelectionRevisionChanged(
+            expected: current.branch.rawValue,
+            observed: upstream.reference.branch.rawValue
+        )
+    }
+
+    let oldWorkingTree = try materializer.materialize(source.repositoryURL, nil)
+    defer { try? FileManager.default.removeItem(at: oldWorkingTree.workingRepositoryURL) }
+    @Dependency(\.sourcePatchApplier) var patchApplier
+    try patchApplier.apply(localPatch, oldWorkingTree.workingRepositoryURL)
+
+    let oldCleanReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: source.repositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let oldWorkingReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: oldWorkingTree.workingRepositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let upstreamReplacement = try await sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: preparedRepositoryURL
+    )
+    .prepareWorkspaceReplacement(source.workspace)
+    let publicationPersistence = WorkspacePublicationPersistence(database: mainDatabase)
+    let recoverySnapshot = try publicationPersistence.recoverySnapshot(workspaceID)
+    var referenceDatabaseWasReplaced = false
+    var writableDatabaseWasReplaced = false
+
+    do {
+        try await upstreamReplacement.replace(
+            branch: upstream.reference.branch.rawValue,
+            revision: upstream.reference.revision.rawValue,
+            recordsReferenceRevision: true,
+            in: source.referenceDatabase.database
+        )
+        referenceDatabaseWasReplaced = true
+        try await mainDatabase.write { db in
+            let latestSnapshot = try SourceWorkspaceDatabaseSnapshot(
+                workspace: source.workspace,
+                in: db
+            )
+            guard latestSnapshot == capturedSnapshot else {
+                throw SourceWorkspaceDatabaseError.concurrentLocalChanges(workspaceID)
+            }
+            try upstreamReplacement.replace(
+                branch: upstream.reference.branch.rawValue,
+                revision: upstream.reference.revision.rawValue,
+                in: db
+            )
+            try publicationPersistence.discardUnpublishedCheckpoint(
+                workspaceID: workspaceID,
+                in: db
+            )
+        }
+        writableDatabaseWasReplaced = true
+        let backupRepositoryURL = try repositoryInstaller.replace(
+            source.repositoryURL,
+            preparedRepositoryURL
+        )
+        try? FileManager.default.removeItem(at: backupRepositoryURL)
+    } catch {
+        let discardError = error
+        var rollbackFailures: [String] = []
+        if referenceDatabaseWasReplaced {
+            do {
+                try await oldCleanReplacement.replace(
+                    branch: current.branch.rawValue,
+                    revision: current.revision.rawValue,
+                    recordsReferenceRevision: true,
+                    in: source.referenceDatabase.database
+                )
+            } catch {
+                rollbackFailures.append("Reference database: \(String(describing: error))")
+            }
+        }
+        if writableDatabaseWasReplaced {
+            do {
+                try await mainDatabase.write { db in
+                    try oldWorkingReplacement.replace(
+                        branch: current.branch.rawValue,
+                        revision: current.revision.rawValue,
+                        in: db
+                    )
+                    try publicationPersistence.restoreRecoverySnapshot(
+                        recoverySnapshot,
+                        workspaceID: workspaceID,
+                        in: db
+                    )
+                }
+            } catch {
+                rollbackFailures.append("Application database: \(String(describing: error))")
+            }
+        }
+        guard rollbackFailures.isEmpty else {
+            throw SourceWorkspaceDatabaseError.reconciliationRollbackFailed(
+                reconciliation: String(describing: discardError),
+                rollback: rollbackFailures.joined(separator: "\n")
+            )
+        }
+        throw discardError
+    }
+
+    return WorkspaceSession(source: source, baseline: upstream.reference)
+}
+
+private func sourcePatchFileChange(
+    path: String,
+    oldContents: Data?,
+    newContents: Data?
+) -> SourcePatchFileChange? {
+    switch (oldContents, newContents) {
+    case (nil, nil):
+        return nil
+    case (nil, let newContents?):
+        return SourcePatchFileChange(path: path, kind: .added, newContents: newContents)
+    case (let oldContents?, nil):
+        return SourcePatchFileChange(path: path, kind: .deleted, oldContents: oldContents)
+    case (let oldContents?, let newContents?):
+        guard oldContents != newContents else { return nil }
+        return SourcePatchFileChange(
+            path: path,
+            kind: .modified,
+            oldContents: oldContents,
+            newContents: newContents
+        )
+    }
+}
+
+private func sourceFileContents(at path: String, under rootURL: URL) throws -> Data? {
+    let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    let components = trimmed.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    guard !trimmed.isEmpty,
+          !trimmed.hasPrefix("/"),
+          components.joined(separator: "/") == trimmed,
+          !components.contains("."),
+          !components.contains("..")
+    else {
+        throw SourcePatchApplierError.invalidPatchPath(path)
+    }
+    let fileURL = components.reduce(rootURL.standardizedFileURL) { url, component in
+        url.appending(path: component)
+    }
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
+        return nil
+    }
+    guard !isDirectory.boolValue else {
+        throw SourcePatchApplierError.invalidPatchPath(path)
+    }
+    return try Data(contentsOf: fileURL)
+}
+
 private func installBranchBaseline(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
-    branch: WorkspaceBranch,
-    resolveRevision: @escaping SourceWorkspaceRevisionResolver
+    branch: WorkspaceBranch
 ) async throws -> WorkspaceBranchReference {
     @Dependency(\.defaultDatabase) var mainDatabase
     @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
@@ -465,6 +899,108 @@ private func validate(
     }
 }
 
+private struct SourceWorkspaceDatabaseSnapshot: Equatable, Sendable {
+    var organizer: OME.Organizer?
+    var calendar: OME.Calendar?
+    var calendarEntries: [OME.CalendarEntry]
+    var collaborators: [WorkspaceRelationshipRecord]
+    var provenances: [EventSourceProvenanceRecord]
+    var events: [OME.Event]
+    var siteMaps: [OME.Event.SiteMap]
+    var eventOrganizers: [OME.EventOrganizer]
+    var stages: [OME.Stage]
+    var schedules: [OME.Schedule]
+    var contributors: [OME.Contributor]
+    var channels: [OME.Channel]
+    var communicationPosts: [CommsPost]
+    var posters: [OME.Poster]
+    var scheduleItems: [OME.ScheduleItem]
+    var performanceDetails: [OME.ScheduleItem.PerformanceDetails]
+    var scheduleItemContributors: [OME.ScheduleItem.Contributor]
+    var localImageBlobs: [LocalImageBlob]
+
+    init(workspace: SourceWorkspace, in database: Database) throws {
+        let calendarID = OME.Calendar.ID(
+            ownerID: workspace.organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let provenances = try EventSourceProvenanceRecord
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { $0.workspace?.id == workspace.id }
+        let eventIDs = Set(provenances.map(\.id.eventID))
+
+        self.organizer = try OME.Organizer.find(workspace.organizerID).fetchOne(database)
+        self.calendar = try OME.Calendar.find(calendarID).fetchOne(database)
+        self.calendarEntries = try OME.CalendarEntry
+            .where { $0.id.calendarOwnerID.eq(workspace.organizerID) }
+            .where { $0.id.calendarID.eq(OME.Calendar.defaultID) }
+            .fetchAll(database)
+        self.collaborators = try WorkspaceRelationshipRecord
+            .where { $0.id.workspaceID.eq(workspace.id) }
+            .fetchAll(database)
+        self.provenances = provenances
+        self.events = try OME.Event
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.siteMaps = try OME.Event.SiteMap
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.eventOrganizers = try OME.EventOrganizer
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.stages = try OME.Stage
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.schedules = try OME.Schedule
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.contributors = try OME.Contributor
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.channels = try OME.Channel
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.communicationPosts = try CommsPost
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.posters = try OME.Poster
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.scheduleItems = try OME.ScheduleItem
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.performanceDetails = try OME.ScheduleItem.PerformanceDetails
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        self.scheduleItemContributors = try OME.ScheduleItem.Contributor
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+            .filter { eventIDs.contains($0.id.eventID) }
+        let organizerID = workspace.organizerID
+        let organizerImageBlobs = try LocalImageBlob
+            .where { blob in blob.organizerID.eq(organizerID) }
+            .fetchAll(database)
+        self.localImageBlobs = organizerImageBlobs.filter { blob in
+            guard let eventID = blob.eventID else {
+                return blob.parentKind == .calendar
+            }
+            return eventIDs.contains(eventID)
+        }
+    }
+}
+
 private func sourceInsertion(
     workspace: SourceWorkspace,
     repositoryURL: URL
@@ -496,6 +1032,27 @@ private func isGitRepository(_ repositoryURL: URL) -> Bool {
     )
 }
 
+package struct SourceWorkspaceRepositoryInstaller: Sendable {
+    package var replace: @Sendable (_ repositoryURL: URL, _ replacementURL: URL) throws -> URL
+
+    package init(
+        replace: @escaping @Sendable (
+            _ repositoryURL: URL,
+            _ replacementURL: URL
+        ) throws -> URL
+    ) {
+        self.replace = replace
+    }
+}
+
+extension SourceWorkspaceRepositoryInstaller: DependencyKey {
+    package static let liveValue = Self { repositoryURL, replacementURL in
+        try replaceRepository(at: repositoryURL, with: replacementURL)
+    }
+
+    package static let testValue = liveValue
+}
+
 private func replaceRepository(at repositoryURL: URL, with replacementURL: URL) throws -> URL {
     let fileManager = FileManager.default
     let backupURL = repositoryURL
@@ -522,6 +1079,7 @@ private func replaceRepository(at repositoryURL: URL, with replacementURL: URL) 
 
 enum SourceWorkspaceDatabaseError: Error, Equatable {
     case applicationDatabaseMismatch(SourceWorkspace.ID)
+    case concurrentLocalChanges(SourceWorkspace.ID)
     case contextMismatch(SourceWorkspace.ID)
     case contextMissing(SourceWorkspace.ID)
     case contextSelectionRollbackFailed(selection: String, rollback: String)
@@ -536,6 +1094,7 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
     case proposalDestinationMismatch
     case publishedDestinationMismatch
     case proposalSnapshotUnavailable(SourceWorkspace.ID)
+    case reconciliationRollbackFailed(reconciliation: String, rollback: String)
     case repositoryMissing(SourceWorkspace.ID)
     case resourceMismatch(SourceWorkspace.ID)
     case upstreamReferenceMissing(SourceWorkspace.ID)

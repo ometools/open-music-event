@@ -186,6 +186,11 @@ public struct EventWorkspace {
         .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
             state.updateAuthoringGrant(grant)
         }
+        .onChange(of: store.workspaceState.reconciliation) { _, reconciliation, state in
+            if case .conflicted = reconciliation {
+                state.changes.proposalDraft = nil
+            }
+        }
     }
 }
 

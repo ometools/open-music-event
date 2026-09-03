@@ -1,5 +1,5 @@
 {
-  "originHash" : "891a14ca2d68d21a3683b5c6383a73feaae081547e17a9892c25216165a40005",
+  "originHash" : "823e99b8463d3536bcd5838129b937303c0527c09a901bf662bddf73eda83e3b",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -448,7 +448,7 @@
       "location" : "https://source.woody.fm/swift-composable-workspace",
       "state" : {
         "branch" : "main",
-        "revision" : "42ee399006e6f8fa07c063e503052b30bbff817c"
+        "revision" : "962e4ba0109fd48cc6d5123d9c69e932d2f528a8"
       }
     },
     {
@@ -520,7 +520,7 @@
       "location" : "https://source.woody.fm/swift-dependencies-source-control-client",
       "state" : {
         "branch" : "main",
-        "revision" : "6e15393616a265f0053f253bdea02faa0602995f"
+        "revision" : "464f2631306dc3230bcfa4fcfd9ea4d32c71284a"
       }
     },
     {

@@ -115,6 +115,18 @@ let composableWorkspaceDependency: Package.Dependency = {
         branch: "main"
     )
 }()
+let sourceControlDependency: Package.Dependency = {
+    if let path = environment["OME_SOURCE_CONTROL_CLIENT_PATH"] {
+        return .package(
+            name: "swift-dependencies-source-control-client",
+            path: packagePath(path)
+        )
+    }
+    return .package(
+        url: "https://source.woody.fm/swift-dependencies-source-control-client",
+        branch: "main"
+    )
+}()
 let dependenciesHTTPClientDependency: Package.Dependency = {
     if let path = environment["OME_DEPENDENCIES_HTTP_CLIENT_PATH"] {
         return .package(
@@ -374,7 +386,7 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
-    .package(url: "https://source.woody.fm/swift-dependencies-source-control-client", branch: "main"),
+    sourceControlDependency,
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
@@ -439,10 +451,7 @@ let appViewDependencies: [Package.Dependency] = [
         branch: "main"
     ),
     composableWorkspaceDependency,
-    .package(
-        url: "https://source.woody.fm/swift-dependencies-source-control-client",
-        branch: "main"
-    ),
+    sourceControlDependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),

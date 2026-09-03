@@ -276,70 +276,84 @@ struct PreparedSourceWorkspaceReplacement: Sendable {
         in database: any DatabaseWriter
     ) async throws {
         try await database.write { db in
-            let organizerProvenances = try EventSourceProvenanceRecord
-                .where { $0.id.organizerID.eq(workspace.organizerID) }
-                .fetchAll(db)
-            guard organizerProvenances.allSatisfy({ $0.workspace != nil }) else {
-                throw SourceWorkspaceInstallationError.unscopedOrganizerSource(
-                    workspace.organizerID
-                )
-            }
-            let conflictingWorkspaceIDs = Set(
-                organizerProvenances.compactMap { $0.workspace?.id }
+            try replace(
+                branch: branch,
+                revision: revision,
+                recordsReferenceRevision: recordsReferenceRevision,
+                in: db
             )
-            .subtracting([workspace.id])
-            guard conflictingWorkspaceIDs.isEmpty else {
-                throw SourceWorkspaceInstallationError.conflictingOrganizerSource(
-                    organizerID: workspace.organizerID,
-                    existingWorkspaceIDs: conflictingWorkspaceIDs.sorted {
-                        $0.rawValue < $1.rawValue
-                    },
-                    incomingWorkspaceID: workspace.id
-                )
-            }
+        }
+    }
 
-            let existingEventIDs = organizerProvenances
-                .filter { $0.workspace?.id == workspace.id }
-                .map(\.id)
-            for eventID in existingEventIDs {
-                try OME.Event.find(eventID).delete().execute(db)
-            }
-            try OME.Calendar
-                .find(
-                    OME.Calendar.ID(
-                        ownerID: workspace.organizerID,
-                        calendarID: OME.Calendar.defaultID
-                    )
-                )
-                .delete()
-                .execute(db)
-            try WorkspaceRelationshipRecord
-                .where { $0.id.workspaceID.eq(workspace.id) }
-                .delete()
-                .execute(db)
+    func replace(
+        branch: String,
+        revision: String,
+        recordsReferenceRevision: Bool = false,
+        in database: Database
+    ) throws {
+        let organizerProvenances = try EventSourceProvenanceRecord
+            .where { $0.id.organizerID.eq(workspace.organizerID) }
+            .fetchAll(database)
+        guard organizerProvenances.allSatisfy({ $0.workspace != nil }) else {
+            throw SourceWorkspaceInstallationError.unscopedOrganizerSource(
+                workspace.organizerID
+            )
+        }
+        let conflictingWorkspaceIDs = Set(
+            organizerProvenances.compactMap { $0.workspace?.id }
+        )
+        .subtracting([workspace.id])
+        guard conflictingWorkspaceIDs.isEmpty else {
+            throw SourceWorkspaceInstallationError.conflictingOrganizerSource(
+                organizerID: workspace.organizerID,
+                existingWorkspaceIDs: conflictingWorkspaceIDs.sorted {
+                    $0.rawValue < $1.rawValue
+                },
+                incomingWorkspaceID: workspace.id
+            )
+        }
 
-            try prepared.insert(into: db)
-            try SourceWorkspaceInstallationRecord.upsert {
-                SourceWorkspaceInstallationRecord(id: workspace.id, revision: revision)
-            }
-            .execute(db)
-            try SourceWorkspaceSelectionRecord.upsert {
-                SourceWorkspaceSelectionRecord(
+        let existingEventIDs = organizerProvenances
+            .filter { $0.workspace?.id == workspace.id }
+            .map(\.id)
+        for eventID in existingEventIDs {
+            try OME.Event.find(eventID).delete().execute(database)
+        }
+        try OME.Calendar
+            .find(
+                OME.Calendar.ID(
+                    ownerID: workspace.organizerID,
+                    calendarID: OME.Calendar.defaultID
+                )
+            )
+            .delete()
+            .execute(database)
+        try WorkspaceRelationshipRecord
+            .where { $0.id.workspaceID.eq(workspace.id) }
+            .delete()
+            .execute(database)
+
+        try prepared.insert(into: database)
+        try SourceWorkspaceInstallationRecord.upsert {
+            SourceWorkspaceInstallationRecord(id: workspace.id, revision: revision)
+        }
+        .execute(database)
+        try SourceWorkspaceSelectionRecord.upsert {
+            SourceWorkspaceSelectionRecord(
+                id: workspace.id,
+                branch: branch,
+                revision: revision
+            )
+        }
+        .execute(database)
+        if recordsReferenceRevision {
+            try SourceWorkspaceReferenceRecord.upsert {
+                SourceWorkspaceReferenceRecord(
                     id: workspace.id,
-                    branch: branch,
                     revision: revision
                 )
             }
-            .execute(db)
-            if recordsReferenceRevision {
-                try SourceWorkspaceReferenceRecord.upsert {
-                    SourceWorkspaceReferenceRecord(
-                        id: workspace.id,
-                        revision: revision
-                    )
-                }
-                .execute(db)
-            }
+            .execute(database)
         }
     }
 }

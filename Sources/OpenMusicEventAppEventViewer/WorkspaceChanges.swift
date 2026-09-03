@@ -86,6 +86,7 @@ public struct WorkspaceChanges {
     }
 
     public enum Action {
+        case discardConflictingChangesButtonTapped
         case proposalActionButtonTapped
         case proposalDraft(WorkspaceProposalDraft.Action)
         case resetChangesButtonTapped
@@ -98,10 +99,23 @@ public struct WorkspaceChanges {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .discardConflictingChangesButtonTapped:
+                guard case .conflicted = workspace.state.wrappedValue.reconciliation else {
+                    return
+                }
+                store.addTask {
+                    let discard = try store.post(
+                        key: WorkspaceConflictingChangesDiscardRequested.self,
+                        value: ()
+                    )
+                    await discard?.value
+                }
+
             case .proposalActionButtonTapped:
                 guard state.canPropose || state.canPublish,
                       state.changeCount > 0,
-                      let session = workspace.session
+                      let session = workspace.session,
+                      case .current = workspace.state.wrappedValue.reconciliation
                 else { return }
                 if session.baseline.branch.rawValue == state.workspace.defaultBranch {
                     state.proposalDraft = WorkspaceProposalDraft.State(
@@ -152,6 +166,7 @@ public struct WorkspaceChanges {
         }
         .onChange(of: store.summary) { oldSummary, summary, state in
             guard oldSummary != summary else { return }
+            guard state.proposalDraft?.publicationProgress.isActive != true else { return }
             state.proposalDraft = nil
         }
     }
@@ -174,6 +189,7 @@ public struct WorkspaceChangesView: View {
     @Bindable var store: StoreOf<WorkspaceChanges>
     let workspaceState: WorkspaceState<SourceWorkspaceResource>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @State var isDiscardConfirmationPresented = false
     @State var isResetConfirmationPresented = false
 
     public init(
@@ -230,22 +246,48 @@ public struct WorkspaceChangesView: View {
                 }
             }
 
-            proposalActionSection
+            switch workspaceState.reconciliation {
+            case .current:
+                proposalActionSection
 
-            if store.canResetChanges || store.resetStatus != .idle {
-                Section("Reset") {
-                    Button("Reset changes", role: .destructive) {
-                        isResetConfirmationPresented = true
-                    }
-                    .disabled(!store.canResetChanges)
-                    .accessibilityIdentifier("workspace.changes.reset")
+                if store.canResetChanges || store.resetStatus != .idle {
+                    Section("Reset") {
+                        Button("Reset changes", role: .destructive) {
+                            isResetConfirmationPresented = true
+                        }
+                        .disabled(!store.canResetChanges)
+                        .accessibilityIdentifier("workspace.changes.reset")
 
-                    switch store.resetStatus {
-                    case .resetting:
-                        ProgressView("Resetting changes")
-                    case .idle:
-                        EmptyView()
+                        switch store.resetStatus {
+                        case .resetting:
+                            ProgressView("Resetting changes")
+                        case .idle:
+                            EmptyView()
+                        }
                     }
+                }
+
+            case .reconciling:
+                Section {
+                    ProgressView("Checking for published changes")
+                }
+
+            case let .conflicted(conflict):
+                Section("Update Required") {
+                    Text(
+                        "New published changes overlap with your workspace edits. Your edits are safe, but publishing is paused."
+                    )
+                    if showsTechnicalDetails {
+                        ForEach(conflict.conflictingPaths, id: \.rawValue) { path in
+                            Text(verbatim: path.rawValue)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("Discard My Changes and Update", role: .destructive) {
+                        isDiscardConfirmationPresented = true
+                    }
+                    .accessibilityIdentifier("workspace.reconciliation.discard")
                 }
             }
         }
@@ -257,6 +299,19 @@ public struct WorkspaceChangesView: View {
         } message: {
             Text(
                 "This restores every source record to its reference copy and clears local proposal publication recovery. Remote proposals are not deleted."
+            )
+        }
+        .alert(
+            "Discard my changes and update?",
+            isPresented: $isDiscardConfirmationPresented
+        ) {
+            Button("Discard My Changes", role: .destructive) {
+                store.send(.discardConflictingChangesButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This discards every unpublished workspace change and installs the latest published branch. Remote proposals are not deleted."
             )
         }
     }

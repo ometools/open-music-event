@@ -9,7 +9,7 @@ import GRDB
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
-import OpenMusicEventSourceEditing
+@testable import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceControlClient
 import SourceEditing
@@ -3702,26 +3702,25 @@ struct SourceDatabaseInsertionTests {
                 .prepare(workspace)
             expectNoDifference(prepared.baseline, oldReference)
 
-            let refreshed = try await WorkspaceReferenceUpdateClient
+            let result = try await WorkspaceReferenceUpdateClient
                 .openMusicEvent(resolveRevision: resolveRevision)
-                .refresh(
+                .reconcile(
                     prepared.source,
                     workspace.id,
                     prepared.baseline
                 )
+            guard case let .current(refreshed) = result else {
+                Issue.record("Expected the advanced baseline to reconcile without conflicts")
+                return
+            }
 
-            expectNoDifference(refreshed, newReference)
+            expectNoDifference(refreshed.baseline, newReference)
             expectNoDifference(checkoutCount.withLock { $0 }, 2)
             let recordedPatchBaseURLs = patchBaseURLs.withLock { $0 }
-            #expect(recordedPatchBaseURLs.count == 2)
-            #expect(recordedPatchBaseURLs[0] == nil)
-            #expect(recordedPatchBaseURLs[1] != nil)
+            expectNoDifference(recordedPatchBaseURLs, [nil])
             expectNoDifference(
                 patchDatabaseIDs.withLock { $0 },
-                [
-                    ObjectIdentifier(prepared.source.referenceDatabase.database),
-                    ObjectIdentifier(database),
-                ]
+                [ObjectIdentifier(database)]
             )
             let event = try await database.read { db in
                 try #require(
@@ -3777,6 +3776,1229 @@ struct SourceDatabaseInsertionTests {
                     || $0.lastPathComponent.hasPrefix("repository-backup-")
             }
             expectNoDifference(temporaryRepositories, [])
+        }
+    }
+
+    @Test
+    func `a newer published source preserves two locally added communication posts`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/postival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(
+                rawValue: "b39b6a451ba364df9158f9654248c199bfd92787"
+            )
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(
+                rawValue: "5367c67e6444019c1ee111cc93e43a4ece11fcd6"
+            )
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = deterministicWorkspaceFileMerge
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                var source = try sourceRepositoryWithCommunicationPosts(includePosts: false)
+                if index > 1 {
+                    source.events[0].components.event.description =
+                        "The published schedule now includes Thursday arrival."
+                }
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    source,
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let localEventID = id("postival-source-postival-2026") as OME.ID<OME.Event>
+            try await database.write { db in
+                for (index, postID) in ["gates-open", "weather-update"].enumerated() {
+                    try CommsPost.insert {
+                        CommsPost(
+                            id: CommsPost.ID(
+                                organizerID: organizerID,
+                                eventID: localEventID,
+                                channelID: id("general"),
+                                postID: CommsPost.PostID(postID)
+                            ),
+                            title: postID == "gates-open" ? "Gates are open" : "Weather update",
+                            contents: postID == "gates-open"
+                                ? "Welcome to the festival."
+                                : "Bring a warm layer.",
+                            sortIndex: index
+                        )
+                    }
+                    .execute(db)
+                }
+            }
+
+            let localPatchBefore = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(
+                localPatchBefore.fileChanges.map(\.path),
+                [
+                    "events/postival-2026/communications/general/gates-open.md",
+                    "events/postival-2026/communications/general/weather-update.md",
+                ]
+            )
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .current(reconciled) = result else {
+                Issue.record("Expected independent communication additions to reconcile")
+                return
+            }
+            expectNoDifference(reconciled.baseline, newReference)
+
+            let working = try await database.read { db in
+                (
+                    event: try OME.Event
+                        .find(eventID("postival-source-postival-2026", organizerID: organizerID))
+                        .fetchOne(db),
+                    posts: try CommsPost.order { $0.sortIndex }.fetchAll(db),
+                    installation: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db),
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)
+                )
+            }
+            expectNoDifference(
+                working.event?.description,
+                "The published schedule now includes Thursday arrival."
+            )
+            expectNoDifference(
+                working.posts.map(\.id.postID.rawValue),
+                ["gates-open", "weather-update"]
+            )
+            expectNoDifference(working.installation?.revision, newReference.revision.rawValue)
+            expectNoDifference(
+                working.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: newReference.branch.rawValue,
+                    revision: newReference.revision.rawValue
+                )
+            )
+
+            let reference = try prepared.source.referenceDatabase.read { db in
+                (
+                    revision: try SourceWorkspaceReferenceRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision,
+                    postCount: try CommsPost.fetchCount(db)
+                )
+            }
+            expectNoDifference(reference.revision, Optional(newReference.revision.rawValue))
+            expectNoDifference(reference.postCount, 0)
+
+            let installedSource = try OpenMusicEventSourceRepositoryFileTree()
+                .read(from: prepared.source.repositoryURL)
+                .output
+                .requiredValue
+            expectNoDifference(
+                installedSource.events.first?.components.event.description,
+                "The published schedule now includes Thursday arrival."
+            )
+            #expect(installedSource.events.first?.components.communicationPosts == nil)
+
+            let localPatchAfter = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(localPatchAfter, localPatchBefore)
+        }
+    }
+
+    @Test
+    func `independent edits in one event file reconcile into working and reference sources`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        let mergeCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = { request in
+            mergeCount.withLock { $0 += 1 }
+            let base = String(decoding: try #require(request.baseContents), as: UTF8.self)
+            let local = String(decoding: try #require(request.localContents), as: UTF8.self)
+            let upstream = String(
+                decoding: try #require(request.upstreamContents),
+                as: UTF8.self
+            )
+            #expect(request.path.rawValue == "events/testival-2026/event.yml")
+            #expect(base.contains("Original event"))
+            #expect(base.contains("A small fixture event."))
+            #expect(local.contains("My local event"))
+            #expect(local.contains("A small fixture event."))
+            #expect(upstream.contains("Original event"))
+            #expect(upstream.contains("Published description"))
+            let merged = upstream.replacingOccurrences(
+                of: "Original event",
+                with: "My local event"
+            )
+            return .merged(contents: Data(merged.utf8))
+        }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                var checkedOutSource = try makeSourceRepository(eventName: "Original event")
+                if index > 1 {
+                    checkedOutSource.events[0].components.event.description =
+                        "Published description"
+                }
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    checkedOutSource,
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let eventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+            try await database.write { db in
+                try OME.Event.find(eventID).update { $0.name = "My local event" }.execute(db)
+            }
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .current(reconciled) = result else {
+                Issue.record("Expected independent event-file edits to reconcile")
+                return
+            }
+
+            expectNoDifference(reconciled.baseline, newReference)
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            expectNoDifference(mergeCount.withLock { $0 }, 1)
+            let workingEvent = try #require(await database.read { db in
+                try OME.Event.find(eventID).fetchOne(db)
+            })
+            expectNoDifference(workingEvent.name, "My local event")
+            expectNoDifference(workingEvent.description, "Published description")
+            let referenceEvent = try #require(prepared.source.referenceDatabase.read { db in
+                try OME.Event.find(eventID).fetchOne(db)
+            })
+            expectNoDifference(referenceEvent.name, "Original event")
+            expectNoDifference(referenceEvent.description, "Published description")
+            let installedEvent = try #require(
+                OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: prepared.source.repositoryURL)
+                    .output
+                    .requiredValue
+                    .events.first?.components.event
+            )
+            expectNoDifference(installedEvent.name, "Original event")
+            expectNoDifference(installedEvent.description, "Published description")
+            let remainingPatch = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(
+                remainingPatch.fileChanges.map(\.path),
+                ["events/testival-2026/event.yml"]
+            )
+        }
+    }
+
+    @Test
+    func `a local edit already present upstream leaves no remaining workspace change`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        let mergeCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = { request in
+            mergeCount.withLock { $0 += 1 }
+            return try await deterministicWorkspaceFileMerge(request)
+        }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(
+                        eventName: index == 1 ? "Original event" : "Shared edit"
+                    ),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let eventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+            try await database.write { db in
+                try OME.Event.find(eventID).update { $0.name = "Shared edit" }.execute(db)
+            }
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .current(reconciled) = result else {
+                Issue.record("Expected an already-published local edit to reconcile")
+                return
+            }
+
+            expectNoDifference(reconciled.baseline, newReference)
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            expectNoDifference(mergeCount.withLock { $0 }, 1)
+            let workingEventName = try await database.read { db in
+                try OME.Event.find(eventID).fetchOne(db)?.name
+            }
+            expectNoDifference(workingEventName, "Shared edit")
+            expectNoDifference(
+                try prepared.source.referenceDatabase.read { db in
+                    try OME.Event.find(eventID).fetchOne(db)?.name
+                },
+                "Shared edit"
+            )
+            #expect(
+                try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                    .openMusicEvent
+                    .generate(SourceWorkspacePatchRequest(workspace: workspace))
+                    .isEmpty
+            )
+        }
+    }
+
+    @Test(arguments: [
+        WorkspaceCommunicationConflictScenario.addAdd,
+        .deleteModify,
+    ])
+    func `add-add and delete-modify communication changes conflict without persistence mutation`(
+        _ scenario: WorkspaceCommunicationConflictScenario
+    ) async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/postival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        let mergeCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = { request in
+            mergeCount.withLock { $0 += 1 }
+            #expect(
+                request.path.rawValue
+                    == "events/postival-2026/communications/general/arrival.md"
+            )
+            switch scenario {
+            case .addAdd:
+                #expect(request.baseContents == nil)
+                #expect(request.localContents != nil)
+                #expect(request.upstreamContents != nil)
+                #expect(request.localContents != request.upstreamContents)
+
+            case .deleteModify:
+                #expect(request.baseContents != nil)
+                #expect(request.localContents == nil)
+                #expect(request.upstreamContents != nil)
+                #expect(request.baseContents != request.upstreamContents)
+            }
+            return try await deterministicWorkspaceFileMerge(request)
+        }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                var checkedOutSource = try sourceRepositoryWithCommunicationPosts(
+                    includePosts: scenario == .deleteModify || index > 1
+                )
+                if scenario == .deleteModify, index > 1 {
+                    checkedOutSource.events[0]
+                        .components
+                        .communicationPosts?[0]
+                        .components[0]
+                        .data = CommunicationPostDTO(
+                            title: "Published arrival",
+                            contents: "Use the south gate."
+                        )
+                }
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    checkedOutSource,
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let localEventID = id("postival-source-postival-2026") as OME.ID<OME.Event>
+            let arrivalID = CommsPost.ID(
+                organizerID: organizerID,
+                eventID: localEventID,
+                channelID: id("general"),
+                postID: CommsPost.PostID("arrival")
+            )
+            try await database.write { db in
+                switch scenario {
+                case .addAdd:
+                    try CommsPost.insert {
+                        CommsPost(
+                            id: arrivalID,
+                            title: "My arrival",
+                            contents: "Use the west gate.",
+                            sortIndex: 0
+                        )
+                    }
+                    .execute(db)
+
+                case .deleteModify:
+                    try CommsPost.find(arrivalID).delete().execute(db)
+                }
+            }
+            let patchBefore = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(
+                patchBefore.fileChanges.map(\.path),
+                ["events/postival-2026/communications/general/arrival.md"]
+            )
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .conflicted(conflict) = result else {
+                Issue.record("Expected \(scenario) to conflict")
+                return
+            }
+
+            expectNoDifference(conflict.baseline, oldReference)
+            expectNoDifference(conflict.upstream, newReference)
+            expectNoDifference(
+                conflict.conflictingPaths.map(\.rawValue),
+                ["events/postival-2026/communications/general/arrival.md"]
+            )
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            expectNoDifference(mergeCount.withLock { $0 }, 1)
+            let patchAfter = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(patchAfter, patchBefore)
+            let persistedRevision = try await database.read { db in
+                try SourceWorkspaceInstallationRecord
+                    .find(workspace.id)
+                    .fetchOne(db)?.revision
+            }
+            expectNoDifference(persistedRevision, oldReference.revision.rawValue)
+            let reference = try prepared.source.referenceDatabase.read { db in
+                (
+                    try SourceWorkspaceReferenceRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision,
+                    try CommsPost.fetchCount(db)
+                )
+            }
+            expectNoDifference(reference.0, oldReference.revision.rawValue)
+            expectNoDifference(reference.1, scenario == .addAdd ? 0 : 2)
+            let installedPosts = try OpenMusicEventSourceRepositoryFileTree()
+                .read(from: prepared.source.repositoryURL)
+                .output
+                .requiredValue
+                .events
+                .first?
+                .components
+                .communicationPosts?
+                .flatMap(\.components)
+            expectNoDifference(installedPosts?.count ?? 0, scenario == .addAdd ? 0 : 2)
+        }
+    }
+
+    @Test(arguments: [
+        WorkspaceReconciliationFailurePoint.referenceDatabase,
+        .writableDatabase,
+        .repository,
+    ])
+    func `failed reconciliation commit restores the old baseline and every local edit`(
+        _ failurePoint: WorkspaceReconciliationFailurePoint
+    ) async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = deterministicWorkspaceFileMerge
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            if failurePoint == .repository {
+                $0[SourceWorkspaceRepositoryInstaller.self] =
+                    SourceWorkspaceRepositoryInstaller { _, _ in
+                        throw WorkspaceReconciliationInjectedFailure
+                            .injectedRepositoryReplacement
+                    }
+            }
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                var checkedOutSource = try makeSourceRepository(eventName: "Original event")
+                if index > 1 {
+                    checkedOutSource.events[0].components.event.description =
+                        "Published description"
+                }
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    checkedOutSource,
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let localEventID = id("testival-source-testival-2026") as OME.ID<OME.Event>
+            try await database.write { db in
+                try CommsPost.insert {
+                    CommsPost(
+                        id: CommsPost.ID(
+                            organizerID: organizerID,
+                            eventID: localEventID,
+                            channelID: id("general"),
+                            postID: CommsPost.PostID("local-update")
+                        ),
+                        title: "My local update",
+                        contents: "This must survive rollback.",
+                        sortIndex: 0
+                    )
+                }
+                .execute(db)
+            }
+            let patchBefore = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            let persistence = WorkspacePublicationPersistence(database: database)
+            let checkpointBefore = try await persistence.checkpoint(
+                workspaceID: workspace.id,
+                attempt: WorkspaceProposalAttempt(
+                    changes: patchBefore,
+                    details: WorkspaceProposalDetails(
+                        title: try #require(
+                            WorkspaceProposalTitle("Preserve this checkpoint")
+                        )
+                    ),
+                    target: oldReference
+                )
+            )
+
+            let failureTrigger = """
+                CREATE TRIGGER "fail_reconciliation_event_delete"
+                BEFORE DELETE ON "app.openmusicevent.event"
+                BEGIN
+                  SELECT RAISE(ABORT, 'injected reconciliation failure');
+                END
+                """
+            switch failurePoint {
+            case .referenceDatabase:
+                try await prepared.source.referenceDatabase.database.write { db in
+                    try db.execute(sql: failureTrigger)
+                }
+
+            case .writableDatabase:
+                try await database.write { db in
+                    try db.execute(sql: failureTrigger)
+                }
+
+            case .repository:
+                break
+            }
+
+            do {
+                _ = try await WorkspaceReferenceUpdateClient
+                    .openMusicEvent(resolveRevision: resolveRevision)
+                    .reconcile(
+                        prepared.source,
+                        workspace.id,
+                        prepared.baseline
+                    )
+                Issue.record("Expected the \(failurePoint) commit to fail")
+            } catch {
+                #expect(String(describing: error).contains("injected"))
+            }
+
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            let patchAfter = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(patchAfter, patchBefore)
+            expectNoDifference(try persistence.checkpoint(workspace.id), checkpointBefore)
+            let working = try await database.read { db in
+                (
+                    try OME.Event.find(
+                        eventID("testival-source-testival-2026", organizerID: organizerID)
+                    )
+                    .fetchOne(db)?.description,
+                    try CommsPost.fetchCount(db),
+                    try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision,
+                    try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision
+                )
+            }
+            expectNoDifference(working.0, "A small fixture event.")
+            expectNoDifference(working.1, 1)
+            expectNoDifference(working.2, oldReference.revision.rawValue)
+            expectNoDifference(working.3, oldReference.revision.rawValue)
+            let reference = try prepared.source.referenceDatabase.read { db in
+                (
+                    try OME.Event.find(
+                        eventID("testival-source-testival-2026", organizerID: organizerID)
+                    )
+                    .fetchOne(db)?.description,
+                    try CommsPost.fetchCount(db),
+                    try SourceWorkspaceReferenceRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision
+                )
+            }
+            expectNoDifference(reference.0, "A small fixture event.")
+            expectNoDifference(reference.1, 0)
+            expectNoDifference(reference.2, oldReference.revision.rawValue)
+            let installedSource = try OpenMusicEventSourceRepositoryFileTree()
+                .read(from: prepared.source.repositoryURL)
+                .output
+                .requiredValue
+            expectNoDifference(
+                installedSource.events.first?.components.event.description,
+                "A small fixture event."
+            )
+            #expect(installedSource.events.first?.components.communicationPosts == nil)
+        }
+    }
+
+    @Test
+    func `a local edit made during reconciliation is preserved and retried`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        let mergeCount = Mutex(0)
+        let eventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = { request in
+            let call = mergeCount.withLock {
+                $0 += 1
+                return $0
+            }
+            if call == 1 {
+                try await database.write { db in
+                    try OME.Event.find(eventID).update {
+                        $0.name = "Local edit made during checkout"
+                    }
+                    .execute(db)
+                }
+            }
+            return try await deterministicWorkspaceFileMerge(request)
+        }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(eventName: "Published event"),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            try await database.write { db in
+                try OME.Event.find(eventID).update {
+                    $0.name = "Local edit before checkout"
+                }
+                .execute(db)
+            }
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .current(reconciled) = result else {
+                Issue.record("Expected the newer local edit to reconcile on retry")
+                return
+            }
+
+            expectNoDifference(reconciled.baseline, newReference)
+            expectNoDifference(checkoutCount.withLock { $0 }, 3)
+            expectNoDifference(mergeCount.withLock { $0 }, 2)
+            let persisted = try await database.read { db in
+                (
+                    eventName: try OME.Event.find(eventID).fetchOne(db)?.name,
+                    revision: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision
+                )
+            }
+            expectNoDifference(
+                persisted.eventName,
+                "Local edit made during checkout"
+            )
+            expectNoDifference(
+                persisted.revision,
+                Optional(newReference.revision.rawValue)
+            )
+            expectNoDifference(
+                try prepared.source.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision
+                },
+                Optional(newReference.revision.rawValue)
+            )
+            let patch = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(patch.fileChanges.map(\.path), ["events/testival-2026/event.yml"])
+            #expect(
+                String(data: try #require(patch.fileChanges.first?.newContents), encoding: .utf8)?
+                    .contains("Local edit made during checkout") == true
+            )
+        }
+    }
+
+    @Test
+    func `overlapping published and local event edits report conflict without changing persistence`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        sourceControl.mergeFile = { request in
+            if request.path.rawValue.hasSuffix("/event.yml") {
+                return .conflicted
+            }
+            return try await deterministicWorkspaceFileMerge(request)
+        }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(
+                        eventName: index == 1 ? "Original event" : "Published event"
+                    ),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let eventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+            try await database.write { db in
+                try OME.Event.find(eventID).update { $0.name = "My local event" }.execute(db)
+            }
+            let patchBefore = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+
+            let result = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .reconcile(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+            guard case let .conflicted(conflict) = result else {
+                Issue.record("Expected overlapping event edits to conflict")
+                return
+            }
+            expectNoDifference(conflict.baseline, oldReference)
+            expectNoDifference(conflict.upstream, newReference)
+            expectNoDifference(
+                conflict.conflictingPaths.map(\.rawValue),
+                ["events/testival-2026/event.yml"]
+            )
+
+            let persisted = try await database.read { db in
+                (
+                    eventName: try OME.Event.find(eventID).fetchOne(db)?.name,
+                    installation: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db)?.revision,
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)
+                )
+            }
+            expectNoDifference(persisted.eventName, "My local event")
+            expectNoDifference(persisted.installation, Optional(oldReference.revision.rawValue))
+            expectNoDifference(
+                persisted.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: oldReference.branch.rawValue,
+                    revision: oldReference.revision.rawValue
+                )
+            )
+            expectNoDifference(
+                try prepared.source.referenceDatabase.read { db in
+                    try SourceWorkspaceReferenceRecord.find(workspace.id).fetchOne(db)?.revision
+                },
+                Optional(oldReference.revision.rawValue)
+            )
+            expectNoDifference(
+                try OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: prepared.source.repositoryURL)
+                    .output
+                    .requiredValue
+                    .events.first?.components.event.name,
+                "Original event"
+            )
+            let patchAfter = try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                .openMusicEvent
+                .generate(SourceWorkspacePatchRequest(workspace: workspace))
+            expectNoDifference(patchAfter, patchBefore)
+        }
+    }
+
+    @Test
+    func `discarding local changes installs the latest published source coherently`() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let database = try makeCoreDatabase(
+            path: directoryURL.appending(path: "application.sqlite").path
+        )
+        let storage = SourceWorkspaceStorage.fileBacked(
+            rootURL: directoryURL.appending(path: "workspaces")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/testival-source",
+            branch: "main"
+        )
+        let oldReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "old-upstream-revision")
+        )
+        let newReference = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "new-upstream-revision")
+        )
+        let checkoutCount = Mutex(0)
+        var sourceControl = SourceControlClient.unimplemented
+        sourceControl.open = { Repository(url: $0) }
+        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
+            CommitID(rawValue: "synthetic-local-base")
+        }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceControl = sourceControl
+            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
+            $0.sourceWorkspaceStorage = storage
+            $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
+            $0.sourceWorkspacePatchConversion = .live
+            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
+                _, _, outputURL in
+                let index = checkoutCount.withLock {
+                    $0 += 1
+                    return $0
+                }
+                try FileManager.default.createDirectory(
+                    at: outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                _ = try OpenMusicEventSourceRepositoryFileTree().write(
+                    makeSourceRepository(
+                        eventName: index == 1 ? "Original event" : "Published event"
+                    ),
+                    to: outputURL
+                )
+                return SourceWorkspaceCheckout(
+                    repository: Repository(url: outputURL),
+                    reference: index == 1 ? oldReference : newReference
+                )
+            }
+        } operation: {
+            let prepared = try await SourceWorkspacePreparationClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .prepare(workspace)
+            let eventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+            try await database.write { db in
+                try OME.Event.find(eventID).update { $0.name = "My local event" }.execute(db)
+            }
+            #expect(
+                try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                    .openMusicEvent
+                    .generate(SourceWorkspacePatchRequest(workspace: workspace))
+                    .isEmpty == false
+            )
+
+            let updated = try await WorkspaceReferenceUpdateClient
+                .openMusicEvent(resolveRevision: resolveRevision)
+                .discardChangesAndUpdate(
+                    prepared.source,
+                    workspace.id,
+                    prepared.baseline
+                )
+
+            expectNoDifference(updated.baseline, newReference)
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
+            let persisted = try await database.read { db in
+                (
+                    eventName: try OME.Event.find(eventID).fetchOne(db)?.name,
+                    installation: try SourceWorkspaceInstallationRecord
+                        .find(workspace.id)
+                        .fetchOne(db),
+                    selection: try SourceWorkspaceSelectionRecord
+                        .find(workspace.id)
+                        .fetchOne(db)
+                )
+            }
+            expectNoDifference(persisted.eventName, "Published event")
+            expectNoDifference(
+                persisted.installation?.revision,
+                newReference.revision.rawValue
+            )
+            expectNoDifference(
+                persisted.selection,
+                SourceWorkspaceSelectionRecord(
+                    id: workspace.id,
+                    branch: newReference.branch.rawValue,
+                    revision: newReference.revision.rawValue
+                )
+            )
+            let referenceEventName = try prepared.source.referenceDatabase.read { db in
+                try OME.Event.find(eventID).fetchOne(db)?.name
+            }
+            let referenceRevision = try prepared.source.referenceDatabase.read { db in
+                try SourceWorkspaceReferenceRecord
+                    .find(workspace.id)
+                    .fetchOne(db)?.revision
+            }
+            expectNoDifference(referenceEventName, "Published event")
+            expectNoDifference(referenceRevision, newReference.revision.rawValue)
+            expectNoDifference(
+                try OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: prepared.source.repositoryURL)
+                    .output
+                    .requiredValue
+                    .events.first?.components.event.name,
+                "Published event"
+            )
+            #expect(
+                try await SourcePatchGenerator<SourceWorkspacePatchRequest>
+                    .openMusicEvent
+                    .generate(SourceWorkspacePatchRequest(workspace: workspace))
+                    .isEmpty
+            )
         }
     }
 
@@ -3923,7 +5145,7 @@ struct SourceDatabaseInsertionTests {
             ) {
                 _ = try await WorkspaceReferenceUpdateClient
                     .openMusicEvent(resolveRevision: resolveRevision)
-                    .refresh(
+                    .reconcile(
                         prepared.source,
                         workspace.id,
                         prepared.baseline
@@ -3965,7 +5187,7 @@ struct SourceDatabaseInsertionTests {
                 includingPropertiesForKeys: nil
             )
             .filter {
-                $0.lastPathComponent.hasPrefix("repository-refresh-")
+                $0.lastPathComponent.hasPrefix("repository-reconcile-")
                     || $0.lastPathComponent.hasPrefix("repository-backup-")
             }
             expectNoDifference(temporaryRepositories, [])
@@ -5206,6 +6428,32 @@ struct SourceDatabaseInsertionTests {
         return url
     }
 
+    enum WorkspaceCommunicationConflictScenario: Sendable {
+        case addAdd
+        case deleteModify
+    }
+
+    enum WorkspaceReconciliationFailurePoint: Equatable, Sendable {
+        case referenceDatabase
+        case writableDatabase
+        case repository
+    }
+
+}
+
+private func deterministicWorkspaceFileMerge(
+    _ request: SourceControlFileMergeRequest
+) async throws -> SourceControlFileMergeResult {
+    if request.localContents == request.upstreamContents {
+        return .merged(contents: request.localContents)
+    }
+    if request.baseContents == request.localContents {
+        return .merged(contents: request.upstreamContents)
+    }
+    if request.baseContents == request.upstreamContents {
+        return .merged(contents: request.localContents)
+    }
+    return .conflicted
 }
 
 
@@ -5220,6 +6468,10 @@ private extension SourceRecordChange {
 
 private enum TestImageCacheError: Error {
     case failed
+}
+
+private enum WorkspaceReconciliationInjectedFailure: Error {
+    case injectedRepositoryReplacement
 }
 
 private let testImageCacheDate = Date(timeIntervalSince1970: 1_700_000_000)

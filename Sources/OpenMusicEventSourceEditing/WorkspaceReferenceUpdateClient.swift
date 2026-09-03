@@ -35,11 +35,16 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         SourceWorkspace.ID,
         WorkspacePublicationAttempt<SourcePatch>
     ) async throws -> PreparedWorkspacePublishedUpdate
-    public var refresh: @Sendable (
+    public var reconcile: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
         WorkspaceBranchReference
-    ) async throws -> WorkspaceBranchReference
+    ) async throws -> WorkspaceReconciliationResult<SourceWorkspaceResource>
+    public var discardChangesAndUpdate: @Sendable (
+        SourceWorkspaceResource,
+        SourceWorkspace.ID,
+        WorkspaceBranchReference
+    ) async throws -> WorkspaceSession<SourceWorkspaceResource>
     public var select: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
@@ -52,11 +57,16 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
             SourceWorkspace.ID,
             WorkspacePublicationAttempt<SourcePatch>
         ) async throws -> PreparedWorkspacePublishedUpdate,
-        refresh: @escaping @Sendable (
+        reconcile: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
             WorkspaceBranchReference
-        ) async throws -> WorkspaceBranchReference,
+        ) async throws -> WorkspaceReconciliationResult<SourceWorkspaceResource>,
+        discardChangesAndUpdate: @escaping @Sendable (
+            SourceWorkspaceResource,
+            SourceWorkspace.ID,
+            WorkspaceBranchReference
+        ) async throws -> WorkspaceSession<SourceWorkspaceResource>,
         select: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
@@ -64,7 +74,8 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         ) async throws -> WorkspaceBranchReference
     ) {
         self.preparePublishedUpdate = preparePublishedUpdate
-        self.refresh = refresh
+        self.reconcile = reconcile
+        self.discardChangesAndUpdate = discardChangesAndUpdate
         self.select = select
     }
 }
@@ -75,7 +86,8 @@ extension WorkspaceReferenceUpdateClient: DependencyKey {
 
     private static let unconfigured = Self(
         preparePublishedUpdate: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
-        refresh: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
+        reconcile: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
+        discardChangesAndUpdate: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
         select: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() }
     )
 }

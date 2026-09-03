@@ -1,6 +1,7 @@
 import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
+import ComposableNotifications
 import ComposableWorkspace
 import CustomDump
 import Crypto
@@ -17,6 +18,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import OpenMusicEventWhiteLabel
 import SourceControlClient
 import SQLiteData
 import Sharing
@@ -157,6 +159,102 @@ struct WorkspaceChangePresentationTests {
 @Suite(.serialized)
 struct WorkspaceAuthoringStoryTests {
     @Test
+    func `proposal details survive transparent reconciliation and close for conflict recovery`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:proposalreconciliation")
+        )
+        let actorID = try #require(DID(organizerID.description))
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/proposalreconciliation/ome-workspace",
+            branch: "main"
+        )
+        let eventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "proposal-reconciliation"
+        )
+        let baseline = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "baseline")
+        )
+        let upstream = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "upstream")
+        )
+        let workspaceState = Shared(
+            value: WorkspaceState<SourceWorkspaceResource>(
+                id: WorkspaceID(rawValue: workspace.id.rawValue),
+                reconciliation: .current
+            )
+        )
+
+        await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            $0.defaultEventID = eventID
+            $0.workspaceProposalClient = .noop
+        } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock {
+                $0 = AuthoringGrant(
+                    principal: AuthoringPrincipal(actorID: actorID),
+                    role: .owner,
+                    workspaceID: workspace.id
+                )
+            }
+            var initialState = EventWorkspace.State(
+                workspace: workspace,
+                eventID: eventID,
+                workspaceState: SharedReader(workspaceState)
+            )
+            initialState.changes.proposalDraft = WorkspaceProposalDraft.State(
+                targetBranch: "main",
+                canPropose: true,
+                canPublish: true,
+                groups: [],
+                fieldComparisons: .empty,
+                recordComparisons: .empty
+            )
+            initialState.changes.proposalDraft?.form.value = WorkspaceProposalDraft.FormValue(
+                title: "Preserve this title",
+                description: "Preserve this description"
+            )
+            let store = Store(initialState: initialState) {
+                EventWorkspace()
+            }
+
+            workspaceState.withLock { $0.reconciliation = .reconciling }
+            await store.send(.proposalsRowTapped)?.value
+            expectNoDifference(
+                store.changes.proposalDraft?.form.value,
+                WorkspaceProposalDraft.FormValue(
+                    title: "Preserve this title",
+                    description: "Preserve this description"
+                )
+            )
+
+            workspaceState.withLock { $0.reconciliation = .current }
+            await store.send(.proposalsRowTapped)?.value
+            #expect(store.changes.proposalDraft != nil)
+
+            workspaceState.withLock {
+                $0.reconciliation = .conflicted(
+                    WorkspaceReconciliationConflict(
+                        baseline: baseline,
+                        upstream: upstream,
+                        conflictingPaths: [
+                            WorkspaceConflictPath(rawValue: "events/2026/event.yml")
+                        ]
+                    )
+                )
+            }
+            await store.send(.proposalsRowTapped)?.value
+            #expect(store.changes.proposalDraft == nil)
+        }
+    }
+
+    @Test
     func `OME prepared database survives nested live Store tasks and child mounting`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let recorder = WorkspaceStoryDependencyPropagationRecorder(database: database)
@@ -204,6 +302,177 @@ struct WorkspaceAuthoringStoryTests {
                 OMERecord.Event.reference(id: eventID).uri
             )
             expectNoDifference(installedEventID, eventID)
+        }
+    }
+
+    @Test
+    func `foregrounding reconciles the active workspace and skips its attendee refresh`() async throws {
+        let database = try makeWorkspaceStoryDatabase()
+        let organizerID = try #require(
+            OMERecord.Organizer.ID("did:plc:foregroundauthor")
+        )
+        let actorID = try #require(DID(organizerID.description))
+        let selectedEventID = workspaceStoryEventID(
+            organizerID: organizerID,
+            localID: "ome-workspace-2026"
+        )
+        let workspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/foregroundauthor/ome-workspace",
+            branch: "main"
+        )
+        let baseline = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "mounted-revision")
+        )
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let source = OpenMusicEventSourceRepository(
+            events: [
+                workspaceStorySourceEvent(
+                    id: selectedEventID,
+                    directoryName: "2026",
+                    name: "Foreground Festival",
+                    timeZone: timeZone
+                )
+            ]
+        )
+        let insertion = try OMERecord.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: workspace.sourceProvenance
+            )
+        )
+        let referenceDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: referenceDatabase.path) }
+        try await insertion.migrateAndInsert(into: referenceDatabase.database)
+        let repositoryURL = FileManager.default.temporaryDirectory.appending(
+            path: "OME-ForegroundReconciliation-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
+        let resource = SourceWorkspaceResource(
+            workspace: workspace,
+            repositoryURL: repositoryURL,
+            mainDatabase: database,
+            referenceDatabase: referenceDatabase
+        )
+        try await insertion.replaceSourceWorkspace(
+            workspace,
+            branch: baseline.branch.rawValue,
+            revision: baseline.revision.rawValue,
+            in: database
+        )
+        let unrelatedEventID = try await insertUnrelatedWorkspaceStoryEvent(into: database)
+        try await database.write { db in
+            for eventID in [selectedEventID, unrelatedEventID] {
+                try InstalledEventRecord.insert {
+                    InstalledEventRecord(id: eventID)
+                }
+                .execute(db)
+            }
+            try WorkspaceAuthoringActivationRecord.insert {
+                WorkspaceAuthoringActivationRecord(
+                    id: workspace.id,
+                    principal: AuthoringPrincipal(actorID: actorID),
+                    role: .owner,
+                    activatedAt: Date(timeIntervalSince1970: 1_786_000_000)
+                )
+            }
+            .execute(db)
+        }
+
+        let reconciledBaselines = Mutex<[WorkspaceBranchReference]>([])
+        let attendeeRefreshes = Mutex<[OMERecord.Event.ID]>([])
+        let session = workspaceStoryOAuthSession(actorID: actorID)
+        try await withDependencies {
+            $0.context = .test
+            OME.prepareDependencies(&$0, database: database)
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            $0.defaultEventID = selectedEventID
+            $0.getOptionalDefaultSession = { session }
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { _ in }
+            $0.tangledRepositoryMembership = TangledRepositoryMembershipClient { _, _ in .owner }
+            $0[SourceWorkspacePreparationClient.self] = SourceWorkspacePreparationClient { _ in
+                WorkspaceSession(source: resource, baseline: baseline)
+            }
+            $0.workspaceProposalClient = .noop
+            $0.uuid = .incrementing
+            $0[WorkspaceReferenceUpdateClient.self] = WorkspaceReferenceUpdateClient(
+                preparePublishedUpdate: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                },
+                reconcile: { source, _, current in
+                    reconciledBaselines.withLock { $0.append(current) }
+                    return .current(WorkspaceSession(source: source, baseline: current))
+                },
+                discardChangesAndUpdate: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                },
+                select: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                }
+            )
+            $0.omeEventInstallation = OMEEventInstallationClient(
+                ensureInstalled: { _ in selectedEventID },
+                synchronizeInstalledEvent: { eventID in
+                    attendeeRefreshes.withLock { $0.append(eventID) }
+                }
+            )
+        } operation: {
+            var initialState = OpenMusicEventAppRoot.State(
+                variant: .whiteLabel(
+                    WhiteLabelAppConfiguration(
+                        brand: WhiteLabelBrand(displayName: "Foreground Festival"),
+                        organizerID: organizerID
+                    )
+                ),
+                selectedEventIDAtLaunch: selectedEventID
+            )
+            initialState.whiteLabelRoot = nil
+            let store = Store(initialState: initialState) {
+                OpenMusicEventAppRoot()
+            }
+            try await workspaceStoryWaitUntil {
+                guard case .active = store.destination?.eventViewer?.authoring.phase,
+                      case .ready = store.destination?.eventViewer?.authoring.content.availability,
+                      reconciledBaselines.withLock({ $0.count }) == 1
+                else { return false }
+                return true
+            }
+
+            let resume = try store.state.appDelegateEvent(.resumed)
+            await resume?.value
+
+            expectNoDifference(reconciledBaselines.withLock { $0 }, [baseline, baseline])
+            expectNoDifference(attendeeRefreshes.withLock { $0 }, [unrelatedEventID])
+            #expect(store.destination?.eventViewer?.authoring.content.reconciliation == .current)
+
+            let notification = try store.state.notificationEvent(
+                NotificationEvent(
+                    json: """
+                    {
+                      "aps": {
+                        "content-available": 1
+                      },
+                      "kind": "source_available",
+                      "source": "\(OME.Event.reference(id: selectedEventID).uri.description)",
+                      "version": "foreground-story-notification"
+                    }
+                    """,
+                    delivery: .contentAvailable
+                )
+            )
+            await notification?.value
+
+            expectNoDifference(
+                reconciledBaselines.withLock { $0 },
+                [baseline, baseline, baseline]
+            )
+            expectNoDifference(attendeeRefreshes.withLock { $0 }, [unrelatedEventID])
+            #expect(store.destination?.eventViewer?.authoring.content.reconciliation == .current)
         }
     }
 
@@ -459,7 +728,9 @@ struct WorkspaceAuthoringStoryTests {
                 store.state.content.destination?.eventViewer?.authoring.content.content.event?.name,
                 "Wicked Woods 2026 - Preview Branch"
             )
-            expectNoDifference(operations.count(of: "initialize"), 1)
+            // Preparation mounts the restored session, then verifies it against the selected
+            // branch. Both clean checkouts are initialized before the workspace becomes current.
+            expectNoDifference(operations.count(of: "initialize"), 2)
             expectNoDifference(
                 try workspaceStoryGitRevision(at: resource.repositoryURL),
                 git.alternateRevision
@@ -877,7 +1148,9 @@ struct WorkspaceAuthoringStoryTests {
                 readyAuthoring.content.content.eventWorkspace?.reviews.status,
                 .loaded([])
             )
-            expectNoDifference(operations.count(of: "initialize"), 1)
+            // Retry mounts the persisted checkout, then reconciliation checks out the selected
+            // branch again to verify the baseline before publication is allowed.
+            expectNoDifference(operations.count(of: "initialize"), 2)
             expectNoDifference(operations.count(of: "clone"), 0)
             expectNoDifference(operations.count(of: "fetch"), 0)
 
@@ -1046,6 +1319,20 @@ struct WorkspaceAuthoringStoryTests {
                     )
                 )
             }
+            $0[WorkspaceReferenceUpdateClient.self] = WorkspaceReferenceUpdateClient(
+                preparePublishedUpdate: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                },
+                reconcile: { source, _, current in
+                    .current(WorkspaceSession(source: source, baseline: current))
+                },
+                discardChangesAndUpdate: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                },
+                select: { _, _, _ in
+                    throw WorkspaceStoryUnexpectedSourceControlOperation()
+                }
+            )
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
                 await checkoutPause.pause()
                 try FileManager.default.createDirectory(

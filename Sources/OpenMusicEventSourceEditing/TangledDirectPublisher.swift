@@ -63,7 +63,6 @@ struct TangledDirectTransport: Sendable {
 }
 
 enum TangledDirectPublisherError: Equatable, Error, Sendable {
-    case branchAdvanced(expected: WorkspaceRevision, observed: WorkspaceRevision)
     case branchMissing(String)
     case mergeCheckRejected(String)
     case mergeDidNotAdvance(WorkspaceRevision)
@@ -87,6 +86,11 @@ struct TangledDirectPublisher: Sendable {
                 branch: request.branch.rawValue
             )
         )
+        if mergeCheck.isConflicted {
+            throw WorkspacePublicationConflict(
+                conflictingPaths: mergeCheckConflictPaths(mergeCheck)
+            )
+        }
         if let rejection = mergeCheckRejection(mergeCheck) {
             throw TangledDirectPublisherError.mergeCheckRejected(rejection)
         }
@@ -108,9 +112,8 @@ struct TangledDirectPublisher: Sendable {
             in: try await transport.listRefs(request.target)
         )
         guard observed.revision == request.patch.baseRevision else {
-            throw TangledDirectPublisherError.branchAdvanced(
-                expected: request.patch.baseRevision,
-                observed: observed.revision
+            throw WorkspaceHeadMismatch(
+                observedRevision: observed.revision
             )
         }
     }
@@ -136,13 +139,21 @@ struct TangledDirectPublisher: Sendable {
            !error.isEmpty {
             return error
         }
-        guard output.isConflicted else { return nil }
-        if let message = output.message?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty {
-            return message
-        }
-        let conflicts = output.conflicts?.map { "\($0.filename): \($0.reason)" }
-            .joined(separator: ", ") ?? ""
-        return conflicts.isEmpty ? "Patch has conflicts." : conflicts
+        return nil
+    }
+
+    func mergeCheckConflictPaths(
+        _ output: TangledMergeCheckOutput
+    ) -> [WorkspaceConflictPath] {
+        Array(
+            Set(
+                output.conflicts?.compactMap { conflict in
+                    let path = conflict.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return path.isEmpty ? nil : path
+                } ?? []
+            )
+        )
+        .sorted()
+        .map(WorkspaceConflictPath.init(rawValue:))
     }
 }

@@ -306,6 +306,7 @@ struct TangledSourceCloneTests {
                 )
             }
             $0.sourceControl = SourceControlClient(
+                mergeFile: { _ in .conflicted },
                 initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
@@ -407,6 +408,7 @@ struct TangledSourceCloneTests {
 
         let checkout = try await withDependencies {
             $0.sourceControl = SourceControlClient(
+                mergeFile: { _ in .conflicted },
                 initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
@@ -525,6 +527,7 @@ struct TangledSourceCloneTests {
                 )
             }
             $0.sourceControl = SourceControlClient(
+                mergeFile: { _ in .conflicted },
                 initialize: { Repository(url: $0) },
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }

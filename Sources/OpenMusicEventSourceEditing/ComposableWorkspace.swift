@@ -152,11 +152,18 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     session: WorkspaceSession(source: source, baseline: baseline)
                 )
             },
-            refreshBaseline: { source, workspaceID, current in
-                try await referenceUpdate.refresh(
-                    source,
+            reconcile: { current, workspaceID in
+                try await referenceUpdate.reconcile(
+                    current.source,
                     SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    current
+                    current.baseline
+                )
+            },
+            discardChangesAndUpdate: { current, workspaceID in
+                try await referenceUpdate.discardChangesAndUpdate(
+                    current.source,
+                    SourceWorkspace.ID(rawValue: workspaceID.rawValue),
+                    current.baseline
                 )
             },
             selectBranch: { source, workspaceID, branch in

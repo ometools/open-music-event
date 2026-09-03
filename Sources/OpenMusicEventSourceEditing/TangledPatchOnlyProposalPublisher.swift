@@ -214,7 +214,6 @@ enum TangledPatchOnlyProposalPublisherError: Equatable, Error, Sendable {
     case invalidDefaultBranchRef(String)
     case missingDefaultBranchHead(String)
     case defaultBranchChanged(expected: String, observed: String)
-    case defaultBranchAdvanced(expected: WorkspaceRevision, observed: WorkspaceRevision)
     case mergeCheckRejected(String)
 }
 
@@ -239,6 +238,11 @@ struct TangledPatchOnlyProposalPublisher: Sendable {
                 branch: initialBranch.branch.rawValue
             )
         )
+        if mergeCheck.isConflicted {
+            throw WorkspacePublicationConflict(
+                conflictingPaths: mergeCheckConflictPaths(mergeCheck)
+            )
+        }
         if let rejection = mergeCheckRejection(mergeCheck) {
             throw TangledPatchOnlyProposalPublisherError.mergeCheckRejected(rejection)
         }
@@ -302,9 +306,8 @@ private extension TangledPatchOnlyProposalPublisher {
     ) async throws -> WorkspaceBranchReference {
         let branch = try tangledDefaultBranch(try await transport.listRefs(target))
         guard branch.revision == expectedRevision else {
-            throw TangledPatchOnlyProposalPublisherError.defaultBranchAdvanced(
-                expected: expectedRevision,
-                observed: branch.revision
+            throw WorkspaceHeadMismatch(
+                observedRevision: branch.revision
             )
         }
         return branch
@@ -315,16 +318,22 @@ private extension TangledPatchOnlyProposalPublisher {
            !error.isEmpty {
             return error
         }
-        guard output.isConflicted else { return nil }
-        if let message = output.message?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty {
-            return message
-        }
-        let conflicts = output.conflicts?.map {
-            "\($0.filename): \($0.reason)"
-        }
-        .joined(separator: ", ") ?? ""
-        return conflicts.isEmpty ? "Patch has conflicts." : conflicts
+        return nil
+    }
+
+    func mergeCheckConflictPaths(
+        _ output: TangledMergeCheckOutput
+    ) -> [WorkspaceConflictPath] {
+        Array(
+            Set(
+                output.conflicts?.compactMap { conflict in
+                    let path = conflict.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return path.isEmpty ? nil : path
+                } ?? []
+            )
+        )
+        .sorted()
+        .map(WorkspaceConflictPath.init(rawValue:))
     }
 }
 

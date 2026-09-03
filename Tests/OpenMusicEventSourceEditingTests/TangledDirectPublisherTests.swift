@@ -44,14 +44,44 @@ struct TangledDirectPublisherTests {
             )
         )
 
-        let error = await #expect(throws: TangledDirectPublisherError.self) {
+        let error = await #expect(throws: WorkspaceHeadMismatch.self) {
             try await publisher.publish(try directRequest())
         }
 
         #expect(
-            error == .branchAdvanced(
-                expected: WorkspaceRevision(rawValue: "base-revision"),
-                observed: WorkspaceRevision(rawValue: "advanced-revision")
+            error == WorkspaceHeadMismatch(
+                observedRevision: WorkspaceRevision(rawValue: "advanced-revision")
+            )
+        )
+        #expect(mergeCalls.withLock { $0 } == 0)
+    }
+
+    @Test
+    func `a merge check conflict is modeled before merge`() async throws {
+        let mergeCalls = Mutex(0)
+        let publisher = TangledDirectPublisher(
+            transport: TangledDirectTransport(
+                listRefs: { _ in directListRefs(head: "base-revision") },
+                mergeCheck: { _ in
+                    TangledMergeCheckOutput(
+                        isConflicted: true,
+                        conflicts: [
+                            .init(filename: "event.yml", reason: "content conflict")
+                        ],
+                        message: "Patch has conflicts"
+                    )
+                },
+                merge: { _, _ in mergeCalls.withLock { $0 += 1 } }
+            )
+        )
+
+        let error = await #expect(throws: WorkspacePublicationConflict.self) {
+            try await publisher.publish(try directRequest())
+        }
+
+        #expect(
+            error == WorkspacePublicationConflict(
+                conflictingPaths: [WorkspaceConflictPath(rawValue: "event.yml")]
             )
         )
         #expect(mergeCalls.withLock { $0 } == 0)

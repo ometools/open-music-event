@@ -404,10 +404,7 @@ public struct OpenMusicEventAppRoot {
                 }
             let refreshesBrowse = state.variant == .generic
             let authoring = state.destination?.eventViewer?.authoring
-            let authoringEventID = authoring?.content.content.id
-            let hasAuthoringGrant = authoring?.grant != nil
-            let refreshesAuthoringWorkspace = hasAuthoringGrant
-                && authoringEventID.map { refreshesInstalledEvents.contains($0) } == true
+            let activeWorkspaceID = authoring?.grant?.workspaceID
             guard refreshesBrowse || !refreshesInstalledEvents.isEmpty else {
                 NotificationRefreshDiagnostics.debug("""
                 Ignoring source-available notification with no relevant installed content
@@ -425,21 +422,32 @@ public struct OpenMusicEventAppRoot {
                 browse: \(refreshesBrowse)
                 """)
                 do {
-                    if refreshesAuthoringWorkspace {
+                    let refreshPartition = try await database.read { database in
+                        try workspaceRefreshPartition(
+                            refreshesInstalledEvents,
+                            activeWorkspaceID: activeWorkspaceID,
+                            in: database
+                        )
+                    }
+                    if !refreshPartition.authoring.isEmpty {
                         NotificationRefreshDiagnostics.notice("""
                         Source-available notification reconciling authoring workspace
                         source: \(source.id.rawValue)
                         version: \(source.version.rawValue)
                         """)
-                        let reconciliation = try store.post(
-                            key: WorkspaceContextRefreshRequested.self,
-                            value: ()
+                        let reconciliation = try store.send(
+                            .destination(
+                                .eventViewer(
+                                    .authoring(
+                                        .content(.contextRefreshRequested)
+                                    )
+                                )
+                            )
                         )
                         await reconciliation?.value
-                    } else {
-                        for eventID in refreshesInstalledEvents {
-                            try await eventInstallation.synchronizeInstalledEvent(eventID)
-                        }
+                    }
+                    for eventID in refreshPartition.attendee {
+                        try await eventInstallation.synchronizeInstalledEvent(eventID)
                     }
                     if refreshesBrowse {
                         try await store.browser.browse.refresh()?.value
@@ -472,11 +480,31 @@ public struct OpenMusicEventAppRoot {
                     try await permissions.load()
                 }
                 guard event == .resumed else { return }
+                let activeWorkspaceID = state.destination?.eventViewer?.authoring.grant?.workspaceID
                 store.addTask {
-                    let installedEventIDs = try await database.read { database in
-                        try InstalledEventRecord.all.fetchAll(database).map(\.id)
+                    let refreshPartition = try await database.read { database in
+                        let installedEventIDs = try InstalledEventRecord.all
+                            .fetchAll(database)
+                            .map(\.id)
+                        return try workspaceRefreshPartition(
+                            installedEventIDs,
+                            activeWorkspaceID: activeWorkspaceID,
+                            in: database
+                        )
                     }
-                    for eventID in installedEventIDs {
+                    if activeWorkspaceID != nil {
+                        let reconciliation = try store.send(
+                            .destination(
+                                .eventViewer(
+                                    .authoring(
+                                        .content(.contextRefreshRequested)
+                                    )
+                                )
+                            )
+                        )
+                        await reconciliation?.value
+                    }
+                    for eventID in refreshPartition.attendee {
                         try await eventInstallation.synchronizeInstalledEvent(eventID)
                     }
                 }
@@ -502,6 +530,32 @@ public struct OpenMusicEventAppRoot {
             signalTrigger: \.notificationSignal
         )
     }
+}
+
+private struct WorkspaceRefreshPartition: Sendable {
+    var attendee: [OMERecord.Event.ID]
+    var authoring: [OMERecord.Event.ID]
+}
+
+private func workspaceRefreshPartition(
+    _ eventIDs: [OMERecord.Event.ID],
+    activeWorkspaceID: SourceWorkspace.ID?,
+    in database: Database
+) throws -> WorkspaceRefreshPartition {
+    guard let activeWorkspaceID else {
+        return WorkspaceRefreshPartition(attendee: eventIDs, authoring: [])
+    }
+    let authoringEventIDs = Set(
+        try EventSourceProvenanceRecord.all
+            .fetchAll(database)
+            .compactMap { provenance in
+                provenance.workspace?.id == activeWorkspaceID ? provenance.id : nil
+            }
+    )
+    return WorkspaceRefreshPartition(
+        attendee: eventIDs.filter { !authoringEventIDs.contains($0) },
+        authoring: eventIDs.filter(authoringEventIDs.contains)
+    )
 }
 
 extension OpenMusicEventAppRoot.State: ErrorNotificationRootState {}
