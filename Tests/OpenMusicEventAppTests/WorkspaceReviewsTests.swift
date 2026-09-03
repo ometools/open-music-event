@@ -157,13 +157,19 @@ struct WorkspaceReviewsTests {
     }
 
     @Test
-    func publishedReceiptOpensImmediatelyAndWaitsForItsExactRevision() async throws {
+    func `published receipt opens immediately and waits for its exact rendered revision`() async throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
         let receipt = workspaceProposal(revision: "new-revision")
         let stale = proposalDetail(revision: "old-revision")
+        let rendering = {
+            var detail = proposalDetail(revision: "new-revision")
+            detail.renderStatus = .pending
+            detail.presentation = nil
+            return detail
+        }()
         let ready = proposalDetail(revision: "new-revision")
-        let responses = LockIsolated([stale, ready])
+        let responses = LockIsolated([stale, rendering, ready])
         let eventID = OME.Event.ID(
             organizerID: workspace.organizerID,
             eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
@@ -174,7 +180,7 @@ struct WorkspaceReviewsTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.continuousClock = ImmediateClock()
-            $0.workspaceProposalProjectionRetryDelays = [.zero]
+            $0.workspaceProposalProjectionRetryDelays = [.zero, .zero]
             $0.blueskyActorProfileCache = actorCache
             $0.workspaceProposalClient = WorkspaceProposalClient(
                 list: { _ in [] },

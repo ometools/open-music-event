@@ -487,6 +487,9 @@ public struct WorkspaceReviewDetail {
 
                     case let .available(detail):
                         try store.modify { $0.status = .loaded(detail) }
+                        guard expectedProposal == nil || detail.renderStatus != .pending else {
+                            break
+                        }
                         if let expectedProposal {
                             do {
                                 try await receiptStore.acknowledge([expectedProposal.id])
@@ -675,6 +678,10 @@ struct WorkspaceProposalRow: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #if !SKIP
+        .contentShape(Rectangle())
+        #endif
     }
 
     var authorTitle: String {
