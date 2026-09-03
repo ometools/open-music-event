@@ -1265,7 +1265,13 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
-        @State var tabLayout = TabFeatureLayout()
+        @State var tabLayout = TabFeatureLayout(
+            preferredIDs: [
+                .init("schedule"),
+                .init("schedule:workshop"),
+                .init("communications"),
+            ]
+        )
 
         var body: some View {
             let accountStore = store.spawn(\.account)
