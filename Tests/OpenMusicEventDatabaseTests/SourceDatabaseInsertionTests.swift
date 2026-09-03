@@ -3621,12 +3621,10 @@ struct SourceDatabaseInsertionTests {
 
         expectNoDifference(checkoutRefs.withLock { $0 }, ["main"])
         expectNoDifference(
-            prepared.selectedContext,
-            .published(
-                WorkspaceBranchReference(
-                    branch: WorkspaceBranch(rawValue: "main"),
-                    revision: WorkspaceRevision(rawValue: "main-revision")
-                )
+            prepared.baseline,
+            WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: "main"),
+                revision: WorkspaceRevision(rawValue: "main-revision")
             )
         )
     }
@@ -3702,17 +3700,17 @@ struct SourceDatabaseInsertionTests {
             let prepared = try await SourceWorkspacePreparationClient
                 .openMusicEvent(resolveRevision: resolveRevision)
                 .prepare(workspace)
-            expectNoDifference(prepared.selectedContext, .published(oldReference))
+            expectNoDifference(prepared.baseline, oldReference)
 
             let refreshed = try await WorkspaceReferenceUpdateClient
                 .openMusicEvent(resolveRevision: resolveRevision)
                 .refresh(
                     prepared.source,
                     workspace.id,
-                    prepared.selectedContext
+                    prepared.baseline
                 )
 
-            expectNoDifference(refreshed, .published(newReference))
+            expectNoDifference(refreshed, newReference)
             expectNoDifference(checkoutCount.withLock { $0 }, 2)
             let recordedPatchBaseURLs = patchBaseURLs.withLock { $0 }
             #expect(recordedPatchBaseURLs.count == 2)
@@ -3842,15 +3840,13 @@ struct SourceDatabaseInsertionTests {
                 .select(
                     prepared.source,
                     workspace.id,
-                    .branch(WorkspaceBranch(rawValue: "preview"))
+                    WorkspaceBranch(rawValue: "preview")
                 )
             expectNoDifference(
                 selected,
-                .branch(
-                    WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: "preview"),
-                        revision: WorkspaceRevision(rawValue: "synthetic-local-base")
-                    )
+                WorkspaceBranchReference(
+                    branch: WorkspaceBranch(rawValue: "preview"),
+                    revision: WorkspaceRevision(rawValue: "synthetic-local-base")
                 )
             )
             expectNoDifference(checkoutCount.withLock { $0 }, 3)
@@ -3930,7 +3926,7 @@ struct SourceDatabaseInsertionTests {
                     .refresh(
                         prepared.source,
                         workspace.id,
-                        prepared.selectedContext
+                        prepared.baseline
                     )
             }
 
@@ -3975,105 +3971,6 @@ struct SourceDatabaseInsertionTests {
             expectNoDifference(temporaryRepositories, [])
         }
     }
-
-    @Test
-    func exactProposalContextReopensWithoutMovingThePublishedBranch() async throws {
-        let directoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let database = try makeCoreDatabase(
-            path: directoryURL.appending(path: "application.sqlite").path
-        )
-        let storage = SourceWorkspaceStorage.fileBacked(
-            rootURL: directoryURL.appending(path: "workspaces")
-        )
-        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let workspace = SourceWorkspace(
-            organizerID: organizerID,
-            repository: "tangled.org/example/testival-source",
-            branch: "main"
-        )
-        let resolveRevision: SourceWorkspaceRevisionResolver = { _, _ in
-            CommitID(rawValue: "local-base-revision")
-        }
-        var sourceControl = SourceControlClient.unimplemented
-        sourceControl.open = { Repository(url: $0) }
-
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceControl = sourceControl
-            $0.sourceWorkspaceReferenceMigrator = .openMusicEvent
-            $0.sourceWorkspaceStorage = storage
-            $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, _, outputURL in
-                try FileManager.default.createDirectory(
-                    at: outputURL.appending(path: ".git"),
-                    withIntermediateDirectories: true
-                )
-                _ = try OpenMusicEventSourceRepositoryFileTree().write(
-                    makeSourceRepository(),
-                    to: outputURL
-                )
-                return SourceWorkspaceCheckout(
-                    repository: Repository(url: outputURL),
-                    reference: WorkspaceBranchReference(
-                        branch: WorkspaceBranch(rawValue: "main"),
-                        revision: WorkspaceRevision(rawValue: "old-revision")
-                    )
-                )
-            }
-        } operation: {
-            let preparation = SourceWorkspacePreparationClient.openMusicEvent(
-                resolveRevision: resolveRevision
-            )
-            let prepared = try await preparation.prepare(workspace)
-            guard case let .published(target) = prepared.selectedContext else {
-                Issue.record("Initial preparation must mount Published.")
-                return
-            }
-            let proposal = WorkspaceProposal(
-                id: WorkspaceProposalID(rawValue: "proposal-1"),
-                revision: WorkspaceRevision(rawValue: "proposal-revision"),
-                target: target
-            )
-            let attempt = WorkspaceProposalAttempt(
-                changes: SourcePatch(),
-                target: .createProposal(
-                    target: target,
-                    details: WorkspaceProposalDetails(
-                        title: try #require(WorkspaceProposalTitle("Test proposal"))
-                    )
-                )
-            )
-            let update = try await WorkspaceReferenceUpdateClient
-                .openMusicEvent(resolveRevision: resolveRevision)
-                .preparePublication(prepared.source, workspace.id, attempt)
-            let installedContext = try await update.apply(proposal)
-            expectNoDifference(installedContext, .proposal(proposal))
-
-            let persistedRevisions = try await (
-                prepared.source.referenceDatabase.read { db in
-                    try SourceWorkspaceReferenceRecord
-                        .find(workspace.id)
-                        .fetchOne(db)?
-                        .revision
-                },
-                database.read { db in
-                    try SourceWorkspaceInstallationRecord
-                        .find(workspace.id)
-                        .fetchOne(db)?
-                        .revision
-                }
-            )
-            expectNoDifference(persistedRevisions.0, "proposal-revision")
-            expectNoDifference(persistedRevisions.1, "proposal-revision")
-
-            let reopened = try await preparation.prepare(workspace)
-            expectNoDifference(reopened.selectedContext, .proposal(proposal))
-            #expect(reopened.source.workspace == workspace)
-        }
-    }
-
 
     @Test
     func materializesFileBackedRequiredStageLogosOnInsert() async throws {

@@ -325,7 +325,7 @@ public struct EventViewer {
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @Trigger public var authoringAuthorizationInvalidated
-        @Trigger<WorkspaceFailure> public var workspaceContextSelectionFailed
+        @Trigger<WorkspaceFailure> public var workspaceBaselineSelectionFailed
         @Trigger<WorkspaceFailure> public var workspaceChangesPublicationFailed
         @Trigger<WorkspaceBranchReference> public var workspaceChangesPublished
         @Trigger public var workspaceChangesPublishing
@@ -1013,7 +1013,7 @@ public struct EventViewer {
                     installPreparedSource(source, state: &state)
                 }
                 .onChange(
-                    of: workspace.state.wrappedValue.selectedContext?.revision,
+                    of: workspace.state.wrappedValue.baseline?.revision,
                     initial: true
                 ) { oldRevision, revision, state in
                     guard oldRevision != revision,
@@ -1044,11 +1044,11 @@ public struct EventViewer {
                         failure.message
                     )
                 }
-                .onTrigger(store.workspaceContextSelectionFailed) { failure, _ in
+                .onTrigger(store.workspaceBaselineSelectionFailed) { failure, _ in
                     store.addTask {
                         let _: Void? = await store.withErrorHandling(
-                            fallbackMessage: .workspaceContextSelectionFailed,
-                            operation: .workspaceContextSelection
+                            fallbackMessage: .workspaceBaselineSelectionFailed,
+                            operation: .workspaceBaselineSelection
                         ) {
                             throw failure
                         }
@@ -1894,14 +1894,14 @@ private extension EventEditingIntent {
 }
 
 extension UserFacingText {
-    static let workspaceContextSelectionFailed = Self(
+    static let workspaceBaselineSelectionFailed = Self(
         "Unable to switch Workspace.",
         fallback: "Unable to switch Workspace."
     )
 }
 
 extension ErrorOperation {
-    static let workspaceContextSelection = Self("workspace.context.select")
+    static let workspaceBaselineSelection = Self("workspace.baseline.select")
 }
 
 struct ViewerPlaceholderView: View {

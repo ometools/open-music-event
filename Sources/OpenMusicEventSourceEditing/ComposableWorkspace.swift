@@ -10,7 +10,7 @@ import SourceEditing
 
 public protocol OpenMusicEventWorkspaceContentState: ValueObservable {
     var authoringAuthorizationInvalidated: Trigger<()> { get }
-    var workspaceContextSelectionFailed: Trigger<WorkspaceFailure> { get }
+    var workspaceBaselineSelectionFailed: Trigger<WorkspaceFailure> { get }
     var workspaceChangesPublicationFailed: Trigger<WorkspaceFailure> { get }
     var workspaceChangesPublished: Trigger<WorkspaceBranchReference> { get }
     var workspaceChangesPublishing: Trigger<()> { get }
@@ -64,7 +64,7 @@ where Content.State: OpenMusicEventWorkspaceContentState {
             changesPublishingTrigger: \.workspaceChangesPublishing,
             changesPublishedTrigger: \.workspaceChangesPublished,
             changesPublicationFailedTrigger: \.workspaceChangesPublicationFailed,
-            contextSelectionFailedTrigger: \.workspaceContextSelectionFailed
+            contextSelectionFailedTrigger: \.workspaceBaselineSelectionFailed
         ) {
             OpenMusicEventWorkspaceContent(makeContent: makeContent)
         }
@@ -79,17 +79,6 @@ public struct OpenMusicEventWorkspaceContent<Content: FeatureProtocol>: FeatureP
 
     public var body: some FeatureProtocol<State, Action> {
         makeContent()
-    }
-}
-
-public extension WorkspaceEditingContext {
-    var revision: WorkspaceRevision {
-        switch self {
-        case let .branch(reference), let .published(reference):
-            reference.revision
-        case let .proposal(proposal):
-            proposal.revision
-        }
     }
 }
 
@@ -121,70 +110,13 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
             publishProposal: { source, workspaceID, attempt in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
                 precondition(source.workspace.id == sourceWorkspaceID)
-                let update = try await referenceUpdate.preparePublication(
-                    source,
-                    sourceWorkspaceID,
-                    attempt
-                )
                 let proposal = try await publisher.publishProposal(
                     source: source,
                     workspaceID: sourceWorkspaceID,
                     attempt: attempt,
                     persistence: persistence
                 )
-                let context: WorkspaceEditingContext
-                let referenceUpdateIsComplete: Bool
-                do {
-                    context = try await update.apply(proposal)
-                    referenceUpdateIsComplete = true
-                } catch let incomplete as WorkspaceReferenceUpdateIncomplete {
-                    TangledWorkspacePublisherDiagnostics.log(
-                        operation: "reference.install",
-                        status: .failed,
-                        details: [
-                            "workspace: \(sourceWorkspaceID.rawValue)",
-                            "proposal: \(proposal.id.rawValue)",
-                            "publication: recorded; proposal snapshot is mounted; metadata repair remains pending",
-                        ],
-                        error: incomplete
-                    )
-                    context = incomplete.mountedContext
-                    referenceUpdateIsComplete = false
-                } catch {
-                    TangledWorkspacePublisherDiagnostics.log(
-                        operation: "reference.install",
-                        status: .failed,
-                        details: [
-                            "workspace: \(sourceWorkspaceID.rawValue)",
-                            "proposal: \(proposal.id.rawValue)",
-                            "publication: recorded; proposal snapshot repair remains pending",
-                        ],
-                        error: error
-                    )
-                    context = (try? persistence.context(sourceWorkspaceID))
-                        ?? attempt.target.editingContext
-                    referenceUpdateIsComplete = false
-                }
-                if referenceUpdateIsComplete {
-                    do {
-                        try await persistence.completeRepair(workspaceID: sourceWorkspaceID)
-                    } catch {
-                        TangledWorkspacePublisherDiagnostics.log(
-                            operation: "reference.repair-cleanup",
-                            status: .failed,
-                            details: [
-                                "workspace: \(sourceWorkspaceID.rawValue)",
-                                "proposal: \(proposal.id.rawValue)",
-                                "publication: recorded; cleanup will retry during preparation",
-                            ],
-                            error: error
-                        )
-                    }
-                }
-                return WorkspaceProposalPublication(
-                    proposal: proposal,
-                    session: WorkspaceSession(source: source, selectedContext: context)
-                )
+                return WorkspaceProposalPublication(proposal: proposal)
             },
             publishChanges: { source, workspaceID, attempt in
                 let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
@@ -199,9 +131,9 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                     workspaceID: sourceWorkspaceID,
                     attempt: attempt
                 )
-                let context: WorkspaceEditingContext
+                let baseline: WorkspaceBranchReference
                 do {
-                    context = try await update.apply(published)
+                    baseline = try await update.apply(published)
                 } catch let incomplete as WorkspaceReferenceUpdateIncomplete {
                     TangledWorkspacePublisherDiagnostics.log(
                         operation: "published-reference.install",
@@ -213,25 +145,25 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                         ],
                         error: incomplete
                     )
-                    context = incomplete.mountedContext
+                    baseline = incomplete.mountedBaseline
                 }
                 return WorkspacePublishedChanges(
                     published: published,
-                    session: WorkspaceSession(source: source, selectedContext: context)
+                    session: WorkspaceSession(source: source, baseline: baseline)
                 )
             },
-            refreshContext: { source, workspaceID, current in
+            refreshBaseline: { source, workspaceID, current in
                 try await referenceUpdate.refresh(
                     source,
                     SourceWorkspace.ID(rawValue: workspaceID.rawValue),
                     current
                 )
             },
-            selectContext: { source, workspaceID, selection in
+            selectBranch: { source, workspaceID, branch in
                 try await referenceUpdate.select(
                     source,
                     SourceWorkspace.ID(rawValue: workspaceID.rawValue),
-                    selection
+                    branch
                 )
             }
         )

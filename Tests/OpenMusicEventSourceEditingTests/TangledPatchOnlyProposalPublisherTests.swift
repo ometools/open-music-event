@@ -221,212 +221,11 @@ struct TangledPatchOnlyProposalPublisherTests {
         }
     }
 
-    @Test
-    func `proposal update appends a replacement round without restoring a source branch`() async throws {
-        let events = PublicationEventRecorder()
-        var request = try publicationRequest()
-        let previous = WorkspaceProposal(
-            id: WorkspaceProposalID(
-                rawValue: "at://did:plc:author/sh.tangled.repo.pull/ome-proposal"
-            ),
-            revision: WorkspaceRevision(rawValue: "previous-revision"),
-            target: WorkspaceBranchReference(
-                branch: WorkspaceBranch(rawValue: "main"),
-                revision: WorkspaceRevision(rawValue: "base-revision")
-            )
-        )
-        request.previousProposal = previous
-        let previousRound = TangledPullRecord.Round(
-            patchBlob: ATProto.Blob(
-                ref: "bafypreviouspatch",
-                mimeType: "application/gzip",
-                size: 12
-            ),
-            createdAt: "2026-08-27T15:00:00Z"
-        )
-        let previousRecord = TangledPullRecord(
-            target: TangledPullRecord.Target(
-                repo: request.target.repositoryDID,
-                branch: "main"
-            ),
-            title: "Original title",
-            body: "Original body",
-            rounds: [previousRound],
-            source: TangledPullRecord.Source(branch: "retired/proposal-branch"),
-            createdAt: "2026-08-27T15:00:00Z"
-        )
-        var transport = recordingTransport(events: events)
-        transport.loadProposal = { id in
-            events.record(.loadProposal(id.rawValue))
-            return TangledPatchOnlyProposalSnapshot(
-                cid: "bafypreviousrecord",
-                record: previousRecord,
-                revision: previous.revision
-            )
-        }
-
-        let result = try await TangledPatchOnlyProposalPublisher(transport: transport)
-            .publish(request)
-
-        expectNoDifference(result, previous.id)
-        var updatedRecord = previousRecord
-        updatedRecord.rounds.append(
-            TangledPullRecord.Round(
-                patchBlob: ATProto.Blob(
-                    ref: "bafyreplacementpatch",
-                    mimeType: "application/gzip",
-                    size: request.patch.compressedBlob.count
-                ),
-                createdAt: request.createdAt
-            )
-        )
-        updatedRecord.source = nil
-        expectNoDifference(
-            events.values,
-            [
-                .listRefs(head: "base-revision"),
-                .mergeCheck(patch: request.patch.patchText, branch: "main"),
-                .listRefs(head: "base-revision"),
-                .loadProposal(previous.id.rawValue),
-                .authorize,
-                .upload(request.patch.compressedBlob),
-                .listRefs(head: "base-revision"),
-                .putRecord(
-                    repo: request.authorRepository.description,
-                    rkey: request.recordKey.rawValue,
-                    record: updatedRecord,
-                    swapRecord: "bafypreviousrecord"
-                ),
-            ]
-        )
-    }
-
-    @Test
-    func `proposal update retry recognizes the already published replacement revision`() async throws {
-        let events = PublicationEventRecorder()
-        var request = try publicationRequest()
-        let previous = WorkspaceProposal(
-            id: WorkspaceProposalID(
-                rawValue: "at://did:plc:author/sh.tangled.repo.pull/ome-proposal"
-            ),
-            revision: WorkspaceRevision(rawValue: "previous-revision"),
-            target: WorkspaceBranchReference(
-                branch: WorkspaceBranch(rawValue: "main"),
-                revision: WorkspaceRevision(rawValue: "base-revision")
-            )
-        )
-        request.previousProposal = previous
-        let frozenRequest = request
-        var transport = recordingTransport(events: events)
-        transport.loadProposal = { id in
-            events.record(.loadProposal(id.rawValue))
-            return TangledPatchOnlyProposalSnapshot(
-                cid: "bafycurrentrecord",
-                record: TangledPullRecord(
-                    target: TangledPullRecord.Target(
-                        repo: frozenRequest.target.repositoryDID,
-                        branch: "main"
-                    ),
-                    title: frozenRequest.title,
-                    rounds: [],
-                    source: nil,
-                    createdAt: frozenRequest.createdAt
-                ),
-                revision: frozenRequest.patch.currentRevision
-            )
-        }
-
-        let result = try await TangledPatchOnlyProposalPublisher(transport: transport)
-            .publish(frozenRequest)
-
-        expectNoDifference(result, previous.id)
-        expectNoDifference(
-            events.values,
-            [
-                .listRefs(head: "base-revision"),
-                .mergeCheck(patch: frozenRequest.patch.patchText, branch: "main"),
-                .listRefs(head: "base-revision"),
-                .loadProposal(previous.id.rawValue),
-            ]
-        )
-    }
-
-    @Test
-    func `proposal update fails closed when the existing pull target changed`() async throws {
-        var request = try publicationRequest()
-        let previous = WorkspaceProposal(
-            id: WorkspaceProposalID(
-                rawValue: "at://did:plc:author/sh.tangled.repo.pull/ome-proposal"
-            ),
-            revision: WorkspaceRevision(rawValue: "previous-revision"),
-            target: WorkspaceBranchReference(
-                branch: WorkspaceBranch(rawValue: "main"),
-                revision: WorkspaceRevision(rawValue: "base-revision")
-            )
-        )
-        request.previousProposal = previous
-        let otherRepository = try #require(DID("did:plc:other-repository"))
-        let cases: [(
-            target: TangledPullRecord.Target,
-            error: TangledPatchOnlyProposalPublisherError
-        )] = [
-            (
-                TangledPullRecord.Target(repo: otherRepository, branch: "main"),
-                .proposalTargetRepositoryChanged(
-                    expected: request.target.repositoryDID,
-                    observed: otherRepository
-                )
-            ),
-            (
-                TangledPullRecord.Target(
-                    repo: request.target.repositoryDID,
-                    branch: "other-branch"
-                ),
-                .proposalTargetBranchChanged(expected: "main", observed: "other-branch")
-            ),
-        ]
-
-        for testCase in cases {
-            let events = PublicationEventRecorder()
-            var transport = recordingTransport(events: events)
-            transport.loadProposal = { id in
-                events.record(.loadProposal(id.rawValue))
-                return TangledPatchOnlyProposalSnapshot(
-                    cid: "bafyexistingrecord",
-                    record: TangledPullRecord(
-                        target: testCase.target,
-                        title: "Original title",
-                        rounds: [],
-                        source: nil,
-                        createdAt: "2026-08-27T15:00:00Z"
-                    ),
-                    revision: previous.revision
-                )
-            }
-
-            let error = await #expect(throws: TangledPatchOnlyProposalPublisherError.self) {
-                try await TangledPatchOnlyProposalPublisher(transport: transport)
-                    .publish(request)
-            }
-
-            expectNoDifference(error, testCase.error)
-            expectNoDifference(
-                events.values,
-                [
-                    .listRefs(head: "base-revision"),
-                    .mergeCheck(patch: request.patch.patchText, branch: "main"),
-                    .listRefs(head: "base-revision"),
-                    .loadProposal(previous.id.rawValue),
-                ]
-            )
-        }
-    }
 }
 
 private enum PublicationEvent: Equatable, Sendable {
     case listRefs(head: String)
     case mergeCheck(patch: String, branch: String)
-    case loadProposal(String)
     case authorize
     case upload(Data)
     case putRecord(
@@ -447,7 +246,7 @@ private func publicationRequest() throws -> TangledPatchOnlyProposalPublicationR
             repositoryName: "festival-source",
             knotHost: "knot.example"
         ),
-        title: "Update the festival source",
+        title: "Improve the festival source",
         body: "Complete replacement proposal",
         createdAt: "2026-08-28T15:00:00Z",
         patch: TangledReplacementPatch(
@@ -455,8 +254,7 @@ private func publicationRequest() throws -> TangledPatchOnlyProposalPublicationR
             currentRevision: WorkspaceRevision(rawValue: "current-revision"),
             patchText: "From current-revision Mon Sep 17 00:00:00 2001\n",
             compressedBlob: Data([0x1f, 0x8b, 0x08, 0x00])
-        ),
-        previousProposal: nil
+        )
     )
 }
 
@@ -471,9 +269,6 @@ private func recordingTransport(
         mergeCheck: { request in
             events.record(.mergeCheck(patch: request.patch, branch: request.branch))
             return TangledMergeCheckOutput(isConflicted: false)
-        },
-        loadProposal: { _ in
-            throw PublicationTestError.unexpectedProposalLoad
         },
         authorize: {
             events.record(.authorize)
@@ -500,10 +295,6 @@ private func recordingTransport(
             )
         }
     )
-}
-
-private enum PublicationTestError: Error {
-    case unexpectedProposalLoad
 }
 
 private final class PublicationEventRecorder: Sendable {

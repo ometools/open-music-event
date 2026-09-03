@@ -70,6 +70,14 @@ public extension EventWorkspaceResetter {
                             )
                         }
                     }
+                    try LegacyWorkspaceContextRecord.find(workspace.id).delete().execute(db)
+                    try LegacyWorkspaceProposalRepairRecord.find(workspace.id).delete().execute(db)
+                    try WorkspaceProposalReceiptRecord
+                        .where { $0.workspaceID.eq(workspace.id) }
+                        .delete()
+                        .execute(db)
+                    try LegacyWorkspaceOpenProposalRecord.find(workspace.id).delete().execute(db)
+                    try LegacyWorkspacePublicationRecord.find(workspace.id).delete().execute(db)
                 }
             }
         )

@@ -84,12 +84,11 @@ viewer focus; it does not narrow or widen Workspace's organization-source owners
 Durable re-entry is deliberately different from first entry. While authoring
 state remains installed, a new application mount opens the existing repository
 and validates that its checked-out commit, installed revision, selected branch,
-reference revision and exact editing context agree. The durable core model is
-availability plus a ready session containing the resource and one
-`WorkspaceEditingContext`: exact Published revision, unassociated branch revision,
-or exact proposal record URI and mounted proposal revision. Refreshing and
-selecting are tasks, not additional states; failure preserves the prior coherent
-session.
+and reference revision agree. The workspace model is availability plus a ready
+session containing the editable resource and one exact branch baseline. Working
+edits are simply the difference from that baseline. Selecting or refreshing a
+baseline is a task, not another durable mode; failure preserves the prior coherent
+session. Proposals are independent records and are never mounted into Workspace.
 
 Publication freezes the current database difference and formats a Git patch from
 a temporary local commit. OME uploads any required blobs and creates the Tangled
@@ -97,21 +96,22 @@ proposal record directly; it does not create or push a proposal branch. Successf
 PDS record creation is the publication commit point. Before that point, failure
 stays in the proposal form and local editing remains available. After that point,
 OME dismisses the form and opens Proposals even if the AppView projection has not
-caught up.
+caught up. Publication always creates a new proposal. A checkpoint may
+idempotently finish that same creation after an interruption, but Workspace does
+not infer proposal lineage and cannot update a proposal.
 
-At the commit point OME atomically saves a proposal receipt and reference-repair
-journal. Installing the proposal snapshot updates the writable installation
-revision, selected revision, and exact context together. If installation cannot
-finish, the existing session remains usable and preparation retries the journal;
-the published record never becomes a global "publication stopped" state. Receipts
-render pending proposals until the server-owned projection observes the exact
-record URI, then they are acknowledged independently of repair completion.
+At the commit point OME saves a proposal receipt. The editable source, its working
+edits, and its baseline are unchanged. Receipts render pending proposals until the
+server-owned projection observes the exact record URI, then they are acknowledged.
+Merge and close operate on proposal records independently and do not silently
+change the workspace baseline. A future proposal-revision workflow must explicitly
+import a proposal patch and establish lineage before updates can exist.
 
 Losing an authoring grant cancels in-flight work but does not invalidate an
 already coherent ready session. After an application remount, Workspace
 reconstructs the resource through the durable validation path above.
 Proposal review diffs independently load the review's target repository and
-branch and its source repository and branch. They never substitute the selected
+branch and its source repository and branch. They never substitute the workspace
 workspace branch or its already-advanced reference database for either side.
 
 ## Running

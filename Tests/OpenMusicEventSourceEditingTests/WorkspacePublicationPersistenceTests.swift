@@ -24,15 +24,13 @@ struct WorkspacePublicationPersistenceTests {
         let workspaceID = SourceWorkspace.ID(rawValue: "workspace-1")
         let attempt = WorkspaceProposalAttempt(
             changes: SourcePatch(),
-            target: .createProposal(
-                target: WorkspaceBranchReference(
-                    branch: WorkspaceBranch(rawValue: "main"),
-                    revision: WorkspaceRevision(rawValue: "base-revision")
-                ),
-                details: WorkspaceProposalDetails(
-                    title: try #require(WorkspaceProposalTitle("Update the source")),
-                    description: "Complete replacement proposal"
-                )
+            details: WorkspaceProposalDetails(
+                title: try #require(WorkspaceProposalTitle("Improve the source")),
+                description: "Complete replacement proposal"
+            ),
+            target: WorkspaceBranchReference(
+                branch: WorkspaceBranch(rawValue: "main"),
+                revision: WorkspaceRevision(rawValue: "base-revision")
             )
         )
         let checkpoint = try await persistence.checkpoint(
@@ -48,7 +46,7 @@ struct WorkspacePublicationPersistenceTests {
                 repositoryName: "festival-source",
                 knotHost: "knot.example"
             ),
-            title: "Update the source",
+            title: "Improve the source",
             body: "Complete replacement proposal",
             createdAt: "2026-08-28T15:00:00Z",
             patch: TangledReplacementPatch(
@@ -56,8 +54,7 @@ struct WorkspacePublicationPersistenceTests {
                 currentRevision: WorkspaceRevision(rawValue: "proposal-revision"),
                 patchText: "From proposal-revision Mon Sep 17 00:00:00 2001\n",
                 compressedBlob: Data([0x1f, 0x8b, 0x08, 0x00])
-            ),
-            previousProposal: nil
+            )
         )
         let proposal = WorkspaceProposal(
             id: WorkspaceProposalID(
@@ -96,7 +93,7 @@ struct WorkspacePublicationPersistenceTests {
             proposal
         )
 
-        try await persistence.completeRepair(workspaceID: workspaceID)
+        try await persistence.completePublication(workspaceID: workspaceID)
         #expect(
             try persistence.preparedPublication(
                 workspaceID: workspaceID,

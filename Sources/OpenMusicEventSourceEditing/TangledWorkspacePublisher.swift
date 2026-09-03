@@ -46,6 +46,11 @@ struct TangledWorkspacePublisher: Sendable {
             workspaceID: workspaceID,
             checkpointID: checkpoint.id
         ) {
+            await completePublication(
+                proposal,
+                workspaceID: workspaceID,
+                persistence: persistence
+            )
             return proposal
         }
 
@@ -78,6 +83,11 @@ struct TangledWorkspacePublisher: Sendable {
                 proposal,
                 checkpoint: checkpoint,
                 workspaceID: workspaceID
+            )
+            await completePublication(
+                proposal,
+                workspaceID: workspaceID,
+                persistence: persistence
             )
         } catch {
             // The Tangled record is the publication commit point. The prepared request retains
@@ -161,6 +171,27 @@ enum TangledWorkspacePublisherError: Equatable, Error, Sendable {
 }
 
 private extension TangledWorkspacePublisher {
+    func completePublication(
+        _ proposal: WorkspaceProposal,
+        workspaceID: SourceWorkspace.ID,
+        persistence: WorkspacePublicationPersistence
+    ) async {
+        do {
+            try await persistence.completePublication(workspaceID: workspaceID)
+        } catch {
+            TangledWorkspacePublisherDiagnostics.log(
+                operation: "publication.cleanup",
+                status: .failed,
+                details: [
+                    "workspace: \(workspaceID.rawValue)",
+                    "proposal: \(proposal.id.rawValue)",
+                    "publication: recorded; transport cleanup remains pending",
+                ],
+                error: error
+            )
+        }
+    }
+
     func preparePublication(
         source: SourceWorkspaceResource,
         checkpoint: WorkspacePublicationCheckpoint
@@ -186,8 +217,7 @@ private extension TangledWorkspacePublisher {
             title: checkpoint.proposalTitle,
             body: checkpoint.proposalBody,
             createdAt: ISO8601DateFormatter().string(from: now),
-            patch: patch,
-            previousProposal: checkpoint.previousProposal
+            patch: patch
         )
     }
 
@@ -262,30 +292,15 @@ private extension TangledWorkspacePublisher {
     func proposalAddress(
         _ checkpoint: WorkspacePublicationCheckpoint
     ) throws -> ProposalAddress {
-        switch checkpoint.target {
-        case .createProposal:
-            @Dependency(\.getDefaultSession) var getDefaultSession
-            let description = getDefaultSession().accountID.rawValue.description
-            guard let authorRepository = DID(description) else {
-                throw TangledWorkspacePublisherError.invalidAuthorRepository(description)
-            }
-            return ProposalAddress(
-                authorRepository: authorRepository,
-                recordKey: ATProto.Record.Key(rawValue: checkpoint.proposalRecordKey)
-            )
-
-        case let .updateProposal(proposal):
-            guard let uri = ATProto.URI(proposal.id.rawValue),
-                  uri.collection == TangledNSID.pull,
-                  let recordKey = uri.rkey
-            else {
-                throw TangledWorkspacePublisherError.invalidProposalID(proposal.id.rawValue)
-            }
-            return ProposalAddress(
-                authorRepository: try proposalDIDAuthority(uri),
-                recordKey: recordKey
-            )
+        @Dependency(\.getDefaultSession) var getDefaultSession
+        let description = getDefaultSession().accountID.rawValue.description
+        guard let authorRepository = DID(description) else {
+            throw TangledWorkspacePublisherError.invalidAuthorRepository(description)
         }
+        return ProposalAddress(
+            authorRepository: authorRepository,
+            recordKey: ATProto.Record.Key(rawValue: checkpoint.proposalRecordKey)
+        )
     }
 }
 
@@ -308,13 +323,7 @@ private struct PublishingContext {
 }
 
 private extension WorkspacePublicationCheckpoint {
-    var previousProposal: WorkspaceProposal? {
-        guard case let .updateProposal(proposal) = target else { return nil }
-        return proposal
-    }
-
     var proposalBody: String? {
-        guard case let .createProposal(_, details) = target else { return nil }
         return details.description
     }
 
@@ -325,37 +334,12 @@ private extension WorkspacePublicationCheckpoint {
     }
 
     var proposalTarget: WorkspaceBranchReference {
-        switch target {
-        case let .createProposal(target, _):
-            target
-        case let .updateProposal(proposal):
-            proposal.target
-        }
+        target
     }
 
     var proposalTitle: String {
-        switch target {
-        case let .createProposal(_, details):
-            details.title.rawValue
-        case .updateProposal:
-            "Update proposal"
-        }
+        details.title.rawValue
     }
-}
-
-func patchRevision(
-    _ pull: TangledPullRecord,
-    authorDID: DID
-) async throws -> WorkspaceRevision {
-    let patch = try await patchTextForLatestRound(in: pull, authorDID: authorDID)
-    guard let firstLine = patch.split(separator: "\n", maxSplits: 1).first,
-          firstLine.hasPrefix("From ")
-    else { throw TangledWorkspacePublisherError.invalidProposalID(pull.title) }
-    let revision = firstLine.dropFirst("From ".count).split(separator: " ").first.map(String.init)
-    guard let revision, !revision.isEmpty else {
-        throw TangledWorkspacePublisherError.invalidProposalID(pull.title)
-    }
-    return WorkspaceRevision(rawValue: revision)
 }
 
 func proposalDIDAuthority(_ uri: ATProto.URI) throws -> DID {

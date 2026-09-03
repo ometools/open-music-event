@@ -103,26 +103,15 @@ public struct WorkspaceChanges {
                       state.changeCount > 0,
                       let session = workspace.session
                 else { return }
-                switch session.selectedContext {
-                case let .published(reference):
+                if session.baseline.branch.rawValue == state.workspace.defaultBranch {
                     state.proposalDraft = WorkspaceProposalDraft.State(
-                        targetBranch: reference.branch.rawValue,
+                        targetBranch: session.baseline.branch.rawValue,
                         canPropose: state.canPropose,
                         canPublish: state.canPublish,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
                     )
-                case .proposal:
-                    store.addTask {
-                        let task = try store.post(
-                            key: WorkspaceProposalUpdateRequested.self,
-                            value: ()
-                        )
-                        await task?.value
-                    }
-                case .branch:
-                    break
                 }
 
             case .resetChangesButtonTapped:
@@ -201,9 +190,7 @@ public struct WorkspaceChangesView: View {
             case .available:
                 SourceChangePresentationSection(
                     presentation: store.summary.presentation,
-                    emptyMessage: workspaceState.selectedProposal == nil
-                        ? "No local changes."
-                        : "No newer changes are waiting to be added to this proposal.",
+                    emptyMessage: "No local changes.",
                     title: "Changes",
                     badgeCount: store.badgeCount
                 )
@@ -262,13 +249,15 @@ public struct WorkspaceChangesView: View {
                 }
             }
         }
-        .alert("Reset all source changes?", isPresented: $isResetConfirmationPresented) {
+        .alert("Reset workspace changes?", isPresented: $isResetConfirmationPresented) {
             Button("Reset", role: .destructive) {
                 store.send(.resetChangesButtonTapped)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This restores every record owned by this organization source to its reference copy.")
+            Text(
+                "This restores every source record to its reference copy and clears local proposal publication recovery. Remote proposals are not deleted."
+            )
         }
     }
 
@@ -276,10 +265,9 @@ public struct WorkspaceChangesView: View {
     var proposalActionSection: some View {
         if case .available = store.summary.availability,
            store.changeCount > 0,
-           let selectedContext = workspaceState.selectedContext
+           let baseline = workspaceState.baseline
         {
-            switch selectedContext {
-            case .published:
+            if baseline.branch.rawValue == store.workspace.defaultBranch {
                 Section("Publish") {
                     if store.canPropose || store.canPublish {
                         Button {
@@ -295,26 +283,9 @@ public struct WorkspaceChangesView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-            case .proposal:
+            } else {
                 Section("Proposal") {
-                    if store.canPropose {
-                        Button {
-                            store.send(.proposalActionButtonTapped)
-                        } label: {
-                            Label("Update Proposal", mappedSystemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("workspace.proposal.update")
-                    } else {
-                        Text("You do not have permission to update this proposal.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-            case .branch:
-                Section("Proposal") {
-                    Text("Go to main or select a proposal before publishing these changes.")
+                    Text("Go to main before publishing these changes.")
                         .foregroundStyle(.secondary)
                 }
             }

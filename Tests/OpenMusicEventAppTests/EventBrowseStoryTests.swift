@@ -1512,10 +1512,7 @@ struct EventBrowseStoryTests {
         expectNoDifference(browseState.installedEvent?.ref, "main")
         expectNoDifference(installedWorkspace, workspace)
         expectNoDifference(browseState.installations, 0)
-        #expect(try SourceWorkspaceContextStore(database: database).load(workspace.id) == nil)
-        #expect(
-            try SourceWorkspaceProposalRepairStore(database: database).load(workspace.id) == nil
-        )
+        #expect(try SourceWorkspaceBaselineStore(database: database).load(workspace.id) == nil)
     }
 
     @Test

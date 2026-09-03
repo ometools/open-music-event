@@ -12,270 +12,101 @@ import Testing
 @Suite("Workspace publication persistence", .serialized)
 struct WorkspacePublicationTests {
     @Test
-    func recordReceiptAndRepairCommitTogetherAndRepairCompletesIndependently() async throws {
+    func `recording a proposal preserves the workspace baseline`() async throws {
         let database = try makeDatabase()
         let workspace = try makeWorkspace()
         let proposal = makeProposal()
         let patch = makePatch()
         let persistence = WorkspacePublicationPersistence(database: database)
-
-        try await database.write { db in
-            try db.execute(sql: """
-                CREATE TRIGGER reject_workspace_proposal_repair
-                BEFORE INSERT ON sourceWorkspaceProposalRepairs
-                BEGIN
-                  SELECT RAISE(ABORT, 'repair rejected');
-                END
-                """)
-        }
-
-        await #expect(throws: (any Error).self) {
-            try await persistence.saveReceiptAndRepair(
-                proposal: proposal,
-                patch: patch,
-                workspaceID: workspace.id
-            )
-        }
-
-        let rolledBack = try await publicationState(
-            workspaceID: workspace.id,
-            database: database
+        let attempt = WorkspaceProposalAttempt(
+            changes: patch,
+            details: WorkspaceProposalDetails(
+                title: try #require(WorkspaceProposalTitle("Improve the source"))
+            ),
+            target: proposal.target
         )
-        expectNoDifference(rolledBack.receipts, [])
-        expectNoDifference(rolledBack.repair, nil)
-
-        try await database.write { db in
-            try db.execute(sql: "DROP TRIGGER reject_workspace_proposal_repair")
-        }
-        try await persistence.saveReceiptAndRepair(
-            proposal: proposal,
-            patch: patch,
+        let checkpoint = try await persistence.checkpoint(
+            workspaceID: workspace.id,
+            attempt: attempt
+        )
+        try await persistence.installBaseline(
+            proposal.target,
             workspaceID: workspace.id
         )
 
-        let recorded = try await publicationState(
-            workspaceID: workspace.id,
-            database: database
-        )
-        expectNoDifference(recorded.receipts, [proposal])
-        expectNoDifference(
-            recorded.repair,
-            SourceWorkspaceProposalRepair(proposal: proposal, patch: patch)
-        )
-
-        try await persistence.completeRepair(workspaceID: workspace.id)
-
-        let completed = try await publicationState(
-            workspaceID: workspace.id,
-            database: database
-        )
-        expectNoDifference(completed.receipts, [proposal])
-        expectNoDifference(completed.repair, nil)
-    }
-
-    @Test
-    func proposalContextMovesEveryMainDatabasePointerAtomically() async throws {
-        let database = try makeDatabase()
-        let workspace = try makeWorkspace()
-        let proposal = makeProposal()
-        let persistence = WorkspacePublicationPersistence(database: database)
-
-        try await database.write { db in
-            try db.execute(sql: """
-                CREATE TRIGGER reject_workspace_proposal_context
-                BEFORE INSERT ON sourceWorkspaceContexts
-                BEGIN
-                  SELECT RAISE(ABORT, 'context rejected');
-                END
-                """)
-        }
-
-        await #expect(throws: (any Error).self) {
-            try await persistence.saveProposalContext(
-                proposal,
-                workspaceID: workspace.id
-            )
-        }
-
-        let rolledBack = try await mountedState(
-            workspaceID: workspace.id,
-            database: database
-        )
-        expectNoDifference(rolledBack.installation, nil)
-        expectNoDifference(rolledBack.selection, nil)
-        expectNoDifference(rolledBack.context, nil)
-
-        try await database.write { db in
-            try db.execute(sql: "DROP TRIGGER reject_workspace_proposal_context")
-        }
-        try await persistence.saveProposalContext(
+        try await persistence.savePublishedProposal(
             proposal,
+            checkpoint: checkpoint,
             workspaceID: workspace.id
         )
 
-        let mounted = try await mountedState(
+        let receiptsAfterRecording = try await receipts(
             workspaceID: workspace.id,
             database: database
         )
-        expectNoDifference(
-            mounted.installation,
-            SourceWorkspaceInstallationRecord(
-                id: workspace.id,
-                revision: proposal.revision.rawValue
-            )
+        expectNoDifference(try persistence.baseline(workspace.id), proposal.target)
+        expectNoDifference(receiptsAfterRecording, [proposal])
+        expectNoDifference(try persistence.checkpoint(workspace.id), checkpoint)
+
+        try await persistence.completePublication(workspaceID: workspace.id)
+
+        let receiptsAfterCompletion = try await receipts(
+            workspaceID: workspace.id,
+            database: database
         )
-        expectNoDifference(
-            mounted.selection,
-            SourceWorkspaceSelectionRecord(
-                id: workspace.id,
-                branch: proposal.target.branch.rawValue,
-                revision: proposal.revision.rawValue
-            )
-        )
-        expectNoDifference(mounted.context, .proposal(proposal))
+        expectNoDifference(try persistence.baseline(workspace.id), proposal.target)
+        expectNoDifference(receiptsAfterCompletion, [proposal])
+        expectNoDifference(try persistence.checkpoint(workspace.id), nil)
     }
 
     @Test
-    func legacyOpenProposalMigratesToExactContextReceiptAndRepair() async throws {
-        let database = try SQLiteData.defaultDatabase()
+    func `a publication retry reuses only the same frozen creation`() async throws {
+        let database = try makeDatabase()
         let workspace = try makeWorkspace()
-        let proposal = makeProposal()
-        let patch = makePatch()
-        let proposalData = try encode(proposal)
-        let patchData = try encode(patch)
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(
-            database,
-            upTo: "Keep source workspace proposals across authoring sessions"
+        let persistence = WorkspacePublicationPersistence(database: database)
+        let attempt = WorkspaceProposalAttempt(
+            changes: makePatch(),
+            details: WorkspaceProposalDetails(
+                title: try #require(WorkspaceProposalTitle("Retry this publication"))
+            ),
+            target: makeProposal().target
         )
 
-        try await database.write { db in
-            try SourceWorkspaceInstallationRecord.insert {
-                SourceWorkspaceInstallationRecord(
-                    id: workspace.id,
-                    revision: proposal.target.revision.rawValue
-                )
-            }
-            .execute(db)
-            try SourceWorkspaceSelectionRecord.insert {
-                SourceWorkspaceSelectionRecord(
-                    id: workspace.id,
-                    branch: proposal.target.branch.rawValue,
-                    revision: proposal.target.revision.rawValue
-                )
-            }
-            .execute(db)
-            try LegacyWorkspaceOpenProposalRecord.insert {
-                LegacyWorkspaceOpenProposalRecord(
-                    id: workspace.id,
-                    proposalData: proposalData
-                )
-            }
-            .execute(db)
-            try db.execute(
-                sql: """
-                    INSERT INTO "sourceWorkspacePublications" (
-                      "id", "captureRequestID", "capturedChangesData", "submissionData",
-                      "pushedSubmissionID", "commitData", "recordedSubmissionID",
-                      "mutationData", "proposalTimestamp"
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                arguments: [
-                    workspace.id.rawValue,
-                    "capture-1",
-                    patchData,
-                    Data("submission".utf8),
-                    "push-1",
-                    Data("commit".utf8),
-                    proposal.id.rawValue,
-                    proposalData,
-                    "2026-08-29T00:00:00Z",
-                ]
-            )
-        }
-
-        try migrator.migrate(database)
-
-        let mounted = try await mountedState(
+        let first = try await persistence.checkpoint(
             workspaceID: workspace.id,
-            database: database
+            attempt: attempt
         )
-        expectNoDifference(
-            mounted.installation?.revision,
-            proposal.target.revision.rawValue
-        )
-        expectNoDifference(
-            mounted.selection,
-            SourceWorkspaceSelectionRecord(
-                id: workspace.id,
-                branch: proposal.target.branch.rawValue,
-                revision: proposal.target.revision.rawValue
-            )
-        )
-        expectNoDifference(mounted.context, .published(proposal.target))
-
-        let publication = try await publicationState(
+        let retry = try await persistence.checkpoint(
             workspaceID: workspace.id,
-            database: database
+            attempt: attempt
         )
-        expectNoDifference(publication.receipts, [proposal])
-        expectNoDifference(
-            publication.repair,
-            SourceWorkspaceProposalRepair(proposal: proposal, patch: patch)
-        )
+        expectNoDifference(retry, first)
 
-        let retained = try #require(
-            try await database.read { db in
-                try LegacyWorkspacePublicationRecord.find(workspace.id).fetchOne(db)
-            }
+        let distinctAttempt = WorkspaceProposalAttempt(
+            changes: attempt.changes,
+            details: WorkspaceProposalDetails(
+                title: try #require(WorkspaceProposalTitle("A distinct proposal"))
+            ),
+            target: attempt.target
         )
-        expectNoDifference(retained.captureRequestID, "capture-1")
-        expectNoDifference(retained.capturedChangesData, patchData)
-        expectNoDifference(retained.submissionData, Data("submission".utf8))
-        expectNoDifference(retained.pushedSubmissionID, "push-1")
-        expectNoDifference(retained.commitData, Data("commit".utf8))
-        expectNoDifference(retained.recordedSubmissionID, proposal.id.rawValue)
-        expectNoDifference(retained.mutationData, proposalData)
-        expectNoDifference(retained.proposalTimestamp, "2026-08-29T00:00:00Z")
-
-        try await WorkspacePublicationPersistence(database: database)
-            .completeRepair(workspaceID: workspace.id)
-
-        let cleared = try #require(
-            try await database.read { db in
-                try LegacyWorkspacePublicationRecord.find(workspace.id).fetchOne(db)
-            }
-        )
-        expectNoDifference(cleared.captureRequestID, nil)
-        expectNoDifference(cleared.capturedChangesData, nil)
-        expectNoDifference(cleared.submissionData, nil)
-        expectNoDifference(cleared.pushedSubmissionID, nil)
-        expectNoDifference(cleared.commitData, nil)
-        expectNoDifference(cleared.recordedSubmissionID, nil)
-        expectNoDifference(cleared.mutationData, nil)
-        expectNoDifference(cleared.proposalTimestamp, nil)
-        let completed = try await publicationState(
+        let distinct = try await persistence.checkpoint(
             workspaceID: workspace.id,
-            database: database
+            attempt: distinctAttempt
         )
-        expectNoDifference(completed.receipts, [proposal])
-        expectNoDifference(completed.repair, nil)
+        #expect(distinct.id != first.id)
     }
 
     @Test
-    func preRecordCheckpointSurvivesAuthoringDeactivation() async throws {
+    func `pre-record checkpoint survives authoring deactivation`() async throws {
         let database = try makeDatabase()
         let workspace = try makeWorkspace()
         let checkpoint = WorkspacePublicationCheckpoint(
             attempt: WorkspaceProposalAttempt(
                 changes: makePatch(),
-                target: .createProposal(
-                    target: makeProposal().target,
-                    details: WorkspaceProposalDetails(
-                        title: try #require(WorkspaceProposalTitle("Retry me"))
-                    )
-                )
+                details: WorkspaceProposalDetails(
+                    title: try #require(WorkspaceProposalTitle("Retry me"))
+                ),
+                target: makeProposal().target
             )
         )
         let checkpointData = try encode(checkpoint)
@@ -295,7 +126,9 @@ struct WorkspacePublicationTests {
             try LegacyWorkspacePublicationRecord.find(workspace.id).fetchOne(db)
         }
         expectNoDifference(
-            try persisted.map { try decode(WorkspacePublicationCheckpoint.self, from: $0.submissionData!) },
+            try persisted.map {
+                try decode(WorkspacePublicationCheckpoint.self, from: $0.submissionData!)
+            },
             checkpoint
         )
     }
@@ -342,47 +175,12 @@ struct WorkspacePublicationTests {
         )
     }
 
-    private func publicationState(
+    private func receipts(
         workspaceID: SourceWorkspace.ID,
         database: any DatabaseWriter
-    ) async throws -> (
-        receipts: [WorkspaceProposal],
-        repair: SourceWorkspaceProposalRepair?
-    ) {
+    ) async throws -> [WorkspaceProposal] {
         try await database.read { db in
-            (
-                receipts: try SourceWorkspaceProposalReceiptsRequest(
-                    workspaceID: workspaceID
-                )
-                .fetch(db),
-                repair: try SourceWorkspaceProposalRepairRequest(
-                    workspaceID: workspaceID
-                )
-                .fetch(db)
-            )
-        }
-    }
-
-    private func mountedState(
-        workspaceID: SourceWorkspace.ID,
-        database: any DatabaseWriter
-    ) async throws -> (
-        installation: SourceWorkspaceInstallationRecord?,
-        selection: SourceWorkspaceSelectionRecord?,
-        context: WorkspaceEditingContext?
-    ) {
-        try await database.read { db in
-            (
-                installation: try SourceWorkspaceInstallationRecord
-                    .find(workspaceID)
-                    .fetchOne(db),
-                selection: try SourceWorkspaceSelectionRecord
-                    .find(workspaceID)
-                    .fetchOne(db),
-                context: try WorkspaceContextRecord.find(workspaceID)
-                    .fetchOne(db)
-                    .map { try decode(WorkspaceEditingContext.self, from: $0.contextData) }
-            )
+            try SourceWorkspaceProposalReceiptsRequest(workspaceID: workspaceID).fetch(db)
         }
     }
 }

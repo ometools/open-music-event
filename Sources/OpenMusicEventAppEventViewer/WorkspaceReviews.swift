@@ -406,11 +406,6 @@ public struct WorkspaceReviewDetail {
                     }
                     guard result != nil else { return }
                     do {
-                        let selection = try store.post(
-                            key: WorkspaceProposalMerged.self,
-                            value: WorkspaceProposalID(rawValue: proposal.uri.description)
-                        )
-                        await selection?.value
                         try store.post(
                             key: WorkspaceProposalRemoved.self,
                             value: proposal.uri
@@ -576,7 +571,7 @@ public struct WorkspaceReviewsView: View {
                         HStack(spacing: 10) {
                             ProgressView()
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Updating proposal")
+                                Text("Publishing proposal")
                                 Text("Waiting for its server projection.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

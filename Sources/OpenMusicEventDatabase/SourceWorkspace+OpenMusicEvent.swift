@@ -102,13 +102,6 @@ public extension WorkspaceReferenceUpdateClient {
         resolveRevision: @escaping SourceWorkspaceRevisionResolver
     ) -> Self {
         Self(
-            preparePublication: { source, workspaceID, attempt in
-                try await prepareWorkspaceReferenceUpdate(
-                    source: source,
-                    workspaceID: workspaceID,
-                    attempt: attempt
-                )
-            },
             preparePublishedUpdate: { source, workspaceID, attempt in
                 try await prepareWorkspacePublishedUpdate(
                     source: source,
@@ -117,47 +110,20 @@ public extension WorkspaceReferenceUpdateClient {
                 )
             },
             refresh: { source, workspaceID, current in
-                switch current {
-                case let .published(reference):
-                    return try await installBranchContext(
-                        source: source,
-                        workspaceID: workspaceID,
-                        selection: .published(reference.branch),
-                        resolveRevision: resolveRevision
-                    )
-                case let .branch(reference):
-                    return try await installBranchContext(
-                        source: source,
-                        workspaceID: workspaceID,
-                        selection: .branch(reference.branch),
-                        resolveRevision: resolveRevision
-                    )
-                case let .proposal(proposal):
-                    return try await installProposalRepair(
-                        source: source,
-                        workspaceID: workspaceID,
-                        proposal: proposal,
-                        fallback: current
-                    )
-                }
+                try await installBranchBaseline(
+                    source: source,
+                    workspaceID: workspaceID,
+                    branch: current.branch,
+                    resolveRevision: resolveRevision
+                )
             },
-            select: { source, workspaceID, selection in
-                switch selection {
-                case .published, .branch:
-                    return try await installBranchContext(
-                        source: source,
-                        workspaceID: workspaceID,
-                        selection: selection,
-                        resolveRevision: resolveRevision
-                    )
-                case let .proposal(proposal):
-                    return try await installProposalRepair(
-                        source: source,
-                        workspaceID: workspaceID,
-                        proposal: proposal,
-                        fallback: nil
-                    )
-                }
+            select: { source, workspaceID, branch in
+                try await installBranchBaseline(
+                    source: source,
+                    workspaceID: workspaceID,
+                    branch: branch,
+                    resolveRevision: resolveRevision
+                )
             }
         )
     }
@@ -184,8 +150,8 @@ private func prepareOpenMusicEventSourceWorkspace(
     let installation = try await mainDatabase.read { db in
         try SourceWorkspaceInstallationRecord.find(workspace.id).fetchOne(db)
     }
-    let contextStore = SourceWorkspaceContextStore(database: mainDatabase)
-    var context = try contextStore.load(workspace.id)
+    let baselineStore = SourceWorkspaceBaselineStore(database: mainDatabase)
+    var baseline = try baselineStore.load(workspace.id)
 
     let repositoryExists = isGitRepository(location.repositoryURL)
     guard repositoryExists || (referenceRevision == nil && installation == nil) else {
@@ -204,7 +170,7 @@ private func prepareOpenMusicEventSourceWorkspace(
         freshReference = checkedOut.reference
     }
     let repositoryRevision = freshReference?.revision.rawValue
-        ?? context?.revision.rawValue
+        ?? baseline?.revision.rawValue
         ?? referenceRevision
         ?? installation?.revision
         ?? "missing"
@@ -214,10 +180,7 @@ private func prepareOpenMusicEventSourceWorkspace(
         mainDatabase: mainDatabase,
         referenceDatabase: referenceDatabase
     )
-    let repairStore = SourceWorkspaceProposalRepairStore(database: mainDatabase)
-    let pendingRepair = try repairStore.load(workspace.id)
-
-    switch (referenceRevision, installation?.revision, context) {
+    switch (referenceRevision, installation?.revision, baseline) {
     case (nil, nil, nil):
         guard let freshReference else {
             throw SourceWorkspaceDatabaseError.upstreamReferenceMissing(workspace.id)
@@ -238,41 +201,21 @@ private func prepareOpenMusicEventSourceWorkspace(
             revision: freshReference.revision.rawValue,
             in: mainDatabase
         )
-        let published = WorkspaceEditingContext.published(
-            freshReference
-        )
-        try await contextStore.save(published, workspaceID: workspace.id)
-        context = published
+        try await baselineStore.save(freshReference, workspaceID: workspace.id)
+        baseline = freshReference
 
     case let (.some(reference), .some(installed), .some(persisted)):
         if reference != installed || persisted.revision.rawValue != reference {
-            guard let pendingRepair else {
-                throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
-                    workspaceID: workspace.id,
-                    repositoryRevision: repositoryRevision,
-                    referenceRevision: referenceRevision,
-                    installationRevision: installation?.revision
-                )
-            }
-            let repaired = try await applyRepair(
-                source: resource,
+            throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
                 workspaceID: workspace.id,
-                repair: pendingRepair,
-                current: persisted
+                repositoryRevision: repositoryRevision,
+                referenceRevision: referenceRevision,
+                installationRevision: installation?.revision
             )
-            do {
-                try await repairStore.complete(workspace.id)
-            } catch {
-                print("Workspace proposal repair cleanup remains pending: \(error)")
-            }
-            return WorkspaceSession(source: resource, selectedContext: repaired)
-        }
-        if case .proposal = persisted {
-            break
         }
     case let (.some(reference), nil, .some(persisted)):
         // Attendee mode deliberately removes the writable authoring installation while keeping
-        // the exact selected context and its reference snapshot. Reentering authoring mounts that
+        // the exact branch baseline and its reference snapshot. Reentering authoring mounts that
         // snapshot and its installation marker in one transaction before exposing a ready session.
         guard persisted.revision.rawValue == reference else {
             throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
@@ -301,14 +244,12 @@ private func prepareOpenMusicEventSourceWorkspace(
             revision: reference,
             in: mainDatabase
         )
-        let published = WorkspaceEditingContext.published(
-            WorkspaceBranchReference(
-                branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
-                revision: WorkspaceRevision(rawValue: reference)
-            )
+        let recoveredBaseline = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: workspace.defaultBranch),
+            revision: WorkspaceRevision(rawValue: reference)
         )
-        try await contextStore.save(published, workspaceID: workspace.id)
-        context = published
+        try await baselineStore.save(recoveredBaseline, workspaceID: workspace.id)
+        baseline = recoveredBaseline
 
     default:
         throw SourceWorkspaceDatabaseError.persistedRevisionMismatch(
@@ -319,34 +260,11 @@ private func prepareOpenMusicEventSourceWorkspace(
         )
     }
 
-    var selectedContext = try context.required(
+    let selectedBaseline = try baseline.required(
         SourceWorkspaceDatabaseError.contextMissing(workspace.id)
     )
 
-    if let pendingRepair {
-        if selectedContext != .proposal(pendingRepair.proposal) {
-            do {
-                selectedContext = try await applyRepair(
-                    source: resource,
-                    workspaceID: workspace.id,
-                    repair: pendingRepair,
-                    current: selectedContext
-                )
-            } catch {
-                // The record already exists remotely. Preserve the coherent old session and leave
-                // the repair journal for the next preparation or exact proposal selection.
-                print("Workspace proposal reference repair remains pending: \(error)")
-                return WorkspaceSession(source: resource, selectedContext: selectedContext)
-            }
-        }
-        do {
-            try await repairStore.complete(workspace.id)
-        } catch {
-            print("Workspace proposal repair cleanup remains pending: \(error)")
-        }
-    }
-
-    return WorkspaceSession(source: resource, selectedContext: selectedContext)
+    return WorkspaceSession(source: resource, baseline: selectedBaseline)
 }
 
 private func mountReferenceSnapshot(
@@ -373,55 +291,6 @@ private func mountReferenceSnapshot(
     }
 }
 
-private func prepareWorkspaceReferenceUpdate(
-    source: SourceWorkspaceResource,
-    workspaceID: SourceWorkspace.ID,
-    attempt: WorkspaceProposalAttempt<SourcePatch>
-) async throws -> PreparedWorkspaceReferenceUpdate {
-    @Dependency(\.defaultDatabase) var mainDatabase
-    @Dependency(\.sourcePatchApplier) var patchApplier
-    @Dependency(\.sourceWorkingTreeMaterializer) var materializer
-
-    try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
-    let persisted = try SourceWorkspaceContextStore(database: mainDatabase)
-        .load(workspaceID)
-    guard persisted == attempt.target.editingContext else {
-        throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
-    }
-
-    let workingTree = try materializer.materialize(source.repositoryURL, nil)
-    defer { try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL) }
-    try patchApplier.apply(attempt.changes, workingTree.workingRepositoryURL)
-    let insertion = try sourceInsertion(
-        workspace: source.workspace,
-        repositoryURL: workingTree.workingRepositoryURL
-    )
-    let replacement = try await insertion.prepareWorkspaceReplacement(source.workspace)
-    let patch = attempt.changes
-
-    return PreparedWorkspaceReferenceUpdate { proposal in
-        try validate(proposal: proposal, attempt: attempt)
-        try patchApplier.apply(patch, source.repositoryURL)
-        try await replacement.replace(
-            branch: proposal.target.branch.rawValue,
-            revision: proposal.revision.rawValue,
-            recordsReferenceRevision: true,
-            in: source.referenceDatabase.database
-        )
-        let context = WorkspaceEditingContext.proposal(proposal)
-        do {
-            try await SourceWorkspaceContextStore(database: mainDatabase)
-                .saveProposalContext(proposal, workspaceID: workspaceID)
-        } catch {
-            throw WorkspaceReferenceUpdateIncomplete(
-                mountedContext: context,
-                message: String(describing: error)
-            )
-        }
-        return context
-    }
-}
-
 private func prepareWorkspacePublishedUpdate(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
@@ -432,9 +301,9 @@ private func prepareWorkspacePublishedUpdate(
     @Dependency(\.sourceWorkingTreeMaterializer) var materializer
 
     try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
-    let persisted = try SourceWorkspaceContextStore(database: mainDatabase)
+    let persisted = try SourceWorkspaceBaselineStore(database: mainDatabase)
         .load(workspaceID)
-    guard persisted == .published(attempt.target) else {
+    guard persisted == attempt.target else {
         throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
     }
 
@@ -461,26 +330,25 @@ private func prepareWorkspacePublishedUpdate(
             recordsReferenceRevision: true,
             in: source.referenceDatabase.database
         )
-        let context = WorkspaceEditingContext.published(published)
         do {
-            try await SourceWorkspaceContextStore(database: mainDatabase)
-                .savePublishedContext(published, workspaceID: workspaceID)
+            try await SourceWorkspaceBaselineStore(database: mainDatabase)
+                .install(published, workspaceID: workspaceID)
         } catch {
             throw WorkspaceReferenceUpdateIncomplete(
-                mountedContext: context,
+                mountedBaseline: published,
                 message: String(describing: error)
             )
         }
-        return context
+        return published
     }
 }
 
-private func installBranchContext(
+private func installBranchBaseline(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
-    selection: WorkspaceContextSelection,
+    branch: WorkspaceBranch,
     resolveRevision: @escaping SourceWorkspaceRevisionResolver
-) async throws -> WorkspaceEditingContext {
+) async throws -> WorkspaceBranchReference {
     @Dependency(\.defaultDatabase) var mainDatabase
     @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
     @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
@@ -492,21 +360,8 @@ private func installBranchContext(
     guard changes.isEmpty else {
         throw SourceWorkspaceDatabaseError.localChangesPreventContextSelection(workspaceID)
     }
-    let branch: WorkspaceBranch
-    let makeContext: (WorkspaceBranchReference) -> WorkspaceEditingContext
-    switch selection {
-    case let .published(value):
-        branch = value
-        makeContext = WorkspaceEditingContext.published
-    case let .branch(value):
-        branch = value
-        makeContext = WorkspaceEditingContext.branch
-    case .proposal:
-        throw SourceWorkspaceDatabaseError.proposalSnapshotUnavailable(workspaceID)
-    }
-
-    let contextStore = SourceWorkspaceContextStore(database: mainDatabase)
-    let previousContext = try contextStore.load(workspaceID).required(
+    let baselineStore = SourceWorkspaceBaselineStore(database: mainDatabase)
+    let previousBaseline = try baselineStore.load(workspaceID).required(
         SourceWorkspaceDatabaseError.contextMissing(workspaceID)
     )
     let previousInsertion = try sourceInsertion(
@@ -540,11 +395,9 @@ private func installBranchContext(
     let preparedReplacement = try await preparedInsertion.prepareWorkspaceReplacement(
         source.workspace
     )
-    let context = makeContext(
-        WorkspaceBranchReference(
-            branch: branch,
-            revision: revision
-        )
+    let baseline = WorkspaceBranchReference(
+        branch: branch,
+        revision: revision
     )
 
     do {
@@ -559,20 +412,20 @@ private func installBranchContext(
             revision: revision.rawValue,
             in: mainDatabase
         )
-        try await contextStore.save(context, workspaceID: workspaceID)
+        try await baselineStore.save(baseline, workspaceID: workspaceID)
         let backupRepositoryURL = try replaceRepository(
             at: source.repositoryURL,
             with: preparedRepositoryURL
         )
         try? FileManager.default.removeItem(at: backupRepositoryURL)
-        return context
+        return baseline
     } catch {
         let selectionError = error
         var rollbackFailures: [String] = []
         do {
             try await previousReplacement.replace(
-                branch: previousContext.selectedBranch.rawValue,
-                revision: previousContext.revision.rawValue,
+                branch: previousBaseline.branch.rawValue,
+                revision: previousBaseline.revision.rawValue,
                 recordsReferenceRevision: true,
                 in: source.referenceDatabase.database
             )
@@ -581,11 +434,11 @@ private func installBranchContext(
         }
         do {
             try await previousReplacement.replace(
-                branch: previousContext.selectedBranch.rawValue,
-                revision: previousContext.revision.rawValue,
+                branch: previousBaseline.branch.rawValue,
+                revision: previousBaseline.revision.rawValue,
                 in: mainDatabase
             )
-            try await contextStore.save(previousContext, workspaceID: workspaceID)
+            try await baselineStore.save(previousBaseline, workspaceID: workspaceID)
         } catch {
             rollbackFailures.append("Application database: \(String(describing: error))")
         }
@@ -599,59 +452,6 @@ private func installBranchContext(
     }
 }
 
-private func installProposalRepair(
-    source: SourceWorkspaceResource,
-    workspaceID: SourceWorkspace.ID,
-    proposal: WorkspaceProposal,
-    fallback: WorkspaceEditingContext?
-) async throws -> WorkspaceEditingContext {
-    @Dependency(\.defaultDatabase) var mainDatabase
-    let store = SourceWorkspaceProposalRepairStore(database: mainDatabase)
-    guard let repair = try store.load(workspaceID), repair.proposal == proposal else {
-        if let fallback { return fallback }
-        throw SourceWorkspaceDatabaseError.proposalSnapshotUnavailable(workspaceID)
-    }
-    let current = try SourceWorkspaceContextStore(database: mainDatabase)
-        .load(workspaceID)
-        .required(SourceWorkspaceDatabaseError.contextMissing(workspaceID))
-    let context = try await applyRepair(
-        source: source,
-        workspaceID: workspaceID,
-        repair: repair,
-        current: current
-    )
-    try await store.complete(workspaceID)
-    return context
-}
-
-private func applyRepair(
-    source: SourceWorkspaceResource,
-    workspaceID: SourceWorkspace.ID,
-    repair: SourceWorkspaceProposalRepair,
-    current: WorkspaceEditingContext
-) async throws -> WorkspaceEditingContext {
-    let target: WorkspaceProposalAttemptTarget
-    switch current {
-    case let .published(reference):
-        target = .createProposal(
-            target: reference,
-            details: WorkspaceProposalDetails(
-                title: WorkspaceProposalTitle("Published proposal repair")!
-            )
-        )
-    case let .proposal(proposal):
-        target = .updateProposal(proposal)
-    case .branch:
-        throw SourceWorkspaceDatabaseError.proposalSnapshotUnavailable(workspaceID)
-    }
-    let update = try await prepareWorkspaceReferenceUpdate(
-        source: source,
-        workspaceID: workspaceID,
-        attempt: WorkspaceProposalAttempt(changes: repair.patch, target: target)
-    )
-    return try await update.apply(repair.proposal)
-}
-
 private func validate(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
@@ -662,22 +462,6 @@ private func validate(
     }
     guard source.applicationDatabaseID == ObjectIdentifier(database) else {
         throw SourceWorkspaceDatabaseError.applicationDatabaseMismatch(workspaceID)
-    }
-}
-
-private func validate(
-    proposal: WorkspaceProposal,
-    attempt: WorkspaceProposalAttempt<SourcePatch>
-) throws {
-    switch attempt.target {
-    case let .createProposal(target, _):
-        guard proposal.target == target else {
-            throw SourceWorkspaceDatabaseError.proposalDestinationMismatch
-        }
-    case let .updateProposal(previous):
-        guard proposal.id == previous.id, proposal.target == previous.target else {
-            throw SourceWorkspaceDatabaseError.proposalDestinationMismatch
-        }
     }
 }
 

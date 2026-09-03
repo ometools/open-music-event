@@ -179,10 +179,21 @@ struct WorkspaceReviewsTests {
             .available(detail)
         )
 
-        // The app has durably recorded its successful publication receipt and repair checkpoint.
-        try await WorkspacePublicationPersistence(database: database).saveReceiptAndRepair(
-            proposal: receipt,
-            patch: SourcePatch(),
+        // The app has durably recorded its successful publication receipt.
+        let persistence = WorkspacePublicationPersistence(database: database)
+        let checkpoint = try await persistence.checkpoint(
+            workspaceID: workspace.id,
+            attempt: WorkspaceProposalAttempt(
+                changes: SourcePatch(),
+                details: WorkspaceProposalDetails(
+                    title: try #require(WorkspaceProposalTitle("Improve the source"))
+                ),
+                target: receipt.target
+            )
+        )
+        try await persistence.savePublishedProposal(
+            receipt,
+            checkpoint: checkpoint,
             workspaceID: workspace.id
         )
 

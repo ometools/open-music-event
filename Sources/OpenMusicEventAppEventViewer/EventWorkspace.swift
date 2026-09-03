@@ -16,7 +16,7 @@ import SwiftUI
 #endif
 
 /// The application-facing details for the one organization source owned by Workspace.
-/// `eventID` is only a viewer focus; changes, proposals, and context selection remain source-scoped.
+/// `eventID` is only a viewer focus; changes, proposals, and baseline selection remain source-scoped.
 @Feature
 public struct EventWorkspace {
     public init() {}
@@ -35,10 +35,6 @@ public struct EventWorkspace {
             self.workspace = workspace
             self.eventID = eventID
             self._workspaceState = workspaceState
-            self._pendingProposalRepair = Fetch(
-                wrappedValue: nil,
-                SourceWorkspaceProposalRepairRequest(workspaceID: workspace.id)
-            )
             self.changes = WorkspaceChanges.State(
                 workspace: workspace,
                 referenceDatabase: referenceDatabase
@@ -51,15 +47,13 @@ public struct EventWorkspace {
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @SharedReader public var workspaceState: WorkspaceState<SourceWorkspaceResource>
-        @DebugSnapshotIgnored
-        @Fetch public var pendingProposalRepair: SourceWorkspaceProposalRepair?
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
         public var navigationDestination: NavigationDestination?
         public var reviews: WorkspaceReviews.State
         public var requestedBranch = ""
-        @StoreTaskID public var contextSelection
+        @StoreTaskID public var baselineSelection
 
         public var changeCount: Int? { changes.badgeCount }
         public var openProposalCount: Int? { reviews.openProposalCount }
@@ -73,8 +67,8 @@ public struct EventWorkspace {
             workspaceState.session != nil
         }
 
-        public var selectedContext: WorkspaceEditingContext? {
-            workspaceState.selectedContext
+        public var baseline: WorkspaceBranchReference? {
+            workspaceState.baseline
         }
 
         public var authoringAccess: AuthoringAccess {
@@ -118,7 +112,6 @@ public struct EventWorkspace {
         case proposalsRowTapped
         case sourcePreparationRetryButtonTapped
         case switchBranchButtonTapped
-        case viewProposalButtonTapped
     }
 
     public var body: some Feature {
@@ -139,20 +132,18 @@ public struct EventWorkspace {
 
                 case .switchToMainButtonTapped:
                     guard state.authoringAccess.canEditContent,
-                          let currentContext = state.selectedContext,
+                          let baseline = state.baseline,
                           state.changeCount == nil,
-                          !state.contextSelection.isRunning
+                          !state.baselineSelection.isRunning
                     else { return }
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.workspace.defaultBranch)
                     )
-                    if case let .published(reference) = currentContext,
-                       reference.branch == requestedBranch
-                    {
+                    if baseline.branch == requestedBranch {
                         return
                     }
-                    let contextSelection = state.contextSelection
-                    store.addTask(id: contextSelection) {
+                    let baselineSelection = state.baselineSelection
+                    store.addTask(id: baselineSelection) {
                         let task = try store.post(
                             key: WorkspacePublishedRequested.self,
                             value: requestedBranch
@@ -162,9 +153,9 @@ public struct EventWorkspace {
 
                 case .switchBranchButtonTapped:
                     guard state.authoringAccess.canEditContent,
-                          let currentContext = state.selectedContext,
+                          let baseline = state.baseline,
                           state.changeCount == nil,
-                          !state.contextSelection.isRunning,
+                          !state.baselineSelection.isRunning,
                           !state.requestedBranch.trimmingCharacters(
                               in: .whitespacesAndNewlines
                           ).isEmpty
@@ -172,19 +163,15 @@ public struct EventWorkspace {
                     let requestedBranch = WorkspaceBranch(
                         rawValue: SourceWorkspace.normalizedBranch(state.requestedBranch)
                     )
-                    guard requestedBranch != currentContext.selectedBranch else { return }
-                    let contextSelection = state.contextSelection
-                    store.addTask(id: contextSelection) {
+                    guard requestedBranch != baseline.branch else { return }
+                    let baselineSelection = state.baselineSelection
+                    store.addTask(id: baselineSelection) {
                         let task = try store.post(
                             key: WorkspaceBranchRequested.self,
                             value: requestedBranch
                         )
                         await task?.value
                     }
-
-                case .viewProposalButtonTapped:
-                    guard let proposal = state.workspaceState.selectedProposal else { return }
-                    state.openProposalList(proposal)
 
                 case .changes, .collaborators, .reviews:
                     break
@@ -215,24 +202,13 @@ public struct EventWorkspaceView: View {
         @Bindable var changesStore = store.scope(\.changes, action: \.changes)
 
         List {
-            if store.pendingProposalRepair != nil {
-                Section {
-                    Text("Proposal published; finishing workspace refresh.")
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("workspace.proposal.repair-pending")
-                }
-            }
-
-            WorkspaceContextSection(
+            WorkspaceBaselineSection(
                 workspace: store.workspace,
                 workspaceState: store.workspaceState,
-                isSelectingContext: store.contextSelection.isRunning,
+                isSelectingBaseline: store.baselineSelection.isRunning,
                 canSwitchBranch: store.authoringAccess.canEditContent
                     && store.workspaceIsReady
                     && store.changeCount == nil,
-                viewProposal: {
-                    store.send(.viewProposalButtonTapped)
-                },
                 switchBranch: {
                     isBranchPromptPresented = true
                 },
@@ -320,25 +296,17 @@ public struct EventWorkspaceView: View {
     }
 }
 
-struct WorkspaceContextSection: View {
+struct WorkspaceBaselineSection: View {
     let workspace: SourceWorkspace
     let workspaceState: WorkspaceState<SourceWorkspaceResource>
-    let isSelectingContext: Bool
+    let isSelectingBaseline: Bool
     let canSwitchBranch: Bool
-    let viewProposal: () -> Void
     let switchBranch: () -> Void
     let switchToMain: () -> Void
 
-    var contextTitle: String {
-        switch workspaceState.selectedContext {
-        case .published:
-            "Published"
-        case .branch:
-            "Branch"
-        case .proposal:
-            "Proposal"
-        case nil:
-            switch workspaceState.availability {
+    var baselineTitle: String {
+        guard let baseline = workspaceState.baseline else {
+            return switch workspaceState.availability {
             case .preparing:
                 "Preparing workspace"
             case .inactive:
@@ -347,17 +315,15 @@ struct WorkspaceContextSection: View {
                 "Workspace unavailable"
             }
         }
+        return baseline.branch.rawValue == workspace.defaultBranch ? "Published" : "Branch"
     }
 
     var selectedBranch: String? {
-        workspaceState.selectedContext?.selectedBranch.rawValue
+        workspaceState.baseline?.branch.rawValue
     }
 
     var isPublishedMain: Bool {
-        guard case let .published(reference)? = workspaceState.selectedContext else {
-            return false
-        }
-        return reference.branch.rawValue == workspace.defaultBranch
+        workspaceState.baseline?.branch.rawValue == workspace.defaultBranch
     }
 
     var canSwitchToMain: Bool {
@@ -365,21 +331,14 @@ struct WorkspaceContextSection: View {
     }
 
     var accessibilityLabel: String {
-        guard let selectedBranch else { return contextTitle }
-        let current = "Current workspace context: \(contextTitle), branch \(selectedBranch)"
-        return isSelectingContext ? "\(current), switching" : current
+        guard let selectedBranch else { return baselineTitle }
+        let current = "Workspace baseline: \(baselineTitle), branch \(selectedBranch)"
+        return isSelectingBaseline ? "\(current), switching" : current
     }
 
     var body: some View {
         Section {
             Menu {
-                if workspaceState.selectedProposal != nil {
-                    Button(action: viewProposal) {
-                        Label("View proposal", mappedSystemImage: "arrow.triangle.pull")
-                    }
-                    .accessibilityIdentifier("workspace.proposal.view")
-                }
-
                 Button(action: switchBranch) {
                     Label("Switch branch…", mappedSystemImage: "arrow.triangle.branch")
                 }
@@ -397,7 +356,7 @@ struct WorkspaceContextSection: View {
                         .frame(width: 20, height: 20)
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(verbatim: contextTitle)
+                        Text(verbatim: baselineTitle)
 
                         if let selectedBranch {
                             WorkspaceBranchChip(branch: selectedBranch)
@@ -406,7 +365,7 @@ struct WorkspaceContextSection: View {
 
                     Spacer()
 
-                    if isSelectingContext {
+                    if isSelectingBaseline {
                         ProgressView()
                             .frame(width: 16, height: 16)
                     } else {
@@ -417,10 +376,10 @@ struct WorkspaceContextSection: View {
                 }
                 .contentShape(Rectangle())
             }
-            .disabled(isSelectingContext)
+            .disabled(isSelectingBaseline)
             .tint(.primary)
             .accessibilityLabel(Text(verbatim: accessibilityLabel))
-            .accessibilityIdentifier("workspace.context")
+            .accessibilityIdentifier("workspace.baseline")
         }
     }
 }
@@ -472,16 +431,10 @@ struct WorkspaceTechnicalDetailsSection: View {
             WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
             WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
             WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
-            if let selectedContext = workspaceState.selectedContext {
+            if let baseline = workspaceState.baseline {
                 WorkspaceTechnicalValueView(
-                    label: "Selected revision",
-                    value: selectedContext.revision.rawValue
-                )
-            }
-            if let selectedProposal = workspaceState.selectedProposal {
-                WorkspaceTechnicalValueView(
-                    label: "Selected proposal",
-                    value: selectedProposal.id.rawValue
+                    label: "Baseline revision",
+                    value: baseline.revision.rawValue
                 )
             }
             if let failure = workspaceState.preparationFailure {

@@ -1297,7 +1297,7 @@
 
     },
     "Unable to switch Workspace." : {
-      "comment" : "Transient error shown when a requested Workspace branch or proposal context could not be selected."
+      "comment" : "Transient error shown when a requested Workspace branch baseline could not be selected."
     },
     "Unavailable" : {
 
@@ -1311,19 +1311,13 @@
     "Unread posts: %lld" : {
 
     },
-    "Update Proposal" : {
-
-    },
-    "Updating proposal" : {
+    "Publishing proposal" : {
 
     },
     "URL" : {
 
     },
     "Versions" : {
-
-    },
-    "View proposal" : {
 
     },
     "Waiting for its server projection." : {
