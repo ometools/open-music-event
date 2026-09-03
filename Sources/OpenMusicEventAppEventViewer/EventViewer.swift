@@ -1058,7 +1058,13 @@ public struct EventViewer {
                     guard state.eventWorkspace != nil else { return }
                     state.eventWorkspace?.changes.proposalDraft = nil
                     state.eventWorkspace?.openProposalList(proposal)
+                    let targetBranch = proposal.target.branch
                     store.addTask {
+                        let reset = try store.post(
+                            key: WorkspacePublishedRequested.self,
+                            value: targetBranch
+                        )
+                        await reset?.value
                         let refresh = try store.send(
                             .eventWorkspace(.reviews(.proposalRecorded))
                         )
