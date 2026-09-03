@@ -1197,7 +1197,7 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(repairingWorkspace.changes.proposalDraft == nil)
                 #expect(repairingWorkspace.workspaceIsReady)
                 expectNoDifference(repairingWorkspace.selectedContext, .published(initialBranch))
-                guard case let .reviewDetail(detail)? = repairingWorkspace.reviews?.destination else {
+                guard case let .reviewDetail(detail)? = repairingWorkspace.reviews.destination else {
                     Issue.record("A published proposal must open its server-backed detail immediately.")
                     return
                 }
@@ -1745,8 +1745,19 @@ struct WorkspaceAuthoringStoryTests {
                 failure
             )
 
-            // Proposals are a destination from Workspace, not a Workspace page. Opening the list
-            // mounts its own loading lifecycle while the source remains unavailable.
+            // Workspace loads its proposal count before navigation, even while source preparation
+            // is unavailable, so its badge can include every known source.
+            try await workspaceStoryWaitUntil {
+                opened.state.content.destination?.eventViewer?.authoring.content.content
+                    .eventWorkspace?.reviews.status == .loaded([])
+            }
+            let failedWorkspace = try #require(
+                opened.state.content.destination?.eventViewer?.authoring.content.content
+                    .eventWorkspace
+            )
+            expectNoDifference(failedWorkspace.openProposalCount, 0)
+
+            // Opening Proposals presents that already-loaded list rather than creating a second one.
             await opened.send(
                 workspaceStoryWorkspaceAction(.proposalsRowTapped)
             )?.value
@@ -1754,7 +1765,11 @@ struct WorkspaceAuthoringStoryTests {
                 opened.state.content.destination?.eventViewer?.authoring.content.content
                     .eventWorkspace
             )
-            expectNoDifference(failedWorkspaceWithProposals.reviews?.status, .loaded([]))
+            expectNoDifference(
+                failedWorkspaceWithProposals.navigationDestination,
+                .proposals
+            )
+            expectNoDifference(failedWorkspaceWithProposals.reviews.status, .loaded([]))
 
             // Retry starts at EventWorkspace, crosses the app event bridge, and reaches the shared
             // Workspace state machine before executing the real source preparation implementation.
@@ -1776,7 +1791,7 @@ struct WorkspaceAuthoringStoryTests {
                 .published(selectedBranch)
             )
             expectNoDifference(
-                readyAuthoring.content.content.eventWorkspace?.reviews?.status,
+                readyAuthoring.content.content.eventWorkspace?.reviews.status,
                 .loaded([])
             )
             expectNoDifference(operations.count(of: "initialize"), 1)

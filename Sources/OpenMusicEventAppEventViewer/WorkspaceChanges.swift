@@ -196,7 +196,8 @@ public struct WorkspaceChangesView: View {
                     emptyMessage: workspaceState.selectedProposal == nil
                         ? "No local changes."
                         : "No newer changes are waiting to be added to this proposal.",
-                    title: "Changes"
+                    title: "Changes",
+                    badgeCount: store.badgeCount
                 )
 
             case .workspaceNeedsPreparation:

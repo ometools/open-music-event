@@ -21,6 +21,10 @@ import SwiftUI
 public struct EventWorkspace {
     public init() {}
 
+    public enum NavigationDestination: Hashable, Sendable {
+        case proposals
+    }
+
     public struct State: Identifiable {
         public init(
             workspace: SourceWorkspace,
@@ -39,6 +43,7 @@ public struct EventWorkspace {
                 workspace: workspace,
                 referenceDatabase: referenceDatabase
             )
+            self.reviews = WorkspaceReviews.State(workspace: workspace)
         }
 
         public let workspace: SourceWorkspace
@@ -51,11 +56,18 @@ public struct EventWorkspace {
         public var id: SourceWorkspace.ID { workspace.id }
         public var changes: WorkspaceChanges.State
         public var collaborators: WorkspaceCollaborators.State?
-        public var reviews: WorkspaceReviews.State?
+        public var navigationDestination: NavigationDestination?
+        public var reviews: WorkspaceReviews.State
         public var requestedBranch = ""
         @StoreTaskID public var contextSelection
 
         public var changeCount: Int? { changes.badgeCount }
+        public var openProposalCount: Int? { reviews.openProposalCount }
+
+        public var badgeCount: Int? {
+            let count = (changeCount ?? 0) + (openProposalCount ?? 0)
+            return count == 0 ? nil : count
+        }
 
         public var workspaceIsReady: Bool {
             workspaceState.session != nil
@@ -72,13 +84,10 @@ public struct EventWorkspace {
 
         mutating func updateAuthoringGrant(_ grant: AuthoringGrant?) {
             let scopedGrant = grant?.workspaceID == workspace.id ? grant : nil
-            if var reviews {
-                reviews.authoringGrant = scopedGrant
-                if case var .reviewDetail(detail)? = reviews.destination {
-                    detail.authoringGrant = scopedGrant
-                    reviews.destination = .reviewDetail(detail)
-                }
-                self.reviews = reviews
+            reviews.authoringGrant = scopedGrant
+            if case var .reviewDetail(detail)? = reviews.destination {
+                detail.authoringGrant = scopedGrant
+                reviews.destination = .reviewDetail(detail)
             }
 
             guard scopedGrant != nil else {
@@ -94,17 +103,10 @@ public struct EventWorkspace {
         }
 
         mutating func openProposalList(_ proposal: WorkspaceProposal? = nil) {
-            let scopedGrant = authoringGrant?.workspaceID == workspace.id
-                ? authoringGrant
-                : nil
-            var reviews = reviews ?? WorkspaceReviews.State(
-                workspace: workspace,
-                authoringGrant: scopedGrant
-            )
             if let proposal {
                 reviews.open(proposal)
             }
-            self.reviews = reviews
+            navigationDestination = .proposals
         }
     }
 
@@ -189,12 +191,10 @@ public struct EventWorkspace {
                 }
             }
             Scope(\.changes, action: \.changes) { WorkspaceChanges() }
+            Scope(\.reviews, action: \.reviews) { WorkspaceReviews() }
         }
         .ifLet(\.collaborators, action: \.collaborators) {
             WorkspaceCollaborators()
-        }
-        .ifLet(\.reviews, action: \.reviews) {
-            WorkspaceReviews()
         }
         .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
             state.updateAuthoringGrant(grant)
@@ -245,7 +245,17 @@ public struct EventWorkspaceView: View {
                 Button {
                     store.send(.proposalsRowTapped)
                 } label: {
-                    Label("Proposals", mappedSystemImage: "arrow.triangle.pull")
+                    HStack {
+                        Label("Proposals", mappedSystemImage: "arrow.triangle.pull")
+                        Spacer()
+                        if let count = store.openProposalCount, count > 0 {
+                            WorkspaceBadgeValueView(
+                                count: count,
+                                accessibilityLabel: "Open proposals",
+                                accessibilityIdentifier: "workspace.proposals.badge"
+                            )
+                        }
+                    }
                 }
                 .navigationLinkListRowStyle()
                 .accessibilityIdentifier("workspace.proposals")
@@ -278,8 +288,11 @@ public struct EventWorkspaceView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationDestination(item: $store.scope(\.reviews, action: \.reviews)) { reviewsStore in
-            WorkspaceReviewsView(store: reviewsStore)
+        .navigationDestination(item: $store.navigationDestination) { destination in
+            switch destination {
+            case .proposals:
+                WorkspaceReviewsView(store: store.scope(\.reviews, action: \.reviews))
+            }
         }
         .sheet(item: $changesStore.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
             WorkspaceProposalDraftView(store: draftStore)
@@ -430,6 +443,25 @@ struct WorkspaceBranchChip: View {
     }
 }
 
+struct WorkspaceBadgeValueView: View {
+    let count: Int
+    let accessibilityLabel: LocalizedStringKey
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        Text(count, format: .number)
+            .font(.caption2.weight(.semibold))
+            .portableMonospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(.red, in: Capsule())
+            .accessibilityLabel(Text(accessibilityLabel))
+            .accessibilityValue(Text(count, format: .number))
+            .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
 struct WorkspaceTechnicalDetailsSection: View {
     let workspace: SourceWorkspace
     let eventID: OME.Event.ID
@@ -495,6 +527,7 @@ struct SourceChangeSummarySection: View {
 }
 
 struct SourceChangePresentationSection: View {
+    let badgeCount: Int?
     let presentation: OME.WorkspaceProposal.Presentation
     let emptyMessage: String
     let title: LocalizedStringKey
@@ -502,21 +535,35 @@ struct SourceChangePresentationSection: View {
     init(
         presentation: OME.WorkspaceProposal.Presentation,
         emptyMessage: String,
-        title: LocalizedStringKey = "What changed"
+        title: LocalizedStringKey = "What changed",
+        badgeCount: Int? = nil
     ) {
+        self.badgeCount = badgeCount
         self.presentation = presentation
         self.emptyMessage = emptyMessage
         self.title = title
     }
 
     var body: some View {
-        Section(title) {
+        Section {
             if presentation.totalCount == 0 {
                 Text(emptyMessage)
                     .foregroundStyle(.secondary)
             }
             ForEach(presentation.groups.filter { !$0.records.isEmpty }) { group in
                 ProposalRecordGroupDisclosure(group: group)
+            }
+        } header: {
+            HStack {
+                Text(title)
+                Spacer()
+                if let badgeCount, badgeCount > 0 {
+                    WorkspaceBadgeValueView(
+                        count: badgeCount,
+                        accessibilityLabel: "Changes",
+                        accessibilityIdentifier: "workspace.changes.badge"
+                    )
+                }
             }
         }
     }

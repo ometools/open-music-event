@@ -10,6 +10,7 @@ import IssueReporting
 import Lexicon
 import OpenMusicEventLexicon
 @testable import OpenMusicEventSourceEditing
+import Sharing
 import SQLiteData
 import SourceEditing
 import Testing
@@ -19,6 +20,68 @@ import Testing
 @MainActor
 @Suite("Workspace proposal reviews", .serialized)
 struct WorkspaceReviewsTests {
+    @Test
+    func `the Workspace badge combines local changes and open proposals`() throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-badges")
+        )
+        var state = withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            EventWorkspace.State(
+                workspace: workspace,
+                eventID: eventID,
+                workspaceState: SharedReader(
+                    value: WorkspaceState(
+                        id: WorkspaceID(rawValue: workspace.id.rawValue)
+                    )
+                )
+            )
+        }
+        state.changes.$summary = Fetch(
+            wrappedValue: SourceWorkspaceEditSummary(
+                workspaceID: workspace.id,
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "event-records",
+                        displayName: "Events",
+                        added: 1,
+                        modified: 2,
+                        deleted: 0
+                    )
+                ]
+            )
+        )
+
+        // Three local edits explain the badge while the remote proposal count is still unknown.
+        expectNoDifference(state.changeCount, 3)
+        expectNoDifference(state.openProposalCount, nil)
+        expectNoDifference(state.badgeCount, 3)
+
+        // Once proposals load, their count joins the Workspace badge.
+        state.reviews.status = .loaded([proposalListItem()])
+        expectNoDifference(state.openProposalCount, 1)
+        expectNoDifference(state.badgeCount, 4)
+
+        // A local receipt represents the same proposal while its server projection catches up.
+        state.reviews.$publicationReceipts = Fetch(
+            wrappedValue: [workspaceProposal(revision: "source-revision")]
+        )
+        expectNoDifference(state.openProposalCount, 1)
+        expectNoDifference(state.badgeCount, 4)
+
+        // Opening Proposals presents the already-loaded list without losing either count.
+        state.openProposalList()
+        expectNoDifference(state.navigationDestination, .proposals)
+        expectNoDifference(state.openProposalCount, 1)
+        expectNoDifference(state.badgeCount, 4)
+    }
+
     @Test
     func detailResponseMustMatchTheRequestedProposalURI() throws {
         let workspace = try workspace()

@@ -1434,7 +1434,7 @@ public struct EventViewerView: View {
                         title: EventViewer.EventFeature.workspace.title,
                         systemImage: EventViewer.EventFeature.workspace.systemImage,
                         labelTint: EventViewer.EventFeature.workspace.labelTint,
-                        badgeValue: featureStore.changeCount,
+                        badgeValue: featureStore.badgeCount,
                         navigation: .stack
                     ) {
                         EventWorkspaceView(store: featureStore)
@@ -1622,7 +1622,7 @@ public struct EventViewerView: View {
             }
 
             if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
-                viewerTab(.workspace, badgeValue: featureStore.changeCount) {
+                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.workspace)
@@ -1745,7 +1745,7 @@ public struct EventViewerView: View {
             }
 
             if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
-                viewerTab(.workspace, badgeValue: featureStore.changeCount) {
+                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.workspace)

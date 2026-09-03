@@ -72,6 +72,11 @@ public struct WorkspaceReviews {
             }
         }
 
+        public var openProposalCount: Int? {
+            guard case .loaded = status else { return nil }
+            return proposals.count + pendingProjectionReceipts.count
+        }
+
         public mutating func open(_ proposal: WorkspaceProposal) {
             guard let uri = ATProto.URI(proposal.id.rawValue) else { return }
             destination = .reviewDetail(
