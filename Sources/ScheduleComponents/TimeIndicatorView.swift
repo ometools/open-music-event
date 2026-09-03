@@ -138,6 +138,7 @@ struct TimeIndicatorView: View {
                 .frame(height: 1)
                 .offset(x: textWidth)
         }
+        .accessibilityIdentifier("indicator.schedule-current-time")
     }
 
     func horizontalTimeIndicator(at date: Date, height: ScheduleCGFloat) -> some View {
@@ -170,5 +171,6 @@ struct TimeIndicatorView: View {
                 }
         }
         .frame(width: textWidth + 16, height: height, alignment: .top)
+        .accessibilityIdentifier("indicator.schedule-current-time")
     }
 }

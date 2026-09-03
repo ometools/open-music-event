@@ -26,6 +26,9 @@ enum OpenMusicEventUIAutomationFixtureError: Error, Equatable {
 }
 
 enum OpenMusicEventUIAutomationFixture {
+    /// Saturday, August 1, 2026 at 6:15 PM in Testival's America/Denver time zone.
+    /// One frozen clock keeps Browse, Schedule, and performance indicators in agreement.
+    static let now = Date(timeIntervalSince1970: 1_785_629_700)
     static let organizerID = OME.Organizer.ID("did:web:example.com")!
     static let eventID = OME.Event.ID(
         organizerID: organizerID,
@@ -93,13 +96,16 @@ enum OpenMusicEventUIAutomationFixture {
     }
 
     static func refreshArtifactData(bundle: Bundle = .module) throws -> Data {
+        // Keep the already-gzipped bytes behind an opaque resource extension. Android's
+        // resource pipeline otherwise expands `.gz` files before placing them in the APK,
+        // which would no longer match the AppView-advertised size and checksum.
         guard let artifactURL = bundle.url(
-            forResource: "testival-refresh-b",
-            withExtension: "tar.gz",
+            forResource: "testival-refresh-b-gzip",
+            withExtension: "fixture",
             subdirectory: "UIAutomation"
         ) ?? bundle.url(
-            forResource: "testival-refresh-b",
-            withExtension: "tar.gz"
+            forResource: "testival-refresh-b-gzip",
+            withExtension: "fixture"
         ) else {
             throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
         }
@@ -120,7 +126,7 @@ enum OpenMusicEventUIAutomationFixture {
                     HTTPResponse(status: .ok)
                 )
             }
-            if request.method == .get, request.url == refreshArtifactURL {
+            if isRefreshArtifactRequest(request) {
                 return (
                     try refreshArtifactData(),
                     HTTPResponse(status: .ok)
@@ -178,6 +184,18 @@ enum OpenMusicEventUIAutomationFixture {
         .first(where: { $0.name == "uri" })?
         .value
         return requestedEventURI == OME.Event.reference(id: eventID).uri.description
+    }
+
+    static func isRefreshArtifactRequest(_ request: HTTPRequest) -> Bool {
+        guard request.method == .get,
+              let url = request.url
+        else { return false }
+
+        // swift-foundation's Android URL equality and absent-query representation do not
+        // currently agree with Darwin's for this HTTPS URL. The fixture owns this synthetic
+        // host, so matching its exact archive path remains specific without relying on either.
+        return url.host?.lowercased() == refreshArtifactURL.host?.lowercased()
+            && url.path == refreshArtifactURL.path
     }
 
     static func materializeBundledFile(

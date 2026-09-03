@@ -285,11 +285,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
     private func authorizationErrorText(
         _ resource: TCATProtoLocalizedStringResource
     ) -> Text {
-        #if SKIP_BRIDGE
-        Text(String(localized: resource))
-        #else
         Text(resource)
-        #endif
     }
 
     private func requestSignInActorSearch(

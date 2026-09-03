@@ -22,8 +22,7 @@ appId: ${APP_ID}
 
 # Opening Welcome records attendee-owned read state without introducing another
 # server dependency into this refresh-focused flow.
-- tapOn:
-    id: tab-feature.more
+- tapOn: More
 - tapOn:
     id: tab-feature.communications
 - extendedWaitUntil:
@@ -43,11 +42,11 @@ appId: ${APP_ID}
       id: view.communication-post.welcome
     timeout: 15000
 - runFlow: helpers/back.yaml
+- runFlow: helpers/back.yaml
 
 # Canopy proves revision A is still mounted before resume. The fixture's new
 # Surprise Set does not exist until the production refresh transaction commits.
-- tapOn:
-    id: tab-feature.schedule
+- tapOn: Schedule
 - extendedWaitUntil:
     visible:
       id: button.schedule-stage.canopy
@@ -82,10 +81,7 @@ appId: ${APP_ID}
 
 # Revision B adds a post while the attendee's earlier source post remains.
 # The Swift story checks its read state and the other local preference tables.
-- tapOn:
-    id: tab-feature.more
-- tapOn:
-    id: tab-feature.communications
+- tapOn: More
 - extendedWaitUntil:
     visible:
       id: button.channel.general

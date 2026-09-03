@@ -257,6 +257,7 @@ extension OME {
         dependencies.openMusicEventServiceEnvironment = environment
         dependencies.openMusicEventUIAutomation = uiAutomation
         if uiAutomation {
+            dependencies.date = .constant(OpenMusicEventUIAutomationFixture.now)
             OpenMusicEventUIAutomationFixture.prepareServerResponses(
                 &dependencies,
                 appViewHost: environment.appViewHost
@@ -483,7 +484,7 @@ struct OpenMusicEventApplicationRuntime {
     public var body: some View {
         let applicationStore = store.scope(\.content, action: \.content)
 #if os(Android)
-        @Bindable var authenticationStore = applicationStore.scope(
+        let authenticationStore = applicationStore.scope(
             \.authentication,
             action: \.authentication
         )
@@ -499,12 +500,18 @@ struct OpenMusicEventApplicationRuntime {
             isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
             serviceEnvironmentSelected: serviceEnvironmentSelected
         )
-            .sheet(
-                item: $authenticationStore.scope(
-                    \.authorization,
-                    action: \.authorization
-                )
-            ) { authorizationStore in
+            .background {
+                if let presentationStore: StoreOf<OAuthAuthenticationPresentation> =
+                    authenticationStore.scope(
+                        \.authorization,
+                        action: \.authorization
+                    ),
+                    case let .direct(authorizationStore) = presentationStore.enumeration
+                {
+                    OpenMusicEventImmediateAuthorizationMount(store: authorizationStore)
+                }
+            }
+            .sheet(item: authorizationSheetStore(authenticationStore)) { authorizationStore in
                 OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
             }
             .onOpenURL { url in
@@ -576,6 +583,27 @@ struct OpenMusicEventApplicationRuntime {
             }
 #endif
     }
+
+#if os(Android)
+    private func authorizationSheetStore(
+        _ authenticationStore: StoreOf<AuthenticationCoordinator>
+    ) -> Binding<StoreOf<AuthorizationFlow>?> {
+        Binding {
+            guard let presentationStore: StoreOf<OAuthAuthenticationPresentation> =
+                authenticationStore.scope(
+                    \.authorization,
+                    action: \.authorization
+                ),
+                case let .sheet(authorizationStore) = presentationStore.enumeration
+            else { return nil }
+            return authorizationStore
+        } set: { authorizationStore in
+            if authorizationStore == nil {
+                authenticationStore.send(.authorizationSheetDismissed)
+            }
+        }
+    }
+#endif
 
     func serviceEnvironmentSelected(_ environment: OpenMusicEventServiceEnvironment) {
         guard environment != activeServiceEnvironment,
@@ -1023,6 +1051,18 @@ struct OpenMusicEventApplicationRuntime {
         }
     }
 }
+
+#if os(Android)
+struct OpenMusicEventImmediateAuthorizationMount: View {
+    let store: StoreOf<AuthorizationFlow>
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+    }
+}
+#endif
 
 #if os(Android)
 /// Prepares process-wide dependencies before Android initializes the shared app delegate.

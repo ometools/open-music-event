@@ -482,30 +482,40 @@ public struct OpenMusicEventAppRoot {
                 guard event == .resumed else { return }
                 let activeWorkspaceID = state.destination?.eventViewer?.authoring.grant?.workspaceID
                 store.addTask {
-                    let refreshPartition = try await database.read { database in
-                        let installedEventIDs = try InstalledEventRecord.all
-                            .fetchAll(database)
-                            .map(\.id)
-                        return try workspaceRefreshPartition(
-                            installedEventIDs,
-                            activeWorkspaceID: activeWorkspaceID,
-                            in: database
+                    do {
+                        let refreshPartition = try await database.read { database in
+                            let installedEventIDs = try InstalledEventRecord.all
+                                .fetchAll(database)
+                                .map(\.id)
+                            return try workspaceRefreshPartition(
+                                installedEventIDs,
+                                activeWorkspaceID: activeWorkspaceID,
+                                in: database
+                            )
+                        }
+                        NotificationRefreshDiagnostics.notice(
+                            "Application resume is refreshing \(refreshPartition.attendee.count) attendee event(s)"
                         )
-                    }
-                    if activeWorkspaceID != nil {
-                        let reconciliation = try store.send(
-                            .destination(
-                                .eventViewer(
-                                    .authoring(
-                                        .content(.contextRefreshRequested)
+                        if activeWorkspaceID != nil {
+                            let reconciliation = try store.send(
+                                .destination(
+                                    .eventViewer(
+                                        .authoring(
+                                            .content(.contextRefreshRequested)
+                                        )
                                     )
                                 )
                             )
+                            await reconciliation?.value
+                        }
+                        for eventID in refreshPartition.attendee {
+                            try await eventInstallation.synchronizeInstalledEvent(eventID)
+                        }
+                    } catch {
+                        NotificationRefreshDiagnostics.failure(
+                            "Application resume source refresh failed: \(String(describing: error))"
                         )
-                        await reconciliation?.value
-                    }
-                    for eventID in refreshPartition.attendee {
-                        try await eventInstallation.synchronizeInstalledEvent(eventID)
+                        throw error
                     }
                 }
             default:

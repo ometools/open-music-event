@@ -19,6 +19,7 @@ module UISnapshotComparator
     10-browse
     20-testival-detail
     30-testival-schedule
+    32-testival-live-status
     40-collaborative-set-detail
     50-sunday-schedule
     60-artist-two-detail

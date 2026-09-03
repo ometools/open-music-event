@@ -41,6 +41,15 @@ enum PerformanceTimingStatus: Equatable, Sendable {
         }
     }
 
+    var accessibilityIdentifier: String {
+        switch self {
+        case .nowPlaying:
+            "indicator.performance-timing.now-playing"
+        case .startsIn:
+            "indicator.performance-timing.starts-in"
+        }
+    }
+
     static func remainingText(for interval: TimeInterval) -> String {
         let totalMinutes = max(1, Int(ceil(interval / 60)))
 
@@ -100,6 +109,7 @@ struct PerformanceTimingChip: View {
                         .fill(backgroundStyle(for: status))
                 }
                 .accessibilityLabel(Text(status.accessibilityTitle))
+                .accessibilityIdentifier(status.accessibilityIdentifier)
         }
     }
 

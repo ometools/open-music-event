@@ -49,6 +49,16 @@ struct UIAutomationFixtureTests {
         expectNoDifference(automationEntry.preparation, .preparing)
     }
 
+    @Test
+    func `fixture server recognizes the advertised immutable artifact request`() {
+        let request = HTTPRequest(
+            method: .get,
+            url: OpenMusicEventUIAutomationFixture.refreshArtifactURL
+        )
+
+        #expect(OpenMusicEventUIAutomationFixture.isRefreshArtifactRequest(request))
+    }
+
     #if !os(Android)
     @Test
     func `fresh attendee imports Testival and can explore its festival program without network access`() async throws {
@@ -63,6 +73,9 @@ struct UIAutomationFixtureTests {
                 uiAutomation: true
             )
         } operation: {
+            @Dependency(\.date.now) var now
+            expectNoDifference(now, OpenMusicEventUIAutomationFixture.now)
+
             let validation = try await OpenMusicEventUIAutomationFixture.importSource(
                 into: database
             )
@@ -80,6 +93,14 @@ struct UIAutomationFixtureTests {
             )
             expectNoDifference(browse.events.map(\.name), ["Testival 2026"])
             expectNoDifference(browse.cursor, nil)
+
+            let browseState = Browse.State(
+                events: browse.events,
+                referenceDate: now
+            )
+            expectNoDifference(browseState.happeningNowEvents.map(\.name), ["Testival 2026"])
+            expectNoDifference(browseState.upcomingEvents.map(\.name), [])
+            expectNoDifference(browseState.pastEvents.map(\.name), [])
 
             let catalogEvent = try #require(browse.events.only)
             let installedEventID = try await OMEEventInstallationClient.liveValue
@@ -228,6 +249,24 @@ struct UIAutomationFixtureTests {
                     "closing-set",
                 ]
             )
+            let timingStatuses: [PerformanceTimingStatus?] =
+                attendeeContent.performanceRows.map { row in
+                    PerformanceTimingStatus(
+                        startTime: row.performance.startTime,
+                        endTime: row.performance.endTime,
+                        now: now
+                    )
+                }
+            let expectedTimingStatuses: [PerformanceTimingStatus?] = [
+                .nowPlaying,
+                .nowPlaying,
+                .startsIn(15 * 60),
+                .startsIn((1 * 60 + 45) * 60),
+                .startsIn((5 * 60 + 15) * 60),
+                .startsIn((15 * 60 + 45) * 60),
+                .startsIn((24 * 60 + 45) * 60),
+            ]
+            expectNoDifference(timingStatuses, expectedTimingStatuses)
             let lateNightSet = try #require(
                 attendeeContent.performanceRows.first { $0.title == "Late Night Set" }
             )
@@ -277,6 +316,17 @@ struct UIAutomationFixtureTests {
             )
             expectNoDifference(musicStages.map(\.name), ["Meadow", "Canopy"])
             expectNoDifference(workshopStages.map(\.name), ["Workshop Grove"])
+            expectNoDifference(
+                ScheduleViewer.currentTimeDestination(
+                    currentDate: now,
+                    selectedScheduleID: selectedScheduleID,
+                    schedules: attendeeContent.schedules,
+                    performanceRows: attendeeContent.performanceRows,
+                    stages: musicStages,
+                    buffer: 30 * 60
+                )?.performanceID.rawValue.rawValue,
+                "opening-set"
+            )
             expectNoDifference(
                 ScheduleViewer.visiblePerformances(
                     performanceRows: attendeeContent.performanceRows,

@@ -26,6 +26,8 @@ Options:
                           OME package used by an external app root. Default: this checkout.
   --composable-notifications PATH
                           Local ComposableNotifications checkout. Default: the Android workspace route.
+  --composable-atmosphere-tangled PATH
+                          Local Tangled integration checkout. Default: the Android workspace route.
   --composable-workspace PATH
                           Local ComposableWorkspace checkout. Default: the remote package.
   --dependencies-http-client PATH
@@ -45,7 +47,8 @@ Environment overrides:
   CLANG_MODULE_CACHE_PATH, SWIFT_MODULECACHE_PATH, CFFIXED_USER_HOME,
   SWIFT_SDK_HOME, SWIFT_ANDROID_SDK_BUNDLE, SWIFT_TOOLCHAIN_DIR,
   OME_ANDROID_APP_BUILD, OME_UI_AUTOMATION, OME_OPEN_MUSIC_EVENT_PATH, OME_TCA26_PATH,
-  OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_WORKSPACE_PATH,
+  OME_COMPOSABLE_NOTIFICATIONS_PATH, OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH,
+  OME_COMPOSABLE_WORKSPACE_PATH,
   OME_DEPENDENCIES_HTTP_CLIENT_PATH,
   OME_ANDROID_TEST_APP_APK, OME_ANDROID_TEST_FILTER, OME_ANDROID_TEST_PARALLELISM,
   OME_ANDROID_SKIPSTONE_BUILD_ROOT,
@@ -288,6 +291,7 @@ OME_ANDROID_APP_BUILD="${OME_ANDROID_APP_BUILD:-1}"
 OME_OPEN_MUSIC_EVENT_PATH="${OME_OPEN_MUSIC_EVENT_PATH:-}"
 OME_TCA26_PATH="${OME_TCA26_PATH:-}"
 COMPOSABLE_NOTIFICATIONS_PATH="${OME_COMPOSABLE_NOTIFICATIONS_PATH:-}"
+COMPOSABLE_ATMOSPHERE_TANGLED_PATH="${OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH:-}"
 COMPOSABLE_WORKSPACE_PATH="${OME_COMPOSABLE_WORKSPACE_PATH:-}"
 DEPENDENCIES_HTTP_CLIENT_PATH="${OME_DEPENDENCIES_HTTP_CLIENT_PATH:-}"
 ANDROID_TEST_PARALLELISM="${OME_ANDROID_TEST_PARALLELISM:-1}"
@@ -357,6 +361,11 @@ while [[ $# -gt 0 ]]; do
     --composable-notifications)
       [[ $# -ge 2 ]] || fail "--composable-notifications requires a path"
       COMPOSABLE_NOTIFICATIONS_PATH="$2"
+      shift 2
+      ;;
+    --composable-atmosphere-tangled)
+      [[ $# -ge 2 ]] || fail "--composable-atmosphere-tangled requires a path"
+      COMPOSABLE_ATMOSPHERE_TANGLED_PATH="$2"
       shift 2
       ;;
     --composable-workspace)
@@ -515,6 +524,11 @@ if [[ -n "$COMPOSABLE_NOTIFICATIONS_PATH" ]]; then
   COMPOSABLE_NOTIFICATIONS_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$COMPOSABLE_NOTIFICATIONS_PATH")"
 else
   COMPOSABLE_NOTIFICATIONS_PATH="$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-composable-notifications)"
+fi
+if [[ -n "$COMPOSABLE_ATMOSPHERE_TANGLED_PATH" ]]; then
+  COMPOSABLE_ATMOSPHERE_TANGLED_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$COMPOSABLE_ATMOSPHERE_TANGLED_PATH")"
+else
+  COMPOSABLE_ATMOSPHERE_TANGLED_PATH="$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-tangled)"
 fi
 if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
   COMPOSABLE_WORKSPACE_PATH="$(package_absolute_path "$OME_PACKAGE_ROOT" "$COMPOSABLE_WORKSPACE_PATH")"
@@ -694,7 +708,7 @@ ANDROID_LOCAL_PACKAGE_INPUTS=(
   "swift-dependencies-http-client|$DEPENDENCIES_HTTP_CLIENT_PATH"
   "swift-composable-atmosphere|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-composable-atmosphere)"
   "composable-atmosphere-constellation|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-constellation)"
-  "composable-atmosphere-tangled|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-tangled)"
+  "composable-atmosphere-tangled|$COMPOSABLE_ATMOSPHERE_TANGLED_PATH"
   "sqlite-data|$(android_workspace_package_path "$OME_PACKAGE_ROOT" sqlite-data)"
   "swift-structured-queries|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-structured-queries)"
   "swift-sharing|$SKIP_SHARING_SWIFT_SHARING"
@@ -786,6 +800,7 @@ export SKIP_COMMAND_OVERRIDE
 export SKIP_SHARING_SWIFT_SHARING
 export OME_TCA26_PATH
 export OME_COMPOSABLE_NOTIFICATIONS_PATH="$COMPOSABLE_NOTIFICATIONS_PATH"
+export OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH="$COMPOSABLE_ATMOSPHERE_TANGLED_PATH"
 export OME_DEPENDENCIES_HTTP_CLIENT_PATH="$DEPENDENCIES_HTTP_CLIENT_PATH"
 if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
   export OME_COMPOSABLE_WORKSPACE_PATH="$COMPOSABLE_WORKSPACE_PATH"
@@ -902,6 +917,7 @@ skiplocal=$SKIPLOCAL
 skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
 ome_tca26_path=$OME_TCA26_PATH
 composable_notifications_path=$COMPOSABLE_NOTIFICATIONS_PATH
+composable_atmosphere_tangled_path=$COMPOSABLE_ATMOSPHERE_TANGLED_PATH
 composable_workspace_path=${COMPOSABLE_WORKSPACE_PATH:-remote}
 dependencies_http_client_path=$DEPENDENCIES_HTTP_CLIENT_PATH
 ome_android_app_build=$OME_ANDROID_APP_BUILD
@@ -1083,6 +1099,7 @@ configure_nested_skip_command() {
   local quoted_ome_path
   local quoted_tca26_path
   local quoted_composable_notifications
+  local quoted_composable_atmosphere_tangled
   local quoted_composable_workspace
   local quoted_dependencies_http_client
 
@@ -1093,6 +1110,7 @@ configure_nested_skip_command() {
   printf -v quoted_wrapper '%q' "$skip_command_wrapper"
   printf -v quoted_tca26_path '%q' "$OME_TCA26_PATH"
   printf -v quoted_composable_notifications '%q' "$COMPOSABLE_NOTIFICATIONS_PATH"
+  printf -v quoted_composable_atmosphere_tangled '%q' "$COMPOSABLE_ATMOSPHERE_TANGLED_PATH"
   printf -v quoted_dependencies_http_client '%q' "$DEPENDENCIES_HTTP_CLIENT_PATH"
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -1104,6 +1122,7 @@ configure_nested_skip_command() {
       printf 'export SKIP_SHARING_SWIFT_SHARING=%s\n' "$quoted_skip_sharing"
       printf 'export OME_TCA26_PATH=%s\n' "$quoted_tca26_path"
       printf 'export OME_COMPOSABLE_NOTIFICATIONS_PATH=%s\n' "$quoted_composable_notifications"
+      printf 'export OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH=%s\n' "$quoted_composable_atmosphere_tangled"
       printf 'export OME_DEPENDENCIES_HTTP_CLIENT_PATH=%s\n' "$quoted_dependencies_http_client"
       if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
         printf -v quoted_composable_workspace '%q' "$COMPOSABLE_WORKSPACE_PATH"
@@ -1160,6 +1179,7 @@ echo "  route hash:  $SKIP_ROUTE_FINGERPRINT"
 echo "  Sharing:     $SKIP_SHARING_SWIFT_SHARING"
 echo "  TCA26:       $OME_TCA26_PATH"
 echo "  Notifications: $COMPOSABLE_NOTIFICATIONS_PATH"
+echo "  Tangled:     $COMPOSABLE_ATMOSPHERE_TANGLED_PATH"
 echo "  Workspace:   ${COMPOSABLE_WORKSPACE_PATH:-remote}"
 echo "  HTTP client: $DEPENDENCIES_HTTP_CLIENT_PATH"
 echo "  package inputs: $ANDROID_PACKAGE_INPUTS_FINGERPRINT"

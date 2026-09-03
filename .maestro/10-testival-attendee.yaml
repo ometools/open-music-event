@@ -9,6 +9,7 @@ appId: ${APP_ID}
     timeout: 30000
 - assertVisible:
     id: app.root
+- assertVisible: Happening Now
 - takeScreenshot: 10-browse
 
 # The attendee learns enough about Testival to decide to install it.
@@ -31,23 +32,29 @@ appId: ${APP_ID}
     timeout: 30000
 - assertVisible:
     id: view.schedule.testival-source-testival-2026
+- assertVisible:
+    id: indicator.schedule-current-time
 - waitForAnimationToEnd
 - takeScreenshot: 30-testival-schedule
 
-# Multiple stages are live: Canopy has a different Saturday program, and the
-# attendee can return to Meadow without relying on the stage's visible name.
+# The current-time line belongs to the timeline renderer. Timing chips belong
+# to list rows, so exercise both renderers while the same frozen clock is live.
 - tapOn:
-    id: button.schedule-stage.canopy
+    id: menu.schedule-kind
+- tapOn: List
 - extendedWaitUntil:
     visible:
-      id: button.performance.sunset-session
+      id: indicator.performance-timing.now-playing
     timeout: 15000
-- tapOn:
-    id: button.schedule-stage.meadow
-- extendedWaitUntil:
-    visible:
-      id: button.performance.opening-set
-    timeout: 15000
+
+# List mode deliberately combines every stage. Seeing Canopy's next set beside
+# Meadow's live set proves that both stage schedules share the frozen clock.
+- assertVisible:
+    id: button.performance.sunset-session
+- assertVisible:
+    id: indicator.performance-timing.starts-in
+- waitForAnimationToEnd
+- takeScreenshot: 32-testival-live-status
 
 # Collaborative Set proves that a real performance detail can render multiple
 # credited contributors and their billing from the imported source.

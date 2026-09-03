@@ -1011,13 +1011,14 @@ private extension CalendarEvent.Media {
 
 #if os(Android)
 struct AndroidBrowseDatePickerButton: View {
+    @Dependency(\.date.now) var now
     let selectedDay: CalendarEvent.Day?
     let daySelected: (CalendarEvent.Day?) -> Void
 
     var body: some View {
         ComposeView {
             AndroidBrowseDatePickerComposer(
-                selectedDate: selectedDay?.date(in: .current) ?? Date(),
+                selectedDate: selectedDay?.date(in: .current) ?? now,
                 dateSelected: { date in
                     daySelected(CalendarEvent.Day(date, timeZone: .current))
                 },
@@ -1148,8 +1149,9 @@ struct BrowseDatePicker: View {
         selectedDay: CalendarEvent.Day?,
         daySelected: @escaping (CalendarEvent.Day?) -> Void
     ) {
+        @Dependency(\.date.now) var now
         _selection = State(
-            initialValue: selectedDay?.date(in: .current) ?? Date()
+            initialValue: selectedDay?.date(in: .current) ?? now
         )
         self.daySelected = daySelected
     }

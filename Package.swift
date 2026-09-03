@@ -175,15 +175,24 @@ let composableAtmosphereConstellationDependency: Package.Dependency = isAndroidA
         url: "https://source.woody.fm/composable-atmosphere-constellation",
         branch: "main"
     )
-let composableAtmosphereTangledDependency: Package.Dependency = isAndroidAppBuild
-    ? .package(
-        name: "composable-atmosphere-tangled",
-        path: workspacePackagePath("composable-atmosphere-tangled")
-    )
-    : .package(
+let composableAtmosphereTangledDependency: Package.Dependency = {
+    if let path = environment["OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH"] {
+        return .package(
+            name: "composable-atmosphere-tangled",
+            path: packagePath(path)
+        )
+    }
+    if isAndroidAppBuild {
+        return .package(
+            name: "composable-atmosphere-tangled",
+            path: workspacePackagePath("composable-atmosphere-tangled")
+        )
+    }
+    return .package(
         url: "https://source.woody.fm/composable-atmosphere-tangled",
         branch: "main"
     )
+}()
 let appViewComposableCalendarEventsDependency: Package.Dependency
 if let composableCalendarEventsPath = environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"] {
     appViewComposableCalendarEventsDependency = .package(
@@ -559,11 +568,13 @@ var openMusicEventWhiteLabelDependencies: [Target.Dependency] = [
 let skipKitTargetDependencies: [Target.Dependency] = isSkipBridgeHostBuild
     ? []
     : [
-        .product(
-            name: "SkipKit",
-            package: "skip-kit",
-            condition: .when(platforms: [.iOS, .android])
-        )
+        isAndroidAppBuild
+            ? .product(name: "SkipKit", package: "skip-kit")
+            : .product(
+                name: "SkipKit",
+                package: "skip-kit",
+                condition: .when(platforms: [.iOS, .android])
+            )
     ]
 var scheduleComponentsDependencies: [Target.Dependency] = [
     .product(name: "Dependencies", package: "swift-dependencies"),
@@ -960,6 +971,12 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
     .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
 ]
+
+// The Android app target names SkipKit directly so the host-side Gradle
+// prebuild discovers its Kotlin implementation before the native Swift build.
+if isAndroidAppBuild {
+    openMusicEventAppDependencies += skipKitTargetDependencies
+}
 
 if !isAndroidAppBuild {
     openMusicEventAppDependencies.append(

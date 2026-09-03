@@ -42,8 +42,10 @@ public struct PeriodicTimelineView<Content: View>: View {
                 }
             }
 #else
-        TimelineView(.periodic(from: date.now, by: interval)) { context in
-            content(context.date)
+        TimelineView(.periodic(from: date.now, by: interval)) { _ in
+            // TimelineView schedules redraws, while the dependency remains the
+            // semantic clock for production, previews, tests, and UI automation.
+            content(date.now)
         }
 #endif
     }
