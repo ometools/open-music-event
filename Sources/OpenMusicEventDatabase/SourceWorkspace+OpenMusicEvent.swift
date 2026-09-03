@@ -109,12 +109,30 @@ public extension WorkspaceReferenceUpdateClient {
                     attempt: attempt
                 )
             },
+            resetToPublished: { source, workspaceID in
+                try await installBranchBaseline(
+                    source: source,
+                    workspaceID: workspaceID,
+                    branch: WorkspaceBranch(rawValue: source.workspace.defaultBranch),
+                    resolveRevision: resolveRevision,
+                    requireClean: false
+                )
+            },
+            reconcile: { source, workspaceID, attempt in
+                try await reconcileWorkspace(
+                    source: source,
+                    workspaceID: workspaceID,
+                    attempt: attempt,
+                    resolveRevision: resolveRevision
+                )
+            },
             refresh: { source, workspaceID, current in
                 try await installBranchBaseline(
                     source: source,
                     workspaceID: workspaceID,
                     branch: current.branch,
-                    resolveRevision: resolveRevision
+                    resolveRevision: resolveRevision,
+                    requireClean: true
                 )
             },
             select: { source, workspaceID, branch in
@@ -122,7 +140,8 @@ public extension WorkspaceReferenceUpdateClient {
                     source: source,
                     workspaceID: workspaceID,
                     branch: branch,
-                    resolveRevision: resolveRevision
+                    resolveRevision: resolveRevision,
+                    requireClean: true
                 )
             }
         )
@@ -347,18 +366,21 @@ private func installBranchBaseline(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
     branch: WorkspaceBranch,
-    resolveRevision: @escaping SourceWorkspaceRevisionResolver
+    resolveRevision: @escaping SourceWorkspaceRevisionResolver,
+    requireClean: Bool = true
 ) async throws -> WorkspaceBranchReference {
     @Dependency(\.defaultDatabase) var mainDatabase
     @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
     @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
 
     try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
-    let changes = try await patchGenerator.generate(
-        SourceWorkspacePatchRequest(workspace: source.workspace)
-    )
-    guard changes.isEmpty else {
-        throw SourceWorkspaceDatabaseError.localChangesPreventContextSelection(workspaceID)
+    if requireClean {
+        let changes = try await patchGenerator.generate(
+            SourceWorkspacePatchRequest(workspace: source.workspace)
+        )
+        guard changes.isEmpty else {
+            throw SourceWorkspaceDatabaseError.localChangesPreventContextSelection(workspaceID)
+        }
     }
     let baselineStore = SourceWorkspaceBaselineStore(database: mainDatabase)
     let previousBaseline = try baselineStore.load(workspaceID).required(
@@ -452,6 +474,135 @@ private func installBranchBaseline(
     }
 }
 
+/// Moves an authoring workspace to the live default branch while carrying the exact edits that
+/// were captured for its pending proposal onto the new base.
+private func reconcileWorkspace(
+    source: SourceWorkspaceResource,
+    workspaceID: SourceWorkspace.ID,
+    attempt: WorkspaceProposalAttempt<SourcePatch>,
+    resolveRevision: @escaping SourceWorkspaceRevisionResolver
+) async throws -> WorkspaceBranchReference {
+    @Dependency(\.defaultDatabase) var mainDatabase
+    @Dependency(\.sourcePatchApplier) var patchApplier
+    @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+    @Dependency(SourceWorkspaceCheckoutClient.self) var checkout
+    @Dependency(SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self) var patchGenerator
+
+    try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
+    let baselineStore = SourceWorkspaceBaselineStore(database: mainDatabase)
+    let previousBaseline = try baselineStore.load(workspaceID).required(
+        SourceWorkspaceDatabaseError.contextMissing(workspaceID)
+    )
+    guard previousBaseline == attempt.target else {
+        throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
+    }
+
+    let currentChanges = try await patchGenerator.generate(
+        SourceWorkspacePatchRequest(workspace: source.workspace)
+    )
+    guard currentChanges == attempt.changes else {
+            throw SourceWorkspaceDatabaseError.localChangesChanged(workspaceID)
+    }
+
+    let previousInsertion = try sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: source.repositoryURL
+    )
+    let previousReplacement = try await previousInsertion.prepareWorkspaceReplacement(
+        source.workspace
+    )
+    let preparedRepositoryURL = source.repositoryURL
+        .deletingLastPathComponent()
+        .appending(path: "repository-reconcile-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: preparedRepositoryURL) }
+
+    let preparedCheckout = try await checkout.checkout(
+        source.workspace,
+        WorkspaceBranch(rawValue: source.workspace.defaultBranch),
+        preparedRepositoryURL
+    )
+    let baseline = preparedCheckout.reference
+    let observedRevision = try await resolveRevision(
+        Repository(url: preparedRepositoryURL),
+        RefName(rawValue: "HEAD")
+    )
+    guard observedRevision.rawValue == baseline.revision.rawValue else {
+        throw SourceWorkspaceDatabaseError.contextSelectionRevisionChanged(
+            expected: baseline.revision.rawValue,
+            observed: observedRevision.rawValue
+        )
+    }
+    let workingTree = try materializer.materialize(preparedRepositoryURL, nil)
+    defer { try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL) }
+    try patchApplier.apply(attempt.changes, workingTree.workingRepositoryURL)
+
+    let referenceInsertion = try sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: preparedRepositoryURL
+    )
+    let workingInsertion = try sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: workingTree.workingRepositoryURL
+    )
+    let referenceReplacement = try await referenceInsertion.prepareWorkspaceReplacement(
+        source.workspace
+    )
+    let workingReplacement = try await workingInsertion.prepareWorkspaceReplacement(
+        source.workspace
+    )
+
+    do {
+        try await referenceReplacement.replace(
+            branch: baseline.branch.rawValue,
+            revision: baseline.revision.rawValue,
+            recordsReferenceRevision: true,
+            in: source.referenceDatabase.database
+        )
+        try await workingReplacement.replace(
+            branch: baseline.branch.rawValue,
+            revision: baseline.revision.rawValue,
+            in: mainDatabase
+        )
+        try await baselineStore.save(baseline, workspaceID: workspaceID)
+        let backupRepositoryURL = try replaceRepository(
+            at: source.repositoryURL,
+            with: preparedRepositoryURL
+        )
+        try? FileManager.default.removeItem(at: backupRepositoryURL)
+        return baseline
+    } catch {
+        let reconciliationError = error
+        var rollbackFailures: [String] = []
+        do {
+            try await previousReplacement.replace(
+                branch: previousBaseline.branch.rawValue,
+                revision: previousBaseline.revision.rawValue,
+                recordsReferenceRevision: true,
+                in: source.referenceDatabase.database
+            )
+        } catch {
+            rollbackFailures.append("Reference database: \(String(describing: error))")
+        }
+        do {
+            try await previousReplacement.replace(
+                branch: previousBaseline.branch.rawValue,
+                revision: previousBaseline.revision.rawValue,
+                in: mainDatabase
+            )
+            try await baselineStore.save(previousBaseline, workspaceID: workspaceID)
+        } catch {
+            rollbackFailures.append("Application database: \(String(describing: error))")
+        }
+        guard rollbackFailures.isEmpty else {
+            throw SourceWorkspaceDatabaseError.contextSelectionRollbackFailed(
+                selection: String(describing: reconciliationError),
+                rollback: rollbackFailures.joined(separator: "\n")
+            )
+        }
+        throw reconciliationError
+    }
+}
+
 private func validate(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
@@ -527,6 +678,7 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
     case contextSelectionRollbackFailed(selection: String, rollback: String)
     case contextSelectionRevisionChanged(expected: String, observed: String)
     case localChangesPreventContextSelection(SourceWorkspace.ID)
+    case localChangesChanged(SourceWorkspace.ID)
     case persistedRevisionMismatch(
         workspaceID: SourceWorkspace.ID,
         repositoryRevision: String,

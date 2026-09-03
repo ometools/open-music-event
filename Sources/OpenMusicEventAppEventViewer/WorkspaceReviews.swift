@@ -112,6 +112,7 @@ public struct WorkspaceReviews {
         case destination(Destination.Action)
         case pendingProposalButtonTapped(WorkspaceProposal)
         case proposalButtonTapped(OME.WorkspaceProposal.ListItem)
+        case proposalRecorded
         case didPullToRefresh
     }
 
@@ -137,6 +138,9 @@ public struct WorkspaceReviews {
                 guard state.proposals.contains(where: { $0.uri == proposal.uri })
                 else { return }
                 state.open(proposal)
+
+            case .proposalRecorded:
+                loadProposals(state: &state, preservingLoadedProposals: true)
 
             case .didPullToRefresh:
                 loadProposals(state: &state)
@@ -173,7 +177,10 @@ public struct WorkspaceReviews {
         }
     }
 
-    func loadProposals(state: inout State) {
+    func loadProposals(
+        state: inout State,
+        preservingLoadedProposals: Bool = false
+    ) {
         guard state.status != .loading else { return }
         let request: OpenMusicEventWorkspaceProposalListRequest
         do {
@@ -186,7 +193,9 @@ public struct WorkspaceReviews {
         let receipts = state.publicationReceipts
         let receiptStore = SourceWorkspaceProposalReceiptStore(database: database)
         let proposalClient = proposalClient
-        state.status = .loading
+        if !preservingLoadedProposals || !isLoaded(state.status) {
+            state.status = .loading
+        }
         store.addTask {
             do {
                 let proposals = try await proposalClient.list(request)
@@ -239,6 +248,11 @@ public struct WorkspaceReviews {
                 reportIssue(error)
             }
         }
+    }
+
+    private func isLoaded(_ status: Status) -> Bool {
+        if case .loaded = status { return true }
+        return false
     }
 }
 
@@ -406,6 +420,10 @@ public struct WorkspaceReviewDetail {
                     }
                     guard result != nil else { return }
                     do {
+                        try store.post(
+                            key: WorkspaceContextRefreshRequested.self,
+                            value: ()
+                        )
                         try store.post(
                             key: WorkspaceProposalRemoved.self,
                             value: proposal.uri

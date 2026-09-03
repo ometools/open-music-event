@@ -83,6 +83,37 @@ struct WorkspaceReviewsTests {
     }
 
     @Test
+    func `recording a proposal refreshes an already-loaded list without clearing it`() async throws {
+        let database = try makePreparedDatabase()
+        let workspace = try workspace()
+        let existing = proposalListItem()
+        let createdURI = try #require(
+            ATProto.URI("at://did:plc:owner/sh.tangled.repo.pull/created")
+        )
+        let created = {
+            var proposal = proposalListItem()
+            proposal.uri = createdURI
+            proposal.title = "Created proposal"
+            proposal.updatedAt = proposalDate.addingTimeInterval(1)
+            return proposal
+        }()
+        let detail = proposalDetail()
+        let store = makeStore(
+            database: database,
+            workspace: workspace,
+            proposals: [existing],
+            list: { _ in [existing, created] },
+            detail: { _ in detail },
+            preloadedProposals: true
+        )
+
+        await store.send(.proposalRecorded)?.value
+
+        await waitUntil { store.proposals == [created, existing] }
+        expectNoDifference(store.status, .loaded([created, existing]))
+    }
+
+    @Test
     func detailResponseMustMatchTheRequestedProposalURI() throws {
         let workspace = try workspace()
         let request = try OpenMusicEventWorkspaceProposalListRequest(workspace: workspace)
@@ -540,6 +571,9 @@ struct WorkspaceReviewsTests {
         database: any DatabaseWriter,
         workspace: SourceWorkspace,
         proposals: [OME.WorkspaceProposal.ListItem],
+        list: (@Sendable (
+            OpenMusicEventWorkspaceProposalListRequest
+        ) async throws -> [OME.WorkspaceProposal.ListItem])? = nil,
         detail: @escaping @Sendable (
             ATProto.URI
         ) async throws -> OME.WorkspaceProposal.Detail,
@@ -561,7 +595,7 @@ struct WorkspaceReviewsTests {
             $0.workspaceProposalProjectionRetryDelays = [.zero]
             $0.blueskyActorProfileCache = actorCache
             $0.workspaceProposalClient = WorkspaceProposalClient(
-                list: { _ in proposals },
+                list: list ?? { _ in proposals },
                 detail: detail,
                 close: close,
                 merge: merge

@@ -1058,6 +1058,12 @@ public struct EventViewer {
                     guard state.eventWorkspace != nil else { return }
                     state.eventWorkspace?.changes.proposalDraft = nil
                     state.eventWorkspace?.openProposalList(proposal)
+                    store.addTask {
+                        let refresh = try store.send(
+                            .eventWorkspace(.reviews(.proposalRecorded))
+                        )
+                        await refresh?.value
+                    }
                 }
             )
 

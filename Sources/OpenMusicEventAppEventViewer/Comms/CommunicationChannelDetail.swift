@@ -296,6 +296,13 @@ public struct CommunicationChannelDetailView: View {
                 )
             }
         }
+        .sheet(
+            item: $store.scope(\.destination, action: \.destination).composer
+        ) { composerStore in
+            NavigationStack {
+                CommsPostComposerView(store: composerStore)
+            }
+        }
     }
 }
 
@@ -392,13 +399,6 @@ struct CommunicationChannelComposerSheetView: View {
 
     var body: some View {
         CommunicationChannelPostDestinationView(store: store, channel: channel)
-            .sheet(
-                item: $store.scope(\.destination, action: \.destination).composer
-            ) { composerStore in
-                NavigationStack {
-                    CommsPostComposerView(store: composerStore)
-                }
-            }
     }
 }
 

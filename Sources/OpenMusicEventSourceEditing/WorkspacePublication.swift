@@ -320,6 +320,28 @@ struct WorkspacePublicationPersistence: Sendable {
         return checkpoint
     }
 
+    /// Repoints a frozen attempt at a newly reconciled base and invalidates bytes prepared for the
+    /// old base. The attempt identity and receipt ID remain stable for retry recovery.
+    func reconcileCheckpoint(
+        workspaceID: SourceWorkspace.ID,
+        attempt: WorkspaceProposalAttempt<SourcePatch>,
+        target: WorkspaceBranchReference
+    ) async throws {
+        guard var checkpoint = try checkpoint(workspaceID), checkpoint.represents(attempt) else {
+            return
+        }
+        checkpoint.target = target
+        let data = try encode(checkpoint)
+        try await database.write { db in
+            try LegacyWorkspacePublicationRecord.find(workspaceID).update {
+                $0.submissionData = #bind(data as Data?)
+                $0.preparedSubmissionID = #bind(nil as String?)
+                $0.preparedPublicationData = #bind(nil as Data?)
+            }
+            .execute(db)
+        }
+    }
+
     func checkpoint(
         _ workspaceID: SourceWorkspace.ID
     ) throws -> WorkspacePublicationCheckpoint? {

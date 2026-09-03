@@ -477,7 +477,7 @@
     "From Other Event" : {
 
     },
-    "Go to main or select a proposal before publishing these changes." : {
+    "Go to main before publishing these changes." : {
 
     },
     "Google Maps" : {
@@ -864,9 +864,6 @@
     "Proposal details could not be loaded" : {
 
     },
-    "Proposal published; finishing workspace refresh." : {
-
-    },
     "Proposal status" : {
 
     },
@@ -901,6 +898,9 @@
 
     },
     "Publishes changes to" : {
+
+    },
+    "Publishing proposal" : {
 
     },
     "Quiet" : {
@@ -987,10 +987,10 @@
     "Reset" : {
 
     },
-    "Reset all source changes?" : {
+    "Reset changes" : {
 
     },
-    "Reset changes" : {
+    "Reset workspace changes?" : {
 
     },
     "Resetting changes" : {
@@ -1054,9 +1054,6 @@
 
     },
     "Selected" : {
-
-    },
-    "Selected revision" : {
 
     },
     "Selected schedule" : {
@@ -1260,7 +1257,7 @@
     "This removes the schedule and its saved performances." : {
 
     },
-    "This restores every record owned by this organization source to its reference copy." : {
+    "This restores every source record to its reference copy and clears local proposal publication recovery. Remote proposals are not deleted." : {
 
     },
     "This site map could not be loaded." : {
@@ -1311,9 +1308,6 @@
     "Unread posts: %lld" : {
 
     },
-    "Publishing proposal" : {
-
-    },
     "URL" : {
 
     },
@@ -1351,9 +1345,6 @@
 
     },
     "You do not have permission to publish these changes." : {
-
-    },
-    "You do not have permission to update this proposal." : {
 
     },
     "Your changes and publication details are still here. You can try again." : {

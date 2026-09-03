@@ -133,6 +133,47 @@ struct WorkspacePublicationTests {
         )
     }
 
+    @Test
+    func `reconciliation repoints the checkpoint and invalidates prepared publication`() async throws {
+        let database = try makeDatabase()
+        let workspace = try makeWorkspace()
+        let persistence = WorkspacePublicationPersistence(database: database)
+        let oldTarget = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "c6dbc")
+        )
+        let newTarget = WorkspaceBranchReference(
+            branch: WorkspaceBranch(rawValue: "main"),
+            revision: WorkspaceRevision(rawValue: "9f569")
+        )
+        let attempt = WorkspaceProposalAttempt(
+            changes: makePatch(),
+            details: WorkspaceProposalDetails(
+                title: try #require(WorkspaceProposalTitle("Reconcile this publication"))
+            ),
+            target: oldTarget
+        )
+
+        let checkpoint = try await persistence.checkpoint(
+            workspaceID: workspace.id,
+            attempt: attempt
+        )
+        try await persistence.reconcileCheckpoint(
+            workspaceID: workspace.id,
+            attempt: attempt,
+            target: newTarget
+        )
+
+        let reconciled = try #require(try persistence.checkpoint(workspace.id))
+        #expect(reconciled.id == checkpoint.id)
+        #expect(reconciled.changes == attempt.changes)
+        #expect(reconciled.target == newTarget)
+        #expect(try persistence.preparedPublication(
+            workspaceID: workspace.id,
+            checkpointID: checkpoint.id
+        ) == nil)
+    }
+
     private func makeDatabase() throws -> any DatabaseWriter {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
