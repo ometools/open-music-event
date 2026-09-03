@@ -11,6 +11,9 @@ import SourceEditing
 public protocol OpenMusicEventWorkspaceContentState: ValueObservable {
     var authoringAuthorizationInvalidated: Trigger<()> { get }
     var workspaceContextSelectionFailed: Trigger<WorkspaceFailure> { get }
+    var workspaceChangesPublicationFailed: Trigger<WorkspaceFailure> { get }
+    var workspaceChangesPublished: Trigger<WorkspaceBranchReference> { get }
+    var workspaceChangesPublishing: Trigger<()> { get }
     var workspaceProposalPublicationFailed: Trigger<WorkspaceFailure> { get }
     var workspaceProposalPublishing: Trigger<()> { get }
     var workspaceProposalRecorded: Trigger<WorkspaceProposal> { get }
@@ -58,6 +61,9 @@ where Content.State: OpenMusicEventWorkspaceContentState {
             proposalPublishingTrigger: \.workspaceProposalPublishing,
             proposalRecordedTrigger: \.workspaceProposalRecorded,
             proposalPublicationFailedTrigger: \.workspaceProposalPublicationFailed,
+            changesPublishingTrigger: \.workspaceChangesPublishing,
+            changesPublishedTrigger: \.workspaceChangesPublished,
+            changesPublicationFailedTrigger: \.workspaceChangesPublicationFailed,
             contextSelectionFailedTrigger: \.workspaceContextSelectionFailed
         ) {
             OpenMusicEventWorkspaceContent(makeContent: makeContent)
@@ -177,6 +183,40 @@ where Source == SourceWorkspaceResource, ChangeSet == SourcePatch {
                 }
                 return WorkspaceProposalPublication(
                     proposal: proposal,
+                    session: WorkspaceSession(source: source, selectedContext: context)
+                )
+            },
+            publishChanges: { source, workspaceID, attempt in
+                let sourceWorkspaceID = SourceWorkspace.ID(rawValue: workspaceID.rawValue)
+                precondition(source.workspace.id == sourceWorkspaceID)
+                let update = try await referenceUpdate.preparePublishedUpdate(
+                    source,
+                    sourceWorkspaceID,
+                    attempt
+                )
+                let published = try await publisher.publishChanges(
+                    source: source,
+                    workspaceID: sourceWorkspaceID,
+                    attempt: attempt
+                )
+                let context: WorkspaceEditingContext
+                do {
+                    context = try await update.apply(published)
+                } catch let incomplete as WorkspaceReferenceUpdateIncomplete {
+                    TangledWorkspacePublisherDiagnostics.log(
+                        operation: "published-reference.install",
+                        status: .failed,
+                        details: [
+                            "workspace: \(sourceWorkspaceID.rawValue)",
+                            "branch: \(published.branch.rawValue)",
+                            "merge: complete; metadata refresh remains available",
+                        ],
+                        error: incomplete
+                    )
+                    context = incomplete.mountedContext
+                }
+                return WorkspacePublishedChanges(
+                    published: published,
                     session: WorkspaceSession(source: source, selectedContext: context)
                 )
             },

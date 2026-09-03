@@ -29,6 +29,11 @@ public struct WorkspaceProposalDraft {
         }
     }
 
+    public enum PublicationMethod: Equatable, Sendable {
+        case proposal
+        case published
+    }
+
     public struct FormValue: Equatable, Sendable {
         public init(title: String = "", description: String = "") {
             self.title = title
@@ -53,11 +58,15 @@ public struct WorkspaceProposalDraft {
     public struct State {
         public init(
             targetBranch: String,
+            canPropose: Bool,
+            canPublish: Bool,
             groups: [SourceChangeGroup],
             fieldComparisons: SourceFieldComparisons,
             recordComparisons: SourceRecordComparisons
         ) {
             self.targetBranch = targetBranch
+            self.canPropose = canPropose
+            self.canPublish = canPublish
             self.groups = groups
             self.fieldComparisons = fieldComparisons
             self.recordComparisons = recordComparisons
@@ -65,9 +74,12 @@ public struct WorkspaceProposalDraft {
         }
 
         public let fieldComparisons: SourceFieldComparisons
+        public let canPropose: Bool
+        public let canPublish: Bool
         public var form: FormFeature.State
         public let groups: [SourceChangeGroup]
         public var publicationProgress: PublicationProgress = .idle
+        public var publicationMethod: PublicationMethod?
         public let recordComparisons: SourceRecordComparisons
         public let targetBranch: String
     }
@@ -75,7 +87,8 @@ public struct WorkspaceProposalDraft {
     public enum Action {
         case cancelButtonTapped
         case form(FormFeature.Action)
-        case formSubmitted(FormValue)
+        case formSubmitted(FormValue, PublicationMethod)
+        case publishNowButtonTapped
         case proposeButtonTapped
     }
 
@@ -97,22 +110,35 @@ public struct WorkspaceProposalDraft {
             case .form:
                 break
 
-            case let .formSubmitted(value):
+            case let .formSubmitted(value, method):
                 guard state.form.canSubmit,
                       let title = WorkspaceProposalTitle(value.trimmedTitle),
                       !state.publicationProgress.isActive
                 else { return }
-                let details = WorkspaceProposalDetails(
-                    title: title,
-                    description: value.trimmedDescription
-                )
+                guard method == .proposal ? state.canPropose : state.canPublish else { return }
                 state.publicationProgress = .preparing
+                state.publicationMethod = method
                 store.addTask {
-                    let publication = try store.post(
-                        key: WorkspaceProposalCreationRequested.self,
-                        value: details
-                    )
-                    await publication?.value
+                    switch method {
+                    case .proposal:
+                        let publication = try store.post(
+                            key: WorkspaceProposalCreationRequested.self,
+                            value: WorkspaceProposalDetails(
+                                title: title,
+                                description: value.trimmedDescription
+                            )
+                        )
+                        await publication?.value
+                    case .published:
+                        let publication = try store.post(
+                            key: WorkspaceChangesPublicationRequested.self,
+                            value: WorkspacePublicationDetails(
+                                title: title,
+                                description: value.trimmedDescription
+                            )
+                        )
+                        await publication?.value
+                    }
                 }
 
             case .proposeButtonTapped:
@@ -120,7 +146,16 @@ public struct WorkspaceProposalDraft {
                 store.addTask {
                     let validation = try store.send(.form(.submittedForm))
                     await validation?.value
-                    let submission = try store.send(.formSubmitted(value))
+                    let submission = try store.send(.formSubmitted(value, .proposal))
+                    await submission?.value
+                }
+
+            case .publishNowButtonTapped:
+                let value = state.form.value
+                store.addTask {
+                    let validation = try store.send(.form(.submittedForm))
+                    await validation?.value
+                    let submission = try store.send(.formSubmitted(value, .published))
                     await submission?.value
                 }
             }
@@ -136,7 +171,7 @@ extension WorkspaceProposalDraft.FormFeature {
     init() {
         self.init {
             Self.Field(\.title) {
-                Validation(error: "Enter a proposal title.") { value in
+                Validation(error: "Enter a publication title.") { value in
                     !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 }
             }
@@ -151,6 +186,8 @@ public struct WorkspaceProposalDraftView: View {
         self.store = store
     }
 
+    @State var isPublishConfirmationPresented = false
+
     public var publicationIsActive: Bool {
         store.publicationProgress.isActive
     }
@@ -158,9 +195,11 @@ public struct WorkspaceProposalDraftView: View {
     public var publicationStage: String? {
         switch store.publicationProgress {
         case .preparing:
-            "Preparing proposal"
+            "Preparing changes"
         case .publishing:
-            "Publishing the proposal"
+            store.publicationMethod == .published
+                ? "Publishing changes"
+                : "Publishing proposal"
         case .idle, .failed:
             nil
         }
@@ -169,7 +208,7 @@ public struct WorkspaceProposalDraftView: View {
     public var body: some View {
         NavigationStack {
             List {
-                Section("Proposal") {
+                Section("Publication") {
                     TextField("Title", text: $store.form.value.title)
                         .accessibilityIdentifier("workspace.proposal.title")
                         .onSubmit {
@@ -188,7 +227,7 @@ public struct WorkspaceProposalDraftView: View {
                     .accessibilityIdentifier("workspace.proposal.description")
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Proposes changes to")
+                        Text("Publishes changes to")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(store.targetBranch)
@@ -209,8 +248,8 @@ public struct WorkspaceProposalDraftView: View {
                 }
 
                 if case let .failed(message) = store.publicationProgress {
-                    Section("Proposal not published") {
-                        Text("Your changes and proposal details are still here. You can try again.")
+                    Section("Changes not published") {
+                        Text("Your changes and publication details are still here. You can try again.")
                         if !message.isEmpty {
                             Text(message)
                                 .font(.caption)
@@ -224,11 +263,11 @@ public struct WorkspaceProposalDraftView: View {
                     groups: store.groups,
                     fieldComparisons: store.fieldComparisons,
                     recordComparisons: store.recordComparisons,
-                    emptyMessage: "No changes are waiting to be proposed."
+                    emptyMessage: "No changes are waiting to be published."
                 )
             }
             .disabled(publicationIsActive)
-            .navigationTitle("Create Proposal")
+            .navigationTitle("Publish Changes")
             .interactiveDismissDisabled(publicationIsActive)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -236,16 +275,35 @@ public struct WorkspaceProposalDraftView: View {
                         .disabled(publicationIsActive)
                         .accessibilityIdentifier("workspace.proposal.cancel")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    SubmitButton(
-                        .propose,
-                        isInProgress: publicationIsActive,
-                        isDisabled: publicationIsActive || !store.form.canSubmit
-                    ) {
-                        store.send(.proposeButtonTapped)
+                if store.canPropose {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Propose") {
+                            store.send(.proposeButtonTapped)
+                        }
+                        .disabled(publicationIsActive || !store.form.canSubmit)
+                        .accessibilityIdentifier("workspace.proposal.submit")
                     }
-                    .accessibilityIdentifier("workspace.proposal.submit")
                 }
+                if store.canPublish {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Publish Now") {
+                            isPublishConfirmationPresented = true
+                        }
+                        .disabled(publicationIsActive || !store.form.canSubmit)
+                        .accessibilityIdentifier("workspace.publish.submit")
+                    }
+                }
+            }
+            .confirmationDialog(
+                "Publish directly to \(store.targetBranch)?",
+                isPresented: $isPublishConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Publish Now") {
+                    store.send(.publishNowButtonTapped)
+                }
+            } message: {
+                Text("This merges these changes immediately without creating a proposal.")
             }
         }
     }

@@ -71,6 +71,12 @@ public struct WorkspaceChanges {
             authoringAccess.canPropose
         }
 
+        public var canPublish: Bool {
+            // Direct publication is intentionally available anywhere proposal publication is.
+            // This can narrow to merge-capable collaborators without changing form state.
+            authoringAccess.canPropose
+        }
+
         public var canResetChanges: Bool {
             authoringAccess.canEditContent
                 && canInspectChanges
@@ -93,7 +99,7 @@ public struct WorkspaceChanges {
         Update { state, action in
             switch action {
             case .proposalActionButtonTapped:
-                guard state.canPropose,
+                guard state.canPropose || state.canPublish,
                       state.changeCount > 0,
                       let session = workspace.session
                 else { return }
@@ -101,6 +107,8 @@ public struct WorkspaceChanges {
                 case let .published(reference):
                     state.proposalDraft = WorkspaceProposalDraft.State(
                         targetBranch: reference.branch.rawValue,
+                        canPropose: state.canPropose,
+                        canPublish: state.canPublish,
                         groups: state.summary.groups,
                         fieldComparisons: state.summary.fieldComparisons,
                         recordComparisons: state.summary.recordComparisons
@@ -272,18 +280,18 @@ public struct WorkspaceChangesView: View {
         {
             switch selectedContext {
             case .published:
-                Section("Proposal") {
-                    if store.canPropose {
+                Section("Publish") {
+                    if store.canPropose || store.canPublish {
                         Button {
                             store.send(.proposalActionButtonTapped)
                         } label: {
-                            Label("Create Proposal", mappedSystemImage: "arrow.triangle.pull")
+                            Label("Publish Changes", mappedSystemImage: "arrow.triangle.pull")
                         }
                         .foregroundStyle(.primary)
                         .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("workspace.proposal.create")
+                        .accessibilityIdentifier("workspace.publication.create")
                     } else {
-                        Text("You do not have permission to create a proposal.")
+                        Text("You do not have permission to publish these changes.")
                             .foregroundStyle(.secondary)
                     }
                 }

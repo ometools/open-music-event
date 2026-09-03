@@ -15,13 +15,16 @@ import TangledLexicon
 /// Git is used only inside a temporary copy to create the Git-compatible replacement patch.
 /// No proposal branch is created or sent to a remote repository.
 struct TangledWorkspacePublisher: Sendable {
+    var directPublisher: TangledDirectPublisher
     var patchPublisher: TangledPatchOnlyProposalPublisher
     var patchGenerator: TangledReplacementPatchGenerator
 
     init(
+        directPublisher: TangledDirectPublisher = .init(),
         patchPublisher: TangledPatchOnlyProposalPublisher = .init(),
         patchGenerator: TangledReplacementPatchGenerator = .init()
     ) {
+        self.directPublisher = directPublisher
         self.patchPublisher = patchPublisher
         self.patchGenerator = patchGenerator
     }
@@ -93,6 +96,39 @@ struct TangledWorkspacePublisher: Sendable {
         return proposal
     }
 
+    func publishChanges(
+        source: SourceWorkspaceResource,
+        workspaceID: SourceWorkspace.ID,
+        attempt: WorkspacePublicationAttempt<SourcePatch>
+    ) async throws -> WorkspaceBranchReference {
+        guard source.workspace.id == workspaceID else {
+            throw TangledWorkspacePublisherError.sourceWorkspaceMismatch(workspaceID)
+        }
+        let context = try await PublishingContext.load(workspaceID)
+        let patch = try await replacementPatch(
+            source: source,
+            changes: attempt.changes,
+            target: attempt.target,
+            title: attempt.details.title.rawValue
+        )
+        return try await directPublisher.publish(
+            TangledDirectPublicationRequest(
+                target: TangledPatchOnlyProposalTarget(
+                    repositoryDID: context.targetRepository.repositoryDID,
+                    repositoryOwnerDID: try proposalDIDAuthority(
+                        context.targetRepository.recordURI
+                    ),
+                    repositoryName: context.repository.repository,
+                    knotHost: context.targetRepository.knotHost
+                ),
+                branch: attempt.target.branch,
+                title: attempt.details.title.rawValue,
+                body: attempt.details.description,
+                patch: patch
+            )
+        )
+    }
+
     func targetRepository(
         _ repository: TangledRepositoryReference
     ) async throws -> TangledRepositoryTarget {
@@ -159,6 +195,20 @@ private extension TangledWorkspacePublisher {
         source: SourceWorkspaceResource,
         checkpoint: WorkspacePublicationCheckpoint
     ) async throws -> TangledReplacementPatch {
+        return try await replacementPatch(
+            source: source,
+            changes: checkpoint.changes,
+            target: checkpoint.proposalTarget,
+            title: checkpoint.proposalTitle
+        )
+    }
+
+    func replacementPatch(
+        source: SourceWorkspaceResource,
+        changes: SourcePatch,
+        target: WorkspaceBranchReference,
+        title: String
+    ) async throws -> TangledReplacementPatch {
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.sourcePatchApplier) var patchApplier
         @Dependency(\.sourceWorkingTreeMaterializer) var materializer
@@ -168,7 +218,6 @@ private extension TangledWorkspacePublisher {
             try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL)
         }
         let repository = try await sourceControl.open(workingTree.workingRepositoryURL)
-        let target = checkpoint.proposalTarget
         let baseCommit = try await sourceControl.resolveRevision(
             ResolveRevisionRequest(
                 repository: repository,
@@ -176,13 +225,13 @@ private extension TangledWorkspacePublisher {
             )
         )
         try patchApplier.apply(
-            checkpoint.changes,
+            changes,
             workingTree.workingRepositoryURL
         )
         try await sourceControl.stage(
             StageRequest(
                 repository: repository,
-                paths: checkpoint.changes.fileChanges.map {
+                paths: changes.fileChanges.map {
                     RepositoryPath(rawValue: $0.path)
                 }
             )
@@ -190,7 +239,7 @@ private extension TangledWorkspacePublisher {
         let commit = try await sourceControl.commit(
             CommitRequest(
                 repository: repository,
-                message: CommitMessage(rawValue: checkpoint.proposalTitle),
+                message: CommitMessage(rawValue: title),
                 author: Author(
                     name: PersonName(rawValue: "Open Music Event"),
                     email: EmailAddress(rawValue: "noreply@openmusicevent.app")

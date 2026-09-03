@@ -326,6 +326,9 @@ public struct EventViewer {
         public var authoringGrant: AuthoringGrant?
         @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceFailure> public var workspaceContextSelectionFailed
+        @Trigger<WorkspaceFailure> public var workspaceChangesPublicationFailed
+        @Trigger<WorkspaceBranchReference> public var workspaceChangesPublished
+        @Trigger public var workspaceChangesPublishing
         @Trigger<WorkspaceFailure> public var workspaceProposalPublicationFailed
         @Trigger public var workspaceProposalPublishing
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
@@ -1024,6 +1027,17 @@ public struct EventViewer {
                 }
                 .onTrigger(store.workspaceProposalPublishing) { state in
                     state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .publishing
+                }
+                .onTrigger(store.workspaceChangesPublishing) { state in
+                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .publishing
+                }
+                .onTrigger(store.workspaceChangesPublicationFailed) { failure, state in
+                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .failed(
+                        failure.message
+                    )
+                }
+                .onTrigger(store.workspaceChangesPublished) { _, state in
+                    state.eventWorkspace?.changes.proposalDraft = nil
                 }
                 .onTrigger(store.workspaceProposalPublicationFailed) { failure, state in
                     state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .failed(

@@ -109,6 +109,13 @@ public extension WorkspaceReferenceUpdateClient {
                     attempt: attempt
                 )
             },
+            preparePublishedUpdate: { source, workspaceID, attempt in
+                try await prepareWorkspacePublishedUpdate(
+                    source: source,
+                    workspaceID: workspaceID,
+                    attempt: attempt
+                )
+            },
             refresh: { source, workspaceID, current in
                 switch current {
                 case let .published(reference):
@@ -415,6 +422,59 @@ private func prepareWorkspaceReferenceUpdate(
     }
 }
 
+private func prepareWorkspacePublishedUpdate(
+    source: SourceWorkspaceResource,
+    workspaceID: SourceWorkspace.ID,
+    attempt: WorkspacePublicationAttempt<SourcePatch>
+) async throws -> PreparedWorkspacePublishedUpdate {
+    @Dependency(\.defaultDatabase) var mainDatabase
+    @Dependency(\.sourcePatchApplier) var patchApplier
+    @Dependency(\.sourceWorkingTreeMaterializer) var materializer
+
+    try validate(source: source, workspaceID: workspaceID, database: mainDatabase)
+    let persisted = try SourceWorkspaceContextStore(database: mainDatabase)
+        .load(workspaceID)
+    guard persisted == .published(attempt.target) else {
+        throw SourceWorkspaceDatabaseError.contextMismatch(workspaceID)
+    }
+
+    let workingTree = try materializer.materialize(source.repositoryURL, nil)
+    defer { try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL) }
+    try patchApplier.apply(attempt.changes, workingTree.workingRepositoryURL)
+    let insertion = try sourceInsertion(
+        workspace: source.workspace,
+        repositoryURL: workingTree.workingRepositoryURL
+    )
+    let replacement = try await insertion.prepareWorkspaceReplacement(source.workspace)
+    let patch = attempt.changes
+
+    return PreparedWorkspacePublishedUpdate { published in
+        guard published.branch == attempt.target.branch,
+              published.revision != attempt.target.revision
+        else {
+            throw SourceWorkspaceDatabaseError.publishedDestinationMismatch
+        }
+        try patchApplier.apply(patch, source.repositoryURL)
+        try await replacement.replace(
+            branch: published.branch.rawValue,
+            revision: published.revision.rawValue,
+            recordsReferenceRevision: true,
+            in: source.referenceDatabase.database
+        )
+        let context = WorkspaceEditingContext.published(published)
+        do {
+            try await SourceWorkspaceContextStore(database: mainDatabase)
+                .savePublishedContext(published, workspaceID: workspaceID)
+        } catch {
+            throw WorkspaceReferenceUpdateIncomplete(
+                mountedContext: context,
+                message: String(describing: error)
+            )
+        }
+        return context
+    }
+}
+
 private func installBranchContext(
     source: SourceWorkspaceResource,
     workspaceID: SourceWorkspace.ID,
@@ -690,6 +750,7 @@ enum SourceWorkspaceDatabaseError: Error, Equatable {
         installationRevision: String?
     )
     case proposalDestinationMismatch
+    case publishedDestinationMismatch
     case proposalSnapshotUnavailable(SourceWorkspace.ID)
     case repositoryMissing(SourceWorkspace.ID)
     case resourceMismatch(SourceWorkspace.ID)

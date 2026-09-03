@@ -336,6 +336,16 @@ public struct SourceWorkspaceContextStore: Sendable {
             workspaceID: workspaceID
         )
     }
+
+    public func savePublishedContext(
+        _ published: WorkspaceBranchReference,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        try await persistence.savePublishedContext(
+            published,
+            workspaceID: workspaceID
+        )
+    }
 }
 
 public struct SourceWorkspaceProposalReceiptsRequest: FetchKeyRequest {
@@ -577,6 +587,34 @@ struct WorkspacePublicationPersistence: Sendable {
                     id: workspaceID,
                     branch: proposal.target.branch.rawValue,
                     revision: proposal.revision.rawValue
+                )
+            }
+            .execute(db)
+            try WorkspaceContextRecord.upsert {
+                WorkspaceContextRecord(id: workspaceID, contextData: contextData)
+            }
+            .execute(db)
+        }
+    }
+
+    func savePublishedContext(
+        _ published: WorkspaceBranchReference,
+        workspaceID: SourceWorkspace.ID
+    ) async throws {
+        let contextData = try encode(WorkspaceEditingContext.published(published))
+        try await database.write { db in
+            try SourceWorkspaceInstallationRecord.upsert {
+                SourceWorkspaceInstallationRecord(
+                    id: workspaceID,
+                    revision: published.revision.rawValue
+                )
+            }
+            .execute(db)
+            try SourceWorkspaceSelectionRecord.upsert {
+                SourceWorkspaceSelectionRecord(
+                    id: workspaceID,
+                    branch: published.branch.rawValue,
+                    revision: published.revision.rawValue
                 )
             }
             .execute(db)

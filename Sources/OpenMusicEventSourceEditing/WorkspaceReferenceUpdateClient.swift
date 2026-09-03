@@ -12,6 +12,20 @@ public struct PreparedWorkspaceReferenceUpdate: Sendable {
     }
 }
 
+public struct PreparedWorkspacePublishedUpdate: Sendable {
+    public var apply: @Sendable (
+        WorkspaceBranchReference
+    ) async throws -> WorkspaceEditingContext
+
+    public init(
+        apply: @escaping @Sendable (
+            WorkspaceBranchReference
+        ) async throws -> WorkspaceEditingContext
+    ) {
+        self.apply = apply
+    }
+}
+
 /// The proposed snapshot is already mounted locally, but its durable main-database context still
 /// needs repair. Publication has succeeded and callers should expose `mountedContext` immediately.
 public struct WorkspaceReferenceUpdateIncomplete: Error, Equatable, Sendable {
@@ -32,6 +46,11 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         SourceWorkspace.ID,
         WorkspaceProposalAttempt<SourcePatch>
     ) async throws -> PreparedWorkspaceReferenceUpdate
+    public var preparePublishedUpdate: @Sendable (
+        SourceWorkspaceResource,
+        SourceWorkspace.ID,
+        WorkspacePublicationAttempt<SourcePatch>
+    ) async throws -> PreparedWorkspacePublishedUpdate
     public var refresh: @Sendable (
         SourceWorkspaceResource,
         SourceWorkspace.ID,
@@ -49,6 +68,11 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
             SourceWorkspace.ID,
             WorkspaceProposalAttempt<SourcePatch>
         ) async throws -> PreparedWorkspaceReferenceUpdate,
+        preparePublishedUpdate: @escaping @Sendable (
+            SourceWorkspaceResource,
+            SourceWorkspace.ID,
+            WorkspacePublicationAttempt<SourcePatch>
+        ) async throws -> PreparedWorkspacePublishedUpdate,
         refresh: @escaping @Sendable (
             SourceWorkspaceResource,
             SourceWorkspace.ID,
@@ -61,6 +85,7 @@ public struct WorkspaceReferenceUpdateClient: Sendable {
         ) async throws -> WorkspaceEditingContext
     ) {
         self.preparePublication = preparePublication
+        self.preparePublishedUpdate = preparePublishedUpdate
         self.refresh = refresh
         self.select = select
     }
@@ -72,6 +97,7 @@ extension WorkspaceReferenceUpdateClient: DependencyKey {
 
     private static let unconfigured = Self(
         preparePublication: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
+        preparePublishedUpdate: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
         refresh: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() },
         select: { _, _, _ in throw WorkspaceReferenceUpdateUnavailable() }
     )
