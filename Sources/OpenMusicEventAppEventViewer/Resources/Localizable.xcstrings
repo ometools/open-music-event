@@ -192,6 +192,9 @@
     "Changes couldn’t be compared" : {
 
     },
+    "Changes not published" : {
+
+    },
     "Channel" : {
 
     },
@@ -274,9 +277,6 @@
 
     },
     "Create a schedule for the performances you do not want to miss." : {
-
-    },
-    "Create Proposal" : {
 
     },
     "Create/reuse contributor" : {
@@ -427,9 +427,6 @@
 
     },
     "Ends" : {
-
-    },
-    "Enter a proposal title." : {
 
     },
     "Enter one emoji." : {
@@ -636,9 +633,6 @@
     "No changes" : {
 
     },
-    "No changes are waiting to be proposed." : {
-
-    },
     "No Collaborators" : {
 
     },
@@ -831,9 +825,6 @@
     "Preparing changes" : {
 
     },
-    "Preparing proposal" : {
-
-    },
     "Preparing proposal changes" : {
 
     },
@@ -873,9 +864,6 @@
     "Proposal details could not be loaded" : {
 
     },
-    "Proposal not published" : {
-
-    },
     "Proposal published; finishing workspace refresh." : {
 
     },
@@ -891,13 +879,28 @@
     "Proposals have not been loaded" : {
 
     },
-    "Proposes changes to" : {
+    "Propose" : {
 
     },
     "Publication" : {
 
     },
+    "Publish" : {
+
+    },
+    "Publish Changes" : {
+
+    },
+    "Publish directly to %@?" : {
+
+    },
+    "Publish Now" : {
+
+    },
     "Published" : {
+
+    },
+    "Publishes changes to" : {
 
     },
     "Quiet" : {
@@ -1227,6 +1230,9 @@
     "This event wants to send you important updates." : {
 
     },
+    "This merges these changes immediately without creating a proposal." : {
+
+    },
     "This post could not be loaded." : {
 
     },
@@ -1350,13 +1356,13 @@
     "You can review this proposal, but you do not have permission to change its state." : {
 
     },
-    "You do not have permission to create a proposal." : {
+    "You do not have permission to publish these changes." : {
 
     },
     "You do not have permission to update this proposal." : {
 
     },
-    "Your changes and proposal details are still here. You can try again." : {
+    "Your changes and publication details are still here. You can try again." : {
 
     },
     "Your changes will appear here when the source is ready." : {

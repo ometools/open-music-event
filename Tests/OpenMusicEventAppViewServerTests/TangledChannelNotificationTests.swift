@@ -1093,6 +1093,10 @@ private extension TangledChannelNotificationTests {
             .appending(path: "communications", directoryHint: .isDirectory)
             .appending(path: "announcements", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: communications, withIntermediateDirectories: true)
+        let channels = communications
+            .deletingLastPathComponent()
+            .appending(path: "channels", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: channels, withIntermediateDirectories: true)
         try Data(
             """
             name: Festival 2026
@@ -1110,7 +1114,7 @@ private extension TangledChannelNotificationTests {
             description: Official festival updates.
             defaultNotificationState: subscribed
             """.utf8
-        ).write(to: communications.appending(path: "channel-info.yaml"))
+        ).write(to: channels.appending(path: "announcements.yml"))
         for (postID, post) in posts {
             try Data(
                 """

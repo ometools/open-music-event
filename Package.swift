@@ -112,7 +112,7 @@ let composableWorkspaceDependency: Package.Dependency = {
     }
     return .package(
         url: "https://source.woody.fm/swift-composable-workspace",
-        revision: "f3d2ab0bede0c6304f62914e8762e38a01a07dcc"
+        branch: "main"
     )
 }()
 let dependenciesHTTPClientDependency: Package.Dependency = {
