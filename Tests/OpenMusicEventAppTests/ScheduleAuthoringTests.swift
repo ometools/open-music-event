@@ -1514,6 +1514,43 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func performanceDetailDeleteActionRequestsScheduleConfirmation() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventTimeZone = SharedReader(value: timeZone)
+        } operation: {
+            TestStore(
+                initialState: PerformanceDetail.State(
+                    performanceID: performance.id.performanceID,
+                    eventID: fixture.eventID
+                )
+            ) {
+                PerformanceDetail()
+            }
+        }
+
+        let deleteTask = store.send(.deleteButtonTapped)
+        await store.receive(
+            key: SchedulePerformanceDeleteRequested.self,
+            value: .equals(performance.id.performanceID),
+            timeout: .seconds(1)
+        )
+        await deleteTask?.value
+    }
+
+    @Test
     func scheduleViewerDeletesPerformanceAfterConfirmation() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))

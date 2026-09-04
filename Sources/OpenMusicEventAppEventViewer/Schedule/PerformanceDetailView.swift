@@ -200,6 +200,7 @@ public struct PerformanceDetail {
 
     public enum Action {
         case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
+        case deleteButtonTapped
         case destination(Destination.Action)
         case editButtonTapped
         case otherReactionButtonTapped
@@ -259,6 +260,17 @@ public struct PerformanceDetail {
                             )
                         )
                     )
+                }
+
+            case .deleteButtonTapped:
+                guard state.canEditPerformance else { return }
+                let performanceID = state.performanceID
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceDeleteRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
                 }
 
             case .destination:
@@ -458,11 +470,19 @@ public struct PerformanceDetailView: View {
 
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                store.send(.editButtonTapped)
+                            Menu {
+                                Button {
+                                    store.send(.editButtonTapped)
+                                } label: {
+                                    Label("Edit Performance", systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    store.send(.deleteButtonTapped)
+                                } label: {
+                                    Label("Delete Performance", systemImage: "trash")
+                                }
                             } label: {
-                                Label("Edit Performance", systemImage: "pencil")
-                                    .labelStyle(.iconOnly)
+                                Label("Performance Actions", systemImage: "gearshape")
                             }
                             .disabled(!store.canEditPerformance)
                         }

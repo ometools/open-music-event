@@ -109,6 +109,7 @@ public struct CommunicationChannelDetail {
         case editChannelButtonTapped(OMERecord.Channel)
         case markPostReadButtonTapped(CommsPost.ID)
         case markPostUnreadButtonTapped(CommsPost.ID)
+        case deletePostButtonTapped(CommsPost.ID)
         case newPostButtonTapped
         case notificationStateButtonTapped(OMERecord.Channel.NotificationState)
         case postButtonTapped(CommsPost.ID)
@@ -120,6 +121,7 @@ public struct CommunicationChannelDetail {
         case channelForm(ChannelForm)
         case composer(CommsPostComposer)
         case deleteChannelConfirmation(ChannelDeleteConfirmation)
+        case postDeleteConfirmation(PostDeleteConfirmation)
         case postDetail(CommsPostDetail)
     }
 
@@ -183,6 +185,12 @@ public struct CommunicationChannelDetail {
             case let .markPostUnreadButtonTapped(postID):
                 updateReadState(false, postID: postID)
 
+            case let .deletePostButtonTapped(postID):
+                guard state.canEditChannel else { return }
+                state.destination = .postDeleteConfirmation(
+                    PostDeleteConfirmation.State(postID: postID)
+                )
+
             case .newPostButtonTapped:
                 guard state.canEditChannel else { return }
                 state.destination = .composer(
@@ -201,6 +209,13 @@ public struct CommunicationChannelDetail {
             case let .postButtonTapped(postID):
                 state.destination = .postDetail(CommsPostDetail.State(postID: postID))
 
+            case .destination(.postDetail(.deleteButtonTapped)):
+                guard case let .postDetail(detail) = state.destination,
+                      state.canEditChannel else { return }
+                state.destination = .postDeleteConfirmation(
+                    PostDeleteConfirmation.State(postID: detail.postID)
+                )
+
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }
                 let recordID = state.channelRecordID
@@ -214,6 +229,36 @@ public struct CommunicationChannelDetail {
                     } catch {
                         try store.modify {
                             $0.errorMessage = "Unable to delete this channel."
+                        }
+                    }
+                }
+
+            case let .destination(.postDeleteConfirmation(.deleteButtonTapped(postID))):
+                guard state.canEditChannel,
+                      postID.channelID == state.channelID else { return }
+                state.destination = nil
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            guard try CommsPost.find(postID).fetchOne(db) != nil else {
+                                throw PostDeleteError()
+                            }
+                            try CommsPostRead.find(postID).delete().execute(db)
+                            try CommsPost.find(postID).delete().execute(db)
+                            try LocalImageBlob
+                                .where { $0.organizerID.eq(postID.organizerID) }
+                                .where { $0.eventID.eq(postID.eventID) }
+                                .where { $0.parentKind.eq(LocalImageBlob.ParentKind.communicationPost) }
+                                .where { $0.parentLocalID.eq(postID.postID.rawValue) }
+                                .delete()
+                                .execute(db)
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete this post."
                         }
                     }
                 }
@@ -274,6 +319,23 @@ public struct CommunicationChannelDetail {
                 }
             }
         }
+    }
+
+}
+
+@Feature
+public struct PostDeleteConfirmation: Prompt {
+    public struct State: Identifiable {
+        public init(postID: CommsPost.ID) {
+            self.postID = postID
+        }
+
+        public let postID: CommsPost.ID
+        public var id: CommsPost.ID { postID }
+    }
+
+    public enum Action {
+        case deleteButtonTapped(CommsPost.ID)
     }
 }
 
@@ -357,6 +419,30 @@ struct CommunicationChannelControlsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This removes the channel. Posts already published in it are not changed.")
+            }
+            .confirmationDialog(
+                "Delete Post?",
+                isPresented: $store.scope(
+                    \.destination,
+                    action: \.destination
+                ).postDeleteConfirmation.isPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Delete Post", role: .destructive) {
+                    guard case let .postDeleteConfirmation(confirmation) = store.destination else {
+                        return
+                    }
+                    store.send(
+                        .destination(
+                            .postDeleteConfirmation(
+                                .deleteButtonTapped(confirmation.postID)
+                            )
+                        )
+                    )
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently removes the post from this channel.")
             }
     }
 }
@@ -510,9 +596,28 @@ struct CommunicationChannelPostRow: View {
                 )
             }
             .disabled(!isRead)
+
+            if store.canEditChannel {
+                Button(role: .destructive) {
+                    store.send(.deletePostButtonTapped(post.id))
+                } label: {
+                    Label("Delete Post", systemImage: "trash")
+                }
+            }
+        }
+        .swipeActions {
+            if store.canEditChannel {
+                Button(role: .destructive) {
+                    store.send(.deletePostButtonTapped(post.id))
+                } label: {
+                    Label("Delete Post", systemImage: "trash")
+                }
+            }
         }
     }
 }
+
+struct PostDeleteError: Error {}
 
 struct CommsPostRowView: View {
     let post: CommsPost

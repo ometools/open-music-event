@@ -27,9 +27,15 @@ public struct CommsPostDetail {
         }
 
         public let postID: CommsPost.ID
+        @SharedReader(.defaultAuthoringGrant)
+        public var authoringGrant: AuthoringGrant?
         @FetchOne public var post: CommsPost?
         public var errorMessage: String?
         public var id: CommsPost.ID { postID }
+
+        public var canDelete: Bool {
+            authoringGrant?.access.canEditContent == true
+        }
 
         var loadState: LoadState {
             if let post {
@@ -43,6 +49,7 @@ public struct CommsPostDetail {
     }
 
     public enum Action {
+        case deleteButtonTapped
         case postBecameVisible
     }
 
@@ -51,6 +58,9 @@ public struct CommsPostDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .deleteButtonTapped:
+                break
+
             case .postBecameVisible:
                 guard state.post != nil else { return }
                 let postID = state.postID
@@ -119,6 +129,7 @@ public struct CommsPostDetailView: View {
 
                         CommsMarkdownText(post.contents)
                             .multilineTextAlignment(.leading)
+                            .textSelection(.enabled)
 
                         if let errorMessage = store.errorMessage {
                             Text(errorMessage)
@@ -156,6 +167,21 @@ public struct CommsPostDetailView: View {
                     systemImage: "doc.text",
                     description: "This post could not be loaded."
                 )
+            }
+        }
+        .toolbar {
+            if store.canDelete {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) {
+                            store.send(.deleteButtonTapped)
+                        } label: {
+                            Label("Delete Post", systemImage: "trash")
+                        }
+                    } label: {
+                        Label("Post Actions", systemImage: "gearshape")
+                    }
+                }
             }
         }
     }

@@ -207,6 +207,9 @@
     "Check back for times and stages." : {
 
     },
+    "Checking for published changes" : {
+
+    },
     "Choose a different profile" : {
 
     },
@@ -370,6 +373,15 @@
 
     },
     "Directions" : {
+
+    },
+    "Discard My Changes" : {
+
+    },
+    "Discard My Changes and Update" : {
+
+    },
+    "Discard my changes and update?" : {
 
     },
     "Display" : {
@@ -625,6 +637,9 @@
 
     },
     "New Post" : {
+
+    },
+    "New published changes overlap with your workspace edits. Your edits are safe, but publishing is paused." : {
 
     },
     "New Schedule" : {
@@ -1218,6 +1233,9 @@
     "This contributor could not be loaded." : {
 
     },
+    "This discards every unpublished workspace change and installs the latest published branch. Remote proposals are not deleted." : {
+
+    },
     "This event could not be loaded." : {
 
     },
@@ -1306,6 +1324,9 @@
 
     },
     "Unread posts: %lld" : {
+
+    },
+    "Update Required" : {
 
     },
     "URL" : {

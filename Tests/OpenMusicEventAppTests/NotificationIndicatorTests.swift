@@ -11,6 +11,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventWhiteLabel
 import SQLiteData
+import Sharing
 import Synchronization
 import Testing
 
@@ -210,6 +211,84 @@ struct NotificationIndicatorTests {
                 ).notificationRoute,
             ]
         )
+    }
+
+    @Test
+    func `authoring can delete a post and its read state`() async throws {
+        let database = try Self.preparedDatabase()
+        let eventID = try Self.eventID("delete-post")
+        let channelID = Self.channelID("general", eventID: eventID)
+        let postID = Self.postID("welcome", channelID: "general", eventID: eventID)
+
+        try await database.write { database in
+            try Self.insertOrganizer(database)
+            try Self.insertEvent(database, id: eventID, name: "Delete Post")
+            try Self.insertChannel(
+                database,
+                eventID: eventID,
+                channelID: "general",
+                defaultState: .subscribed
+            )
+            try Self.insertPost(
+                database,
+                eventID: eventID,
+                channelID: "general",
+                postID: "welcome"
+            )
+            try CommsPostRead.insert { CommsPostRead(id: postID) }.execute(database)
+        }
+
+        let workspace = SourceWorkspace(
+            organizerID: eventID.organizerID,
+            repository: "tangled.org/example/delete-post",
+            branch: "main"
+        )
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(
+                actorID: try #require(DID(eventID.organizerID.description))
+            ),
+            role: .owner,
+            workspaceID: workspace.id
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock { $0 = grant }
+            return TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID.channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        store.send(.postButtonTapped(postID))
+        store.send(.destination(.postDetail(.deleteButtonTapped)))
+        #expect(store.state.destination?.postDeleteConfirmation?.postID == postID)
+
+        await store.send(
+            .destination(
+                .postDeleteConfirmation(
+                    .deleteButtonTapped(postID)
+                )
+            )
+        )?.value
+
+        let remainingPost = try await database.read { database in
+            try CommsPost.find(postID).fetchOne(database)
+        }
+        let remainingReadState = try await database.read { database in
+            try CommsPostRead.find(postID).fetchOne(database)
+        }
+        #expect(remainingPost == nil)
+        #expect(remainingReadState == nil)
+        #expect(store.state.posts.isEmpty)
     }
 
     @Test
