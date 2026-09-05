@@ -57,11 +57,6 @@ struct SourceWorkspacePatchGenerationTests {
                 defaultNotificationState: unsubscribed
                 notificationsRequired: false
                 """,
-                "events/woods-2026/communications/general/channel-info.yaml": """
-                name: General
-                description: Official updates.
-                firebaseTopicName: wicked-woods_updates
-                """,
                 "events/woods-2026/communications/general/welcome.md": """
                 ---
                 title: Welcome to Wicked Woods 🌲
@@ -128,24 +123,12 @@ struct SourceWorkspacePatchGenerationTests {
             communicationPatch.fileChanges.map(\.path),
             [
                 "events/woods-2026/channels/general.yml",
-                "events/woods-2026/communications/general/channel-info.yaml",
                 "events/woods-2026/communications/general/welcome.md",
             ]
         )
         let changesByPath = Dictionary(
             uniqueKeysWithValues: communicationPatch.fileChanges.map { ($0.path, $0) }
         )
-        let channelSource = String(
-            decoding: try #require(
-                changesByPath[
-                    "events/woods-2026/communications/general/channel-info.yaml"
-                ]?.newContents
-            ),
-            as: UTF8.self
-        )
-        #expect(channelSource.contains("firebaseTopicName: wicked-woods_updates"))
-        #expect(!channelSource.contains("defaultNotificationState"))
-        #expect(!channelSource.contains("notificationsRequired"))
         let postSource = String(
             decoding: try #require(
                 changesByPath[
@@ -352,12 +335,6 @@ struct SourceWorkspacePatchGenerationTests {
                 timeZone: America/Denver
                 """,
                 "events/woods-2026/channels/general.yml": """
-                name: General
-                description: Official updates.
-                defaultNotificationState: subscribed
-                notificationsRequired: false
-                """,
-                "events/woods-2026/communications/general/channel-info.yaml": """
                 name: General
                 description: Official updates.
                 defaultNotificationState: subscribed

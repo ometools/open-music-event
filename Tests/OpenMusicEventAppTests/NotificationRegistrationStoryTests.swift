@@ -892,6 +892,8 @@ private func writeNotificationSourceRepository(
         .appending(path: "communications", directoryHint: .isDirectory)
         .appending(path: "announcements", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: communications, withIntermediateDirectories: true)
+    let channels = event.appending(path: "channels", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: channels, withIntermediateDirectories: true)
     try Data(
         """
         id:
@@ -907,7 +909,7 @@ private func writeNotificationSourceRepository(
         description: Official festival updates.
         defaultNotificationState: subscribed
         """.utf8
-    ).write(to: communications.appending(path: "channel-info.yaml"))
+    ).write(to: channels.appending(path: "announcements.yml"))
     for (postID, post) in posts {
         try Data(
             """

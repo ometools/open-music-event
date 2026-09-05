@@ -66,7 +66,7 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
             Directory.Optional("communications") {
                 Directory.Many {
                     FileTree {
-                        File("channel-info", "yaml")
+                        File.Optional("channel-info", "yaml")
                             .convert(YamlConversion<LegacyCommunicationChannelDTO>())
 
                         File.Many(withExtension: "md")
@@ -81,7 +81,7 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
 }
 
 struct LegacyCommunicationDTO: Equatable, Sendable {
-    var channel: LegacyCommunicationChannelDTO
+    var channel: LegacyCommunicationChannelDTO?
     var posts: [FileContent<CommunicationPostDTO>]
 }
 
@@ -124,7 +124,7 @@ struct LegacyCommunicationChannelDTO: Codable, Equatable, Sendable {
 
 private struct LegacyCommunicationConversion: Conversion {
     typealias Input = (
-        LegacyCommunicationChannelDTO,
+        LegacyCommunicationChannelDTO?,
         [FileContent<CommunicationPostDTO>]
     )
     typealias Output = LegacyCommunicationDTO
@@ -149,20 +149,23 @@ private struct LegacyCommunicationConversion: Conversion {
     ) -> Conversions.Result<Input> {
         let path = SourceGraph.Path(rawValue: "channel-info.yaml")
         if let existingData = try? context.data(at: path),
-           let existingChannel = try? YamlConversion<LegacyCommunicationChannelDTO>()
+            let existingChannel = try? YamlConversion<LegacyCommunicationChannelDTO>()
             .apply(existingData) {
-            if existingChannel.recordDraft == output.channel.recordDraft {
+            guard let outputChannel = output.channel else {
+                return .value((nil, output.posts))
+            }
+            if existingChannel.recordDraft == outputChannel.recordDraft {
                 return .value((existingChannel, output.posts))
             }
-            var updatedChannel = output.channel
+            var updatedChannel = outputChannel
             updatedChannel.firebaseTopicName = existingChannel.firebaseTopicName
             if (existingChannel.defaultNotificationState ?? .unsubscribed)
-                == (output.channel.defaultNotificationState ?? .unsubscribed) {
+                == (outputChannel.defaultNotificationState ?? .unsubscribed) {
                 updatedChannel.defaultNotificationState =
                     existingChannel.defaultNotificationState
             }
             if (existingChannel.notificationsRequired ?? false)
-                == (output.channel.notificationsRequired ?? false) {
+                == (outputChannel.notificationsRequired ?? false) {
                 updatedChannel.notificationsRequired = existingChannel.notificationsRequired
             }
             return .value((updatedChannel, output.posts))
@@ -244,22 +247,14 @@ private struct EventConversion: Conversion {
     }
 
     private static func legacyCommunications(
-        channels: [FileContent<ChannelDTO>]?,
+        channels _: [FileContent<ChannelDTO>]?,
         communicationPosts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]?
     ) -> [DirectoryContent<LegacyCommunicationDTO>]? {
-        let channelsByFileName = Dictionary(
-            uniqueKeysWithValues: (channels ?? []).map { ($0.fileName, $0.data) }
-        )
         let communications = (communicationPosts ?? []).map { directory in
-            guard let channel = channelsByFileName[directory.directoryName] else {
-                preconditionFailure(
-                    "Communication posts require a matching channel: \(directory.directoryName)"
-                )
-            }
             return DirectoryContent(
                 directoryName: directory.directoryName,
                 components: LegacyCommunicationDTO(
-                    channel: LegacyCommunicationChannelDTO(channel),
+                    channel: nil,
                     posts: directory.components
                 )
             )
@@ -274,12 +269,15 @@ private struct EventConversion: Conversion {
         var channels = modernChannels ?? []
         var channelFileNames = Set(channels.map(\.fileName))
 
-        for communication in legacyCommunications ?? [] where channelFileNames.insert(communication.directoryName).inserted {
+        for communication in legacyCommunications ?? [] {
+            guard channelFileNames.insert(communication.directoryName).inserted,
+                  let channel = communication.components.channel
+            else { continue }
             channels.append(
                 try FileContent(
                     fileName: communication.directoryName,
                     fileType: "yml",
-                    data: communication.components.channel.recordDraft
+                    data: channel.recordDraft
                 )
             )
         }
