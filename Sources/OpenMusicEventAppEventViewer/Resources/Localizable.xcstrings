@@ -333,6 +333,12 @@
     "Delete Performance?" : {
 
     },
+    "Delete Post" : {
+
+    },
+    "Delete Post?" : {
+
+    },
     "Delete Poster" : {
 
     },
@@ -798,6 +804,9 @@
     "Performance" : {
 
     },
+    "Performance Actions" : {
+
+    },
     "Performance unavailable" : {
 
     },
@@ -829,6 +838,9 @@
 
     },
     "Post" : {
+
+    },
+    "Post Actions" : {
 
     },
     "Poster" : {
@@ -1246,6 +1258,9 @@
 
     },
     "This merges these changes immediately without creating a proposal." : {
+
+    },
+    "This permanently removes the post from this channel." : {
 
     },
     "This post could not be loaded." : {
