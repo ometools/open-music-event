@@ -366,6 +366,7 @@ let jwsetKitDependency: Package.Dependency = .package(
 )
 
 var applicationDependencies: [Package.Dependency] = [
+    .package(path: workspacePackagePath("swift-hero-image-list"), traits: ["Skip"]),
     composableAtmosphereUserInputDependency,
     .package(
         url: "https://source.woody.fm/composable-calendar-events",
@@ -895,6 +896,7 @@ var applicationTargets: [Target] = [
 // App UI targets
 
 var openMusicEventAppDependencies: [Target.Dependency] = [
+    .product(name: "HeroImageList", package: "swift-hero-image-list"),
     "BlueskyActorCache",
     .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
     .product(
@@ -975,6 +977,7 @@ applicationTargets.append(contentsOf: [
     .target(
         name: "OpenMusicEventAppEventViewer",
         dependencies: [
+            .product(name: "HeroImageList", package: "swift-hero-image-list"),
             "BlueskyActorCache",
             "ErrorHandling",
             "OpenMusicEventComponents",

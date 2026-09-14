@@ -1,3 +1,4 @@
+import HeroImageList
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
