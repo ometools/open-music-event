@@ -129,7 +129,7 @@ public struct CommsPostDetailView: View {
 
                         CommsMarkdownText(post.contents)
                             .multilineTextAlignment(.leading)
-                            .textSelection(.enabled)
+                            .selectableText()
 
                         if let errorMessage = store.errorMessage {
                             Text(errorMessage)

@@ -379,7 +379,7 @@ struct WorkspaceBaselineSection: View {
                             .frame(width: 12, height: 12)
                     }
                 }
-                .contentShape(Rectangle())
+                .portableContentShape(Rectangle())
             }
             .disabled(isSelectingBaseline)
             .tint(.primary)
@@ -396,7 +396,7 @@ struct WorkspaceBranchChip: View {
         Text(verbatim: branch)
             .font(.caption.monospaced())
             .lineLimit(1)
-            .truncationMode(.middle)
+            .portableTruncationMode(.middle)
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

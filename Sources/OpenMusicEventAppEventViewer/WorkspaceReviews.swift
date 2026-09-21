@@ -697,9 +697,7 @@ struct WorkspaceProposalRow: View {
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        #if !SKIP
-        .contentShape(Rectangle())
-        #endif
+        .portableContentShape(Rectangle())
     }
 
     var authorTitle: String {
@@ -860,7 +858,7 @@ public struct WorkspaceReviewDetailView: View {
 
                 Text(verbatim: bylineTitle)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .portableTruncationMode(.tail)
             }
             .portableAccessibilityElementIgnoringChildren()
             .accessibilityLabel(Text(verbatim: bylineAccessibilityLabel))

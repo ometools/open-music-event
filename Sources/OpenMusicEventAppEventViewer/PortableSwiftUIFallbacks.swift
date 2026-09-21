@@ -117,6 +117,15 @@ extension View {
     }
 
     @ViewBuilder
+    func portableTruncationMode(_ mode: Text.TruncationMode) -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.truncationMode(mode)
+        #endif
+    }
+
+    @ViewBuilder
     func portableMonospacedDigit() -> some View {
         #if os(Android)
         self
