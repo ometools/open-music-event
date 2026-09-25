@@ -929,13 +929,14 @@ struct WorkspaceAuthoringStoryTests {
             // Source preparation can finish without changing or replacing the restored grant.
             await preparation.continuePreparation()
             await opening?.value
-            try await workspaceStoryWaitUntil {
-                guard case .ready = store.content.destination?.eventViewer?.authoring.content.availability
-                else { return false }
-                return true
-            }
+            // Ready content is exposed before automatic reconciliation finishes. Await the
+            // owning task so both immutable checkouts have completed before inspecting Git work.
+            try await authoring.content.preparation()
+            #expect(!authoring.content.preparation.isRunning)
+            #expect(store.content.destination?.eventViewer?.authoring.content.session != nil)
+            #expect(store.content.destination?.eventViewer?.authoring.content.reconciliation == .current)
             expectNoDifference(store.content.destination?.eventViewer?.authoring.grant, grant)
-            expectNoDifference(operations.count(of: "initialize"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 2)
             expectNoDifference(operations.count(of: "clone"), 0)
             expectNoDifference(operations.count(of: "fetch"), 0)
         }
