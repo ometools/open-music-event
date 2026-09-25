@@ -236,7 +236,7 @@ struct PosterImportTests {
 
         store.send(.imageInfoButtonTapped(imageID))
         @Bindable var imageInfoStore = try #require(
-            $store.scope(\.destination, action: \.destination).imageInfo.wrappedValue
+            $store.scope(\.destination).imageInfo.wrappedValue
         )
         $imageInfoStore.asset.appearance.wrappedValue = .dark
         $imageInfoStore.asset.focalPoint.wrappedValue = OMERecord.ImageAsset.FocalPoint(
@@ -453,12 +453,12 @@ struct PosterImportTests {
         await waitUntil { store.posters.count == 1 }
         store.send(.posterButtonTapped(poster.id))
         let detail = try #require(
-            $store.scope(\.destination, action: \.destination).posterDetail.wrappedValue
+            $store.scope(\.destination).posterDetail.wrappedValue
         )
         @Bindable var detailStore = detail
         detailStore.send(.editButtonTapped)
         let editStore = try #require(
-            $detailStore.scope(\.destination, action: \.destination).editPoster.wrappedValue
+            $detailStore.scope(\.destination).editPoster.wrappedValue
         )
 
         await waitUntil { editStore.hasLoadedDraft }

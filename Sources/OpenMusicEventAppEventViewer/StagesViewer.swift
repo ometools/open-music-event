@@ -159,7 +159,7 @@ public struct StagesViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -620,7 +620,7 @@ public struct StagesViewerView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).stageDetail) { detailStore in
             StageDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls
@@ -980,7 +980,7 @@ public struct StageDetail {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
@@ -1109,7 +1109,7 @@ public struct StageDetailView: View {
                         }
                     }
                 }
-                .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+                .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
                     PerformanceDetailView(
                         store: detailStore,
                         showsAuthoringControls: false
@@ -1684,19 +1684,19 @@ public struct EditStage {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))
                 }
         }
-        Scope(\.heroImagePicker, action: \.heroImagePicker) {
+        Scope(\.heroImagePicker) {
             ImageAssetPicker()
         }
-        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+        Scope(\.logoImagePicker) {
             ImageAssetPicker()
         }
-        Scope(\.posterImagePicker, action: \.posterImagePicker) {
+        Scope(\.posterImagePicker) {
             ImageAssetPicker()
         }
         Update { state, action in
@@ -1814,7 +1814,7 @@ public struct EditStage {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             EmptyFeature()
                 .ifCaseLet(\.heroImportImages) {
                     ImportImages()
@@ -1954,32 +1954,32 @@ public struct EditStageView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).logoImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).logoImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).heroImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).heroImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).heroImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).heroImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).posterImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).posterImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).posterImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).posterImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
@@ -2054,13 +2054,13 @@ struct EditStageLoadedForm: View {
     private var imageSection: some View {
         Group {
             ImageAssetPickerSection(
-                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+                store: store.scope(\.logoImagePicker)
             )
             ImageAssetPickerSection(
-                store: store.scope(\.heroImagePicker, action: \.heroImagePicker)
+                store: store.scope(\.heroImagePicker)
             )
             ImageAssetPickerSection(
-                store: store.scope(\.posterImagePicker, action: \.posterImagePicker)
+                store: store.scope(\.posterImagePicker)
             )
         }
     }

@@ -146,7 +146,7 @@ public struct WorkspaceReviews {
                 loadProposals(state: &state)
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onEvent(WorkspaceProposalRemoved.self) { proposalURI, state in
@@ -652,7 +652,7 @@ public struct WorkspaceReviewsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .navigationDestination(
-            item: $store.scope(\.destination, action: \.destination).reviewDetail
+            item: $store.scope(\.destination).reviewDetail
         ) { detailStore in
             WorkspaceReviewDetailView(store: detailStore)
         }

@@ -809,7 +809,7 @@ struct WorkspaceAuthoringStoryTests {
                 },
                 Optional(git.mainRevision)
             )
-            await store.dismount(timeout: .seconds(1))
+            await store.dismount()
         }
     }
 
@@ -1174,7 +1174,7 @@ struct WorkspaceAuthoringStoryTests {
             }
             expectNoDifference(retainedSelection?.branch, selectedBranch.branch.rawValue)
             expectNoDifference(retainedSelection?.revision, selectedBranch.revision.rawValue)
-            await opened.dismount(timeout: .seconds(1))
+            await opened.dismount()
         }
     }
 
@@ -1562,7 +1562,7 @@ struct WorkspaceAuthoringStoryTests {
                 opened.state.content.destination?.eventViewer?.authoring.content.availability
             ))
             #expect(operations.snapshot.isEmpty)
-            await opened.dismount(timeout: .seconds(1))
+            await opened.dismount()
         }
     }
 
@@ -2162,7 +2162,7 @@ private struct WorkspaceStoryLiveApplicationHarness {
                 state.application = nil
             }
         }
-        .ifLet(\.application, action: \.application) {
+        .ifLet(\.application) {
             OpenMusicEventApplication(
                 storage: storage,
                 requestCenter: requestCenter
@@ -2235,8 +2235,7 @@ private final class WorkspaceStoryLiveStore {
         $applicationStore[dynamicMember: \.self].wrappedValue = state
     }
 
-    func dismount(timeout: Duration) async {
-        _ = timeout
+    func dismount() async {
         await store.send(.dismount)?.value
     }
 
@@ -2244,7 +2243,7 @@ private final class WorkspaceStoryLiveStore {
         OpenMusicEventApplication.State,
         OpenMusicEventApplication.Action
     > {
-        guard let applicationStore = store.scope(\.application, action: \.application) else {
+        guard let applicationStore = store.scope(\.application) else {
             preconditionFailure("The workspace story application is not mounted.")
         }
         return applicationStore
@@ -2366,7 +2365,7 @@ private struct WorkspaceStoryDependencyPropagationProbe {
                 }
             }
         }
-        .ifLet(\.child, action: \.child) {
+        .ifLet(\.child) {
             Child(recorder: recorder)
         }
     }

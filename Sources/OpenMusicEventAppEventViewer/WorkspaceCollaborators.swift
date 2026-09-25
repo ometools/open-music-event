@@ -93,7 +93,7 @@ public struct WorkspaceCollaborators {
                 break
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onMount { state in
@@ -217,7 +217,7 @@ public struct WorkspaceCollaboratorForm {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))
@@ -476,7 +476,7 @@ public struct WorkspaceCollaboratorsView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .sheet(item: $store.scope(\.destination, action: \.destination).collaboratorForm) {
+        .sheet(item: $store.scope(\.destination).collaboratorForm) {
             formStore in
             NavigationStack {
                 WorkspaceCollaboratorFormView(store: formStore)

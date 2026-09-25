@@ -183,7 +183,7 @@ public struct ContributorsViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -256,7 +256,7 @@ public struct ContributorsViewerView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).contributorDetail) { detailStore in
             ContributorDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls
@@ -742,16 +742,16 @@ public struct EditContributor {
 
     public var body: some Feature {
 //        let _ = Self._logChanges()
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))
                 }
         }
-        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+        Scope(\.logoImagePicker) {
             ImageAssetPicker()
         }
-        Scope(\.photoImagePicker, action: \.photoImagePicker) {
+        Scope(\.photoImagePicker) {
             ImageAssetPicker()
         }
         Update { state, action in
@@ -961,7 +961,7 @@ public struct EditContributor {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
@@ -1096,22 +1096,22 @@ public struct EditContributorView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(item: $store.scope(\.destination, action: \.destination).photoImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).photoImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).photoImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).photoImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).logoImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).logoImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
@@ -1192,11 +1192,11 @@ struct EditContributorLoadedForm: View {
             }
 
             ImageAssetPickerSection(
-                store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
+                store: store.scope(\.photoImagePicker)
             )
 
             ImageAssetPickerSection(
-                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+                store: store.scope(\.logoImagePicker)
             )
 
             EditContributorLinkSections(store: store)

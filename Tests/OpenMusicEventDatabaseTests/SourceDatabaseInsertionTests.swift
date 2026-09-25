@@ -1506,7 +1506,7 @@ struct SourceDatabaseInsertionTests {
         try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
 
-        let appProvenanceRow = try database.read { db in
+        try await database.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: """
@@ -1515,10 +1515,10 @@ struct SourceDatabaseInsertionTests {
                 LIMIT 1
                 """
             )
-            return try #require(row)
+            let appProvenanceRow = try #require(row)
+            #expect(appProvenanceRow["sourceKind"] as String == "tangled")
+            #expect(appProvenanceRow["eventIDOrigin"] as String == "inferred")
         }
-        #expect(appProvenanceRow["sourceKind"] as String == "tangled")
-        #expect(appProvenanceRow["eventIDOrigin"] as String == "inferred")
 
         let referenceProvenanceRow = try baselineDatabase.read { db in
             let row = try Row.fetchOne(

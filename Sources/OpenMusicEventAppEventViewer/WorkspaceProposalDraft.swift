@@ -93,7 +93,7 @@ public struct WorkspaceProposalDraft {
     }
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
         }
         Update { state, action in

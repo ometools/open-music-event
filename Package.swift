@@ -90,7 +90,7 @@ let tca26Dependency: Package.Dependency = {
     }
     return .package(
         url: "https://github.com/pointfreeco/TCA26",
-        revision: "cf2f6b58c7be7736a9705dc194c7ff81513bd28d",
+        branch: "main",
         traits: ["Dependencies"]
     )
 }()
@@ -107,8 +107,8 @@ let composableWorkspaceDependency: Package.Dependency = {
         )
     }
     return .package(
-        url: "https://source.woody.fm/swift-composable-workspace",
-        branch: "main"
+        name: "swift-composable-workspace",
+        path: "/Users/woody/Developer/ometools/worktrees/swift-composable-workspace-atmosphere-reorg"
     )
 }()
 let sourceControlDependency: Package.Dependency = {
@@ -186,8 +186,8 @@ let composableNotificationsDependency: Package.Dependency = {
         )
     }
     return .package(
-        url: "https://source.woody.fm/swift-composable-notifications",
-        branch: "main"
+        name: "swift-composable-notifications",
+        path: "/Users/woody/Developer/ometools/worktrees/swift-composable-notifications-atmosphere-reorg"
     )
 }()
 let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
@@ -318,7 +318,7 @@ let swiftSharingDependency: Package.Dependency = isAndroidAppBuild
     )
     : .package(
         url: "https://github.com/pointfreeco/swift-sharing",
-        exact: "2.9.1",
+        from: "2.10.1",
         traits: sharingTraits
     )
 let jwsetKitDependency: Package.Dependency = .package(
@@ -333,7 +333,7 @@ var applicationDependencies: [Package.Dependency] = [
     composableNotificationsDependency,
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
-        : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
+        : .package(name: "swift-composable-forms", path: "/Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     composableWorkspaceDependency,
@@ -352,11 +352,12 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
     sourceControlDependency,
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
-    .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
+    .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     swiftSharingDependency,
     routingDependency,
-    .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
+    // Collections 1.7 references a Swift 6.4 runtime symbol missing before macOS/iOS 27.
+    .package(url: "https://github.com/apple/swift-collections", .upToNextMinor(from: "1.6.0")),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
@@ -417,7 +418,7 @@ let appViewDependencies: [Package.Dependency] = [
     sourceControlDependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
-    .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
+    .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(
         url: "https://source.woody.fm/swift-dependencies-http-client",
@@ -440,7 +441,8 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
-    .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
+    // Collections 1.7 references a Swift 6.4 runtime symbol missing before macOS/iOS 27.
+    .package(url: "https://github.com/apple/swift-collections", .upToNextMinor(from: "1.6.0")),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
     .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
     .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),

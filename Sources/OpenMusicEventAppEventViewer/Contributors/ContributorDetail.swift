@@ -195,7 +195,7 @@ public struct ContributorDetail {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onChange(of: store.actorProfileLoadRequest, initial: true) { _, request, _ in
@@ -262,7 +262,7 @@ public struct ContributorDetailView: View {
                 .navigationTitle("Contributor")
             }
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
             PerformanceDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls

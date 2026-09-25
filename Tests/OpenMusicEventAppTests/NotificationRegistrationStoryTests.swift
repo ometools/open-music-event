@@ -528,22 +528,19 @@ struct NotificationRegistrationStoryTests {
                         try await requestRecorder.waitForRequestCount(3)
                         let communications = try await MainActor.run {
                             let root = appStore
-                                .scope(\.content, action: \.content)
-                                .scope(\.content, action: \.content)
+                                .scope(\.content)
+                                .scope(\.content)
                             let destination = try #require(
-                                root.scope(\.destination, action: \.destination)
+                                root.scope(\.destination)
                             )
                             let workspace = try #require(
-                                destination.scope(\.eventViewer, action: \.eventViewer)
+                                destination.scope(\.eventViewer)
                             )
-                            let authoring = workspace.scope(\.authoring, action: \.authoring)
-                            let workspaceContent = authoring.scope(\.content, action: \.content)
-                            let eventViewer = workspaceContent.scope(\.content, action: \.content)
+                            let authoring = workspace.scope(\.authoring)
+                            let workspaceContent = authoring.scope(\.content)
+                            let eventViewer = workspaceContent.scope(\.content)
                             return try #require(
-                                eventViewer.scope(
-                                    \.communicationsViewer,
-                                    action: \.communicationsViewer
-                                )
+                                eventViewer.scope(\.communicationsViewer)
                             )
                         }
                         let subscriptionTask = await MainActor.run {
@@ -556,9 +553,9 @@ struct NotificationRegistrationStoryTests {
 
                         let browse = await MainActor.run {
                             appStore
-                                .scope(\.content, action: \.content)
-                                .scope(\.content, action: \.content)
-                                .scope(\.browser, action: \.browser)
+                                .scope(\.content)
+                                .scope(\.content)
+                                .scope(\.browser)
                                 .spawn(\.browse)
                         }
                         let browseTask = await MainActor.run {

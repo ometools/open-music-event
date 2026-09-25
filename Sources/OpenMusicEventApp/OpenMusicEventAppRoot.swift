@@ -335,7 +335,7 @@ public struct OpenMusicEventAppRoot {
                     }
                 }
             }
-            Scope(\.browser, action: \.browser) {
+            Scope(\.browser) {
                 OpenMusicEventBrowser()
             }
         }
@@ -515,7 +515,7 @@ public struct OpenMusicEventAppRoot {
         .spawn(\.errorNotifications) {
             ErrorNotifications()
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .ifLet(\.whiteLabelRoot) {
@@ -600,13 +600,13 @@ public struct OpenMusicEventAppRootView: View {
         }
         .openMusicEventViewerPresentation(
             item: $store
-                .scope(\.destination, action: \.destination)
+                .scope(\.destination)
                 .eventViewer
         ) { authoringWorkspaceStore in
             let authoringStore = authoringWorkspaceStore
-                .scope(\.authoring, action: \.authoring)
-            let workspaceStore = authoringStore.scope(\.content, action: \.content)
-            let eventViewerStore = workspaceStore.scope(\.content, action: \.content)
+                .scope(\.authoring)
+            let workspaceStore = authoringStore.scope(\.content)
+            let eventViewerStore = workspaceStore.scope(\.content)
             EventViewerView(store: eventViewerStore)
             .openMusicEventAuthoringPhase(authoringStore.phase)
             #if os(iOS)
@@ -663,7 +663,7 @@ struct OpenMusicEventAppSurfaceView: View {
             switch store.variant {
             case .generic:
                 OpenMusicEventBrowserView(
-                    store: store.scope(\.browser, action: \.browser),
+                    store: store.scope(\.browser),
                     serviceEnvironment: serviceEnvironment,
                     isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
                     isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,

@@ -545,13 +545,13 @@ public struct Account {
 
     public var body: some Feature {
         Features {
-            Scope(\.signInForm, action: \.signInForm) {
+            Scope(\.signInForm) {
                 SignInFormFeature()
                     .onSubmit { value in
                         try store.send(.signInFormSubmitted(value))
                     }
             }
-            Scope(\.signUpForm, action: \.signUpForm) {
+            Scope(\.signUpForm) {
                 SignUpFormFeature()
                     .onSubmit { value in
                         try store.send(.signUpFormSubmitted(value))

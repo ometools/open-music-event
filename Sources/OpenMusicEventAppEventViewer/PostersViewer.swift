@@ -116,7 +116,7 @@ public struct PostersViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .ifLet(\.importImages) {
@@ -256,7 +256,7 @@ public struct PosterDetail {
                 )
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onEvent(PosterDeleted.self) { posterID, state in
@@ -326,7 +326,7 @@ public struct PosterDetailView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editPoster) { editStore in
+        .sheet(item: $store.scope(\.destination).editPoster) { editStore in
             NavigationStack {
                 EditPosterView(store: editStore)
             }
@@ -486,7 +486,7 @@ public struct EditPoster {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .ifLet(\.imageInfo) {
@@ -594,7 +594,7 @@ public struct EditPosterView: View {
             }
             .confirmationDialog(
                 "Delete Poster?",
-                isPresented: $store.scope(\.destination, action: \.destination).deleteConfirmation.isPresented,
+                isPresented: $store.scope(\.destination).deleteConfirmation.isPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete Poster", role: .destructive) {
@@ -727,7 +727,7 @@ public struct PostersViewerView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).posterDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).posterDetail) { detailStore in
             PosterDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls

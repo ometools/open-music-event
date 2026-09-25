@@ -404,7 +404,7 @@ public struct OpenMusicEventApp {
                     }
                 }
             }
-            Scope(\.content, action: \.content) {
+            Scope(\.content) {
                 makeContent()
             }
         }
@@ -467,16 +467,10 @@ struct OpenMusicEventApplicationRuntime {
     }
 
     public var body: some View {
-        let applicationStore = store.scope(\.content, action: \.content)
+        let applicationStore = store.scope(\.content)
 #if os(Android)
-        @Bindable var authenticationStore = applicationStore.scope(
-            \.authentication,
-            action: \.authentication
-        )
-        let applicationContentStore = applicationStore.scope(
-            \.content,
-            action: \.content
-        )
+        @Bindable var authenticationStore = applicationStore.scope(\.authentication)
+        let applicationContentStore = applicationStore.scope(\.content)
 
         OpenMusicEventAppRootView(
             store: applicationContentStore,
@@ -486,10 +480,7 @@ struct OpenMusicEventApplicationRuntime {
             serviceEnvironmentSelected: serviceEnvironmentSelected
         )
             .sheet(
-                item: $authenticationStore.scope(
-                    \.authorization,
-                    action: \.authorization
-                )
+                item: $authenticationStore.scope(\.authorization)
             ) { authorizationStore in
                 OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
             }

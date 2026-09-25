@@ -1096,10 +1096,7 @@ public struct EventViewer {
                     EmptyFeature<State, Action>().spawn(\.eventSearch) {
                         EventSearch()
                     }
-                    EmptyFeature<State, Action>().ifLet(
-                        \.communicationsViewer,
-                        action: \.communicationsViewer
-                    ) {
+                    EmptyFeature<State, Action>().ifLet(\.communicationsViewer) {
                         CommunicationsViewer()
                     }
                     EmptyFeature<State, Action>().ifLet(\.contactInfoViewer) {
@@ -1125,10 +1122,7 @@ public struct EventViewer {
                     EmptyFeature<State, Action>().ifLet(\.eventSettings) {
                         EventSettings()
                     }
-                    EmptyFeature<State, Action>().ifLet(
-                        \.eventWorkspace,
-                        action: \.eventWorkspace
-                    ) {
+                    EmptyFeature<State, Action>().ifLet(\.eventWorkspace) {
                         EventWorkspace()
                     }
                     EmptyFeature<State, Action>().spawn(\.account) {
@@ -1154,7 +1148,7 @@ public struct EventViewer {
                 }
             )
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
                 .dependency(EventViewerContext(eventID: store.eventID))
                 .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
@@ -1213,8 +1207,8 @@ public struct EventViewerView: View {
                 store.event.map { EventTimePresentation(timeZone: $0.timeZone) }
             )
             .environment(\.performanceReactionMenuContext, reactionMenuContext)
-            .sheet(item: $store.scope(\.destination, action: \.destination)) { _ in
-                if let destinationStore = store.scope(\.destination, action: \.destination) {
+            .sheet(item: $store.scope(\.destination)) { _ in
+                if let destinationStore = store.scope(\.destination) {
                     NavigationStack {
                         destinationContent(EventViewer.Destination.switch(store: destinationStore))
                     }
@@ -1360,10 +1354,7 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.scope(
-                    \.communicationsViewer,
-                    action: \.communicationsViewer
-                ) {
+                if let featureStore = store.scope(\.communicationsViewer) {
                     TabFeature(
                         .communications,
                         title: EventViewer.EventFeature.communications.title,
@@ -1460,7 +1451,7 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
+                if let featureStore = store.scope(\.eventWorkspace) {
                     TabFeature(
                         .workspace,
                         title: EventViewer.EventFeature.workspace.title,
@@ -1579,10 +1570,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.stages)
             }
 
-            if let featureStore = store.scope(
-                \.communicationsViewer,
-                action: \.communicationsViewer
-            ) {
+            if let featureStore = store.scope(\.communicationsViewer) {
                 viewerTab(
                     .communications,
                     badgeValue: featureStore.unreadPostCount
@@ -1653,7 +1641,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
+            if let featureStore = store.scope(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }
@@ -1709,10 +1697,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.stages)
             }
 
-            if let featureStore = store.scope(
-                \.communicationsViewer,
-                action: \.communicationsViewer
-            ) {
+            if let featureStore = store.scope(\.communicationsViewer) {
                 viewerTab(
                     .communications,
                     badgeValue: featureStore.unreadPostCount
@@ -1776,7 +1761,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.scope(\.eventWorkspace, action: \.eventWorkspace) {
+            if let featureStore = store.scope(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }

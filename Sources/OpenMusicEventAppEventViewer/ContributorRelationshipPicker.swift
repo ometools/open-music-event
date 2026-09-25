@@ -77,12 +77,15 @@ public struct ContributorRelationshipPicker {
             self.contributors = contributors.map(ContributorOption.init)
         }
 
+        @DebugSnapshotTracked
         var actorSearchErrorMessage: String?
         var actorSearchFailures: [PredictiveSearchFailure] = []
         var actorSearchIsLoading = false
         var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         var contributors: [ContributorOption]
+        @DebugSnapshotTracked
         var searchQuery = ""
+        @DebugSnapshotTracked
         var selection = Selection.none
 
         var filteredContributors: [ContributorOption] {

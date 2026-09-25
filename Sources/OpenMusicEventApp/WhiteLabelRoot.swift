@@ -111,7 +111,7 @@ public struct WhiteLabelRoot {
         .ifLet(\.organizationDetail) {
             OrganizationDetail()
         }
-        .ifLet(\.settings, action: \.settings) {
+        .ifLet(\.settings) {
             Settings()
         }
     }
@@ -203,7 +203,7 @@ public struct WhiteLabelRootView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(\.settings, action: \.settings)) { settingsStore in
+        .sheet(item: $store.scope(\.settings)) { settingsStore in
             NavigationStack {
                 SettingsFeatureView(
                     store: settingsStore,

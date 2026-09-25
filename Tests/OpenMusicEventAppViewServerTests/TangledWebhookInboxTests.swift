@@ -1169,8 +1169,8 @@ struct TangledWebhookInboxTests {
         }
 
         let retryAt = Self.receivedAt.addingTimeInterval(1)
-        let pendingLedger = try store.database.read { database in
-            try Row.fetchOne(
+        try await store.database.read { database in
+            let pendingLedger = try Row.fetchOne(
                 database,
                 sql: """
                     SELECT
@@ -1182,13 +1182,13 @@ struct TangledWebhookInboxTests {
                     FROM pushOutbox
                     """
             )
+            let pendingRow = try #require(pendingLedger)
+            expectNoDifference(pendingRow["failedAttempts"] as Int, 1)
+            expectNoDifference(pendingRow["nextAttemptAt"] as Date, retryAt)
+            #expect((pendingRow["discardedAt"] as Date?) == nil)
+            expectNoDifference(pendingRow["providerStatus"] as Int?, 429)
+            expectNoDifference(pendingRow["providerCode"] as String?, "RESOURCE_EXHAUSTED")
         }
-        let pendingRow = try #require(pendingLedger)
-        expectNoDifference(pendingRow["failedAttempts"] as Int, 1)
-        expectNoDifference(pendingRow["nextAttemptAt"] as Date, retryAt)
-        #expect((pendingRow["discardedAt"] as Date?) == nil)
-        expectNoDifference(pendingRow["providerStatus"] as Int?, 429)
-        expectNoDifference(pendingRow["providerCode"] as String?, "RESOURCE_EXHAUSTED")
 
         let retryRequests = ProviderHTTPRequestRecorder()
         let reopenedStore = try OpenMusicEventAppViewStore(
@@ -1245,8 +1245,8 @@ struct TangledWebhookInboxTests {
             String(decoding: try #require(retryRequest.body), as: UTF8.self),
             #"{"message":{"data":{"kind":"source_available","source":"\#(Self.sourceID.rawValue)","version":"2222222222222222222222222222222222222222"},"fid":"fixture-fcm-installation-id"}}"#
         )
-        let ledger = try reopenedStore.database.read { database in
-            try Row.fetchOne(
+        try await reopenedStore.database.read { database in
+            let ledger = try Row.fetchOne(
                 database,
                 sql: """
                     SELECT
@@ -1258,15 +1258,15 @@ struct TangledWebhookInboxTests {
                     FROM pushOutbox
                     """
             )
+            let ledgerRow = try #require(ledger)
+            let failedAttempts: Int = ledgerRow["failedAttempts"]
+            let deliveredAt: Date = ledgerRow["deliveredAt"]
+            expectNoDifference(failedAttempts, 1)
+            expectNoDifference(deliveredAt, retryAt)
+            #expect((ledgerRow["discardedAt"] as Date?) == nil)
+            expectNoDifference(ledgerRow["providerStatus"] as Int?, 200)
+            expectNoDifference(ledgerRow["providerCode"] as String?, nil as String?)
         }
-        let ledgerRow = try #require(ledger)
-        let failedAttempts: Int = ledgerRow["failedAttempts"]
-        let deliveredAt: Date = ledgerRow["deliveredAt"]
-        expectNoDifference(failedAttempts, 1)
-        expectNoDifference(deliveredAt, retryAt)
-        #expect((ledgerRow["discardedAt"] as Date?) == nil)
-        expectNoDifference(ledgerRow["providerStatus"] as Int?, 200)
-        expectNoDifference(ledgerRow["providerCode"] as String?, nil as String?)
     }
 
     @Test
@@ -1385,8 +1385,8 @@ struct TangledWebhookInboxTests {
         }
 
         // The bad token is removed, but every installation and subscription remains durable.
-        let persisted = try store.database.read { database in
-            (
+        try await store.database.read { database in
+            let persisted = (
                 try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushInstallations"),
                 try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushRegistrations"),
                 try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushSubscriptions"),
@@ -1405,43 +1405,43 @@ struct TangledWebhookInboxTests {
                         """
                 )
             )
+            expectNoDifference(persisted.0, 3)
+            expectNoDifference(persisted.1, 2)
+            expectNoDifference(persisted.2, 3)
+
+            let rows = Dictionary(
+                uniqueKeysWithValues: persisted.3.map { row in
+                    (row["installationID"] as String, row)
+                }
+            )
+            let invalid = try #require(rows["invalid-installation"])
+            #expect((invalid["deliveredAt"] as Date?) == nil)
+            expectNoDifference(invalid["discardedAt"] as Date?, Self.receivedAt)
+            expectNoDifference(
+                invalid["discardReason"] as String?,
+                NotificationDeliveryDiscardReason.invalidDestination.rawValue
+            )
+            expectNoDifference(invalid["providerStatus"] as Int?, 404)
+            expectNoDifference(invalid["providerCode"] as String?, "UNREGISTERED")
+
+            let permanent = try #require(rows["permanent-installation"])
+            expectNoDifference(permanent["failedAttempts"] as Int, 1)
+            #expect((permanent["deliveredAt"] as Date?) == nil)
+            expectNoDifference(permanent["discardedAt"] as Date?, Self.receivedAt)
+            expectNoDifference(
+                permanent["discardReason"] as String?,
+                NotificationDeliveryDiscardReason.permanentFailure.rawValue
+            )
+            expectNoDifference(permanent["providerStatus"] as Int?, 400)
+            expectNoDifference(permanent["providerCode"] as String?, "INVALID_ARGUMENT")
+
+            let healthy = try #require(rows["healthy-installation"])
+            expectNoDifference(healthy["failedAttempts"] as Int, 0)
+            expectNoDifference(healthy["deliveredAt"] as Date?, Self.receivedAt)
+            #expect((healthy["discardedAt"] as Date?) == nil)
+            expectNoDifference(healthy["providerStatus"] as Int?, 200)
+            expectNoDifference(healthy["providerCode"] as String?, nil as String?)
         }
-        expectNoDifference(persisted.0, 3)
-        expectNoDifference(persisted.1, 2)
-        expectNoDifference(persisted.2, 3)
-
-        let rows = Dictionary(
-            uniqueKeysWithValues: persisted.3.map { row in
-                (row["installationID"] as String, row)
-            }
-        )
-        let invalid = try #require(rows["invalid-installation"])
-        #expect((invalid["deliveredAt"] as Date?) == nil)
-        expectNoDifference(invalid["discardedAt"] as Date?, Self.receivedAt)
-        expectNoDifference(
-            invalid["discardReason"] as String?,
-            NotificationDeliveryDiscardReason.invalidDestination.rawValue
-        )
-        expectNoDifference(invalid["providerStatus"] as Int?, 404)
-        expectNoDifference(invalid["providerCode"] as String?, "UNREGISTERED")
-
-        let permanent = try #require(rows["permanent-installation"])
-        expectNoDifference(permanent["failedAttempts"] as Int, 1)
-        #expect((permanent["deliveredAt"] as Date?) == nil)
-        expectNoDifference(permanent["discardedAt"] as Date?, Self.receivedAt)
-        expectNoDifference(
-            permanent["discardReason"] as String?,
-            NotificationDeliveryDiscardReason.permanentFailure.rawValue
-        )
-        expectNoDifference(permanent["providerStatus"] as Int?, 400)
-        expectNoDifference(permanent["providerCode"] as String?, "INVALID_ARGUMENT")
-
-        let healthy = try #require(rows["healthy-installation"])
-        expectNoDifference(healthy["failedAttempts"] as Int, 0)
-        expectNoDifference(healthy["deliveredAt"] as Date?, Self.receivedAt)
-        #expect((healthy["discardedAt"] as Date?) == nil)
-        expectNoDifference(healthy["providerStatus"] as Int?, 200)
-        expectNoDifference(healthy["providerCode"] as String?, nil as String?)
     }
 
     @Test
@@ -1555,8 +1555,8 @@ struct TangledWebhookInboxTests {
             }
         }
 
-        let persisted = try store.database.read { database in
-            try Row.fetchAll(
+        try await store.database.read { database in
+            let persisted = try Row.fetchAll(
                 database,
                 sql: """
                     SELECT
@@ -1570,34 +1570,34 @@ struct TangledWebhookInboxTests {
                     FROM pushOutbox
                     """
             )
+            let rows = Dictionary(
+                uniqueKeysWithValues: persisted.map { row in
+                    (row["sourceID"] as String, row)
+                }
+            )
+
+            let attempts = try #require(rows[eightAttempts.id.rawValue])
+            expectNoDifference(attempts["failedAttempts"] as Int, 8)
+            #expect((attempts["deliveredAt"] as Date?) == nil)
+            expectNoDifference(attempts["discardedAt"] as Date?, Self.receivedAt)
+            expectNoDifference(
+                attempts["discardReason"] as String?,
+                NotificationDeliveryDiscardReason.exhaustedAttempts.rawValue
+            )
+            expectNoDifference(attempts["providerStatus"] as Int?, 503)
+            expectNoDifference(attempts["providerCode"] as String?, "UNAVAILABLE")
+
+            let age = try #require(rows[twentyFourHours.id.rawValue])
+            expectNoDifference(age["failedAttempts"] as Int, 1)
+            #expect((age["deliveredAt"] as Date?) == nil)
+            expectNoDifference(age["discardedAt"] as Date?, Self.receivedAt)
+            expectNoDifference(
+                age["discardReason"] as String?,
+                NotificationDeliveryDiscardReason.exhaustedAge.rawValue
+            )
+            expectNoDifference(age["providerStatus"] as Int?, 503)
+            expectNoDifference(age["providerCode"] as String?, "UNAVAILABLE")
         }
-        let rows = Dictionary(
-            uniqueKeysWithValues: persisted.map { row in
-                (row["sourceID"] as String, row)
-            }
-        )
-
-        let attempts = try #require(rows[eightAttempts.id.rawValue])
-        expectNoDifference(attempts["failedAttempts"] as Int, 8)
-        #expect((attempts["deliveredAt"] as Date?) == nil)
-        expectNoDifference(attempts["discardedAt"] as Date?, Self.receivedAt)
-        expectNoDifference(
-            attempts["discardReason"] as String?,
-            NotificationDeliveryDiscardReason.exhaustedAttempts.rawValue
-        )
-        expectNoDifference(attempts["providerStatus"] as Int?, 503)
-        expectNoDifference(attempts["providerCode"] as String?, "UNAVAILABLE")
-
-        let age = try #require(rows[twentyFourHours.id.rawValue])
-        expectNoDifference(age["failedAttempts"] as Int, 1)
-        #expect((age["deliveredAt"] as Date?) == nil)
-        expectNoDifference(age["discardedAt"] as Date?, Self.receivedAt)
-        expectNoDifference(
-            age["discardReason"] as String?,
-            NotificationDeliveryDiscardReason.exhaustedAge.rawValue
-        )
-        expectNoDifference(age["providerStatus"] as Int?, 503)
-        expectNoDifference(age["providerCode"] as String?, "UNAVAILABLE")
     }
 
     @Test

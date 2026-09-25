@@ -846,7 +846,7 @@ public struct ScheduleViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .spawn(\.singleStageAtOnce) {

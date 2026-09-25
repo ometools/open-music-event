@@ -1750,7 +1750,7 @@ struct NavigationTests {
 
         store.send(.heroImagePicker(.addButtonTapped))
         let importStore = try #require(
-            $store.scope(\.destination, action: \.destination).heroImportImages.wrappedValue
+            $store.scope(\.destination).heroImportImages.wrappedValue
         )
         importStore.send(.imagesImported([image]))
         await importStore.send(.saveButtonTapped)?.value
@@ -3927,7 +3927,7 @@ struct NavigationTests {
             )
             .fetch(db)
         }
-        await firstVisit.dismount(timeout: .seconds(1))
+        await firstVisit.dismount()
 
         let returnVisit = withDependencies {
             $0.context = .test
@@ -3969,7 +3969,7 @@ struct NavigationTests {
         #expect(workshopVisit.state.scheduleKind == .singleStageAtOnce)
         #expect(workshopVisit.state.selectedStageID == nil)
         #expect(!workshopVisit.state.showStageNameLabels)
-        await workshopVisit.dismount(timeout: .seconds(1))
+        await workshopVisit.dismount()
     }
 
     @Test
@@ -4390,7 +4390,7 @@ struct NavigationTests {
         let storedState = try await database.read { db in
             try EventViewerStateRequest(eventID: eventID).fetch(db)
         }
-        await firstVisit.dismount(timeout: .seconds(1))
+        await firstVisit.dismount()
 
         let returnVisit = withDependencies {
             $0.context = .test
@@ -5030,7 +5030,7 @@ struct NavigationTests {
 
         store.send(.photoImagePicker(.addButtonTapped))
         let importStore = try #require(
-            $store.scope(\.destination, action: \.destination).photoImportImages.wrappedValue
+            $store.scope(\.destination).photoImportImages.wrappedValue
         )
         importStore.send(.imagesImported([image]))
         await importStore.send(.saveButtonTapped)?.value
@@ -5063,7 +5063,7 @@ struct NavigationTests {
 
         store.send(.photoImagePicker(.imageInfoButtonTapped(imageID)))
         @Bindable var imageInfoStore = try #require(
-            $store.scope(\.destination, action: \.destination).photoImageInfo.wrappedValue
+            $store.scope(\.destination).photoImageInfo.wrappedValue
         )
         $imageInfoStore.asset.appearance.wrappedValue = .dark
         await imageInfoStore.send(.saveButtonTapped)?.value
@@ -5341,7 +5341,7 @@ struct NavigationTests {
             }
         }
 
-        let destinationStore = try #require(store.scope(\.destination, action: \.destination))
+        let destinationStore = try #require(store.scope(\.destination))
         let contactInfoStore: StoreOf<EditContactInfo>
         switch EventViewer.Destination.switch(store: destinationStore) {
         case let .contactInfoForm(store):
@@ -5512,7 +5512,7 @@ struct NavigationTests {
         contributorsStore.send(.contributorButtonTapped(contributorID))
         @Bindable var detailStore = try #require(
             $contributorsStore
-                .scope(\.destination, action: \.destination)
+                .scope(\.destination)
                 .contributorDetail
                 .wrappedValue
         )
@@ -7127,16 +7127,13 @@ struct NavigationTests {
         }
         authoringGrant.withLock { $0 = grant }
         let authoringStore = workspaceStore
-            .scope(\.authoring, action: \.authoring)
+            .scope(\.authoring)
         let workspaceContentStore = authoringStore
-            .scope(\.content, action: \.content)
+            .scope(\.content)
         let eventViewerStore = workspaceContentStore
-            .scope(\.content, action: \.content)
+            .scope(\.content)
         let store = try #require(
-            eventViewerStore.scope(
-                \.communicationsViewer,
-                action: \.communicationsViewer
-            )
+            eventViewerStore.scope(\.communicationsViewer)
         )
 
         // The organizer can manage channels from the Comms list.
@@ -7589,7 +7586,7 @@ struct NavigationTests {
 
         store.send(.posterImagePicker(.addButtonTapped))
         let importStore = try #require(
-            $store.scope(\.destination, action: \.destination).posterImportImages.wrappedValue
+            $store.scope(\.destination).posterImportImages.wrappedValue
         )
         importStore.send(.imagesImported([image]))
         await importStore.send(.saveButtonTapped)?.value
@@ -7716,7 +7713,7 @@ struct NavigationTests {
         ).body
 
         let presentation = $store
-            .scope(\.destination, action: \.destination)
+            .scope(\.destination)
             .eventViewer
         let eventViewerStore = try #require(presentation.wrappedValue)
         #expect(eventViewerStore.state.id == eventID)
@@ -8449,7 +8446,7 @@ private struct RootHarness {
                     break
                 }
             }
-            Scope(\.root, action: \.root) {
+            Scope(\.root) {
                 OpenMusicEventAppRoot()
             }
         }
@@ -8468,7 +8465,7 @@ private struct MyEventsEventHarness {
     }
 
     var body: some Feature {
-        Scope(\.myEvents, action: \.myEvents) {
+        Scope(\.myEvents) {
             MyEvents()
         }
         .onEvent(NavigationRequested.self) { request, state in
@@ -8494,7 +8491,7 @@ private struct OrganizerDetailHarness {
     }
 
     var body: some Feature {
-        Scope(\.organizerDetail, action: \.organizerDetail) {
+        Scope(\.organizerDetail) {
             OrganizerDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in
@@ -8521,7 +8518,7 @@ private struct CalendarDetailHarness {
     }
 
     var body: some Feature {
-        Scope(\.calendarDetail, action: \.calendarDetail) {
+        Scope(\.calendarDetail) {
             CalendarDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in
@@ -8557,7 +8554,7 @@ private struct EventViewerHarness {
     }
 
     var body: some Feature {
-        Scope(\.eventViewer, action: \.eventViewer) {
+        Scope(\.eventViewer) {
             EventViewer()
         }
         .onEvent(NavigationRequested.self) { request, state in

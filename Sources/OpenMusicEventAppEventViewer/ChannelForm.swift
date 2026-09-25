@@ -157,7 +157,7 @@ public struct ChannelForm {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))

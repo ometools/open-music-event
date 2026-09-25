@@ -267,7 +267,7 @@ public struct CommunicationChannelDetail {
                 break
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -359,7 +359,7 @@ public struct CommunicationChannelDetailView: View {
             }
         }
         .sheet(
-            item: $store.scope(\.destination, action: \.destination).composer
+            item: $store.scope(\.destination).composer
         ) { composerStore in
             NavigationStack {
                 CommsPostComposerView(store: composerStore)
@@ -401,10 +401,7 @@ struct CommunicationChannelControlsView: View {
             }
             .confirmationDialog(
                 "Delete Channel?",
-                isPresented: $store.scope(
-                    \.destination,
-                    action: \.destination
-                ).deleteChannelConfirmation.isPresented,
+                isPresented: $store.scope(\.destination).deleteChannelConfirmation.isPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete Channel", role: .destructive) {
@@ -422,10 +419,7 @@ struct CommunicationChannelControlsView: View {
             }
             .confirmationDialog(
                 "Delete Post?",
-                isPresented: $store.scope(
-                    \.destination,
-                    action: \.destination
-                ).postDeleteConfirmation.isPresented,
+                isPresented: $store.scope(\.destination).postDeleteConfirmation.isPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete Post", role: .destructive) {
@@ -462,7 +456,7 @@ struct CommunicationChannelFormSheetView: View {
     var body: some View {
         CommunicationChannelComposerSheetView(store: store, channel: channel)
             .sheet(
-                item: $store.scope(\.destination, action: \.destination).channelForm
+                item: $store.scope(\.destination).channelForm
             ) { formStore in
                 NavigationStack {
                     ChannelFormView(store: formStore)
@@ -504,7 +498,7 @@ struct CommunicationChannelPostDestinationView: View {
         CommunicationChannelDetailList(store: store, channel: channel)
             .navigationTitle(channel.name)
             .navigationDestination(
-                item: $store.scope(\.destination, action: \.destination).postDetail
+                item: $store.scope(\.destination).postDetail
             ) { postStore in
                 CommsPostDetailView(store: postStore)
             }

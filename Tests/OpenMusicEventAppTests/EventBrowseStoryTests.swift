@@ -90,7 +90,7 @@ struct EventBrowseStoryTests {
                     }
                 }
                 let browse = await MainActor.run {
-                    store.scope(\.browser, action: \.browser).spawn(\.browse)
+                    store.scope(\.browser).spawn(\.browse)
                 }
 
                 let browseTask = await MainActor.run {
@@ -314,7 +314,7 @@ struct EventBrowseStoryTests {
 
             let subscriptions = await replacementIterator.next()
             expectNoDifference(subscriptions, Optional(Set([expectedSubscription])))
-            await store.dismount(timeout: .seconds(1))
+            await store.dismount()
         }
     }
 
@@ -729,8 +729,8 @@ struct EventBrowseStoryTests {
                 }
             }
             let store = appStore
-                .scope(\.content, action: \.content)
-                .scope(\.content, action: \.content)
+                .scope(\.content)
+                .scope(\.content)
             let mountTask = appStore.send(.content(.content(.task)))
             await mountTask?.value
             let mountedWorkspaceID = store.destination?.eventViewer?.authoring.context.id
@@ -1253,7 +1253,7 @@ struct EventBrowseStoryTests {
         expectNoDifference(eventDetail.event, selectedEvent)
         #expect(installations.withLock { $0 }.isEmpty)
         #expect(store.lastRequest == nil)
-        await store.dismount(timeout: .seconds(1))
+        await store.dismount()
     }
 
     @Test @MainActor
@@ -1879,7 +1879,7 @@ struct EnterEventStory {
     }
 
     var body: some Feature {
-        Scope(\.detail, action: \.detail) {
+        Scope(\.detail) {
             EventBrowseDetail()
         }
         .onEvent(ErrorReported.self) { error, state in
@@ -1907,7 +1907,7 @@ struct OrganizationDetailStory {
     }
 
     var body: some Feature {
-        Scope(\.detail, action: \.detail) {
+        Scope(\.detail) {
             OrganizationDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in

@@ -145,16 +145,16 @@ public struct EditCalendar {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))
                 }
         }
-        Scope(\.heroImagePicker, action: \.heroImagePicker) {
+        Scope(\.heroImagePicker) {
             ImageAssetPicker()
         }
-        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+        Scope(\.logoImagePicker) {
             ImageAssetPicker()
         }
         Update { state, action in
@@ -255,7 +255,7 @@ public struct EditCalendar {
 
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             EmptyFeature()
                 .ifCaseLet(\.heroImportImages) {
                     ImportImages()
@@ -367,22 +367,22 @@ public struct EditCalendarView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(item: $store.scope(\.destination, action: \.destination).heroImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).heroImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).heroImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).heroImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).logoImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).logoImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
@@ -458,10 +458,10 @@ struct EditCalendarLoadedForm: View {
             }
 
             ImageAssetPickerSection(
-                store: store.scope(\.heroImagePicker, action: \.heroImagePicker)
+                store: store.scope(\.heroImagePicker)
             )
             ImageAssetPickerSection(
-                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+                store: store.scope(\.logoImagePicker)
             )
 
             if let errorMessage = store.errorMessage {
