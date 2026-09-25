@@ -3098,7 +3098,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func `confirmed authoring exit restores a deleted attendee event and discards workspace state atomically`() async throws {
+    func `confirmed authoring exit restores a deleted attendee event and clears transient workspace state atomically`() async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:authoring-exit"))
         let attendeeEventID = eventID("attendee-event", organizerID: organizerID)
         let authoringOnlyEventID = eventID("authoring-only", organizerID: organizerID)
@@ -3218,9 +3218,11 @@ struct SourceDatabaseInsertionTests {
                 try EventSourceProvenanceRecord.find(attendeeEventID).fetchOne(db)?.ref,
                 publishedRevision
             )
+            // Restored content records its published revision; installation intent keeps
+            // following the branch the attendee originally installed.
             expectNoDifference(
                 try InstalledEventRecord.find(attendeeEventID).fetchOne(db)?.ref,
-                publishedRevision
+                "main"
             )
             #expect(
                 try SourceWorkspaceInstallationRecord.find(workspace.id).fetchOne(db) == nil
@@ -3233,12 +3235,14 @@ struct SourceDatabaseInsertionTests {
                     .where { $0.id.workspaceID.eq(workspace.id) }
                     .fetchCount(db) == 0
             )
-            #expect(
+            // Delivery receipts outlive the authoring session.
+            expectNoDifference(
                 try Int.fetchOne(
                     db,
                     sql: #"SELECT COUNT(*) FROM "sourceWorkspacePublications" WHERE "id" = ?"#,
                     arguments: [workspace.id.rawValue]
-                ) == 0
+                ),
+                1
             )
             expectNoDifference(
                 try SourceWorkspaceSelectionRecord.find(workspace.id).fetchOne(db),
@@ -5038,7 +5042,7 @@ struct SourceDatabaseInsertionTests {
             $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
                 SourcePatchGenerator { _ in SourcePatch() }
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, _, outputURL in
+                _, requestedBranch, outputURL in
                 checkoutCount.withLock { $0 += 1 }
                 try FileManager.default.createDirectory(
                     at: outputURL.appending(path: ".git"),
@@ -5050,7 +5054,10 @@ struct SourceDatabaseInsertionTests {
                 )
                 return SourceWorkspaceCheckout(
                     repository: Repository(url: outputURL),
-                    reference: reference
+                    reference: WorkspaceBranchReference(
+                        branch: requestedBranch ?? reference.branch,
+                        revision: reference.revision
+                    )
                 )
             }
         } operation: {
@@ -5068,10 +5075,15 @@ struct SourceDatabaseInsertionTests {
                 selected,
                 WorkspaceBranchReference(
                     branch: WorkspaceBranch(rawValue: "preview"),
-                    revision: WorkspaceRevision(rawValue: "synthetic-local-base")
+                    revision: WorkspaceRevision(rawValue: "upstream-revision")
                 )
             )
-            expectNoDifference(checkoutCount.withLock { $0 }, 3)
+            expectNoDifference(
+                try SourceWorkspaceBaselineStore(database: database).load(workspace.id),
+                selected
+            )
+            // Preparation and branch selection each resolve one immutable checkout.
+            expectNoDifference(checkoutCount.withLock { $0 }, 2)
         }
     }
 

@@ -1020,7 +1020,16 @@ private func makeEventSettingsAuthoringExitFixture(
                         WorkspaceContext<SourceWorkspaceResource>(
                             state: SharedReader(
                                 value: WorkspaceState(
-                                    id: WorkspaceID(rawValue: workspace.id.rawValue)
+                                    id: WorkspaceID(rawValue: workspace.id.rawValue),
+                                    availability: .ready(
+                                        WorkspaceSession(
+                                            source: resource,
+                                            baseline: WorkspaceBranchReference(
+                                                branch: WorkspaceBranch(rawValue: "main"),
+                                                revision: WorkspaceRevision(rawValue: "published-revision")
+                                            )
+                                        )
+                                    )
                                 )
                             )
                         )
