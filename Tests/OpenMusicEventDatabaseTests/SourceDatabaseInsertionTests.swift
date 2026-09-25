@@ -3027,8 +3027,14 @@ struct SourceDatabaseInsertionTests {
         #expect(relationships.allSatisfy { $0.createdAt != pendingRelationshipCreatedAt })
     }
 
-    @Test
-    func `published event replacement cannot cross a repository boundary`() async throws {
+    @Test(arguments: [
+        "tangled.org/example/foreign-source",
+        "at://did:plc:published-replacement/sh.tangled.repo/foreign-source",
+        "at://did:plc:another-organizer/sh.tangled.repo/installed-source",
+    ])
+    func `published event replacement cannot cross a repository boundary`(
+        foreignReference: String
+    ) async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
         let installedEventID = eventID("attendee-event", organizerID: organizerID)
         let installedSource = tangledSourceProvenance("installed-source", ref: "old-revision")
@@ -3048,7 +3054,11 @@ struct SourceDatabaseInsertionTests {
                 sourceProvenance: installedSource
             )
         )
-        let foreignSource = tangledSourceProvenance("foreign-source", ref: "new-revision")
+        let foreignSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: foreignReference,
+            ref: "new-revision"
+        )
         let foreignWorkspace = SourceWorkspace(
             organizerID: organizerID,
             repository: foreignSource.reference,
@@ -3093,6 +3103,103 @@ struct SourceDatabaseInsertionTests {
             expectNoDifference(
                 try InstalledEventRecord.find(installedEventID).fetchOne(db)?.ref,
                 "main"
+            )
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func `canonical source refresh cannot overwrite authoring under either source identity`(
+        authoringUsesCanonicalSource: Bool
+    ) async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
+        let installedEventID = eventID("attendee-event", organizerID: organizerID)
+        let legacyWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/example/installed-source",
+            branch: "main"
+        )
+        let canonicalWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "at://did:plc:published-replacement/sh.tangled.repo/installed-source",
+            branch: "main"
+        )
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Local authoring content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: .init(
+                    kind: .tangled,
+                    reference: legacyWorkspace.repository,
+                    ref: "old-revision"
+                )
+            )
+        )
+        let publishedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "New published content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: .init(
+                    kind: .tangled,
+                    reference: canonicalWorkspace.repository,
+                    ref: "new-revision"
+                )
+            )
+        )
+        let database = try makeCoreDatabase()
+        try await installedInsertion.installPublishedEvent(
+            installedEventID,
+            from: legacyWorkspace,
+            in: database
+        )
+        let authoringWorkspace = authoringUsesCanonicalSource
+            ? canonicalWorkspace : legacyWorkspace
+        let authoringInstallation = SourceWorkspaceInstallationRecord(
+            id: authoringWorkspace.id,
+            revision: "authoring-revision"
+        )
+        try await database.write { db in
+            try SourceWorkspaceInstallationRecord.insert { authoringInstallation }.execute(db)
+        }
+
+        // Canonicalizing an attendee source must not bypass an existing authoring workspace.
+        await #expect(throws: (any Error).self) {
+            try await publishedInsertion.replacePublishedEvent(
+                installedEventID,
+                from: canonicalWorkspace,
+                in: database
+            )
+        }
+        try await database.read { db in
+            expectNoDifference(
+                try OME.Event.find(installedEventID).fetchOne(db)?.name,
+                "Local authoring content"
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                legacyWorkspace.repository
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db),
+                InstalledEventRecord(
+                    id: installedEventID,
+                    sourceProvenance: legacyWorkspace.sourceProvenance
+                )
+            )
+            expectNoDifference(
+                try SourceWorkspaceInstallationRecord.find(authoringWorkspace.id).fetchOne(db),
+                authoringInstallation
             )
         }
     }

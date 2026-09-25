@@ -111,16 +111,11 @@ public extension OME.SourceDatabaseInsertion {
             importedAt: Date()
         )
         try await database.write { db in
-            guard try SourceWorkspaceInstallationRecord
-                .find(workspace.id)
-                .fetchOne(db) == nil
-            else {
-                throw SourceWorkspaceInstallationError.preparedWorkspace(workspace.id)
-            }
             guard let installedProvenance = try EventSourceProvenanceRecord
                 .find(eventID)
                 .fetchOne(db),
-                  installedProvenance.workspace?.id == workspace.id
+                  let installedWorkspace = installedProvenance.workspace,
+                  installedWorkspace.referencesSameRepository(as: workspace)
             else {
                 throw SourceWorkspaceInstallationError.mismatchedEvent(
                     eventID,
@@ -128,8 +123,27 @@ public extension OME.SourceDatabaseInsertion {
                 )
             }
 
+            // A legacy locator and its canonical URI can identify the same source, but
+            // either identity may already own writable authoring state.
+            for workspaceID in Set([installedWorkspace.id, workspace.id]) {
+                guard try SourceWorkspaceInstallationRecord
+                    .find(workspaceID)
+                    .fetchOne(db) == nil
+                else {
+                    throw SourceWorkspaceInstallationError.preparedWorkspace(workspaceID)
+                }
+            }
+
             try OME.Event.find(eventID).delete().execute(db)
             try prepared.insert(into: db)
+            // Migrate the source identity without changing which branch the attendee follows.
+            try InstalledEventRecord.find(eventID)
+                .where {
+                    $0.sourceKind.eq(OME.SourceDatabaseInsertion.SourceKind.tangled)
+                        && $0.sourceReference.eq(installedWorkspace.repository)
+                }
+                .update { $0.sourceReference = #bind(workspace.repository) }
+                .execute(db)
         }
     }
 
