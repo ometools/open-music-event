@@ -98,19 +98,26 @@ struct WorkspaceReviewsTests {
             return proposal
         }()
         let detail = proposalDetail()
-        let store = makeStore(
+        let proposalLists = LockIsolated([
+            [existing],
+            [existing, created],
+        ])
+        let store = makeTestStore(
             database: database,
             workspace: workspace,
             proposals: [existing],
-            list: { _ in [existing, created] },
+            list: { _ in
+                proposalLists.withValue {
+                    $0.isEmpty ? [existing, created] : $0.removeFirst()
+                }
+            },
             detail: { _ in detail },
             preloadedProposals: true
         )
 
-        await store.send(.proposalRecorded)?.value
-
-        await waitUntil { store.proposals == [created, existing] }
-        expectNoDifference(store.status, .loaded([created, existing]))
+        await store.send(.proposalRecorded) {
+            $0.status = .loaded([created, existing])
+        }?.value
     }
 
     @Test
@@ -571,17 +578,17 @@ struct WorkspaceReviewsTests {
         database: any DatabaseWriter,
         workspace: SourceWorkspace,
         proposals: [OME.WorkspaceProposal.ListItem],
-        list: (@Sendable (
+        list: (nonisolated(nonsending) @Sendable (
             OpenMusicEventWorkspaceProposalListRequest
         ) async throws -> [OME.WorkspaceProposal.ListItem])? = nil,
-        detail: @escaping @Sendable (
+        detail: nonisolated(nonsending) @escaping @Sendable (
             ATProto.URI
         ) async throws -> OME.WorkspaceProposal.Detail,
         grant: AuthoringGrant? = nil,
-        merge: @escaping @Sendable (
+        merge: nonisolated(nonsending) @escaping @Sendable (
             OpenMusicEventWorkspaceProposalMergeRequest
         ) async throws -> Void = { _ in },
-        close: @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
+        close: nonisolated(nonsending) @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
         preloadedProposals: Bool = false
     ) -> StoreOf<WorkspaceReviews> {
         let eventID = OME.Event.ID(
@@ -609,6 +616,53 @@ struct WorkspaceReviewsTests {
                 state.status = .loaded(proposals)
             }
             return Store(initialState: state) {
+                WorkspaceReviews()
+            }
+        }
+    }
+
+    func makeTestStore(
+        database: any DatabaseWriter,
+        workspace: SourceWorkspace,
+        proposals: [OME.WorkspaceProposal.ListItem],
+        list: (nonisolated(nonsending) @Sendable (
+            OpenMusicEventWorkspaceProposalListRequest
+        ) async throws -> [OME.WorkspaceProposal.ListItem])? = nil,
+        detail: nonisolated(nonsending) @escaping @Sendable (
+            ATProto.URI
+        ) async throws -> OME.WorkspaceProposal.Detail,
+        grant: AuthoringGrant? = nil,
+        merge: nonisolated(nonsending) @escaping @Sendable (
+            OpenMusicEventWorkspaceProposalMergeRequest
+        ) async throws -> Void = { _ in },
+        close: nonisolated(nonsending) @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
+        preloadedProposals: Bool = false
+    ) -> TestStore<WorkspaceReviews> {
+        let eventID = OME.Event.ID(
+            organizerID: workspace.organizerID,
+            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
+        )
+        return withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.continuousClock = ImmediateClock()
+            $0.workspaceProposalProjectionRetryDelays = [.zero]
+            $0.blueskyActorProfileCache = actorCache
+            $0.workspaceProposalClient = WorkspaceProposalClient(
+                list: list ?? { _ in proposals },
+                detail: detail,
+                close: close,
+                merge: merge
+            )
+        } operation: {
+            var state = WorkspaceReviews.State(
+                workspace: workspace,
+                authoringGrant: grant
+            )
+            if preloadedProposals {
+                state.status = .loaded(proposals)
+            }
+            return TestStore(initialState: state) {
                 WorkspaceReviews()
             }
         }

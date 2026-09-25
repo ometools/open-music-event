@@ -575,19 +575,27 @@ struct NavigationTests {
                 }
             }
         )
-        let store = makeRootHarnessStore(
-            database: database,
-            eventID: eventID,
-            installationClient: client
-        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.omeEventInstallation = client
+        } operation: {
+            var state = RootHarness.State()
+            state.root = OpenMusicEventAppRoot.State()
+            return Store(initialState: state) {
+                RootHarness()
+            }
+        }
         let route = AppRoute.event(eventID, .communications)
 
         let navigationTask = store.send(.root(.openRoute(route)))
-        await waitUntil { store.state.root.eventEntry?.title == "Wicked Woods" }
+        await waitForObservation { store.root.eventEntry?.title == "Wicked Woods" }
 
-        #expect(store.state.root.eventEntry?.logoURL == logoURL)
-        #expect(store.state.root.eventEntry?.phase == .loading)
-        #expect(store.state.root.destination?.eventViewer.map { _ in true } == nil)
+        #expect(store.root.eventEntry?.logoURL == logoURL)
+        #expect(store.root.eventEntry?.phase == .loading)
+        #expect(store.root.destination?.eventViewer.map { _ in true } == nil)
 
         let continuation = try #require(
             installationContinuation.withLock { $0 }
@@ -596,9 +604,9 @@ struct NavigationTests {
         continuation.finish()
         await navigationTask?.value
 
-        #expect(store.state.root.eventEntry == nil)
+        #expect(store.root.eventEntry == nil)
         #expect(
-            store.state.root.destination?.eventViewer?
+            store.root.destination?.eventViewer?
                 .authoring.content.content.selectedFeature == .communications
         )
     }
@@ -4970,7 +4978,17 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -5108,7 +5126,21 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let failure = await store.receive(
+            \.saveFailed,
+            TestStoreMatcher<String>(matching: { $0.hasPrefix("Unable to save contributor: ") }),
+            timeout: .seconds(1)
+        )
+        await failure?.value
+        await save?.value
+        await submission?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.isPresented)
@@ -5117,7 +5149,7 @@ struct NavigationTests {
     }
 
     @Test
-    func editContributorStoreBindingsSaveChanges() async throws {
+    func editContributorBindingChangeSavesToDatabase() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("artist-1")
@@ -5127,21 +5159,32 @@ struct NavigationTests {
             try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
         }
 
-        @Bindable var store = withDependencies {
+        let store = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
                 EditContributor()
             }
         }
 
-        #expect(store.hasLoadedDraft)
-        #expect(store.form.value.name == "Old Name")
+        #expect(store.state.hasLoadedDraft)
+        #expect(store.state.form.value.name == "Old Name")
 
-        $store.form.value.name.wrappedValue = "New Name"
-        await store.send(.saveButtonTapped)?.value
+        // `modify` applies the same binding-style form change before the user saves.
+        store.modify { $0.form.value.name = "New Name" }
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         let contributor = try await database.read { db in
             try #require(
@@ -5402,20 +5445,30 @@ struct NavigationTests {
             }
         }
 
-        @Bindable var editStore = withDependencies {
+        let editStore = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
                 EditContributor()
             }
         }
 
-        #expect(editStore.hasLoadedDraft)
-        #expect(editStore.form.value.name == "Old Name")
-        $editStore.form.value.name.wrappedValue = "New Name"
-        await editStore.send(.saveButtonTapped)?.value
+        #expect(editStore.state.hasLoadedDraft)
+        #expect(editStore.state.form.value.name == "Old Name")
+        editStore.modify { $0.form.value.name = "New Name" }
+        let submittedValue = editStore.state.form.value
+        let submission = editStore.send(.saveButtonTapped)
+        let save = await editStore.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         let contributor = try await database.read { db in
             try #require(
@@ -5473,17 +5526,27 @@ struct NavigationTests {
             }
         }
 
-        @Bindable var editStore = withDependencies {
+        let editStore = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
                 EditContributor()
             }
         }
-        $editStore.form.value.name.wrappedValue = "New Name"
-        await editStore.send(.saveButtonTapped)?.value
+        editStore.modify { $0.form.value.name = "New Name" }
+        let submittedValue = editStore.state.form.value
+        let submission = editStore.send(.saveButtonTapped)
+        let save = await editStore.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
         for _ in 0..<100 {
             if await viewObservationRecorder.values == ["invalidated"] {
                 break
@@ -5860,13 +5923,31 @@ struct NavigationTests {
             var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
             state.form.value.name = "Alice"
-            return Store(initialState: state) {
+            return TestStore(initialState: state) {
                 EditContributor()
             }
         }
 
-        await store.send(.actorIdentityTapped(selectedIdentity))?.value
-        await store.send(.saveButtonTapped)?.value
+        let profileLookup = store.send(.actorIdentityTapped(selectedIdentity))
+        let profileResponse = await store.receive(
+            \.actorProfileResponse,
+            TestStoreMatcher<BlueskyActorProfile?>(matching: { $0?.did == selectedActor.description }),
+            timeout: .seconds(1)
+        )
+        await profileResponse?.value
+        await profileLookup?.value
+
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         let contributor = try await database.read { db in
             try #require(
@@ -5886,11 +5967,11 @@ struct NavigationTests {
         expectNoDifference(actors, [])
 
         #expect(await requestRecorder.actors == [selectedActor.description])
-        #expect(store.contributorActor == selectedActor)
-        #expect(store.actorSearchQuery == "")
-        #expect(store.actorSearchSections.isEmpty)
-        #expect(store.isSavingActor == false)
-        #expect(store.actorSearchErrorMessage == nil)
+        #expect(store.state.contributorActor == selectedActor)
+        #expect(store.state.actorSearchQuery == "")
+        #expect(store.state.actorSearchSections.isEmpty)
+        #expect(store.state.isSavingActor == false)
+        #expect(store.state.actorSearchErrorMessage == nil)
     }
 
     @Test
@@ -5927,19 +6008,36 @@ struct NavigationTests {
                 refreshProfileIfNeeded: { _, _, _ in profile }
             )
         } operation: {
-            Store(initialState: EditContributor.State(eventID: eventID)) {
+            TestStore(initialState: EditContributor.State(eventID: eventID)) {
                 EditContributor()
             }
         }
 
-        await store.send(.actorIdentityTapped(selectedIdentity))?.value
+        let profileLookup = store.send(.actorIdentityTapped(selectedIdentity))
+        let profileResponse = await store.receive(
+            \.actorProfileResponse,
+            .equals(Optional(profile)),
+            timeout: .seconds(1)
+        )
+        await profileResponse?.value
+        await profileLookup?.value
 
-        #expect(store.contributorDID == selectedIdentity.did)
-        #expect(store.form.value.name == "Alice Typeahead")
-        #expect(store.form.value.bio == "ATProto builder")
-        #expect(store.imageURL == "https://example.com/alice-avatar.jpg")
+        #expect(store.state.contributorDID == selectedIdentity.did)
+        #expect(store.state.form.value.name == "Alice Typeahead")
+        #expect(store.state.form.value.bio == "ATProto builder")
+        #expect(store.state.imageURL == "https://example.com/alice-avatar.jpg")
 
-        await store.send(.saveButtonTapped)?.value
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         let contributor = try await database.read { db in
             try #require(
@@ -6216,7 +6314,17 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -7014,10 +7122,9 @@ struct NavigationTests {
                 OpenMusicEventWorkspace()
             }
         }
-        await waitUntil {
+        await waitForObservation {
             workspaceStore.authoring.phase == .inactive(.unavailable)
         }
-        await Task.yield()
         authoringGrant.withLock { $0 = grant }
         let authoringStore = workspaceStore
             .scope(\.authoring, action: \.authoring)
