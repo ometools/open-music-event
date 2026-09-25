@@ -1,4 +1,4 @@
-import BlueskyActorCache
+import Bluesky
 import ATProto
 import Dependencies
 import DependenciesTestSupport

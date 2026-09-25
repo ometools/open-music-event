@@ -1,8 +1,7 @@
 import ATProto
 import Dependencies
 import OpenMusicEventLexicon
-import XRPCClient
-import XRPCHummingbird
+import ATProtoHTTP
 
 public extension OpenMusicEventAppViewServer {
     struct CommsPostSubmission: Sendable {

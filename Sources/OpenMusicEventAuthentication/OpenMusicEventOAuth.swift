@@ -10,11 +10,11 @@ import SkipSharing
 #else
 import Sharing
 #endif
-import TCATProtoAuthentication
+import ComposableAtmosphere
 #if !SKIP_BRIDGE
 import WebMetadataClient
 #endif
-import XRPCClient
+import ATProto
 #if canImport(OSLog)
 import OSLog
 #endif

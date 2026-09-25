@@ -18,9 +18,9 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SQLiteData
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer

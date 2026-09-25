@@ -4,7 +4,6 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventLexicon
-import XRPCClient
 
 public struct OpenMusicEventWorkspaceProposalListRequest: Equatable, Sendable {
     public var source: ATProto.URI

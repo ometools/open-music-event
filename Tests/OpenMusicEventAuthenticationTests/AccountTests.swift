@@ -1,6 +1,6 @@
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import Clocks
 import ComposableArchitecture2
 import CustomDump
@@ -9,7 +9,7 @@ import DependenciesTestSupport
 import Foundation
 import Sharing
 import SQLiteData
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @testable import OpenMusicEventAuthentication
@@ -25,8 +25,8 @@ import Testing
 struct AccountTests {
     @Test
     func loggedOutAccountDefaultsToSignInMode() {
-        let store = Store(initialState: Account.State.localTestState()) {
-            Account()
+        let store = Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState()) {
+            OpenMusicEventAuthentication.Account()
         }
 
         #expect(store.presentation == nil)
@@ -37,8 +37,8 @@ struct AccountTests {
 
     @Test
     func signInButtonPresentsAuthentication() async {
-        let store = Store(initialState: Account.State.localTestState()) {
-            Account()
+        let store = Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState()) {
+            OpenMusicEventAuthentication.Account()
         }
 
         let task = store.send(.signInButtonTapped)
@@ -56,12 +56,12 @@ struct AccountTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(session)
         let store = Store(
-            initialState: Account.State.localTestState(
+            initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
             )
         ) {
-            Account()
+            OpenMusicEventAuthentication.Account()
         }
 
         let task = store.send(.signInButtonTapped)
@@ -81,12 +81,12 @@ struct AccountTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(session)
         let store = Store(
-            initialState: Account.State.localTestState(
+            initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
             )
         ) {
-            Account()
+            OpenMusicEventAuthentication.Account()
         }
 
         let presentationTask = store.send(.accountListButtonTapped)
@@ -112,14 +112,14 @@ struct AccountTests {
             $0.continuousClock = ImmediateClock()
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     selectedMode: .signUp,
                     signInLoginHint: "alice.example.com",
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -134,11 +134,11 @@ struct AccountTests {
     @Test
     func dismissingAuthenticationClearsPresentation() async {
         let store = Store(
-            initialState: Account.State.localTestState(
+            initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                 presentation: .authentication(.direct)
             )
         ) {
-            Account()
+            OpenMusicEventAuthentication.Account()
         }
 
         let task = store.send(.accountPresentationDismissed)
@@ -156,13 +156,13 @@ struct AccountTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(session)
         let store = Store(
-            initialState: Account.State.localTestState(
+            initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                 presentation: .authentication(.accountManagement),
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
             )
         ) {
-            Account()
+            OpenMusicEventAuthentication.Account()
         }
 
         let task = store.send(.accountPresentationCloseButtonTapped)
@@ -177,12 +177,12 @@ struct AccountTests {
             $0.continuousClock = ImmediateClock()
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     selectedMode: .signUp,
                     signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -196,8 +196,8 @@ struct AccountTests {
 
     @Test
     func comingSoonSignUpServerCannotBeSelected() async {
-        let store = Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
-            Account()
+        let store = Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState(selectedMode: .signUp)) {
+            OpenMusicEventAuthentication.Account()
         }
         let originalOptionID = store.selectedSignUpServerOptionID
         let originalServerHost = store.signUpServerHost
@@ -215,8 +215,8 @@ struct AccountTests {
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
         } operation: {
-            Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
-                Account()
+            Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState(selectedMode: .signUp)) {
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -231,8 +231,8 @@ struct AccountTests {
 
     @Test
     func selectedModeCanChangeToSignUp() async {
-        let store = Store(initialState: Account.State.localTestState()) {
-            Account()
+        let store = Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState()) {
+            OpenMusicEventAuthentication.Account()
         }
 
         let task = store.send(.selectedModeChanged(.signUp))
@@ -253,7 +253,7 @@ struct AccountTests {
             displayName: "Alice Example",
             source: .typeahead
         )
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct)
         )
         let store = withDependencies {
@@ -268,7 +268,7 @@ struct AccountTests {
                 sessionStore: state.oauth.state.$sessionStore
             )
         } operation: {
-            Store(initialState: state) { Account() }
+            Store(initialState: state) { OpenMusicEventAuthentication.Account() }
         }
 
         // The user searches for their account and sees Alice's profile offered as an autofill.
@@ -327,8 +327,8 @@ struct AccountTests {
                 return identity
             }
         } operation: {
-            Store(initialState: Account.State.localTestState()) {
-                Account()
+            Store(initialState: OpenMusicEventAuthentication.Account.State.localTestState()) {
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -347,7 +347,7 @@ struct AccountTests {
         withDependencies {
             $0.openMusicEventSignUpServerConfiguration = configuration
         } operation: {
-            let state = Account.State.localTestState(selectedMode: .signUp)
+            let state = OpenMusicEventAuthentication.Account.State.localTestState(selectedMode: .signUp)
 
             #expect(state.signUpServerConfiguration == configuration)
             #expect(state.signUpServerHost == configuration.defaultServerHost)
@@ -379,12 +379,12 @@ struct AccountTests {
             $0.defaultDatabase = database
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -445,12 +445,12 @@ struct AccountTests {
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -483,24 +483,24 @@ struct AccountTests {
         } operation: {
             (
                 Store(
-                    initialState: Account.State.localTestState(
+                    initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                         sessionStore: Shared(value: sessionStoreValue),
                         selectedSessionID: Shared(
                             value: session.accountID as Atmosphere.Account.ID?
                         )
                     )
                 ) {
-                    Account()
+                    OpenMusicEventAuthentication.Account()
                 },
                 Store(
-                    initialState: Account.State.localTestState(
+                    initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                         sessionStore: Shared(value: sessionStoreValue),
                         selectedSessionID: Shared(
                             value: session.accountID as Atmosphere.Account.ID?
                         )
                     )
                 ) {
-                    Account()
+                    OpenMusicEventAuthentication.Account()
                 }
             )
         }
@@ -551,7 +551,7 @@ struct AccountTests {
         let state = withDependencies {
             $0.defaultDatabase = database
         } operation: {
-            Account.State.localTestState(
+            OpenMusicEventAuthentication.Account.State.localTestState(
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
             )
@@ -576,13 +576,13 @@ struct AccountTests {
         sessionStoreValue.upsert(bob, select: false)
         sessionStoreValue.upsert(carla, select: false)
         let store = Store(
-            initialState: Account.State.localTestState(
+            initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?),
                 recentlyUsedAccountIDs: Shared(value: [bob.accountID, alice.accountID])
             )
         ) {
-            Account()
+            OpenMusicEventAuthentication.Account()
         }
 
         expectNoDifference(
@@ -620,12 +620,12 @@ struct AccountTests {
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -678,12 +678,12 @@ struct AccountTests {
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: sessionStore,
                     selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -718,12 +718,12 @@ struct AccountTests {
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: Shared(value: nil)
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -760,7 +760,7 @@ struct AccountTests {
         let state = withDependencies {
             $0.defaultDatabase = database
         } operation: {
-            Account.State.localTestState(
+            OpenMusicEventAuthentication.Account.State.localTestState(
                 sessionStore: Shared(value: sessionStoreValue),
                 selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?)
             )
@@ -777,7 +777,7 @@ struct AccountTests {
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
         try await waitForCondition {
@@ -814,12 +814,12 @@ struct AccountTests {
             $0.keychainStorage = .inMemory(keychainStorage)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: Shared(value: sessionStoreValue),
                     selectedSessionID: selectedSessionID
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -866,12 +866,12 @@ struct AccountTests {
             $0.keychainStorage = .inMemory(keychainStorage)
         } operation: {
             Store(
-                initialState: Account.State.localTestState(
+                initialState: OpenMusicEventAuthentication.Account.State.localTestState(
                     sessionStore: sessionStore,
                     selectedSessionID: selectedSessionID
                 )
             ) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -904,7 +904,7 @@ struct AccountTests {
     func signInFormLaunchesSharedAuthorizationWithLoginHint() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
         let hydratedActors = AccountObservationRecorder<String>()
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct),
             signInLoginHint: "  woody.fm  "
         )
@@ -917,7 +917,7 @@ struct AccountTests {
             $0.blueskyActorProfileCache = .recordingHydrations(hydratedActors)
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -958,7 +958,7 @@ struct AccountTests {
         let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
         )
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.accountManagement),
             signInLoginHint: "bob.example.com",
             sessionStore: sessionStore,
@@ -972,7 +972,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1006,7 +1006,7 @@ struct AccountTests {
         let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
         )
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct),
             signInLoginHint: "woody.fm"
         )
@@ -1018,7 +1018,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1049,7 +1049,7 @@ struct AccountTests {
         let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
         )
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct),
             signInLoginHint: "woody.fm"
         )
@@ -1061,7 +1061,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1085,7 +1085,7 @@ struct AccountTests {
     func signUpFormLaunchesSharedAuthorizationWithSelectedServer() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
         let hydratedActors = AccountObservationRecorder<String>()
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct),
             selectedMode: .signUp
         )
@@ -1098,7 +1098,7 @@ struct AccountTests {
             $0.blueskyActorProfileCache = .recordingHydrations(hydratedActors)
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1149,7 +1149,7 @@ struct AccountTests {
             KeychainSharedKey(item: selectedSessionIDItem)
         )
         let authorizationRequests = AccountAuthorizationRecorder()
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             selectedMode: .signUp,
             sessionStore: sessionStore,
             selectedSessionID: selectedSessionID
@@ -1163,7 +1163,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1205,7 +1205,7 @@ struct AccountTests {
         let authorizationRequests = AccountAuthorizationRecorder(
             signUpContinuation: .suspended
         )
-        let state = Account.State.localTestState(
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(
             presentation: .authentication(.direct),
             selectedMode: .signUp
         )
@@ -1217,7 +1217,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1239,7 +1239,7 @@ struct AccountTests {
     @Test
     func logoutClearsStoredSessionAndCancelsRequests() async {
         let recorder = AccountAuthorizationRecorder()
-        let state = Account.State.localTestState()
+        let state = OpenMusicEventAuthentication.Account.State.localTestState()
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
         state.$selectedSessionID.withLock {
             $0 = OAuth.Session.placeholder.accountID
@@ -1251,7 +1251,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1266,7 +1266,7 @@ struct AccountTests {
     @Test
     func accountManagementLogOutReturnsToAuthenticationSurfaceInSamePresentation() async {
         let recorder = AccountAuthorizationRecorder()
-        let state = Account.State.localTestState(presentation: .accountManagement)
+        let state = OpenMusicEventAuthentication.Account.State.localTestState(presentation: .accountManagement)
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
         state.$selectedSessionID.withLock {
             $0 = OAuth.Session.placeholder.accountID
@@ -1278,7 +1278,7 @@ struct AccountTests {
             )
         } operation: {
             Store(initialState: state) {
-                Account()
+                OpenMusicEventAuthentication.Account()
             }
         }
 
@@ -1333,10 +1333,10 @@ private func waitForCondition(
     try #require(condition())
 }
 
-private extension Account.State {
+private extension OpenMusicEventAuthentication.Account.State {
     static func localTestState(
-        presentation: Account.Presentation? = nil,
-        selectedMode: Account.Mode = .signIn,
+        presentation: OpenMusicEventAuthentication.Account.Presentation? = nil,
+        selectedMode: OpenMusicEventAuthentication.Account.Mode = .signIn,
         signInLoginHint: String = "",
         signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
         authFailureMessage: Shared<ErrorMessage?> = Shared(value: nil),

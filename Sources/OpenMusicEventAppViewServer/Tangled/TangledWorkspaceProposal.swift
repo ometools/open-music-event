@@ -1,12 +1,12 @@
 import ATProto
-import AppViewIndex
+import ATProtoAppView
 import Crypto
 import Dependencies
 import Foundation
 import GRDB
 import HTTPClient
 import IssueReporting
-import LexiconSQLiteData
+import ATProtoSQLite
 import OpenMusicEventLexicon
 import SQLiteData
 import ServiceLifecycle

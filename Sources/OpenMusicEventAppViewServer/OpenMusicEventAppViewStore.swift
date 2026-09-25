@@ -1,4 +1,4 @@
-import AppViewIndex
+import ATProtoAppView
 import ComposableNotificationsServer
 import Foundation
 import GRDB

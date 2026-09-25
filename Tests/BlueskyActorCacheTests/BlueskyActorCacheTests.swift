@@ -6,9 +6,8 @@ import HTTPClient
 import HTTPTypes
 import SQLiteData
 import Testing
-import XRPCClient
 
-@testable import BlueskyActorCache
+import Bluesky
 
 struct BlueskyActorCacheTests {
     @Test

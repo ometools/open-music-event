@@ -1,7 +1,6 @@
 import ATProto
 import Dependencies
 import Foundation
-import XRPCClient
 
 public struct ATProtoRepoDescription: Decodable, Equatable, Sendable {
     public var handle: String

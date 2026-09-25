@@ -10,7 +10,7 @@ import SkipSwiftUI
 #else
 import SwiftUI
 #endif
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 #if SKIP_BRIDGE
 private typealias _AuthenticationForm = SkipSwiftUI.Form

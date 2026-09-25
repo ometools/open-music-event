@@ -1,5 +1,5 @@
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import Clocks
 import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
@@ -13,7 +13,7 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import IssueReporting
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
@@ -29,7 +29,7 @@ import SwiftUI
 import UserNotifications
 #endif
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer

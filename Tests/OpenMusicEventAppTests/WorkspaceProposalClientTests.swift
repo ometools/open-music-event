@@ -6,7 +6,6 @@ import HTTPClient
 import OpenMusicEventLexicon
 import Synchronization
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceEditing
 

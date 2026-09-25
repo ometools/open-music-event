@@ -1,4 +1,4 @@
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventLexicon
 import SourceEditing
 

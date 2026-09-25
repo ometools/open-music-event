@@ -2,7 +2,7 @@ import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 public extension FeatureProtocol {
     func openMusicEventAuthenticatedSession(

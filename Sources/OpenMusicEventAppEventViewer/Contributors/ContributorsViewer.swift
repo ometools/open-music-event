@@ -1,5 +1,5 @@
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableForms
 import ComposableArchitecture2
 import Dependencies
@@ -13,7 +13,6 @@ import SQLiteData
 import SwiftUITabFeatures
 import Tagged
 import SwiftUI
-import XRPCClient
 
 @Feature
 public struct ContributorsViewer {

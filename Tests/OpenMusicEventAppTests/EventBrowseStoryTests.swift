@@ -1,6 +1,6 @@
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import ComposableNotifications
@@ -29,9 +29,8 @@ import Sharing
 import SourceControlClient
 import SQLiteData
 import Synchronization
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
-import XRPCClient
 
 @Suite(.serialized)
 struct EventBrowseStoryTests {

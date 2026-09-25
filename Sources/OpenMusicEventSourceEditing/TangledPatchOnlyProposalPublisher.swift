@@ -6,7 +6,6 @@ import Foundation
 import OpenMusicEventSourceClone
 import TangledLexicon
 import TangledXRPC
-import XRPCClient
 
 public struct TangledDefaultBranchClient: Sendable {
     public var resolve: @Sendable (

@@ -3,7 +3,7 @@ import SkipFuse
 import SwiftUI
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import ComposableCalendarEvents
 import ComposableNotifications
 import ComposableNotificationsHTTP
@@ -25,7 +25,7 @@ import SourceControlClient
 import SourceControlClientGit
 #endif
 import SourceEditing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 #if canImport(UIKit)
 import UIKit
 #endif

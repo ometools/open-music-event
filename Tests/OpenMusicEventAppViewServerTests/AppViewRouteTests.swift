@@ -6,14 +6,13 @@ import Foundation
 import HummingbirdLambda
 import HummingbirdLambdaTesting
 import HummingbirdTesting
-import HydrantClient
+import ATProtoStreams
 import IssueReporting
 import OpenMusicEventLexicon
 import OpenMusicEventRouting
 import ServiceLifecycle
 import SQLiteData
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventAppViewServer
 

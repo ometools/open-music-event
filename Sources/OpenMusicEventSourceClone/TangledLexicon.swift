@@ -1,7 +1,6 @@
 import ATProto
 import Dependencies
 import Foundation
-import XRPCClient
 
 public struct TangledPublicKeyRecord: Encodable, Decodable, Equatable, Sendable {
     public static let collection = "sh.tangled.publicKey"

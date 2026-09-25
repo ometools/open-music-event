@@ -5,7 +5,7 @@ import Foundation
 import HTTPClient
 import IssueReporting
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 public struct OpenMusicEventSelectedOAuthSessionClient: Sendable {
     public var current: @Sendable () -> OAuth.Session?
@@ -76,19 +76,6 @@ public extension DependencyValues {
     var selectedOAuthSession: OpenMusicEventSelectedOAuthSessionClient {
         get { self[SelectedOAuthSessionKey.self] }
         set { self[SelectedOAuthSessionKey.self] = newValue }
-    }
-}
-
-public extension OAuth.SessionStore {
-    subscript(_ accountID: Atmosphere.Account.ID?) -> OAuth.Session? {
-        get {
-            guard let accountID else { return nil }
-            return sessions[accountID.rawValue]
-        }
-        set {
-            guard let accountID else { return }
-            sessions[accountID.rawValue] = newValue
-        }
     }
 }
 

@@ -9,7 +9,6 @@ import HTTPTypes
 import SourceControlClient
 import Synchronization
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceClone
 

@@ -5,7 +5,7 @@ import Dependencies
 import DependenciesTestSupport
 import Foundation
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @testable import ATProtoOAuth

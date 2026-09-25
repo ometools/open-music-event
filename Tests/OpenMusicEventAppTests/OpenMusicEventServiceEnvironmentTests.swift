@@ -16,7 +16,6 @@ import OpenMusicEventWhiteLabel
 import SQLiteData
 import Synchronization
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventApp
 

@@ -1,4 +1,4 @@
-import BlueskyActorCache
+import Bluesky
 import ATProto
 import Clocks
 import ComposableArchitecture2
@@ -26,7 +26,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer

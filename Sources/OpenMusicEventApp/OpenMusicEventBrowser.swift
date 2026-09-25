@@ -1,6 +1,6 @@
 import HeroImageList
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import ComposableWorkspace

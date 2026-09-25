@@ -1,9 +1,8 @@
 import ATProto
 import CasePaths
 import Foundation
-import Lexicon
+import ATProtoTypes
 import Tagged
-import XRPCClient
 
 public extension OpenMusicEvent {
     enum WorkspaceProposal {}

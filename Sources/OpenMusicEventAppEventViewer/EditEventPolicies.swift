@@ -2,7 +2,7 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData

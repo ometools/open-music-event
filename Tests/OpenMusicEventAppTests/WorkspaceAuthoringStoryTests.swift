@@ -30,7 +30,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer

@@ -3,7 +3,6 @@ import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
 import SwiftUI
-import XRPCClient
 
 @Feature
 public struct ContributorRelationshipPicker {

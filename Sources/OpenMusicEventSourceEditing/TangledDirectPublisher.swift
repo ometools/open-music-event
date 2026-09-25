@@ -5,7 +5,6 @@ import Foundation
 import OpenMusicEventSourceClone
 import TangledLexicon
 import TangledXRPC
-import XRPCClient
 
 struct TangledDirectPublicationRequest: Equatable, Sendable {
     var target: TangledPatchOnlyProposalTarget

@@ -12,7 +12,6 @@ import SourceEditing
 import Synchronization
 import TangledLexicon
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceEditing
 

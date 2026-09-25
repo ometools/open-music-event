@@ -40,8 +40,8 @@ let tcaTraits: Set<Package.Dependency.Trait> =
     : [.defaults, "Dependencies"]
 let composableAtmosphereTraits: Set<Package.Dependency.Trait> =
     isAndroidAppBuild
-    ? ["TCA26", "SkipAndroidBridge"]
-    : [.defaults, "TCA26"]
+    ? ["SkipAndroidBridge", "BlueskyProfiles"]
+    : [.defaults, "BlueskyProfiles"]
 
 // Build-specific dependency variants
 
@@ -94,15 +94,11 @@ let tca26Dependency: Package.Dependency = {
         traits: ["Dependencies"]
     )
 }()
-let composableAtmosphereUserInputDependency: Package.Dependency = isAndroidAppBuild
-    ? .package(
-        name: "composable-atmosphere-userinput",
-        path: workspacePackagePath("composable-atmosphere-userinput")
-    )
-    : .package(
-        url: "https://source.woody.fm/composable-atmosphere-userinput",
-        branch: "main"
-    )
+let composableAtmosphereUserInputDependency: Package.Dependency = .package(
+    name: "composable-atmosphere-userinput",
+    path: environment["OME_COMPOSABLE_ATMOSPHERE_USERINPUT_PATH"].map(packagePath)
+        ?? "/Users/woody/Developer/ometools/worktrees/composable-atmosphere-userinput-reorg"
+)
 let composableWorkspaceDependency: Package.Dependency = {
     if let path = environment["OME_COMPOSABLE_WORKSPACE_PATH"] {
         return .package(
@@ -145,71 +141,37 @@ let dependenciesHTTPClientDependency: Package.Dependency = {
         branch: "main"
     )
 }()
-let composableAtmosphereDependency: Package.Dependency = {
-    if let path = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
-        return .package(
-            name: "swift-composable-atmosphere",
-            path: packagePath(path),
-            traits: composableAtmosphereTraits
-        )
-    }
-    if isAndroidAppBuild {
-        return .package(
-            name: "swift-composable-atmosphere",
-            path: workspacePackagePath("swift-composable-atmosphere"),
-            traits: composableAtmosphereTraits
-        )
-    }
-    return .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
-        traits: ["TCA26"]
-    )
-}()
-let composableAtmosphereConstellationDependency: Package.Dependency = isAndroidAppBuild
-    ? .package(
-        name: "composable-atmosphere-constellation",
-        path: workspacePackagePath("composable-atmosphere-constellation")
-    )
-    : .package(
-        url: "https://source.woody.fm/composable-atmosphere-constellation",
-        branch: "main"
-    )
-let composableAtmosphereTangledDependency: Package.Dependency = isAndroidAppBuild
-    ? .package(
-        name: "composable-atmosphere-tangled",
-        path: workspacePackagePath("composable-atmosphere-tangled")
-    )
-    : .package(
-        url: "https://source.woody.fm/composable-atmosphere-tangled",
-        branch: "main"
-    )
+let atmosphereFamilyRoot = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"].map(packagePath)
+    ?? "/Users/woody/Developer/swift-packages/swift-composable-atmosphere-reorg"
+func atmosphereFamilyDependency(_ name: String) -> Package.Dependency {
+    .package(name: name, path: atmosphereFamilyRoot + "/Packages/" + name)
+}
+let composableAtmosphereDependency: Package.Dependency = .package(
+    name: "swift-composable-atmosphere",
+    path: atmosphereFamilyRoot,
+    traits: composableAtmosphereTraits
+)
+let atprotoDependency = atmosphereFamilyDependency("swift-atproto")
+let atprotoOAuthDependency = atmosphereFamilyDependency("swift-atproto-oauth")
+let atprotoSQLiteDependency = atmosphereFamilyDependency("swift-atproto-sqlite")
+let atprotoServerDependency = atmosphereFamilyDependency("swift-atproto-server")
+let blueskyDependency = atmosphereFamilyDependency("swift-bluesky")
+let composableAtmosphereConstellationDependency: Package.Dependency = .package(
+    name: "composable-atmosphere-constellation",
+    path: environment["OME_COMPOSABLE_ATMOSPHERE_CONSTELLATION_PATH"].map(packagePath)
+        ?? "/Users/woody/Developer/ometools/worktrees/composable-atmosphere-constellation-reorg"
+)
+let composableAtmosphereTangledDependency: Package.Dependency = .package(
+    name: "composable-atmosphere-tangled",
+    path: environment["OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH"].map(packagePath)
+        ?? "/Users/woody/Developer/ometools/worktrees/composable-atmosphere-tangled-reorg"
+)
 let appViewComposableCalendarEventsDependency: Package.Dependency
-if let composableCalendarEventsPath = environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"] {
-    appViewComposableCalendarEventsDependency = .package(
-        name: "composable-calendar-events",
-        path: composableCalendarEventsPath
-    )
-} else {
-    appViewComposableCalendarEventsDependency = .package(
-        url: "https://source.woody.fm/composable-calendar-events",
-        branch: "main"
-    )
-}
-let appViewComposableAtmosphereDependency: Package.Dependency
-if let composableAtmospherePath = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"] {
-    appViewComposableAtmosphereDependency = .package(
-        name: "swift-composable-atmosphere",
-        path: composableAtmospherePath,
-        traits: []
-    )
-} else {
-    appViewComposableAtmosphereDependency = .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
-        traits: []
-    )
-}
+appViewComposableCalendarEventsDependency = .package(
+    name: "composable-calendar-events",
+    path: environment["OME_COMPOSABLE_CALENDAR_EVENTS_PATH"].map(packagePath)
+        ?? "/Users/woody/Developer/ometools/worktrees/composable-calendar-events-reorg"
+)
 let composableNotificationsDependency: Package.Dependency = {
     if let path = environment["OME_COMPOSABLE_NOTIFICATIONS_PATH"] {
         return .package(
@@ -304,7 +266,6 @@ if let skipRootPath {
 let applicationProducts: [Product] = [
     .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
     .executable(name: "ome-release-check", targets: ["OpenMusicEventReleaseCheck"]),
-    .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
     .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
     .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
     .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
@@ -368,10 +329,7 @@ let jwsetKitDependency: Package.Dependency = .package(
 var applicationDependencies: [Package.Dependency] = [
     .package(path: workspacePackagePath("swift-hero-image-list"), traits: ["Skip"]),
     composableAtmosphereUserInputDependency,
-    .package(
-        url: "https://source.woody.fm/composable-calendar-events",
-        branch: "main"
-    ),
+    appViewComposableCalendarEventsDependency,
     composableNotificationsDependency,
     isAndroidAppBuild
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
@@ -382,6 +340,11 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     dependenciesHTTPClientDependency,
     composableAtmosphereDependency,
+    atprotoDependency,
+    atprotoOAuthDependency,
+    atprotoSQLiteDependency,
+    atprotoServerDependency,
+    blueskyDependency,
     composableAtmosphereConstellationDependency,
     composableAtmosphereTangledDependency,
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
@@ -439,18 +402,17 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/swift-server/swift-service-lifecycle", from: "2.6.0"),
 ] + (packageBuild == .appView ? [
     appViewComposableCalendarEventsDependency,
-    appViewComposableAtmosphereDependency,
+    composableAtmosphereDependency,
+    atprotoDependency,
+    atprotoOAuthDependency,
+    atprotoSQLiteDependency,
+    atprotoServerDependency,
+    blueskyDependency,
     tca26Dependency,
     composableNotificationsDependency,
     swiftSharingDependency,
-    .package(
-        url: "https://source.woody.fm/composable-atmosphere-constellation",
-        branch: "main"
-    ),
-    .package(
-        url: "https://source.woody.fm/composable-atmosphere-tangled",
-        branch: "main"
-    ),
+    composableAtmosphereConstellationDependency,
+    composableAtmosphereTangledDependency,
     composableWorkspaceDependency,
     sourceControlDependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
@@ -488,16 +450,15 @@ let appViewDependencies: [Package.Dependency] = [
 // Target dependencies
 
 var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
-    "BlueskyActorCache",
+    .product(name: "Bluesky", package: "swift-bluesky"),
     "OpenMusicEventSourceClone",
     "OpenMusicEventComponents",
     .product(
         name: "ComposableAtmosphereUserInput",
         package: "composable-atmosphere-userinput"
     ),
-    .product(name: "ATProto", package: "swift-composable-atmosphere"),
-    .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
-    .product(name: "ATProtoServer", package: "swift-composable-atmosphere"),
+    .product(name: "ATProto", package: "swift-atproto"),
+    .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
     .product(name: "ComposableForms", package: "swift-composable-forms"),
     .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
@@ -507,14 +468,13 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
     .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
     .product(name: "Sharing", package: "swift-sharing"),
     .product(name: "SQLiteData", package: "sqlite-data"),
-    .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
+    .product(name: "ComposableAtmosphere", package: "swift-composable-atmosphere"),
     .product(name: "WebMetadataClient", package: "swift-web-metadata"),
-    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
 ]
 
 var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "ArgumentParser", package: "swift-argument-parser"),
-    .product(name: "ATProto", package: "swift-composable-atmosphere"),
+    .product(name: "ATProto", package: "swift-atproto"),
     .product(name: "Crypto", package: "swift-crypto"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Gzip", package: "gzipswift"),
@@ -524,12 +484,11 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
 
 if packageBuild != .appView {
     openMusicEventSourceCloneDependencies.append(contentsOf: [
-        .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+        .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
         .product(name: "Sharing", package: "swift-sharing"),
         .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
         .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
         .product(name: "Tagged", package: "swift-tagged"),
-        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
     ])
 }
 
@@ -618,14 +577,13 @@ let openMusicEventLexiconTarget = Target.target(
     name: "OpenMusicEventLexicon",
     dependencies: [
         "OpenMusicEventTimeZones",
-        .product(name: "ATProto", package: "swift-composable-atmosphere"),
+        .product(name: "ATProto", package: "swift-atproto"),
         .product(name: "CasePaths", package: "swift-case-paths"),
-        .product(name: "Lexicon", package: "swift-composable-atmosphere"),
-        .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
+        .product(name: "ATProtoTypes", package: "swift-atproto"),
+        .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
         .product(name: "SQLiteData", package: "sqlite-data"),
         .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
         .product(name: "Tagged", package: "swift-tagged"),
-        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
     ]
 )
 
@@ -650,7 +608,7 @@ let openMusicEventSourceTarget = Target.target(
         .product(name: "Dependencies", package: "swift-dependencies"),
         .product(name: "FrontmatterParsing", package: "swift-frontmatter-parsing"),
         .product(name: "FileTree", package: "swift-file-tree"),
-        .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+        .product(name: "ATProtoTypes", package: "swift-atproto"),
         .product(name: "OrderedCollections", package: "swift-collections"),
         "Yams",
     ]
@@ -679,15 +637,6 @@ var applicationTargets: [Target] = [
         ]
     ),
     .target(
-        name: "BlueskyActorCache",
-        dependencies: [
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "Dependencies", package: "swift-dependencies"),
-            .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ]
-    ),
-    .target(
         name: "ErrorHandling",
         dependencies: [
             .product(name: "ComposableArchitecture2", package: "TCA26"),
@@ -713,7 +662,7 @@ var applicationTargets: [Target] = [
             "OpenMusicEventSourceEditing",
             "OpenMusicEventTimeZones",
             "SourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
@@ -735,8 +684,8 @@ var applicationTargets: [Target] = [
             "OpenMusicEventSource",
             "OpenMusicEventSourceClone",
             "SourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
             .product(name: "ComposableAtmosphereConstellation", package: "composable-atmosphere-constellation"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
@@ -749,13 +698,12 @@ var applicationTargets: [Target] = [
             .product(name: "Gzip", package: "gzipswift"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     openMusicEventSourceTarget,
@@ -770,29 +718,27 @@ var applicationTargets: [Target] = [
             "OpenMusicEventSource",
             "OpenMusicEventSourceClone",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "Noora", package: "Noora"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     .testTarget(
         name: "BlueskyActorCacheTests",
         dependencies: [
-            "BlueskyActorCache",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "Bluesky", package: "swift-bluesky"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     .testTarget(
@@ -800,12 +746,11 @@ var applicationTargets: [Target] = [
         dependencies: [
             "OpenMusicEventCLI",
             "OpenMusicEventSourceClone",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     openMusicEventLexiconTestTarget,
@@ -839,7 +784,7 @@ var applicationTargets: [Target] = [
         dependencies: [
             "OpenMusicEventDatabase",
             "SourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "GRDB", package: grdbPackageName),
         ]
@@ -849,7 +794,7 @@ var applicationTargets: [Target] = [
         dependencies: [
             "OpenMusicEventLexicon",
             "OpenMusicEventSource",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
         ],
@@ -866,7 +811,7 @@ var applicationTargets: [Target] = [
             "OpenMusicEventSourceClone",
             "OpenMusicEventSourceEditing",
             "SourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
             .product(name: "Dependencies", package: "swift-dependencies"),
@@ -875,13 +820,12 @@ var applicationTargets: [Target] = [
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Gzip", package: "gzipswift"),
             .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     .testTarget(
@@ -897,7 +841,7 @@ var applicationTargets: [Target] = [
 
 var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "HeroImageList", package: "swift-hero-image-list"),
-    "BlueskyActorCache",
+    .product(name: "Bluesky", package: "swift-bluesky"),
     .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
     .product(
         name: "ComposableAtmosphereUserInput",
@@ -937,7 +881,7 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "SQLiteData", package: "sqlite-data"),
     .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
     .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
-    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+    .product(name: "ATProto", package: "swift-atproto"),
 ]
 
 if !isAndroidAppBuild {
@@ -978,7 +922,7 @@ applicationTargets.append(contentsOf: [
         name: "OpenMusicEventAppEventViewer",
         dependencies: [
             .product(name: "HeroImageList", package: "swift-hero-image-list"),
-            "BlueskyActorCache",
+            .product(name: "Bluesky", package: "swift-bluesky"),
             "ErrorHandling",
             "OpenMusicEventComponents",
             .target(name: "LiquidGlassSegmentedPicker", condition: .when(platforms: [.iOS, .macOS])),
@@ -994,8 +938,8 @@ applicationTargets.append(contentsOf: [
             "ScheduleComponents",
             "SourceEditing",
             "SwiftUITabFeatures",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
-            .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
@@ -1006,8 +950,7 @@ applicationTargets.append(contentsOf: [
             .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+            .product(name: "ComposableAtmosphere", package: "swift-composable-atmosphere"),
         ] + skipKitTargetDependencies,
         resources: [.process("Resources")],
         swiftSettings: isAndroidAppBuild
@@ -1053,12 +996,11 @@ applicationTargets.append(contentsOf: [
             "OpenMusicEventSourceEditing",
             "OpenMusicEventWhiteLabel",
             "SourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
@@ -1093,7 +1035,7 @@ applicationTargets.append(contentsOf: [
     .testTarget(
         name: "OpenMusicEventAuthenticationTests",
         dependencies: [
-            "BlueskyActorCache",
+            .product(name: "Bluesky", package: "swift-bluesky"),
             "OpenMusicEventAuthentication",
             .product(name: "Clocks", package: "swift-clocks"),
             .product(
@@ -1105,14 +1047,14 @@ applicationTargets.append(contentsOf: [
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
+            .product(name: "ComposableAtmosphere", package: "swift-composable-atmosphere"),
             .product(name: "WebMetadataClient", package: "swift-web-metadata"),
         ]
     ),
     .testTarget(
         name: "OpenMusicEventAppTests",
         dependencies: [
-            "BlueskyActorCache",
+            .product(name: "Bluesky", package: "swift-bluesky"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(
                 name: "ComposableAtmosphereUserInput",
@@ -1130,7 +1072,7 @@ applicationTargets.append(contentsOf: [
             "OpenMusicEventViewers",
             "OpenMusicEventWhiteLabel",
             "OpenMusicEventSourceEditing",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
@@ -1144,7 +1086,6 @@ applicationTargets.append(contentsOf: [
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ] + (isAndroidAppBuild ? [] : [
             .target(name: "OpenMusicEventAppViewServer"),
             .product(
@@ -1191,7 +1132,7 @@ applicationTargets.append(contentsOf: [
             "OpenMusicEventSourceEditing",
             "OpenMusicEventWhiteLabel",
             "OpenMusicEventWhiteLabelApp",
-            .product(name: "ATProto", package: "swift-composable-atmosphere"),
+            .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
@@ -1199,7 +1140,6 @@ applicationTargets.append(contentsOf: [
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ]
     ),
     .testTarget(
@@ -1239,8 +1179,7 @@ let appViewTargets: [Target] = [
             "OpenMusicEventSourceClone",
             "OpenMusicEventSourceEditing",
             "SourceEditing",
-            .product(name: "AppViewHydrant", package: "swift-composable-atmosphere"),
-            .product(name: "AppViewIndex", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoAppView", package: "swift-atproto-server"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(
@@ -1258,16 +1197,15 @@ let appViewTargets: [Target] = [
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
-            .product(name: "HydrantClient", package: "swift-composable-atmosphere"),
-            .product(name: "HydrantClientHummingbird", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoStreams", package: "swift-atproto-server"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
-            .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
             .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "Tagged", package: "swift-tagged"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCHummingbird", package: "swift-composable-atmosphere"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoHTTP", package: "swift-atproto-server"),
+            .product(name: "ATProto", package: "swift-atproto"),
         ],
         resources: [
             .copy("Resources/TemporaryOMEBrowseCatalog.json"),
@@ -1305,7 +1243,7 @@ let appViewTargets: [Target] = [
             .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
             .product(name: "HummingbirdTesting", package: "hummingbird"),
             .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
-            .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+            .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
         ],
         resources: [

@@ -1,4 +1,4 @@
-import BlueskyActorCache
+import Bluesky
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication

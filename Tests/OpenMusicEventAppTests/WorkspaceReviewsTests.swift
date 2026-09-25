@@ -1,5 +1,5 @@
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import Clocks
 import ComposableArchitecture2
 import ComposableWorkspace
@@ -7,7 +7,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import IssueReporting
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventLexicon
 @testable import OpenMusicEventSourceEditing
 import Sharing

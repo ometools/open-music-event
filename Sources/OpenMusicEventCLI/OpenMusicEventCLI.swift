@@ -11,7 +11,6 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSource
 import TangledLexicon
 import TangledXRPC
-import XRPCClient
 
 @main
 struct OpenMusicEventCommand: AsyncParsableCommand {

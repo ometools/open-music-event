@@ -1,11 +1,11 @@
-import AppViewIndex
+import ATProtoAppView
 import ATProto
 import CustomDump
 import Dependencies
 import Foundation
 import GRDB
-import HydrantClient
-import Lexicon
+import ATProtoStreams
+import ATProtoTypes
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData

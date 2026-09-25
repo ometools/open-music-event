@@ -6,7 +6,7 @@ import HTTPTypes
 import Sharing
 import SourceControlClient
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventSourceClone
 

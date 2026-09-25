@@ -7,7 +7,7 @@ import OSLog
 #if !OME_SOURCE_ARCHIVE_ONLY
 import SourceControlClient
 import TangledLexicon
-import XRPCClient
+import ATProto
 #endif
 
 public struct TangledSourceCheckoutRequest: Equatable, Sendable {

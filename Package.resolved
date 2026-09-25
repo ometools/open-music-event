@@ -1,5 +1,5 @@
 {
-  "originHash" : "823e99b8463d3536bcd5838129b937303c0527c09a901bf662bddf73eda83e3b",
+  "originHash" : "65e8732132d67712c270674399dcaa488027104da688aefcc3a34aa46a2a7caf",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,42 +17,6 @@
       "state" : {
         "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
         "version" : "1.2.0"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-constellation",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-constellation",
-      "state" : {
-        "branch" : "main",
-        "revision" : "b2befbbe0cb04a62e0bb1036c6f6d147627a3981"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-tangled",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-tangled",
-      "state" : {
-        "branch" : "main",
-        "revision" : "ef7a8aa023ea930ddec07222317ac599ee9fec3f"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-userinput",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-userinput",
-      "state" : {
-        "branch" : "main",
-        "revision" : "90c324cce37ce65b379756119651245af64297ed"
-      }
-    },
-    {
-      "identity" : "composable-calendar-events",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-calendar-events",
-      "state" : {
-        "branch" : "main",
-        "revision" : "16f68e728095e5cb781392494bbe788af114ada5"
       }
     },
     {
@@ -413,15 +377,6 @@
       "state" : {
         "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
         "version" : "1.6.0"
-      }
-    },
-    {
-      "identity" : "swift-composable-atmosphere",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-atmosphere",
-      "state" : {
-        "branch" : "main",
-        "revision" : "36967dfb9788859473c435a062b5b0b1f98af47d"
       }
     },
     {

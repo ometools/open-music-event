@@ -1,7 +1,7 @@
 #if canImport(AppKit) && canImport(ImageIO)
 import AppKit
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableCalendarEvents
 import Dependencies
 import DependenciesTestSupport

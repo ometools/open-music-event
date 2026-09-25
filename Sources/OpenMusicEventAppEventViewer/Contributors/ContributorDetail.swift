@@ -6,7 +6,7 @@
 //
 
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableForms
 import ComposableArchitecture2
 import Dependencies
@@ -24,7 +24,7 @@ import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
 #endif
-import XRPCClient
+import ATProto
 
 
 @Feature

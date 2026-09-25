@@ -1,12 +1,11 @@
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import Dependencies
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventImages
 import SQLiteData
-import XRPCClient
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)

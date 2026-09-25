@@ -8,7 +8,7 @@ import Foundation
 import OpenMusicEventAuthentication
 import SQLiteData
 import SwiftUI
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @testable import OpenMusicEventApp

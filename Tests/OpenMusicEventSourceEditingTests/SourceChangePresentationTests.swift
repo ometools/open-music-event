@@ -2,7 +2,7 @@ import CustomDump
 import Foundation
 import GRDB
 import InlineSnapshotTesting
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing

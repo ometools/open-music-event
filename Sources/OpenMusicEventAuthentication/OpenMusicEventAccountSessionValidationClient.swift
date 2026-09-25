@@ -1,8 +1,8 @@
 import ATProtoOAuth
-import ATProtoServer
+import ATProto
 import Dependencies
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 public struct OpenMusicEventAccountSessionValidationClient: Sendable {
     public enum ValidationResult: Equatable, Sendable {
