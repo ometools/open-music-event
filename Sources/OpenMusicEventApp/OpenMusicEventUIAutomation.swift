@@ -10,12 +10,12 @@ import SQLiteData
 import SwiftUI
 
 private enum OpenMusicEventUIAutomationKey: DependencyKey {
-    static let liveValue = false
-    static let testValue = false
+    static let liveValue = OpenMusicEventUIAutomation.normal
+    static let testValue = OpenMusicEventUIAutomation.normal
 }
 
 extension DependencyValues {
-    var openMusicEventUIAutomation: Bool {
+    var openMusicEventUIAutomation: OpenMusicEventUIAutomation {
         get { self[OpenMusicEventUIAutomationKey.self] }
         set { self[OpenMusicEventUIAutomationKey.self] = newValue }
     }
@@ -265,13 +265,13 @@ enum OpenMusicEventApplicationPreparation: Equatable {
 /// deterministic preparation gate. The existing application root is unchanged after the fixture
 /// has crossed the same validator and database insertion boundary as a real event source.
 /* SKIP @bridge */@MainActor public struct OpenMusicEventApplicationEntryView: View {
-    let uiAutomation: Bool
+    let uiAutomation: OpenMusicEventUIAutomation
     @State var preparation: OpenMusicEventApplicationPreparation
 
     /* SKIP @bridge */public init() {
         @Dependency(\.openMusicEventUIAutomation) var uiAutomation
         self.uiAutomation = uiAutomation
-        self._preparation = State(initialValue: uiAutomation ? .preparing : .ready)
+        self._preparation = State(initialValue: uiAutomation == .attendee ? .preparing : .ready)
     }
 
     public var body: some View {
@@ -304,7 +304,7 @@ enum OpenMusicEventApplicationPreparation: Equatable {
     }
 
     func prepareFixtureIfNeeded() async {
-        guard uiAutomation, preparation == .preparing else { return }
+        guard uiAutomation == .attendee, preparation == .preparing else { return }
         @Dependency(\.defaultDatabase) var database
         do {
             try await OpenMusicEventUIAutomationFixture.importSource(into: database)

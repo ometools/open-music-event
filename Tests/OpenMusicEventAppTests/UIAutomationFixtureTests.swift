@@ -35,14 +35,14 @@ struct UIAutomationFixtureTests {
     @Test
     func `entry waits for fixture preparation only in automation builds`() {
         let ordinaryEntry = withDependencies {
-            $0.openMusicEventUIAutomation = false
+            $0.openMusicEventUIAutomation = .normal
         } operation: {
             OpenMusicEventApplicationEntryView()
         }
         expectNoDifference(ordinaryEntry.preparation, .ready)
 
         let automationEntry = withDependencies {
-            $0.openMusicEventUIAutomation = true
+            $0.openMusicEventUIAutomation = .attendee
         } operation: {
             OpenMusicEventApplicationEntryView()
         }
@@ -70,7 +70,7 @@ struct UIAutomationFixtureTests {
             OME.prepareDependencies(
                 &$0,
                 database: database,
-                uiAutomation: true
+                uiAutomation: .attendee
             )
         } operation: {
             @Dependency(\.date.now) var now
@@ -393,7 +393,7 @@ struct UIAutomationFixtureTests {
             OME.prepareDependencies(
                 &$0,
                 database: database,
-                uiAutomation: true
+                uiAutomation: .attendee
             )
             $0.requestInterceptors = []
             $0.uuid = .incrementing

@@ -1,0 +1,8 @@
+appId: ${APP_ID}
+---
+- tapOn: {id: menu.account}
+- tapOn: Accounts
+- tapOn: {id: button.account.logout-all}
+- assertNotVisible: {id: 'row.account.*'}
+- tapOn: Close
+- assertVisible: {id: menu.account, text: Sign in}

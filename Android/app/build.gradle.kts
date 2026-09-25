@@ -38,6 +38,9 @@ android {
         minSdk = libs.versions.android.sdk.min.get().toInt()
         targetSdk = libs.versions.android.sdk.compile.get().toInt()
         buildConfigField("boolean", "OME_UI_AUTOMATION", uiAutomation.toString())
+        val automationProfile = System.getenv("OME_UI_AUTOMATION_PROFILE") ?: ""
+        require(automationProfile in listOf("", "attendee", "authentication"))
+        buildConfigField("String", "OME_UI_AUTOMATION_PROFILE", "\"$automationProfile\"")
         // skip.tools.skip-build-plugin will automatically use Skip.env properties for:
         // applicationId = ANDROID_APPLICATION_ID ?? PRODUCT_BUNDLE_IDENTIFIER
         // versionCode = CURRENT_PROJECT_VERSION

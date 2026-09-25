@@ -1,0 +1,6 @@
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible: Authorize
+    timeout: 30000
+- tapOn: Authorize

@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+---
+# Preserve app data, browser state, and keychain. This is a process restart.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: {id: menu.account, text: 'Signed in as ${HANDLE}'}
+    timeout: 30000
+- tapOn: {id: menu.account}
+- tapOn: Accounts
+- extendedWaitUntil:
+    visible: {id: 'row.account.*', text: '.*Session verified.*'}
+    timeout: 30000
+- takeScreenshot: authenticated-session
+- tapOn: Close

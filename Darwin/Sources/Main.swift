@@ -31,7 +31,10 @@ private typealias AppDelegate = OpenMusicEventAppDelegate
         try! prepareDependencies {
             try OME.preparePersistedServiceEnvironmentDependencies(
                 &$0,
-                uiAutomation: uiAutomation
+                uiAutomation: .buildProfile(
+                    Bundle.main.object(forInfoDictionaryKey: "OMEUIAutomationProfile") as? String ?? "",
+                    legacyAttendee: uiAutomation
+                )
             )
         }
     }

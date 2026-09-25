@@ -226,9 +226,7 @@ struct ProposalRecordSnapshot: Equatable, Identifiable, Sendable {
             return channel.description.proposalNonempty
         case let .communicationPost(post):
             if let timestamp = post.timestamp {
-                let formatter = RelativeDateTimeFormatter()
-                formatter.unitsStyle = .full
-                return formatter.localizedString(for: timestamp, relativeTo: .now)
+                return timestamp.formatted(.relative(presentation: .numeric, unitsStyle: .wide))
             }
             return CommsMarkdown.fallbackText(post.contents).proposalSingleLine.proposalNonempty
         case .poster:

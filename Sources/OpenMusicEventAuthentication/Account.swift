@@ -1,4 +1,4 @@
-#if canImport(SwiftUI)
+#if canImport(SwiftUI) || os(Android)
 import ATProto
 import ATProtoOAuth
 import BlueskyActorCache
@@ -158,6 +158,16 @@ public struct Account {
         case accepted
         case requiresRelog
         case unverified
+
+        var accessibilityDescription: String {
+            switch self {
+            case .unchecked: "Session not checked"
+            case .checking: "Checking session"
+            case .accepted: "Session verified"
+            case .requiresRelog: "Sign in required"
+            case .unverified: "Session could not be verified"
+            }
+        }
 
         var canStartChecking: Bool {
             self != .checking
@@ -1055,6 +1065,7 @@ private extension Account.SignUpFormFeature {
 
 public struct AccountView: View {
     @Bindable var store: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<Account>) {
         self.store = store
@@ -1064,7 +1075,7 @@ public struct AccountView: View {
     public var body: some View {
         switch store.surface {
         case .authentication:
-            AccountAuthenticationFormSections(store: store)
+            accountAuthenticationFormSections(store: store, showsTechnicalDetails: showsTechnicalDetails)
             AccountAuthenticationSubmitSection(store: store)
 
         case .accountManagement:
@@ -1109,6 +1120,7 @@ public struct AccountPicker: View {
             AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
                 .environment(\.accountPickerHandleVisibility, .hidden)
         }
+        .accessibilityIdentifier("menu.account")
         .accessibilityLabel(Text(accessibilityLabel))
         .accountAccessibilityHint(
             Text("Selects the account used for workspace changes and approvals.")
@@ -1291,6 +1303,7 @@ struct AccountManagementSection: View {
             } label: {
                 Label("Log Out of All Accounts", systemImage: "rectangle.portrait.and.arrow.right")
             }
+            .accessibilityIdentifier("button.account.logout-all")
 
             if let errorMessage = store.errorMessage {
                 Text(errorMessage)
@@ -1350,6 +1363,9 @@ struct AccountRowView: View {
             }
         }
         .padding(.vertical, 8)
+        .accessibilityLabel("\(row.title), \(row.sessionValidationStatus.accessibilityDescription)")
+        .accessibilityIdentifier("row.account.\(row.id)")
+        .accessibilityValue(row.sessionValidationStatus.accessibilityDescription)
         .animation(_AuthenticationAnimation.easeInOut(duration: 0.2), value: row.isSelected)
         .animation(_AuthenticationAnimation.easeInOut(duration: 0.2), value: row.requiresRelog)
         .foregroundStyle(.primary)
@@ -1434,11 +1450,12 @@ public extension View {
 
 struct AccountAuthenticationPresentationView: View {
     @Bindable var store: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         NavigationStack {
             _AuthenticationForm {
-                AccountAuthenticationFormSections(store: store)
+                accountAuthenticationFormSections(store: store, showsTechnicalDetails: showsTechnicalDetails)
             }
             #if os(macOS)
             .frame(maxWidth: 720)
@@ -1462,134 +1479,127 @@ struct AccountAuthenticationPresentationView: View {
     }
 }
 
-struct AccountAuthenticationFormSections: View {
-    @Bindable var store: StoreOf<Account>
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    let showsIntro: Bool
-
-    init(
-        store: StoreOf<Account>,
-        showsIntro: Bool = true
-    ) {
-        self.store = store
-        self.showsIntro = showsIntro
+@MainActor
+@ViewBuilder
+func accountAuthenticationFormSections(
+    store: StoreOf<Account>,
+    showsTechnicalDetails: Bool,
+    showsIntro: Bool = true
+) -> some View {
+    if showsIntro {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your Atmosphere account")
+                    .font(.headline)
+                Text(
+                    showsTechnicalDetails
+                        ? "Use one portable social account across Open Music Event and other AT Protocol apps."
+                        : "Use one portable social account across Open Music Event and other compatible apps."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
     }
 
-    var body: some View {
-        if showsIntro {
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Your Atmosphere account")
-                        .font(.headline)
-                    Text(
-                        showsTechnicalDetails
-                            ? "Use one portable social account across Open Music Event and other AT Protocol apps."
-                            : "Use one portable social account across Open Music Event and other compatible apps."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
+    Section("Account") {
+        Picker(
+            "Action",
+            selection: Binding(
+                get: { store.selectedMode },
+                set: { store.send(.selectedModeChanged($0)) }
+            )
+        ) {
+            ForEach(Account.Mode.allCases, id: \.self) { mode in
+                Text(mode.title)
+                    .tag(mode)
             }
         }
+        .pickerStyle(.segmented)
+    }
 
-        Section("Account") {
-            Picker(
-                "Action",
-                selection: Binding(
-                    get: { store.selectedMode },
-                    set: { store.send(.selectedModeChanged($0)) }
-                )
-            ) {
-                ForEach(Account.Mode.allCases, id: \.self) { mode in
-                    Text(mode.title)
-                        .tag(mode)
+    switch store.selectedMode {
+    case .signIn:
+        Section {
+            Text(store.selectedMode.helperText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            TextField(
+                "Search profiles",
+                text: Binding(
+                    get: { store.signInLoginHint },
+                    set: { store.send(.signInActorSearchQueryChanged($0)) }
+                ),
+                prompt: Text("name.atmo.social")
+            )
+            #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
+            .textContentType(.username)
+            #endif
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+            .autocorrectionDisabled()
+            .accessibilityIdentifier("field.account.handle")
+            .onSubmit {
+                store.send(.signInActorSearchSubmitted)
+            }
+
+            if store.signInActorSearchIsLoading {
+                ProgressView()
+            }
+
+            ForEach(
+                store.signInActorSearchResults.filter {
+                    showsTechnicalDetails || $0.handle != nil
+                }
+            ) { identity in
+                Button {
+                    store.send(.signInActorIdentityTapped(identity))
+                } label: {
+                    AccountActorIdentityRow(identity: identity)
+                }
+                .buttonStyle(.plain)
+                .disabled(store.isWorking)
+            }
+
+            ForEach(store.signInActorSearchFailures, id: \.sourceID) { failure in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(failure.title)
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.segmented)
+
+            AccountFormFieldValidationStatus(
+                validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
+            )
+        } header: {
+            Text(showsTechnicalDetails ? "ATProto Identity" : "Account")
+        } footer: {
+            Text("Already use Bluesky? Your Bluesky handle works too.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
 
-        switch store.selectedMode {
-        case .signIn:
-            Section {
-                Text(store.selectedMode.helperText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                TextField(
-                    "Search profiles",
-                    text: Binding(
-                        get: { store.signInLoginHint },
-                        set: { store.send(.signInActorSearchQueryChanged($0)) }
-                    ),
-                    prompt: Text("name.atmo.social")
-                )
-                #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
-                .textContentType(.username)
-                #endif
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
-                .autocorrectionDisabled()
-                .onSubmit {
-                    store.send(.signInActorSearchSubmitted)
-                }
-
-                if store.signInActorSearchIsLoading {
-                    ProgressView()
-                }
-
-                ForEach(
-                    store.signInActorSearchResults.filter {
-                        showsTechnicalDetails || $0.handle != nil
-                    }
-                ) { identity in
-                    Button {
-                        store.send(.signInActorIdentityTapped(identity))
-                    } label: {
-                        AccountActorIdentityRow(identity: identity)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(store.isWorking)
-                }
-
-                ForEach(store.signInActorSearchFailures, id: \.sourceID) { failure in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(failure.title)
-                        Text(failure.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                AccountFormFieldValidationStatus(
-                    validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
-                )
-            } header: {
-                Text(showsTechnicalDetails ? "ATProto Identity" : "Account")
-            } footer: {
-                Text("Already use Bluesky? Your Bluesky handle works too.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-        case .signUp:
-            Section {
-                Text(store.selectedMode.helperText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Account provider")
-            }
-
-            AccountSignUpServerFormView(store: store)
+    case .signUp:
+        Section {
+            Text(store.selectedMode.helperText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Account provider")
         }
 
-        if let errorMessage = store.errorMessage {
-            Section {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-            }
+        accountSignUpServerFormSections(store: store)
+    }
+
+    if let errorMessage = store.errorMessage {
+        Section {
+            Text(errorMessage)
+                .foregroundStyle(.red)
         }
     }
 }
@@ -1849,6 +1859,7 @@ struct AccountAuthenticationSubmitButton: View {
             }
         }
         .labelStyle(.titleAndIcon)
+        .accessibilityIdentifier("button.account.submit")
         .disabled(store.isAuthenticationFormSubmitDisabled)
     }
 }
@@ -1890,55 +1901,53 @@ extension View {
     }
 }
 
-struct AccountSignUpServerFormView: View {
-    @Bindable var store: StoreOf<Account>
-
-    var body: some View {
-        Section("Provider") {
-            ForEach(store.signUpServerConfiguration.options) { option in
-                Button {
-                    store.send(.signUpServerOptionTapped(option.id))
-                } label: {
-                    AccountSignUpServerOptionRow(
-                        option: option,
-                        isSelected: store.selectedSignUpServerOptionID == option.id
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(option.isComingSoon)
+@MainActor
+@ViewBuilder
+func accountSignUpServerFormSections(store: StoreOf<Account>) -> some View {
+    Section("Provider") {
+        ForEach(store.signUpServerConfiguration.options) { option in
+            Button {
+                store.send(.signUpServerOptionTapped(option.id))
+            } label: {
+                AccountSignUpServerOptionRow(
+                    option: option,
+                    isSelected: store.selectedSignUpServerOptionID == option.id
+                )
             }
-
-            if store.signUpServerConfiguration.allowsCustomServerHost {
-                Button {
-                    store.send(.customSignUpServerOptionTapped)
-                } label: {
-                    AccountCustomSignUpServerOptionRow(
-                        isSelected: store.usesCustomSignUpServerHost
-                    )
-                }
-                .buttonStyle(.plain)
-            }
+            .buttonStyle(.plain)
+            .disabled(option.isComingSoon)
         }
 
-        if store.usesCustomSignUpServerHost ||
-            store.signUpServerConfiguration.options.isEmpty {
-            Section("Server") {
-                TextField(
-                    "Server Host",
-                    text: Binding(
-                        get: { store.signUpServerHost },
-                        set: { store.send(.signUpServerHostChanged($0)) }
-                    )
-                )
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
-
-                AccountFormFieldValidationStatus(
-                    validation: store.signUpForm.validation[AccountFormFieldID.signUpServerHost]
+        if store.signUpServerConfiguration.allowsCustomServerHost {
+            Button {
+                store.send(.customSignUpServerOptionTapped)
+            } label: {
+                AccountCustomSignUpServerOptionRow(
+                    isSelected: store.usesCustomSignUpServerHost
                 )
             }
+            .buttonStyle(.plain)
+        }
+    }
+
+    if store.usesCustomSignUpServerHost ||
+        store.signUpServerConfiguration.options.isEmpty {
+        Section("Server") {
+            TextField(
+                "Server Host",
+                text: Binding(
+                    get: { store.signUpServerHost },
+                    set: { store.send(.signUpServerHostChanged($0)) }
+                )
+            )
+                #if !os(macOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+
+            AccountFormFieldValidationStatus(
+                validation: store.signUpForm.validation[AccountFormFieldID.signUpServerHost]
+            )
         }
     }
 }

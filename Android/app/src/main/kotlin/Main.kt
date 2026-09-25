@@ -48,7 +48,7 @@ open class AndroidAppMain: Application {
         super.onCreate()
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
-        AppBootstrap.prepareDependencies(uiAutomation = BuildConfig.OME_UI_AUTOMATION)
+        AppBootstrap.prepareDependencies(uiAutomation = BuildConfig.OME_UI_AUTOMATION, profile = BuildConfig.OME_UI_AUTOMATION_PROFILE)
         createEmergencyNotificationChannel()
     }
 

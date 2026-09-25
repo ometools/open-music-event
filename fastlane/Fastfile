@@ -131,7 +131,7 @@ def ios_ui_derived_data_path
   File.join(repo_root, ".build", "fastlane-ios-derived-data")
 end
 
-def build_ios_ui_app(device:)
+def build_ios_ui_app(device:, profile: "attendee")
   with_ios_environment do
     run_in_repo(
       "xcodebuild",
@@ -143,6 +143,7 @@ def build_ios_ui_app(device:)
       "-skipPackagePluginValidation",
       "-skipMacroValidation",
       "OME_UI_AUTOMATION=YES",
+      "OME_UI_AUTOMATION_PROFILE=#{profile}",
       "build"
     )
   end
@@ -532,5 +533,34 @@ lane :all_tests do |options|
     flow: options[:flow],
     adopt_android_build_config: options[:adopt_android_build_config],
     reuse_android_build: true
+  )
+end
+
+
+desc "Build and install private auth apps on explicitly named dedicated devices"
+lane :auth_build do |options|
+  ios_device = options[:ios_device]
+  android_device = options[:android_device]
+  UI.user_error!("Explicit ios_device and android_device are required") unless ios_device && android_device
+  run_in_repo(
+    "python3", "Scripts/auth-e2e/run.py", "--check-devices",
+    "--ios-device", ios_device, "--android-device", android_device,
+    "--ios-app-id", "app.openmusicevent", "--android-app-id", "fm.woody.openmusicevent"
+  )
+  app_path = build_ios_ui_app(device: ios_device, profile: "authentication")
+  # Installation deliberately preserves state. Start the first run on fresh dedicated devices.
+  sh("xcrun", "simctl", "install", ios_device, app_path)
+  with_environment("OME_UI_AUTOMATION" => "0", "OME_UI_AUTOMATION_PROFILE" => "authentication") do
+    run_android_harness("--install", "--serial", android_device)
+  end
+end
+
+desc "Run signup, logout, login, restoration, refresh, and cross-device authentication"
+lane :auth_e2e do |options|
+  UI.user_error!("Explicit ios_device and android_device are required") unless options[:ios_device] && options[:android_device]
+  run_in_repo(
+    "python3", "Scripts/auth-e2e/run.py",
+    "--ios-device", options[:ios_device], "--android-device", options[:android_device],
+    "--ios-app-id", "app.openmusicevent", "--android-app-id", "fm.woody.openmusicevent"
   )
 end

@@ -1,0 +1,27 @@
+appId: ${APP_ID}
+---
+- tapOn: {id: menu.account}
+- tapOn: Sign In
+- tapOn: {id: field.account.handle}
+- inputText: ${HANDLE}
+- hideKeyboard
+- extendedWaitUntil:
+    visible: ${HANDLE}
+    timeout: 15000
+- tapOn: ${HANDLE}
+- tapOn: {id: button.account.submit}
+- runFlow:
+    when: {visible: Continue}
+    commands:
+      - tapOn: Continue
+- extendedWaitUntil:
+    visible: Password
+    timeout: 30000
+- tapOn: Password
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: Sign in
+- runFlow: consent.yaml
+- extendedWaitUntil:
+    visible: {id: menu.account, text: 'Signed in as ${HANDLE}'}
+    timeout: 30000

@@ -83,3 +83,6 @@ Carthage/Build/
 **/fastlane/README.md
 **/fastlane/Preview.html
 **/fastlane/test_output
+
+# Local Python harness bytecode
+Scripts/auth-e2e/__pycache__/

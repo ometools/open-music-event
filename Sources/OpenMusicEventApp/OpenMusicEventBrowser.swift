@@ -52,6 +52,7 @@ public struct OpenMusicEventBrowser {
     public struct State {
         public init() {}
 
+        public var account = Spawn(Account.State())
         public var selectedTab: Tab = .browse
         public var browse = Spawn(Browse.State())
         public var following = Spawn(Following.State())
@@ -96,6 +97,7 @@ public struct OpenMusicEventBrowser {
             Browse()
         }
         .spawn(\.myEvents) { MyEvents() }
+        .spawn(\.account) { Account() }
     }
 }
 
@@ -108,6 +110,7 @@ public struct OpenMusicEventBrowserView: View {
         serviceEnvironmentSelected: @escaping (OpenMusicEventServiceEnvironment) -> Void
     ) {
         self.store = store
+        self.accountStore = store.spawn(\.account)
         self.serviceEnvironment = serviceEnvironment
         self.isServiceEnvironmentSelectionEnabled = isServiceEnvironmentSelectionEnabled
         self.isServiceEnvironmentSwitching = isServiceEnvironmentSwitching
@@ -115,6 +118,7 @@ public struct OpenMusicEventBrowserView: View {
     }
 
     @Bindable var store: StoreOf<OpenMusicEventBrowser>
+    @Bindable var accountStore: StoreOf<Account>
     @State var tabLayout = TabFeatureLayout()
     let serviceEnvironment: OpenMusicEventServiceEnvironment
     let isServiceEnvironmentSelectionEnabled: Bool
@@ -122,21 +126,29 @@ public struct OpenMusicEventBrowserView: View {
     let serviceEnvironmentSelected: (OpenMusicEventServiceEnvironment) -> Void
 
     public var body: some View {
-        #if os(iOS)
-        if #available(iOS 18.0, *) {
-            tabFeaturesView
-        } else {
-            legacyiOSTabView
-        }
-        #elseif os(macOS)
-        if #available(macOS 15.0, *) {
-            tabFeaturesView
-        } else {
+        Group {
+            #if os(iOS)
+            if #available(iOS 18.0, *) {
+                tabFeaturesView
+            } else {
+                legacyiOSTabView
+            }
+            #elseif os(macOS)
+            if #available(macOS 15.0, *) {
+                tabFeaturesView
+            } else {
+                defaultTabView
+            }
+            #else
             defaultTabView
+            #endif
         }
-        #else
-        defaultTabView
-        #endif
+        .sheet(
+            item: $accountStore.presentation,
+            onDismiss: { accountStore.send(.accountPresentationDismissed) }
+        ) { _ in
+            AccountPresentationView(store: accountStore)
+        }
     }
 
     @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
@@ -151,7 +163,7 @@ public struct OpenMusicEventBrowserView: View {
                 systemImage: "sparkles",
                 navigation: .stack
             ) {
-                BrowseView(store: store.spawn(\.browse))
+                BrowseView(store: store.spawn(\.browse), accountStore: accountStore)
             }
 
             TabFeature(
@@ -190,7 +202,7 @@ public struct OpenMusicEventBrowserView: View {
 
             TabFeature(.search, role: .search) {
                 NavigationStack {
-                    BrowseView(store: store.spawn(\.search))
+                    BrowseView(store: store.spawn(\.search), accountStore: accountStore)
                 }
             }
         }
@@ -200,7 +212,7 @@ public struct OpenMusicEventBrowserView: View {
     private var legacyiOSTabView: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
-                BrowseView(store: store.spawn(\.browse))
+                BrowseView(store: store.spawn(\.browse), accountStore: accountStore)
             }
             .tabItem {
                 Label("Browse", systemImage: "sparkles")
@@ -239,7 +251,7 @@ public struct OpenMusicEventBrowserView: View {
             .tag(OpenMusicEventBrowser.Tab.settings)
 
             NavigationStack {
-                BrowseView(store: store.spawn(\.search))
+                BrowseView(store: store.spawn(\.search), accountStore: accountStore)
             }
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
@@ -252,7 +264,7 @@ public struct OpenMusicEventBrowserView: View {
     private var defaultTabView: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
-                BrowseView(store: store.spawn(\.browse))
+                BrowseView(store: store.spawn(\.browse), accountStore: accountStore)
             }
             .tabItem {
                 Label("Browse", systemImage: "sparkles")
@@ -291,7 +303,7 @@ public struct OpenMusicEventBrowserView: View {
             .tag(OpenMusicEventBrowser.Tab.settings)
 
             NavigationStack {
-                BrowseView(store: store.spawn(\.search))
+                BrowseView(store: store.spawn(\.search), accountStore: accountStore)
             }
             .tabItem {
                 Label("Search", systemImage: "magnifyingglass")
@@ -509,10 +521,12 @@ public enum EventCatalog: String, CaseIterable, Equatable, Identifiable, Sendabl
 
 public struct BrowseView: View {
     @Bindable var store: StoreOf<Browse>
+    let accountStore: StoreOf<Account>
     @State var isDatePickerPresented = false
 
-    public init(store: StoreOf<Browse>) {
+    public init(store: StoreOf<Browse>, accountStore: StoreOf<Account>) {
         self.store = store
+        self.accountStore = accountStore
     }
 
     public var body: some View {
@@ -583,6 +597,15 @@ public struct BrowseView: View {
             await store.send(.task)?.value
         }
         .toolbar {
+            #if os(macOS)
+            ToolbarItem(placement: .automatic) {
+                AccountPicker(store: accountStore)
+            }
+            #else
+            ToolbarItem(placement: .topBarLeading) {
+                AccountPicker(store: accountStore)
+            }
+            #endif
             ToolbarItemGroup {
                 #if os(Android)
                 AndroidBrowseDatePickerButton(

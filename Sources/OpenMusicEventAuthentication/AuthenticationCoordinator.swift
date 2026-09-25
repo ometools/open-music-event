@@ -1,4 +1,4 @@
-#if canImport(SwiftUI)
+#if canImport(SwiftUI) || os(Android)
 import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
@@ -100,12 +100,12 @@ public struct OpenMusicEventAuthorizationFlowSheetView: View {
 public struct OpenMusicEventAuthorizationFormView: View {
     @Bindable var store: StoreOf<AuthorizationFlow>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    @State private var signInActorSearchFailures: [PredictiveSearchFailure] = []
-    @State private var signInActorSearchIsLoading = false
-    @State private var signInActorSearchRequest: SignInActorSearchRequest?
-    @State private var signInActorSearchResults: [ActorIdentity] = []
+    @State var signInActorSearchFailures: [PredictiveSearchFailure] = []
+    @State var signInActorSearchIsLoading = false
+    @State var signInActorSearchRequest: SignInActorSearchRequest?
+    @State var signInActorSearchResults: [ActorIdentity] = []
 
-    private struct SignInActorSearchRequest: Equatable {
+    struct SignInActorSearchRequest: Equatable {
         let includingExactLookup: Bool
         let query: String
     }

@@ -224,7 +224,7 @@ extension OME {
     public static func prepareDependencies(
         _ dependencies: inout DependencyValues,
         environment: OpenMusicEventServiceEnvironment = .production,
-        uiAutomation: Bool = false
+        uiAutomation: OpenMusicEventUIAutomation = .normal
     ) throws {
         try dependencies.bootstrapDatabase(environment: environment)
 
@@ -238,7 +238,7 @@ extension OME {
 
     public static func preparePersistedServiceEnvironmentDependencies(
         _ dependencies: inout DependencyValues,
-        uiAutomation: Bool = false
+        uiAutomation: OpenMusicEventUIAutomation = .normal
     ) throws {
         try prepareDependencies(
             &dependencies,
@@ -251,19 +251,19 @@ extension OME {
         _ dependencies: inout DependencyValues,
         database: any DatabaseWriter,
         environment: OpenMusicEventServiceEnvironment = .production,
-        uiAutomation: Bool = false
+        uiAutomation: OpenMusicEventUIAutomation = .normal
     ) {
         dependencies.defaultDatabase = database
         dependencies.openMusicEventServiceEnvironment = environment
         dependencies.openMusicEventUIAutomation = uiAutomation
-        if uiAutomation {
+        if uiAutomation == .attendee {
             dependencies.date = .constant(OpenMusicEventUIAutomationFixture.now)
             OpenMusicEventUIAutomationFixture.prepareServerResponses(
                 &dependencies,
                 appViewHost: environment.appViewHost
             )
         }
-        dependencies.calendarEvents = uiAutomation
+        dependencies.calendarEvents = uiAutomation != .normal
             ? .uiAutomation(database: database)
             : .openMusicEventAndAtmo(
                 database: database,
@@ -273,6 +273,9 @@ extension OME {
             appViewHost: environment.appViewHost
         )
         dependencies.omeEventInstallation = .live(database: database)
+        if uiAutomation == .authentication {
+            OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)
+        }
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventNotificationAuthorization.prepareDependencies(
             &dependencies,
@@ -283,6 +286,9 @@ extension OME {
         )
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
+        if uiAutomation == .authentication {
+            OpenMusicEventAuthenticationAutomation.prepareDependencies(&dependencies)
+        }
 #if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
         dependencies.sourceControl = LibGit2SourceControlClient.live
 #endif
@@ -760,7 +766,7 @@ struct OpenMusicEventApplicationRuntime {
             variant: variant,
             environment: environment,
             bootstrapsDatabase: false,
-            restoresSelectedEvent: !uiAutomation
+            restoresSelectedEvent: uiAutomation == .normal
         )
     }
 
@@ -1070,14 +1076,14 @@ struct OpenMusicEventImmediateAuthorizationMount: View {
     private init() {}
 
     /* SKIP @bridge */public static func prepareDependencies() {
-        prepareDependencies(uiAutomation: false)
+        prepareDependencies(uiAutomation: false, profile: "")
     }
 
-    /* SKIP @bridge */public static func prepareDependencies(uiAutomation: Bool) {
+    /* SKIP @bridge */public static func prepareDependencies(uiAutomation: Bool, profile: String) {
         try! Dependencies.prepareDependencies {
             try OME.preparePersistedServiceEnvironmentDependencies(
                 &$0,
-                uiAutomation: uiAutomation
+                uiAutomation: .buildProfile(profile, legacyAttendee: uiAutomation)
             )
         }
     }

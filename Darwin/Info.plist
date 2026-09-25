@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>OMEUIAutomationProfile</key>
+	<string>$(OME_UI_AUTOMATION_PROFILE)</string>
 	<key>OMEUIAutomation</key>
 	<string>$(OME_UI_AUTOMATION)</string>
 	<key></key>

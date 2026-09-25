@@ -1,0 +1,34 @@
+appId: ${APP_ID}
+---
+- launchApp
+- extendedWaitUntil:
+    visible: {id: menu.account}
+    timeout: 30000
+- tapOn: {id: menu.account}
+- tapOn: Sign In
+- tapOn: Sign Up
+- assertVisible: Private Test PDS
+- tapOn: {id: button.account.submit}
+- runFlow:
+    when: {visible: Continue}
+    commands:
+      - tapOn: Continue
+- extendedWaitUntil:
+    visible: Choose a username
+    timeout: 30000
+- tapOn: yourname
+- inputText: ${USERNAME}
+- tapOn: Next
+- extendedWaitUntil:
+    visible: Your account
+    timeout: 15000
+- tapOn: Email
+- inputText: ${EMAIL}
+- tapOn: Password
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: Sign up
+- runFlow: consent.yaml
+- extendedWaitUntil:
+    visible: {id: menu.account, text: 'Signed in as ${HANDLE}'}
+    timeout: 30000
