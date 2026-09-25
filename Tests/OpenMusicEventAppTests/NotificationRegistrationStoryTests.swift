@@ -501,18 +501,24 @@ struct NotificationRegistrationStoryTests {
                                 }
                             }
                         }
-                        await fakeFCM.deliverNotifications { json in
-                            let reaction = await MainActor.run {
-                                appStore.send(
-                                    .notification(
-                                        NotificationEvent(
-                                            json: json,
-                                            delivery: .contentAvailable
+                        // The fake provider runs in the server's context, but delivery enters
+                        // the app with its own database and clients.
+                        await withEscapedDependencies { appDependencies in
+                            await fakeFCM.deliverNotifications { json in
+                                await appDependencies.yield {
+                                    let reaction = await MainActor.run {
+                                        appStore.send(
+                                            .notification(
+                                                NotificationEvent(
+                                                    json: json,
+                                                    delivery: .contentAvailable
+                                                )
+                                            )
                                         )
-                                    )
-                                )
+                                    }
+                                    await reaction?.value
+                                }
                             }
-                            await reaction?.value
                         }
                         let destinationTask = await MainActor.run {
                             appStore.send(.notificationDestination(destination))
@@ -579,7 +585,7 @@ struct NotificationRegistrationStoryTests {
                             ),
                             body: ByteBuffer(data: webhookPayload)
                         )
-                        #expect(webhookResponse.head.status == .accepted)
+                        try #require(webhookResponse.head.status == .accepted)
                         try await fakeFCM.waitForRequestCount(3)
                         try await requestRecorder.waitForRequestCount(8)
                         let refreshedEventIDs = await eventRefreshRecorder.eventIDs()
@@ -908,6 +914,7 @@ private func writeNotificationSourceRepository(
         name: Announcements
         description: Official festival updates.
         defaultNotificationState: subscribed
+        notificationsRequired: false
         """.utf8
     ).write(to: channels.appending(path: "announcements.yml"))
     for (postID, post) in posts {
