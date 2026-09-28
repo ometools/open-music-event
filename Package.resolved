@@ -1,5 +1,5 @@
 {
-  "originHash" : "c9eb99e782c19eb5b1d253066e9ffa7d48b9e1fc7f7a83c5133c4d8732e8d027",
+  "originHash" : "143356828a519798147003067aa3f4ed863ef45ea3d4cf19f5c56bd9a2b11125",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -452,6 +452,15 @@
       }
     },
     {
+      "identity" : "swift-dependencies-http-client",
+      "kind" : "remoteSourceControl",
+      "location" : "https://tangled.org/woody.fm/swift-dependencies-http-client",
+      "state" : {
+        "revision" : "35fca654cd980164f42d4bcecb1e52bf0d1a902e",
+        "version" : "0.3.0"
+      }
+    },
+    {
       "identity" : "swift-dependencies-source-control-client",
       "kind" : "remoteSourceControl",
       "location" : "https://source.woody.fm/swift-dependencies-source-control-client",
@@ -724,10 +733,10 @@
     {
       "identity" : "swift-tagged-types-macro",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-tagged-types-macro",
+      "location" : "https://tangled.org/woody.fm/swift-tagged-types-macro",
       "state" : {
-        "branch" : "main",
-        "revision" : "0a15ce1210dd528f63c012de1454e4411bed8567"
+        "revision" : "fc60387db0644d24150712e4d7049af1a99cd9c4",
+        "version" : "0.1.0"
       }
     },
     {
@@ -742,10 +751,10 @@
     {
       "identity" : "swift-urlqueryitem-coder",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-urlqueryitem-coder",
+      "location" : "https://tangled.org/woody.fm/swift-urlqueryitem-coder",
       "state" : {
-        "branch" : "main",
-        "revision" : "d925953531ba5aa134d8f832ee47e70715bcf983"
+        "revision" : "528449dc027feb22cdba65ae2830a2cbf3996e7d",
+        "version" : "1.1.0"
       }
     },
     {

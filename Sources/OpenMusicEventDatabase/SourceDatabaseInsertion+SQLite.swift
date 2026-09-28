@@ -106,16 +106,24 @@ public extension OME.SourceDatabaseInsertion {
     ) async throws {
         try validatePublishedEvent(eventID, from: workspace)
 
+        // Resolve ownership before opening the write transaction.
+        let installedProvenance = try await database.read { db in
+            try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+        }
+        guard let installedProvenance,
+              let installedWorkspace = installedProvenance.workspace,
+              try await installedWorkspace.referencesSameRepository(as: workspace)
+        else {
+            throw SourceWorkspaceInstallationError.mismatchedEvent(eventID, workspace.id)
+        }
+
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
             importedAt: Date()
         )
         try await database.write { db in
-            guard let installedProvenance = try EventSourceProvenanceRecord
-                .find(eventID)
-                .fetchOne(db),
-                  let installedWorkspace = installedProvenance.workspace,
-                  installedWorkspace.referencesSameRepository(as: workspace)
+            // Another writer must not change the source while ownership is being resolved.
+            guard try EventSourceProvenanceRecord.find(eventID).fetchOne(db) == installedProvenance
             else {
                 throw SourceWorkspaceInstallationError.mismatchedEvent(
                     eventID,

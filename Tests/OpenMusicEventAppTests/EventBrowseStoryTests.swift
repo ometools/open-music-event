@@ -1593,6 +1593,21 @@ struct EventBrowseStoryTests {
         try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
+                #expect(handle.rawValue == "wickedwoods.ca")
+                let document = try JSONDecoder().decode(
+                    DID.Document.self,
+                    from: Data("""
+                    {
+                      "id": "\(organizerID)",
+                      "alsoKnownAs": ["at://wickedwoods.ca"],
+                      "verificationMethod": [],
+                      "service": []
+                    }
+                    """.utf8)
+                )
+                return (Atmosphere.Account(id: .init(organizerID), handle: handle), document)
+            }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { _, _ in
                 Data(Self.wickedWoodsRevisionRefreshResponse.utf8)

@@ -3107,6 +3107,111 @@ struct SourceDatabaseInsertionTests {
         }
     }
 
+    @Test(arguments: ["did:plc:foreign", "unresolvable.example", "spoofed.example"], [false, true])
+    func `same repository name cannot hide a foreign or unverified owner`(
+        legacyOwner: String,
+        installedUsesLegacy: Bool
+    ) async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
+        let installedEventID = eventID("attendee-event", organizerID: organizerID)
+        let legacyReference = "tangled.org/\(legacyOwner)/installed-source"
+        let canonicalReference = "at://did:plc:published-replacement/sh.tangled.repo/installed-source"
+        let installedReference = installedUsesLegacy ? legacyReference : canonicalReference
+        let foreignReference = installedUsesLegacy ? canonicalReference : legacyReference
+        let installedSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled, reference: installedReference, ref: "old-revision"
+        )
+        let installedWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: installedSource.reference,
+            branch: "main"
+        )
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Installed content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: installedSource
+            )
+        )
+        let foreignSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: foreignReference,
+            ref: "new-revision"
+        )
+        let foreignWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: foreignSource.reference,
+            branch: "main"
+        )
+        let foreignInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Foreign content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: foreignSource
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await installedInsertion.installPublishedEvent(
+            installedEventID,
+            from: installedWorkspace,
+            in: database
+        )
+
+        struct OwnerUnavailable: Error {}
+        // Failed lookups and one-way aliases must reject replacement just as foreign DIDs do.
+        await withDependencies {
+            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
+                guard handle.rawValue == "spoofed.example" else { throw OwnerUnavailable() }
+                // The handle claims our DID, but that DID claims a different handle.
+                let document = try JSONDecoder().decode(DID.Document.self, from: Data("""
+                    {"id":"did:plc:published-replacement","alsoKnownAs":["at://organizer.example"],"verificationMethod":[],"service":[]}
+                    """.utf8))
+                return (Atmosphere.Account(id: .init(document.id), handle: handle), document)
+            }
+        } operation: {
+            await #expect(throws: (any Error).self) {
+                try await foreignInsertion.replacePublishedEvent(
+                    installedEventID,
+                    from: foreignWorkspace,
+                    in: database
+                )
+            }
+        }
+
+        try await database.read { db in
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                installedReference
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                installedReference
+            )
+            expectNoDifference(try SourceWorkspaceInstallationRecord.fetchCount(db), 0)
+            expectNoDifference(
+                try OME.Event.find(installedEventID).fetchOne(db)?.name,
+                "Installed content"
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db)?.ref,
+                "main"
+            )
+        }
+    }
+
     @Test(arguments: [false, true])
     func `canonical source refresh cannot overwrite authoring under either source identity`(
         authoringUsesCanonicalSource: Bool
@@ -3115,7 +3220,7 @@ struct SourceDatabaseInsertionTests {
         let installedEventID = eventID("attendee-event", organizerID: organizerID)
         let legacyWorkspace = SourceWorkspace(
             organizerID: organizerID,
-            repository: "tangled.org/example/installed-source",
+            repository: "tangled.org/did:plc:published-replacement/installed-source",
             branch: "main"
         )
         let canonicalWorkspace = SourceWorkspace(
@@ -3168,6 +3273,10 @@ struct SourceDatabaseInsertionTests {
         try await database.write { db in
             try SourceWorkspaceInstallationRecord.insert { authoringInstallation }.execute(db)
         }
+
+        // Ownership succeeds in both directions; the authoring guard must reject this update.
+        #expect(try await legacyWorkspace.referencesSameRepository(as: canonicalWorkspace))
+        #expect(try await canonicalWorkspace.referencesSameRepository(as: legacyWorkspace))
 
         // Canonicalizing an attendee source must not bypass an existing authoring workspace.
         await #expect(throws: (any Error).self) {

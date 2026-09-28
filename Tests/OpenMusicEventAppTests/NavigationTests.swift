@@ -5149,6 +5149,35 @@ struct NavigationTests {
     }
 
     @Test
+    func editContributorBindingWritesThroughToForm() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let contributorID = contributorLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
+            }
+        }
+
+        #expect(store.hasLoadedDraft)
+        #expect(store.form.value.name == "Old Name")
+
+        // This is the binding used by the editable name field.
+        $store.form.value.name.wrappedValue = "New Name"
+        #expect(store.form.value.name == "New Name")
+    }
+
+    @Test
     func editContributorBindingChangeSavesToDatabase() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -5172,7 +5201,7 @@ struct NavigationTests {
         #expect(store.state.hasLoadedDraft)
         #expect(store.state.form.value.name == "Old Name")
 
-        // `modify` applies the same binding-style form change before the user saves.
+        // The edited draft is submitted through the save action.
         store.modify { $0.form.value.name = "New Name" }
         let submittedValue = store.state.form.value
         let submission = store.send(.saveButtonTapped)

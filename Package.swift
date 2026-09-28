@@ -137,8 +137,8 @@ let dependenciesHTTPClientDependency: Package.Dependency = {
         )
     }
     return .package(
-        url: "https://source.woody.fm/swift-dependencies-http-client",
-        branch: "main"
+        url: "https://tangled.org/woody.fm/swift-dependencies-http-client",
+        from: "0.3.0"
     )
 }()
 let atmosphereFamilyRoot = environment["OME_COMPOSABLE_ATMOSPHERE_PATH"].map(packagePath)
@@ -347,8 +347,8 @@ var applicationDependencies: [Package.Dependency] = [
     blueskyDependency,
     composableAtmosphereConstellationDependency,
     composableAtmosphereTangledDependency,
-    .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
+    .package(url: "https://tangled.org/woody.fm/swift-tagged-types-macro", from: "0.1.0"),
+    .package(url: "https://tangled.org/woody.fm/swift-urlqueryitem-coder", from: "1.1.0"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
     sourceControlDependency,
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
@@ -421,8 +421,8 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     .package(
-        url: "https://source.woody.fm/swift-dependencies-http-client",
-        branch: "main"
+        url: "https://tangled.org/woody.fm/swift-dependencies-http-client",
+        from: "0.3.0"
     ),
     .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),

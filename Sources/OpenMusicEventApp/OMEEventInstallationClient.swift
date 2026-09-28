@@ -210,7 +210,7 @@ extension OMEEventInstallationClient: DependencyKey {
                 publishedEvents.reserveCapacity(installedEventIDs.count)
                 for eventID in installedEventIDs {
                     let published = try await publishedEventInstallation(eventID)
-                    guard published.workspace.referencesSameRepository(as: workspace) else {
+                    guard try await published.workspace.referencesSameRepository(as: workspace) else {
                         throw OMEEventInstallationError.installationSourceUnavailable(
                             OME.Event.reference(id: eventID).uri
                         )
@@ -242,7 +242,7 @@ extension OMEEventInstallationClient: DependencyKey {
                 """)
 
                 let published = try await publishedEventInstallation(eventID)
-                guard published.workspace.referencesSameRepository(as: workspace) else {
+                guard try await published.workspace.referencesSameRepository(as: workspace) else {
                     throw OMEEventInstallationError.installationSourceUnavailable(eventURI)
                 }
                 NotificationRefreshDiagnostics.notice("""
