@@ -40,9 +40,11 @@ python3 Scripts/auth-e2e/preflight.py
 ```
 
 The archive revision and checksum are pinned in `sandbox.py`. The PDS base is
-pinned by image digest. The derived image patches only `tokenMaxAge`; upstream
-refresh-token and session lifetimes are unchanged. The patch fails if its expected
-constructor changes. The app's OAuth metadata grants only `atproto` for this slice.
+pinned by image digest. The derived image sets `tokenMaxAge` to 60 seconds; upstream
+refresh-token and session lifetimes are unchanged. It also permits exactly
+`https://metadata.ome-auth.test/oauth-client-metadata.json` through the provider's
+local-hostname client-ID check. Other local clients remain rejected. Both patches
+fail if the pinned source changes, and the image build tests the client exception. The app's OAuth metadata grants only `atproto` for this slice.
 
 The host relay binds **127.0.0.1:443**. On Docker Desktop its external network has
 higher priority than the internal Atmosphere network; without that priority, host
