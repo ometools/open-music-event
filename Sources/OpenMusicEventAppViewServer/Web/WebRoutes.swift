@@ -1,3 +1,4 @@
+import OpenMusicEventOAuthClient
 import Foundation
 import Hummingbird
 import OpenMusicEventLexicon
@@ -6,12 +7,30 @@ import OpenMusicEventRouting
 extension OpenMusicEventAppViewServer {
     static func installWebRoutes<Context: RequestContext>(
         on router: Router<Context>,
+        oauthClient: OpenMusicEventOAuthClient,
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
         openMusicEventCatalog: OpenMusicEventCalendarCatalog,
         store: OpenMusicEventAppViewStore?
     ) {
+        router.get(RouterPath(oauthClient.metadataURL.path)) { request, _ async throws -> Response in
+            let data: Data
+            if oauthClient == .privateAuthentication {
+                guard request.authority == oauthClient.metadataURL.host else {
+                    throw HTTPError(.notFound)
+                }
+                data = try oauthClient.privateMetadataData()
+            } else {
+                guard let file = try staticSiteFiles.file(requestPath: oauthClient.metadataURL.path) else {
+                    throw HTTPError(.notFound)
+                }
+                data = try oauthClient.metadataData(from: file.data)
+            }
+            return Response(status: .ok, headers: [.contentType: "application/json", .cacheControl: "no-store"],
+                            body: .init(byteBuffer: .init(data: data)))
+        }
+
         router.get("/.well-known/{file}") { request, context async throws -> Response in
             return try response(
                 host: request.authority,
@@ -71,7 +90,11 @@ extension OpenMusicEventAppViewServer {
         }
 
         router.get("/") { request, _ async throws -> Response in
-            try response(
+            if oauthClient == .privateAuthentication {
+                guard request.authority == oauthClient.homepageURL.host else { throw HTTPError(.notFound) }
+                return textResponse("OME Private Authentication Tests")
+            }
+            return try response(
                 host: request.authority,
                 path: "/",
                 routeResolver: routeResolver,

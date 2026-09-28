@@ -182,6 +182,7 @@ public enum OpenMusicEventAppViewServer {
         )
         installWebRoutes(
             on: router,
+            oauthClient: configuration.oauthClient,
             routeResolver: OpenMusicEventRouter(
                 configuration: OpenMusicEventRoutingConfiguration(
                     brandedEventRouteClaims: configuration.brandedEventRouteClaims

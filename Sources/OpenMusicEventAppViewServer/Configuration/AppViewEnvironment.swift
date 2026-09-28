@@ -1,3 +1,4 @@
+import OpenMusicEventOAuthClient
 import ATProto
 import ComposableNotifications
 import Foundation
@@ -7,6 +8,10 @@ public extension AppViewConfiguration {
     static func fromEnvironment(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Self {
+        let clientName = environment["OME_OAUTH_CLIENT"] ?? "production"
+        guard let oauthClient = OpenMusicEventOAuthClient(rawValue: clientName) else {
+            throw AppViewConfigurationError.invalidOAuthClient(clientName)
+        }
         let databaseURL = URL(
             fileURLWithPath: environment["OME_APPVIEW_DATABASE_PATH"]
                 ?? FileManager.default.currentDirectoryPath + "/open-music-event-appview.sqlite"
@@ -103,6 +108,7 @@ public extension AppViewConfiguration {
                 environment["OME_APPVIEW_PUBLIC_HOST"] ?? "openmusicevent.app"
             ),
             siteRoot: environment["OME_APPVIEW_SITE_ROOT"].map(URL.init(fileURLWithPath:)),
+            oauthClient: oauthClient,
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
             brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment),
             databaseURL: databaseURL,

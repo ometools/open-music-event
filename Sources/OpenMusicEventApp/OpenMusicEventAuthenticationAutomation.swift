@@ -1,3 +1,4 @@
+import OpenMusicEventOAuthClient
 import ATProto
 import ATProtoOAuth
 import Dependencies
@@ -28,7 +29,8 @@ public enum OpenMusicEventUIAutomation: String, Sendable, Equatable {
 enum OpenMusicEventAuthenticationAutomation {
     static let domain = "ome-auth.test"
     static let pdsHost = "pds1.ome-auth.test"
-    static let metadataURL = URL(string: "https://metadata.ome-auth.test/oauth-client-metadata.json")!
+    static let client = OpenMusicEventOAuthClient.privateAuthentication
+    static let metadataURL = client.metadataURL
 
     static func prepareSignUp(_ dependencies: inout DependencyValues) {
         dependencies.openMusicEventSignUpServerConfiguration = OAuthSignUpServerConfiguration(
@@ -46,10 +48,11 @@ enum OpenMusicEventAuthenticationAutomation {
     static func prepareDependencies(_ dependencies: inout DependencyValues) {
         let appID = OAuth.App.ID(metadataURL)
         dependencies.oauthAppConfiguration.appID = appID
+        dependencies.oauthAppConfiguration.redirectURI = .init(client.redirectURL)
         dependencies.oauthAppManifest = OAuth.AppManifest(
             appID: appID,
             appName: "OME Private Authentication Tests",
-            redirectURIs: [OpenMusicEventOAuth.appConfiguration.redirectURI],
+            redirectURIs: [.init(client.redirectURL)],
             basePermissions: [.atproto]
         )
         dependencies.didResolvers.resolve["plc"] = { did in

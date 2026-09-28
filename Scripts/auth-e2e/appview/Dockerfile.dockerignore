@@ -1,0 +1,11 @@
+**
+!Package.swift
+!Package.resolved
+!Sources/
+!Sources/**
+!Tests/
+!Tests/**
+!Scripts/
+!Scripts/auth-e2e/
+!Scripts/auth-e2e/appview/
+!Scripts/auth-e2e/appview/Dockerfile

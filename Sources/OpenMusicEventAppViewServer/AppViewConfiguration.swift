@@ -1,3 +1,4 @@
+import OpenMusicEventOAuthClient
 import ATProto
 import Foundation
 import OpenMusicEventRouting
@@ -9,6 +10,7 @@ public struct AppViewConfiguration: Sendable {
         port: Int = 8080,
         publicAppViewHost: ATProto.PDSHost = "openmusicevent.app",
         siteRoot: URL? = nil,
+        oauthClient: OpenMusicEventOAuthClient = .production,
         wellKnownRoot: URL? = nil,
         brandedEventRouteClaims: [BrandedEventRouteClaim] = [],
         databaseURL: URL? = nil,
@@ -20,6 +22,7 @@ public struct AppViewConfiguration: Sendable {
         tangledWebhook: TangledWebhookConfiguration? = nil,
         sourceArtifacts: SourceArtifactS3Configuration? = nil
     ) {
+        self.oauthClient = oauthClient
         self.host = host
         self.port = port
         self.publicAppViewHost = publicAppViewHost
@@ -36,6 +39,7 @@ public struct AppViewConfiguration: Sendable {
         self.sourceArtifacts = sourceArtifacts
     }
 
+    public var oauthClient: OpenMusicEventOAuthClient
     public var host: String
     public var port: Int
     public var publicAppViewHost: ATProto.PDSHost

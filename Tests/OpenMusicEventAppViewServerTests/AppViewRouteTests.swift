@@ -826,7 +826,42 @@ struct AppViewRouteTests {
             try await client.execute(uri: "/.well-known/oauth-client-metadata.json", method: .get) { response in
                 #expect(response.status == .ok)
                 #expect(response.headers[.contentType] == "application/json")
-                #expect(String(buffer: response.body).contains(#""client_id":"openmusicevent.app""#))
+                #expect(String(buffer: response.body).contains(#""client_id":"https://openmusicevent.app/.well-known/oauth-client-metadata.json""#))
+            }
+        }
+    }
+
+    @Test
+    func privateAppViewServesTheSharedNativeClient() async throws {
+        #expect(try AppViewConfiguration.fromEnvironment(environment: [
+            "OME_OAUTH_CLIENT": "private-authentication"
+        ]).oauthClient == .privateAuthentication)
+        let roots = try TestAppViewRoots()
+        defer { roots.remove() }
+        var configuration = roots.configuration
+        configuration.oauthClient = .privateAuthentication
+        let application = try OpenMusicEventAppViewServer.application(configuration: configuration)
+        try await application.test(.ahc()) { client in
+            try await client.execute(uri: "/oauth-client-metadata.json", method: .get,
+                                     headers: [.init("Host")!: "metadata.ome-auth.test"]) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.contentType] == "application/json")
+                let metadata = try #require(JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as? [String: Any])
+                #expect(metadata["client_id"] as? String == "https://metadata.ome-auth.test/oauth-client-metadata.json")
+                #expect(metadata["client_uri"] as? String == "https://metadata.ome-auth.test/")
+                #expect(metadata["redirect_uris"] as? [String] == ["test.ome-auth.metadata:/oauth/callback"])
+                #expect(metadata["scope"] as? String == "atproto")
+                #expect(metadata["application_type"] as? String == "native")
+                #expect(metadata["dpop_bound_access_tokens"] as? Bool == true)
+                #expect(!String(buffer: response.body).contains("openmusicevent.app"))
+            }
+            try await client.execute(uri: "/", method: .get,
+                                     headers: [.init("Host")!: "metadata.ome-auth.test"]) { response in
+                #expect(response.status == .ok)
+            }
+            try await client.execute(uri: "/oauth-client-metadata.json", method: .get,
+                                     headers: [.init("Host")!: "openmusicevent.app"]) { response in
+                #expect(response.status == .notFound)
             }
         }
     }
@@ -847,7 +882,7 @@ struct AppViewRouteTests {
                 #expect(response.statusCode == .ok)
                 #expect(response.headers?["Content-Type"] == "application/json")
                 #expect(response.isBase64Encoded == nil)
-                #expect(response.body?.contains(#""client_id":"openmusicevent.app""#) == true)
+                #expect(response.body?.contains(#""client_id":"https://openmusicevent.app/.well-known/oauth-client-metadata.json""#) == true)
             }
 
             try await client.execute(uri: "/assets/ome-mark.jpg", method: .get) { response in
@@ -1178,7 +1213,7 @@ private struct TestAppViewRoots {
             .write(to: siteRoot.appendingPathComponent("favicon.png", isDirectory: false))
         try Data([0x89, 0x50, 0x4e, 0x47])
             .write(to: siteRoot.appendingPathComponent("apple-touch-icon.png", isDirectory: false))
-        try Data(#"{"client_id":"openmusicevent.app"}"#.utf8)
+        try Data(#"{"client_id":"old.example","scope":"atproto"}"#.utf8)
             .write(to: siteRoot.appendingPathComponent(".well-known/oauth-client-metadata.json", isDirectory: false))
         try Data("did:plc:localtest".utf8)
             .write(to: wellKnownRoot.appendingPathComponent("localhost/atproto-did", isDirectory: false))

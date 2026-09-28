@@ -497,6 +497,7 @@ let appViewDependencies: [Package.Dependency] = [
 // Target dependencies
 
 var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
+    "OpenMusicEventOAuthClient",
     "BlueskyActorCache",
     "OpenMusicEventSourceClone",
     "OpenMusicEventComponents",
@@ -529,18 +530,16 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
     .product(name: "Gzip", package: "gzipswift"),
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
     .product(name: "Tar", package: "swift-tar"),
+    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
 ]
 
-if packageBuild != .appView {
-    openMusicEventSourceCloneDependencies.append(contentsOf: [
-        .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
-        .product(name: "Sharing", package: "swift-sharing"),
-        .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
-        .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-        .product(name: "Tagged", package: "swift-tagged"),
-        .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-    ])
-}
+openMusicEventSourceCloneDependencies.append(contentsOf: [
+    .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+    .product(name: "Sharing", package: "swift-sharing"),
+    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+    .product(name: "Tagged", package: "swift-tagged"),
+])
 
 openMusicEventAuthenticationDependencies.append(contentsOf: [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
@@ -926,6 +925,7 @@ var applicationTargets: [Target] = [
 // App UI targets
 
 var openMusicEventAppDependencies: [Target.Dependency] = [
+    "OpenMusicEventOAuthClient",
     .product(name: "HeroImageList", package: "swift-hero-image-list"),
     "BlueskyActorCache",
     .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
@@ -1263,6 +1263,7 @@ let appViewTargets: [Target] = [
     .target(
         name: "OpenMusicEventAppViewServer",
         dependencies: [
+            "OpenMusicEventOAuthClient",
             "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",
             "OpenMusicEventRouting",
@@ -1350,7 +1351,7 @@ let appViewTargets: [Target] = [
 
 let products: [Product]
 let dependencies: [Package.Dependency]
-let targets: [Target]
+var targets: [Target]
 
 switch packageBuild {
 case .app:
@@ -1395,6 +1396,11 @@ case .appView:
             .contains($0.name)
         }
         + appViewTargets
+}
+
+targets.append(.target(name: "OpenMusicEventOAuthClient"))
+if !isAndroidAppBuild {
+    targets.append(.testTarget(name: "OpenMusicEventOAuthClientTests", dependencies: ["OpenMusicEventOAuthClient"]))
 }
 
 let package = Package(

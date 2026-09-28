@@ -1,3 +1,4 @@
+import OpenMusicEventOAuthClient
 import ATProto
 import ATProtoOAuth
 import ComposableAtmosphereUserInput
@@ -127,11 +128,9 @@ public enum OpenMusicEventOAuth {
         account: "oauth.selectedSessionID"
     )
 
-    public static let clientMetadataURL = URL(
-        string: "https://openmusicevent.app/.well-known/oauth-client-metadata.json"
-    )!
+    public static let clientMetadataURL = OpenMusicEventOAuthClient.production.metadataURL
 
-    public static let redirectURL = URL(string: "app.openmusicevent:/oauth/callback")!
+    public static let redirectURL = OpenMusicEventOAuthClient.production.redirectURL
 
     public static let tangledPullPermission =
         TangledOAuthRequirements.pullPermission
@@ -366,7 +365,7 @@ public enum OpenMusicEventOAuth {
     public static func metadataData(
         encoder: JSONEncoder = JSONEncoder()
     ) throws -> Data {
-        try appManifest.metadataData(encoder: encoder)
+        try OpenMusicEventOAuthClient.production.metadataData(from: appManifest.metadataData(encoder: encoder))
     }
 
     public static func resetStoredSession() {
