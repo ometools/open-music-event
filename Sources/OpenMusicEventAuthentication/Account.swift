@@ -368,6 +368,7 @@ public struct Account {
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         public var presentation: Presentation?
+        public var verifiedAccountHandles: [Atmosphere.Account.ID: Atmosphere.Account.Handle] = [:]
         public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
@@ -395,7 +396,9 @@ public struct Account {
                         id: session.accountID,
                         identity: cachedActorIdentities[
                             session.accountID.rawValue.description
-                        ],
+                        ] ?? verifiedAccountHandles[session.accountID].map {
+                            ActorIdentity(did: session.accountID.rawValue, handle: $0, source: .canonicalResolution)
+                        },
                         isSelected: session.accountID == selectedSessionID && !validationStatus.requiresRelog,
                         pdsHost: session.pdsHost.rawValue,
                         sessionValidationStatus: validationStatus
@@ -683,6 +686,9 @@ public struct Account {
                         accountIDs.contains($0.key)
                     }
                     let actorsToRefresh = accountIDs.map { $0.rawValue.description }
+                    state.verifiedAccountHandles = state.verifiedAccountHandles.filter {
+                        accountIDs.contains($0.key)
+                    }
                     if !actorsToRefresh.isEmpty {
                         store.addTask {
                             for actor in actorsToRefresh {
@@ -700,40 +706,24 @@ public struct Account {
                             }
                         }
                     }
-                    let sessionsToValidate = sessions.filter { session in
-                        (
-                            state.accountSessionValidationStatuses[session.accountID] ?? .unchecked
-                        )
-                        .canStartChecking
-                    }
-                    for session in sessionsToValidate {
-                        state.accountSessionValidationStatuses[session.accountID] = .checking
-                    }
-                    if !sessionsToValidate.isEmpty {
+                    for accountID in accountIDs where
+                        (state.accountSessionValidationStatuses[accountID] ?? .unchecked).canStartChecking
+                    {
+                        state.accountSessionValidationStatuses[accountID] = .checking
                         store.addTask {
-                            for session in sessionsToValidate {
-                                let result = await accountSessionValidationClient.validate(session)
-                                try store.send(.accountSessionValidationResponse(session.accountID, result))
-                            }
+                            let result = try await accountSessionValidationClient.validate(accountID)
+                            try store.send(.accountSessionValidationResponse(accountID, result))
                         }
                     }
 
                 case .accountSessionValidationResponse(let accountID, let result):
                     guard state.sessionStore[accountID] != nil else { return }
                     switch result {
-                    case .accepted(let session):
-                        guard session.accountID == accountID else {
-                            state.accountSessionValidationStatuses[accountID] = .unverified
-                            return
-                        }
-                        state.oauth.state.$sessionStore.withLock {
-                            $0[accountID] = session
+                    case .accepted(let handle):
+                        if let handle {
+                            state.verifiedAccountHandles[accountID] = handle
                         }
                         state.accountSessionValidationStatuses[accountID] = .accepted
-                        let sessionStore = state.oauth.state.$sessionStore
-                        store.addTask {
-                            await saveOpenMusicEventSessionStore(sessionStore)
-                        }
 
                     case .requiresRelog:
                         state.accountSessionValidationStatuses[accountID] = .requiresRelog

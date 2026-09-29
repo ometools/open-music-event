@@ -1,5 +1,6 @@
 import ATProto
 import ATProtoOAuth
+import ATProtoServer
 import BlueskyActorCache
 import Clocks
 import ComposableArchitecture2
@@ -355,6 +356,61 @@ struct AccountTests {
         }
     }
 
+    @Test(arguments: [true, false])
+    func sessionValidationRequiresTheAuthenticatedDID(matchesAccount: Bool) async throws {
+        let session = try accountTestSession(did: "did:plc:alice123", pdsHost: "private.pds.example")
+        let did = matchesAccount ? "did:plc:alice123" : "did:plc:other123"
+        let response = try JSONSerialization.data(withJSONObject: [
+            "did": did, "handle": "alice.private.example"
+        ])
+        let result = try await withDependencies {
+            $0.context = .live
+            let stored = Shared(value: session as OAuth.Session?)
+            $0.oauthSessionReference = { _ in stored }
+            $0[ATProto.Server.Client.self].getSession = {
+                try JSONDecoder().decode(ATProto.Server.Session.self, from: response)
+            }
+        } operation: {
+            @Dependency(\.openMusicEventAccountSessionValidationClient) var client
+            return try await client.validate(session.accountID)
+        }
+        if matchesAccount {
+            #expect(result == .accepted(handle: .init(rawValue: "alice.private.example")))
+        } else {
+            #expect(result == .unverified)
+        }
+    }
+
+    @Test
+    func aVerifiedPDSAccountHasAHandleWithoutABlueskyProfile() async throws {
+        let session = try accountTestSession(did: "did:plc:alice123", pdsHost: "private.pds.example")
+        var sessions = OAuth.SessionStore()
+        sessions.upsert(session)
+        let store = withDependencies {
+            $0.openMusicEventAccountSessionValidationClient = .init { session in
+                .accepted(handle: .init(rawValue: "alice.private.example"))
+            }
+            // No profile is available from a public AppView for this private account.
+            $0.blueskyActorProfileCache.refreshProfileIfNeeded = { _, _, _ in
+                throw URLError(.cannotFindHost)
+            }
+        } operation: {
+            Store(initialState: Account.State.localTestState(
+                sessionStore: Shared(value: sessions),
+                selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+            )) { Account() }
+        }
+
+        await store.send(.accountSessionsChanged)?.value
+        try await waitForCondition {
+            store.accountRows.first?.pickerHandle == "@alice.private.example"
+        }
+        let row = try #require(store.accountRows.first)
+        #expect(row.sessionValidationStatus == .accepted)
+        #expect(row.title == "alice.private.example")
+        #expect(row.identity?.avatar == nil)
+    }
+
     @Test
     func accountRowsLoadFriendlyIdentityLabels() async throws {
         let database = try makeAccountTestDatabase()
@@ -416,7 +472,7 @@ struct AccountTests {
         sessionStoreValue.upsert(session)
         let requestedActors = AccountObservationRecorder<String>()
         let validation = AccountSessionValidationRecorder(
-            results: [session.accountID: .accepted(session)]
+            results: [session.accountID: .accepted()]
         )
         let store = withDependencies {
             $0.defaultDatabase = database
@@ -613,7 +669,7 @@ struct AccountTests {
         let validation = AccountSessionValidationRecorder(
             results: [
                 alice.accountID: .requiresRelog,
-                bob.accountID: .accepted(bob),
+                bob.accountID: .accepted(),
             ]
         )
         let store = withDependencies {
@@ -649,61 +705,34 @@ struct AccountTests {
     }
 
     @Test
-    func accountRowValidationPersistsRefreshedSessionWithoutChangingSelection() async throws {
-        let keychainStorage = InMemoryKeychainStorage()
-        let sessionStoreItem = KeychainStorageItem(
-            service: "fm.woody.openMusicEvent.tests",
-            account: "account.validation.sessionStore"
-        )
-        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
-        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
-        var refreshedBob = bob
-        refreshedBob.accessToken = OAuth.AccessToken(rawValue: "bob-refreshed-access-token")
-        refreshedBob.refreshToken = OAuth.RefreshToken(rawValue: "bob-refreshed-refresh-token")
-        var sessionStoreValue = OAuth.SessionStore()
-        sessionStoreValue.upsert(alice)
-        sessionStoreValue.upsert(bob, select: false)
-        let sessionStore = Shared(
-            wrappedValue: sessionStoreValue,
-            KeychainSharedKey(item: sessionStoreItem)
-        )
-        let validation = AccountSessionValidationRecorder(
-            results: [
-                alice.accountID: .accepted(alice),
-                bob.accountID: .accepted(refreshedBob),
-            ]
-        )
+    func accountValidationCannotRestoreATokenRotatedByAnotherRequest() async throws {
+        let original = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        var rotated = original
+        rotated.accessToken = .init(rawValue: "rotated-access-token")
+        rotated.refreshToken = .init(rawValue: "rotated-refresh-token")
+        let latest = rotated
+        var sessions = OAuth.SessionStore()
+        sessions.upsert(original)
+        let sessionStore = Shared(value: sessions)
         let store = withDependencies {
-            $0.keychainStorage = .inMemory(keychainStorage)
-            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
-        } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    sessionStore: sessionStore,
-                    selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
-                )
-            ) {
-                Account()
+            $0.openMusicEventAccountSessionValidationClient = .init { validating in
+                // Another authenticated request rotates the selected session while
+                // this validation still holds its earlier session snapshot.
+                sessionStore.withLock { $0[original.accountID] = latest }
+                return .accepted()
             }
+        } operation: {
+            Store(initialState: Account.State.localTestState(
+                sessionStore: sessionStore,
+                selectedSessionID: Shared(value: original.accountID as Atmosphere.Account.ID?)
+            )) { Account() }
         }
 
-        let task = store.send(.accountSessionsChanged)
-        await task?.value
+        await store.send(.accountSessionsChanged)?.value
         try await waitForCondition {
-            store.sessionStore[bob.accountID]?.accessToken == refreshedBob.accessToken
+            store.accountRows.first?.sessionValidationStatus == .accepted
         }
-
-        #expect(store.selectedSessionID == alice.accountID)
-        #expect(store.session == alice)
-        #expect(store.sessionStore[bob.accountID] == refreshedBob)
-        try await waitForCondition {
-            keychainStorage.data(for: sessionStoreItem) != nil
-        }
-        let savedSessionStore = try JSONDecoder().decode(
-            OAuth.SessionStore.self,
-            from: try #require(keychainStorage.data(for: sessionStoreItem))
-        )
-        #expect(savedSessionStore[bob.accountID] == refreshedBob)
+        #expect(sessionStore.wrappedValue[original.accountID] == latest)
     }
 
     @Test
@@ -768,7 +797,7 @@ struct AccountTests {
         let validation = AccountSessionValidationRecorder(
             results: [
                 alice.accountID: .requiresRelog,
-                bob.accountID: .accepted(bob),
+                bob.accountID: .accepted(),
             ]
         )
         let store = withDependencies {
@@ -1574,10 +1603,10 @@ private actor AccountSessionValidationRecorder {
     }
 
     func validate(
-        _ session: OAuth.Session
+        _ accountID: Atmosphere.Account.ID
     ) -> OpenMusicEventAccountSessionValidationClient.ValidationResult {
-        validatedAccountIDs.append(session.accountID)
-        return results[session.accountID] ?? .accepted(session)
+        validatedAccountIDs.append(accountID)
+        return results[accountID] ?? .accepted()
     }
 
     func snapshotValidatedAccountIDs() -> [Atmosphere.Account.ID] {

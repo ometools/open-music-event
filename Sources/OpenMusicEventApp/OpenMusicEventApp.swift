@@ -521,6 +521,7 @@ struct OpenMusicEventApplicationRuntime {
                 OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
             }
             .onOpenURL { url in
+                guard OpenMusicEventOAuth.isCallbackURL(url) else { return }
                 applicationStore.send(.authentication(.handleOpenURL(.init(url))))
             }
             .environment(

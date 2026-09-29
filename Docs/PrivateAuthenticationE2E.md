@@ -24,7 +24,9 @@ No token or session is injected. No account is created by the sandbox seed comma
 The app's observer forwards the request to its real transport and emits only the
 operation and HTTP status. The coordinator saves per-platform Maestro artifacts
 and a `report.json` under `.build/auth-e2e/runs/`. Maestro artifacts can contain
-the disposable test password; keep this ignored directory private.
+the disposable test password; keep this ignored directory private. Each run also
+saves its password in a mode-0600 `credentials.json`, so a failed run can be
+diagnosed using the accounts it actually created without resetting the PDS.
 
 ## Start the private services
 
@@ -94,7 +96,17 @@ public typeahead, and rejects raw HTTP requests outside the private HTTPS domain
   ios_device:IOS_UDID android_device:ANDROID_SERIAL
 
 Scripts/fastlane-local.sh auth_e2e \
-  ios_device:IOS_UDID android_device:ANDROID_SERIAL
+  ios_device:IOS_UDID android_device:ANDROID_SERIAL prepare:true
+
+# Use the run directory printed above. Provision exact account hostnames before UI work.
+python3 Scripts/auth-e2e/prepare-run.py .build/auth-e2e/runs/RUN_ID \
+  --android-device ANDROID_SERIAL
+sudo /opt/homebrew/bin/python3 Scripts/auth-e2e/host-routing.py install \
+  --run .build/auth-e2e/runs/RUN_ID
+
+Scripts/fastlane-local.sh auth_e2e \
+  ios_device:IOS_UDID android_device:ANDROID_SERIAL \
+  resume:.build/auth-e2e/runs/RUN_ID
 ```
 
 The existing attendee/image lanes remain separate. The auth lane does not record
@@ -149,3 +161,176 @@ Stop services with `sandbox.py down`. Remove just the host block with
 `sudo python3 Scripts/auth-e2e/host-routing.py remove`. Device/CA removal is a
 separate explicit cleanup operation; everyday simulator and emulator state is
 outside this harness's scope.
+
+## Native callback routing
+
+Both private apps use `test.ome-auth.metadata:/oauth/callback`, advertised by
+the AppView metadata. The auth build passes `OME_OAUTH_CALLBACK_SCHEME` to
+the iOS URL registration. Android derives its manifest scheme from the
+authentication build profile and uses a single-task activity so the browser
+returns to the pending authorization. Skip forwards the VIEW intent into the
+existing `.onOpenURL` auth coordinator.
+
+iOS uses ASWebAuthenticationSession; Android uses the shared external-browser
+authorization strategy. Neither route bypasses the token exchange or its
+state, issuer, PKCE, and DPoP checks.
+
+Android OAuth sessions use the shared ATProtoOAuth secure-storage client backed
+by SkipKeychain's encrypted preferences. Its dependency must be visible during
+Skip's macOS prebuild as well as native Android compilation; an Android-only
+SwiftPM product condition can compile the Swift bridge while omitting its JVM
+class from the APK. The shared package gates this integration with its existing
+`SkipAndroidBridge` trait.
+
+
+To retry an incomplete run, pass `--resume .build/auth-e2e/runs/RUN_ID` to
+`Scripts/auth-e2e/run.py` with the same four device/app arguments. Successful
+phases keep their original evidence; failed phases rerun with the saved password.
+A partially completed signup that created an account but did not finish callback
+verification still needs investigation before retrying signup. Resume does not
+reset accounts, clear app data, or turn a failed assertion into a pass.
+
+Each new run uses unique private handles, persisted in its report and reused by
+all login and cross-device phases. Repeating the suite does not require deleting
+PDS accounts. Resume keeps the original handles and saved password.
+
+Before UI work, prepare the run's exact hostnames in the private gateway, CoreDNS,
+Android hosts mount, and Mac hosts block using the commands above. Signup itself
+can succeed before account-handle DNS exists, but subsequent handle login cannot.
+The runner checks Mac resolution before touching either UI. Provisioning preserves
+existing PDS accounts and the private CA; restart the Android app and Chrome after
+remounting routes. Administrator access is needed only for the Mac hosts update.
+
+## Native callback verification (2026-09-28)
+
+Both installed apps completed real private-PDS signup/login callbacks and displayed
+the exact authenticated handle. iOS and Android each restored a session after process
+termination and demonstrated `getSession 401 → refresh 200 → getSession 200` after
+real access-token expiry. Android evidence is in
+`.build/auth-e2e/diagnostics/210945-android-relaunch/report.json`; iOS evidence is in
+`.build/auth-e2e/diagnostics/201229-ios-relaunch/report.json`.
+
+The combined run `20260929T022823Z` resumed after Mac routing was installed on
+2026-09-29. Seventeen phases passed: signup, logout, login, restoration, actual
+expiry/refresh, and restored refreshed sessions on both platforms; iOS login and
+restoration using the Android-created account; Android peer-session verification;
+and iOS local logout. Both expiry checks recorded the required ordered
+`getSession 401 → refresh 200 → getSession 200` evidence.
+
+The suite remains failed at `peer-survives-local-logout`: Android's next refresh
+returned `invalid_grant` with `Refresh token replayed`. OME's local logout handler
+clears local storage without a server revocation request, so temporal proximity
+to iOS logout does not establish causation. The previous Android refresh had
+succeeded; repeated rotation/persistence needs investigation before retrying this
+story. The final three reverse cross-device phases have not run. Preserve this
+report and its original artifacts; do not turn the failed phase into a pass by
+silently signing in again.
+
+An iOS browser-driver failure during cross-login was corrected by tapping the
+static password-page heading instead of `hideKeyboard`, which fails when Safari
+shows only its input toolbar. The retried login passed. No OAuth validation was
+relaxed.
+
+Validation: both app builds passed; 37 focused Swift account/callback tests and
+10 Python harness tests passed. Standalone shared-package keychain tests were
+blocked during dependency resolution by unavailable CasePaths revision
+`c641088612486aac555d329163561f392043d162`; this is not a test pass.
+
+Android exposes the account row identifier and verified-session accessibility
+label on separate nodes, so the relaunch flow checks a labeled descendant. Network
+evidence retains timestamps/process IDs before subtracting prior events, avoiding
+false failures when logcat rotates older entries with the same HTTP status.
+
+## Session independence investigation (2026-09-29)
+
+A temporary wrapper around the pinned PDS token manager emitted only SHA-256
+hashes of token/DPoP identities, method names, timestamps, and error descriptions.
+It forwarded the original arguments, return values and errors without changing
+validation. The original server module was restored after tracing; accounts and
+CA were preserved. Hash evidence is in
+`.build/auth-e2e/diagnostics/session-independence-hash-trace.json`.
+
+Fresh authorizations for `android-tester.pds1.ome-auth.test` were independent:
+Android's DPoP hash begins `a4ab3dba3014` and initial refresh-token hash begins
+`bfd0a0575dc3`; iOS's DPoP hash begins `a05412272f7e` and initial refresh-token hash
+begins `9138ecd115ab`. Three Android-only expiry/relaunch cycles passed, consuming
+the latest token each time. Then iOS refreshed its own session and logged out;
+Android's next relaunch refreshed successfully using its own latest token.
+Reports: `121849-android-relaunch`, `122025-android-relaunch`,
+`122200-android-relaunch`, `122247-ios-login`, `122631-ios-relaunch`,
+`122657-ios-logout`, `122718-android-relaunch` under the diagnostics directory.
+The original failed combined-suite report remains unchanged.
+
+A separate deterministic regression test,
+`AccountTests.accountValidationCannotRestoreATokenRotatedByAnotherRequest`,
+compiled and failed. Account validation receives a copied session; after another
+request replaces the stored credentials, the accepted validation result blindly
+replaces the entire stored session in `Account.accountSessionValidationResponse`.
+The test demonstrates rollback to the original refresh token. This is a confirmed
+local state-ownership defect in shared OME account code, not evidence of shared
+sessions between devices. It remains unproven that this exact interleaving caused
+the earlier runtime replay; the traced reproduction did not replay a token.
+
+Diagnostic test command (no production fix applied):
+```sh
+env SKIP_PLUGIN_DISABLED=1 SKIP_ACTION=none \
+  ~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh \
+  --wait --priority interactive swift-test --build-system native --skip-update \
+  --filter accountValidationCannotRestoreATokenRotatedByAnotherRequest
+```
+Result: build passed; one test failed at the no-rollback assertion.
+
+
+## Account-bound refresh implementation (2026-09-29)
+
+Account validation now accepts an account ID and returns only verification status
+and the resolved handle. It cannot return or write credentials. Each account has
+an independent validation task.
+
+The shared `OAuth.StoredSession` binds an operation to the persistent account
+entry and its authorization identity (account, token endpoint and DPoP key).
+Ordinary authenticated API calls and account-list checks use the same refresh
+path. Concurrent expired requests share refresh plus persistence; a late 401
+retries the current access token. Selection changes do not retarget the operation,
+and logout or a replacement authorization prevents an old response from writing
+credentials back. Offline errors preserve the account. Terminal errors let the
+account list request sign-in again; the older single-session interceptor retains
+its existing logout behavior.
+
+The no-rollback regression now passes. The focused OME graph runs 63 tests across
+`StoredAccountRequestTests`, `AccountTests`, and `OpenMusicEventOAuthTests`, including
+real refresh encoding/DPoP/HTTP retry and keychain persistence with only HTTP
+transport replaced. Command:
+
+```sh
+env OME_COMPOSABLE_ATMOSPHERE_PATH=/Users/woody/Developer/ometools/worktrees/swift-composable-atmosphere \
+  SKIP_PLUGIN_DISABLED=1 SKIP_ACTION=none \
+  ~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh \
+  --wait --priority interactive swift-test --build-system native --skip-update \
+  --filter 'StoredAccountRequestTests|AccountTests|OpenMusicEventOAuthTests'
+```
+
+Result: compilation and all 63 tests passed. Standalone shared-package tests
+remain blocked by the unavailable CasePaths pin described above. The iOS simulator build passed with the local shared package override. Real
+private-PDS login passed (`131849-ios-login`), followed by two successful
+expiry/relaunch checks (`132105-ios-relaunch`, `132227-ios-relaunch`), each recording
+`getSession 401 → refresh 200 → getSession 200` and a verified account row.
+The Android native build and APK installation also passed. The fresh full run
+`20260929T191452Z` passed all 21 UI/network phases on the rebuilt iOS and Android
+apps: separate fresh signups, logout/login, process restoration, real token expiry
+and refresh, restoration of rotated credentials, and cross-device login/logout
+isolation against the same private PDS. Both expiry checks recorded the required
+`getSession 401 → refresh 200 → getSession 200` sequence. The previously failing
+`peer-survives-local-logout` phase also recorded that successful refresh sequence.
+Report: `.build/auth-e2e/runs/20260929T191452Z/report.json`.
+
+The first Android signup attempt selected the username preview instead of the
+input and submitted an empty field. The Android flow now targets the browser
+input's `handle` ID and asserts its entered value. Resuming retained the successful
+iOS signup and original failure screenshot; Android signup and all remaining
+phases passed. No account reset, credential injection, or OAuth relaxation was
+used. All 10 Python harness tests passed as well.
+
+Both source workspaces remain isolated; these changes have not been landed or
+pushed. Validation-only root `Package.resolved` churn was restored.
+The original failed combined report remains unchanged.

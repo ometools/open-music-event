@@ -4,12 +4,24 @@ appId: ${APP_ID}
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: {id: menu.account, text: 'Signed in as ${HANDLE}'}
+    visible: {id: menu.account, text: 'Signed in as @${HANDLE}'}
     timeout: 30000
 - tapOn: {id: menu.account}
 - tapOn: Accounts
-- extendedWaitUntil:
-    visible: {id: 'row.account.*', text: '.*Session verified.*'}
-    timeout: 30000
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - extendedWaitUntil:
+          visible: {id: 'row.account.*', text: '.*Session verified.*'}
+          timeout: 30000
+- runFlow:
+    when: {platform: Android}
+    commands:
+      - extendedWaitUntil:
+          visible:
+            id: 'row.account.*'
+            containsDescendants:
+              - text: '.*Session verified.*'
+          timeout: 30000
 - takeScreenshot: authenticated-session
 - tapOn: Close

@@ -17,7 +17,9 @@ from sandbox import UPSTREAM
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device', required=True)
-    device = parser.parse_args().device
+    parser.add_argument('--run', type=Path, help='Route handles from this prepared auth run')
+    args = parser.parse_args()
+    device = args.device
     if not re.fullmatch(r'emulator-\d+', device):
         parser.error('Only an emulator serial is accepted')
     dedicated_android(device)
@@ -53,7 +55,7 @@ def main():
     hosts = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hosts)
     current = adb('shell', 'cat /system/etc/hosts', capture=True)
-    updated = hosts.updated(current, False) + hosts.BLOCK.replace('127.0.0.1', '10.0.2.2')
+    updated = hosts.updated(current, False) + hosts.block(hosts.handles_for_run(args.run)).replace('127.0.0.1', '10.0.2.2')
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / 'hosts'
         path.write_text(updated)

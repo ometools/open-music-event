@@ -19,7 +19,7 @@
 			<string>OpenMusicEventOAuth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>app.openmusicevent</string>
+				<string>$(OME_OAUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

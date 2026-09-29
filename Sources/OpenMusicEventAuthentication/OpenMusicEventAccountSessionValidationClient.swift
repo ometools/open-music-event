@@ -1,3 +1,4 @@
+import ATProto
 import ATProtoOAuth
 import ATProtoServer
 import Dependencies
@@ -6,57 +7,43 @@ import TCATProtoAuthentication
 
 public struct OpenMusicEventAccountSessionValidationClient: Sendable {
     public enum ValidationResult: Equatable, Sendable {
-        case accepted(OAuth.Session)
+        case accepted(handle: Atmosphere.Account.Handle? = nil)
         case requiresRelog
         case unverified
     }
 
-    public var validate: @Sendable (OAuth.Session) async -> ValidationResult
+    public var validate: @Sendable (Atmosphere.Account.ID) async throws -> ValidationResult
 
     public init(
-        validate: @escaping @Sendable (OAuth.Session) async -> ValidationResult
+        validate: @escaping @Sendable (Atmosphere.Account.ID) async throws -> ValidationResult
     ) {
         self.validate = validate
     }
 }
 
 private enum OpenMusicEventAccountSessionValidationClientKey: TestDependencyKey {
-    static let testValue = OpenMusicEventAccountSessionValidationClient { session in
-        .accepted(session)
+    static let testValue = OpenMusicEventAccountSessionValidationClient { _ in
+        .accepted()
     }
 }
 
 extension OpenMusicEventAccountSessionValidationClientKey: DependencyKey {
     static var liveValue: OpenMusicEventAccountSessionValidationClient {
-        OpenMusicEventAccountSessionValidationClient { session in
-            let validatedSession = Shared(value: session as OAuth.Session?)
-            let authFailureMessage = Shared<ErrorMessage?>(value: nil)
-
+        OpenMusicEventAccountSessionValidationClient { accountID in
+            @Dependency(\.oauthSessionReference) var sessionReference
+            guard let reference = sessionReference(accountID), reference.wrappedValue != nil else {
+                return .requiresRelog
+            }
             do {
-                try await withDependencies {
-                    $0.getDefaultSession = {
-                        validatedSession.wrappedValue ?? session
-                    }
-                    $0.getOptionalDefaultSession = {
-                        validatedSession.wrappedValue
-                    }
-                    $0.errorInterceptors = [
-                        .tokenRefresh(
-                            session: validatedSession,
-                            authFailureMessage: authFailureMessage
-                        ),
-                    ]
-                } operation: {
+                let bound = try OAuth.StoredSession(reference: reference)
+                let serverSession = try await bound.withAccount {
                     @Dependency(ATProto.Server.Client.self) var serverClient
-                    _ = try await serverClient.getSession()
+                    return try await serverClient.getSession()
                 }
-
-                guard let acceptedSession = validatedSession.wrappedValue else {
-                    return .requiresRelog
-                }
-                return .accepted(acceptedSession)
+                guard serverSession.did == accountID else { return .unverified }
+                return .accepted(handle: serverSession.handle)
             } catch is CancellationError {
-                return .unverified
+                throw CancellationError()
             } catch is OAuth.TerminalAuthenticatedSessionFailure {
                 return .requiresRelog
             } catch {

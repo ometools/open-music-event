@@ -329,10 +329,6 @@ public enum OpenMusicEventOAuth {
         )
         let sessionStore = OpenMusicEventOAuth.sessionStore
         let selectedSessionID = OpenMusicEventOAuth.selectedSessionID
-        let selectedSession = OpenMusicEventSelectedOAuthSessionClient.live(
-            sessionStore: sessionStore,
-            selectedSessionID: selectedSessionID
-        )
         let getSelectedOAuthSessionID: @Sendable () -> Atmosphere.Account.ID? = {
             selectedSessionID.wrappedValue
         }
@@ -340,13 +336,17 @@ public enum OpenMusicEventOAuth {
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
         dependencies.getSelectedOAuthSessionID = getSelectedOAuthSessionID
-        dependencies.selectedOAuthSession = selectedSession
+        dependencies.oauthSessionReference = { id in sessionStore.sessions[id.rawValue] }
+        #if os(Android)
+        dependencies.oauthBrowserStrategy = .externalBrowser
+        #else
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
+        #endif
         dependencies.getDefaultSession = {
-            selectedSession.current() ?? .placeholder
+            sessionStore.wrappedValue[selectedSessionID.wrappedValue] ?? .placeholder
         }
         dependencies.getOptionalDefaultSession = {
-            selectedSession.current()
+            sessionStore.wrappedValue[selectedSessionID.wrappedValue]
         }
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
@@ -356,7 +356,8 @@ public enum OpenMusicEventOAuth {
     }
 
     public static func isCallbackURL(_ url: URL) -> Bool {
-        let redirectURL = appConfiguration.redirectURI.rawValue
+        @Dependency(\.oauthAppConfiguration) var configuration
+        let redirectURL = configuration.redirectURI.rawValue
         return url.scheme == redirectURL.scheme
             && url.host == redirectURL.host
             && url.path == redirectURL.path

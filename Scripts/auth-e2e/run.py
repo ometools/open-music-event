@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import time
 
@@ -43,6 +44,17 @@ def refresh_proven(events):
     return not expected
 
 
+def new_events(before, lines):
+    remaining = collections.Counter(before)
+    result = []
+    for line in lines:
+        if remaining[line]:
+            remaining[line] -= 1
+        else:
+            result.extend(EVENT.findall(line))
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ios-device', required=True)
@@ -50,19 +62,57 @@ def main():
     parser.add_argument('--ios-app-id', required=True)
     parser.add_argument('--android-app-id', required=True)
     parser.add_argument('--check-devices', action='store_true')
+    parser.add_argument('--prepare', action='store_true', help='Create a run for DNS/HTTPS provisioning without starting UI tests')
+    parser.add_argument('--resume', type=Path, help='Resume an incomplete run using its UI-created accounts')
     args = parser.parse_args()
     dedicated_ios(args.ios_device)
     dedicated_android(args.android_device)
     if args.check_devices:
         return
     subprocess.run(['python3', str(Path(__file__).with_name('preflight.py'))], check=True)
-    run_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    artifacts = ROOT / '.build/auth-e2e/runs' / run_id
-    artifacts.mkdir(parents=True, mode=0o700)
-    password = 'OME-' + secrets.token_urlsafe(24)
+    runs = ROOT / '.build/auth-e2e/runs'
     platforms = [dict(platform='ios', device=args.ios_device, app=args.ios_app_id),
                  dict(platform='android', device=args.android_device, app=args.android_app_id)]
-    report = dict(run=run_id, passed=False, phases=[], failures=[])
+    if args.resume:
+        artifacts = args.resume.resolve()
+        if artifacts.parent != runs.resolve():
+            raise ValueError('Resume requires a run directory inside this workspace')
+        report = json.loads((artifacts / 'report.json').read_text())
+        if report.get('platforms', platforms) != platforms:
+            raise ValueError('Resume must use the original devices and app IDs')
+        if report['passed']:
+            print('This run already passed: ' + str(artifacts / 'report.json'))
+            return
+        password = json.loads((artifacts / 'credentials.json').read_text())['password']
+        report['failures'] = []
+    else:
+        run_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        artifacts = runs / run_id
+        artifacts.mkdir(parents=True, mode=0o700)
+        password = 'OME-' + secrets.token_urlsafe(24)
+        # Preserve credentials of UI-created accounts; never print them.
+        descriptor = os.open(artifacts / 'credentials.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, 'w') as file:
+            json.dump(dict(password=password), file)
+            file.write('\n')
+        report = dict(run=run_id, passed=False, phases=[], failures=[], platforms=platforms,
+                      identities={p['platform']: p['platform'] + '-' + secrets.token_hex(5)
+                                  for p in platforms})
+    identities = report.get('identities', {'ios': 'ios-tester', 'android': 'android-tester'})
+    (artifacts / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+    if args.prepare:
+        print('Prepared run: ' + str(artifacts))
+        return
+    for username in identities.values():
+        handle = username + '.pds1.ome-auth.test'
+        try:
+            addresses = {entry[4][0] for entry in socket.getaddrinfo(handle, 443)}
+        except socket.gaierror:
+            addresses = set()
+        if '127.0.0.1' not in addresses:
+            raise RuntimeError('Private account routing is missing for ' + handle
+                               + '. Run prepare-run.py and host-routing.py install --run for ' + str(artifacts)
+                               + ', then resume it. No UI tests were started.')
     started = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     def events(target):
@@ -72,17 +122,23 @@ def main():
                          '--predicate', 'category == "auth-e2e"')
         else:
             log = output(str(WRAPPERS / 'android-inspect.sh'), '--device', target['device'],
-                         'logcat', '--lines', '10000', '--filter', 'OME_AUTH_E2E')
-        return EVENT.findall(log)
+                         'logcat', '--lines', '100000')
+        # Keep timestamps/process IDs until after subtraction: logcat can rotate old entries.
+        return [line for line in log.splitlines() if EVENT.search(line)]
 
     def phase(name, flow, targets=platforms, identity=None, require_refresh=False):
         failures = []
         for target in targets:
             platform = target['platform']
-            username = (identity or platform) + '-tester'
+            previous = next((p for p in report['phases']
+                             if p['name'] == name and p['platform'] == platform), None)
+            if previous and previous['passed']:
+                print(f'{name}: {platform} already passed', flush=True)
+                continue
+            username = identities[identity or platform]
             directory = artifacts / name / platform
-            directory.mkdir(parents=True, mode=0o700)
-            before = collections.Counter(events(target))
+            directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+            before = events(target)
             command = ['maestro', '--device', target['device'], 'test',
                        '--test-output-dir', str(directory),
                        '-e', 'APP_ID=' + target['app'], '-e', 'USERNAME=' + username,
@@ -92,24 +148,22 @@ def main():
             print(f'{name}: {platform}', flush=True)
             with (directory / 'maestro.log').open('w') as log:
                 result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-            new_events = []
-            for event in events(target):
-                if before[event]:
-                    before[event] -= 1
-                else:
-                    new_events.append(event)
+            observed = new_events(before, events(target))
             passed = result.returncode == 0
             if flow == 'relaunch':
-                passed = passed and ('getSession', '200') in new_events
+                passed = passed and ('getSession', '200') in observed
             if flow in ['signup', 'login']:
-                passed = passed and ('exchange', '200') in new_events
+                passed = passed and ('exchange', '200') in observed
             if require_refresh:
-                passed = passed and refresh_proven(new_events)
+                passed = passed and refresh_proven(observed)
+            report['phases'] = [p for p in report['phases']
+                                if (p['name'], p['platform']) != (name, platform)]
             report['phases'].append(dict(name=name, platform=platform, identity=username,
-                                         uiExitCode=result.returncode, events=new_events, passed=passed))
+                                         uiExitCode=result.returncode, events=observed, passed=passed))
             if not passed:
-                failures.append(f'{name}: {platform} UI or network evidence failed')
-        report['failures'].extend(failures)
+                failure = f'{name}: {platform} UI or network evidence failed'
+                failures.append(failure)
+                report['failures'].append(failure)
         (artifacts / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         if failures:
             raise RuntimeError('; '.join(failures))
@@ -130,7 +184,9 @@ def main():
         phase('logout', 'logout')
         phase('login', 'login')
         phase('restore', 'relaunch')
-        expire()
+        if not all(any(p['name'] == 'expired-token' and p['platform'] == target['platform']
+                       and p['passed'] for p in report['phases']) for target in platforms):
+            expire()
         phase('expired-token', 'relaunch', require_refresh=True)
         phase('restore-refreshed-session', 'relaunch')
         # Both devices hold independent sessions for the Android-created account.

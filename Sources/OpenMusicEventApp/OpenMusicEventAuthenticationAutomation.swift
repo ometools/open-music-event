@@ -1,4 +1,5 @@
 import OpenMusicEventOAuthClient
+import SkipFuse
 import ATProto
 import ATProtoOAuth
 import Dependencies
@@ -70,7 +71,10 @@ enum OpenMusicEventAuthenticationAutomation {
             let (data, response) = try await liveTransport(request, body)
             if let event = event(request: request, body: body, status: response.status.code) {
                 // Never emit request/response bodies, auth headers, codes, or token values.
-                #if canImport(OSLog)
+                #if os(Android)
+                Logger(subsystem: "app.openmusicevent", category: "auth-e2e")
+                    .notice("OME_AUTH_E2E \(event)")
+                #elseif canImport(OSLog)
                 Logger(subsystem: "app.openmusicevent", category: "auth-e2e")
                     .notice("OME_AUTH_E2E \(event, privacy: .public)")
                 #else

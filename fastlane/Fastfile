@@ -144,6 +144,7 @@ def build_ios_ui_app(device:, profile: "attendee")
       "-skipMacroValidation",
       "OME_UI_AUTOMATION=YES",
       "OME_UI_AUTOMATION_PROFILE=#{profile}",
+      "OME_OAUTH_CALLBACK_SCHEME=#{profile == "authentication" ? "test.ome-auth.metadata" : "app.openmusicevent"}",
       "build"
     )
   end
@@ -558,9 +559,12 @@ end
 desc "Run signup, logout, login, restoration, refresh, and cross-device authentication"
 lane :auth_e2e do |options|
   UI.user_error!("Explicit ios_device and android_device are required") unless options[:ios_device] && options[:android_device]
-  run_in_repo(
+  command = [
     "python3", "Scripts/auth-e2e/run.py",
     "--ios-device", options[:ios_device], "--android-device", options[:android_device],
     "--ios-app-id", "app.openmusicevent", "--android-app-id", "fm.woody.openmusicevent"
-  )
+  ]
+  command << "--prepare" if options[:prepare].to_s == "true"
+  command += ["--resume", options[:resume]] if options[:resume]
+  run_in_repo(*command)
 end

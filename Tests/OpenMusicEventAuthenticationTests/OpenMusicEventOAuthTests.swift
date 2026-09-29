@@ -261,8 +261,8 @@ struct OpenMusicEventOAuthTests {
                     )
                 }
                 $0.errorInterceptors = [
-                    .openMusicEventTokenRefresh(
-                        selectedSession: .none,
+                    .tokenRefresh(
+                        session: Shared<OAuth.Session?>(value: nil),
                         authFailureMessage: authFailureMessage
                     )
                 ]
@@ -477,48 +477,6 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func selectedOAuthSessionDependencyWritesThroughSelectedSessionStore() async {
-        OpenMusicEventOAuth.resetStoredSession()
-        var dependencies = DependencyValues()
-        let sessionStore = OAuth.SessionStore(
-            selectedAccountID: nil,
-            sessions: [
-                OAuth.Session.placeholder.accountID.rawValue: .placeholder,
-            ]
-        )
-        OpenMusicEventOAuth.sessionStore.withLock {
-            $0 = sessionStore
-        }
-        OpenMusicEventOAuth.selectedSessionID.withLock {
-            $0 = OAuth.Session.placeholder.accountID
-        }
-        defer {
-            OpenMusicEventOAuth.resetStoredSession()
-        }
-
-        OpenMusicEventOAuth.prepareDependencies(&dependencies)
-
-        let refreshedAccessToken = OAuth.AccessToken(rawValue: "refreshed-access-token")
-        await withDependencies {
-            $0 = dependencies
-        } operation: {
-            @Dependency(\.selectedOAuthSession) var selectedOAuthSession
-            #expect(selectedOAuthSession.current() == .placeholder)
-
-            await selectedOAuthSession.update {
-                $0?.accessToken = refreshedAccessToken
-            }
-        }
-
-        #expect(
-            OpenMusicEventOAuth.sessionStore
-                .wrappedValue[OAuth.Session.placeholder.accountID]?
-                .accessToken == refreshedAccessToken
-        )
-        #expect(OpenMusicEventOAuth.sessionStore.wrappedValue.selectedAccountID == nil)
-    }
-
-    @Test
     func siteMetadataMatchesManifest() throws {
         let site = try JSONDecoder().decode(
             OAuth.App.Metadata.self,
@@ -537,18 +495,27 @@ struct OpenMusicEventOAuthTests {
         #expect(site.dpopBoundAccessToken == generated.dpopBoundAccessToken)
     }
 
-    @Test
-    func callbackURLMatchesConfiguredRedirect() {
-        #expect(
-            OpenMusicEventOAuth.isCallbackURL(
-                URL(string: "app.openmusicevent:/oauth/callback?code=abc&state=def")!
+    @Test(arguments: ["app.openmusicevent", "test.ome-auth.metadata"])
+    func callbackURLMatchesConfiguredRedirect(scheme: String) {
+        withDependencies {
+            $0.oauthAppConfiguration = OpenMusicEventOAuth.appConfiguration
+            $0.oauthAppConfiguration.redirectURI = .init(
+                URL(string: "\(scheme):/oauth/callback")!
             )
-        )
-        #expect(
-            !OpenMusicEventOAuth.isCallbackURL(
-                URL(string: "app.openmusicevent:/organizers/demo/events/event")!
-            )
-        )
+        } operation: {
+            // The active client accepts its browser callback, including OAuth query fields.
+            #expect(OpenMusicEventOAuth.isCallbackURL(
+                URL(string: "\(scheme):/oauth/callback?code=fixture&state=fixture")!
+            ))
+            // An unrelated deep link or a different client must not be consumed as auth.
+            for candidate in [
+                "\(scheme):/organizers/demo/events/event",
+                "\(scheme)://unexpected-host/oauth/callback",
+                "unrelated.client:/oauth/callback",
+            ] {
+                #expect(!OpenMusicEventOAuth.isCallbackURL(URL(string: candidate)!))
+            }
+        }
     }
 
     @Test

@@ -1,23 +1,53 @@
 appId: ${APP_ID}
 ---
+- stopApp
 - launchApp
 - extendedWaitUntil:
     visible: {id: menu.account}
     timeout: 30000
+- runFlow:
+    when:
+      visible: {id: menu.account, text: 'Signed in as .*'}
+    file: logout.yaml
 - tapOn: {id: menu.account}
 - tapOn: Sign In
 - tapOn: Sign Up
 - assertVisible: Private Test PDS
 - tapOn: {id: button.account.submit}
 - runFlow:
-    when: {visible: Continue}
+    when: {platform: iOS}
     commands:
+      - extendedWaitUntil:
+          visible: Continue
+          timeout: 60000
       - tapOn: Continue
+- extendedWaitUntil:
+    visible: Create a new account
+    timeout: 30000
+- tapOn: Create a new account
 - extendedWaitUntil:
     visible: Choose a username
     timeout: 30000
-- tapOn: yourname
+- runFlow:
+    when: {platform: Android}
+    commands:
+      - tapOn: {id: handle}
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - tapOn: yourname
 - inputText: ${USERNAME}
+- runFlow:
+    when: {platform: Android}
+    commands:
+      - assertVisible: {id: handle, text: '${USERNAME}'}
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element: Next
+    direction: DOWN
 - tapOn: Next
 - extendedWaitUntil:
     visible: Your account
@@ -26,9 +56,29 @@ appId: ${APP_ID}
 - inputText: ${EMAIL}
 - tapOn: Password
 - inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: Sign up
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - hideKeyboard
+- runFlow:
+    when: {visible: "Use Strong Password?"}
+    commands:
+      - tapOn: Close
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - tapOn:
+          text: Done
+          optional: true
+- scrollUntilVisible:
+    element:
+      text: Sign up
+      below: Password
+    direction: DOWN
+- tapOn:
+    text: Sign up
+    below: Password
 - runFlow: consent.yaml
 - extendedWaitUntil:
-    visible: {id: menu.account, text: 'Signed in as ${HANDLE}'}
+    visible: {id: menu.account, text: 'Signed in as @${HANDLE}'}
     timeout: 30000

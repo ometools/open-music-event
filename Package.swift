@@ -549,7 +549,8 @@ if isAndroidAppBuild {
         .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
     )
     openMusicEventAuthenticationDependencies.append(
-        .product(name: "SkipKeychain", package: "skip-keychain", condition: .when(platforms: [.android]))
+        // The host prebuild must see this product to package its JVM implementation.
+        .product(name: "SkipKeychain", package: "skip-keychain")
     )
     openMusicEventSourceCloneDependencies.append(
         .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
