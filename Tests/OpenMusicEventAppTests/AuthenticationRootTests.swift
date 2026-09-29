@@ -8,7 +8,6 @@ import IssueReporting
 import Observation
 import Sharing
 import SQLiteData
-import Synchronization
 import TCATProtoAuthentication
 import Testing
 
@@ -141,10 +140,10 @@ struct AuthenticationRootTests {
         let database = try makePreparedDatabase()
         let storage = makeStorage()
         let authorizationCenter = AuthorizationRequestCenter()
-        let authorizationStartCount = Mutex(0)
+        let authorizationStartCount = LockIsolated(0)
         var oauthClient = OAuth.Client()
         oauthClient.beginAuthorizationWithPermissions = { _, _ in
-            authorizationStartCount.withLock { $0 += 1 }
+            authorizationStartCount.withValue { $0 += 1 }
             throw AuthenticationRootTestError.invalidScope
         }
 
@@ -188,7 +187,7 @@ struct AuthenticationRootTests {
             defer { authorizationTask.cancel() }
 
             try await waitForMountCondition {
-                authorizationStartCount.withLock { $0 == 1 }
+                authorizationStartCount.withValue { $0 == 1 }
             }
             withExtendedLifetime(store) {}
         }

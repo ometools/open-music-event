@@ -19,7 +19,6 @@ import OpenMusicEventWhiteLabel
 import Sharing
 import SQLiteData
 import SourceEditing
-import Synchronization
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -5114,7 +5113,14 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let submitTask = store.send(.saveButtonTapped)
+        let saveTask = await store.receive(
+            \.formSubmitted,
+            .equals(store.form.value),
+            timeout: .seconds(1)
+        )
+        await saveTask?.value
+        await submitTask?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.isPresented)
@@ -6797,7 +6803,7 @@ struct NavigationTests {
     func communicationsViewerOffersCriticalAlertsAfterNotificationsAreAllowed() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let criticalAlertsWereRequested = Mutex(false)
+        let criticalAlertsWereRequested = TestMutex(false)
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")

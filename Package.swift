@@ -374,6 +374,27 @@ let jwsetKitDependency: Package.Dependency = .package(
     branch: "fix/apple-commoncrypto-rsa-selection"
 )
 
+let fileTreeDependency: Package.Dependency = {
+    if let path = environment["OME_FILE_TREE_PATH"] {
+        return .package(name: "swift-file-tree", path: path)
+    }
+    return .package(url: "https://source.woody.fm/swift-file-tree", branch: "main")
+}()
+
+let clocksDependency: Package.Dependency = {
+    if let path = environment["OME_CLOCKS_PATH"] {
+        return .package(name: "swift-clocks", path: path)
+    }
+    return .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2")
+}()
+
+let customDumpDependency: Package.Dependency = {
+    if let path = environment["OME_CUSTOM_DUMP_PATH"] {
+        return .package(name: "swift-custom-dump", path: path)
+    }
+    return .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0")
+}()
+
 var applicationDependencies: [Package.Dependency] = [
     .package(path: workspacePackagePath("swift-hero-image-list"), traits: ["Skip"]),
     composableAtmosphereUserInputDependency,
@@ -386,7 +407,7 @@ var applicationDependencies: [Package.Dependency] = [
         ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
         : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
+    fileTreeDependency,
     composableWorkspaceDependency,
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     dependenciesHTTPClientDependency,
@@ -397,13 +418,13 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
     sourceControlDependency,
-    .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
+    clocksDependency,
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
     swiftSharingDependency,
     routingDependency,
     .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
-    .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+    customDumpDependency,
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     isAndroidAppBuild
@@ -429,6 +450,14 @@ var applicationDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
 ]
+
+if let path = environment["OME_SKIP_AUTHENTICATION_SERVICES_PATH"] {
+    applicationDependencies.append(.package(name: "skip-authentication-services", path: path))
+}
+
+if let path = environment["OME_DEBUG_SNAPSHOTS_PATH"] {
+    applicationDependencies.append(.package(name: "swift-debug-snapshots", path: path))
+}
 
 if !isSkipBridgeHostBuild {
     applicationDependencies.append(skipKitDependency)
@@ -482,11 +511,11 @@ let appViewDependencies: [Package.Dependency] = [
         exact: "0.32.0",
         traits: ["StructuredQueriesTagged"]
     ),
-    .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+    customDumpDependency,
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
+    fileTreeDependency,
     .package(url: "https://github.com/apple/swift-collections", from: "1.5.1"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
     .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
@@ -1367,7 +1396,7 @@ case .androidApp:
     dependencies = applicationDependencies + [jwsetKitDependency]
     targets = applicationTargets.filter { target in
         if target.name.hasSuffix("Tests") {
-            return target.name == "OpenMusicEventAppTests"
+            return ["OpenMusicEventAppTests", "SwiftUITabFeaturesFuseFixturesTests"].contains(target.name)
         }
         return ![
             "OpenMusicEventCLI",

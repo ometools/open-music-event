@@ -177,9 +177,13 @@ authentication build profile and uses a single-task activity so the browser
 returns to the pending authorization. Skip forwards the VIEW intent into the
 existing `.onOpenURL` auth coordinator.
 
-iOS uses ASWebAuthenticationSession; Android uses the shared external-browser
-authorization strategy. Neither route bypasses the token exchange or its
-state, issuer, PKCE, and DPoP checks.
+iOS uses ASWebAuthenticationSession. Android's shared external-browser strategy
+is presented by SkipAuthenticationServices, which owns the browser callback and
+cancellation result. The native Android presenter constructs its bridged
+WebAuthenticationSession directly: the package's SwiftUI environment accessor is
+a transpilation stub and traps when read by native Swift. Root URL handling does
+not also exchange a callback while that browser session owns it. Neither route
+bypasses token exchange or its state, issuer, PKCE, and DPoP checks.
 
 Android OAuth sessions use the shared ATProtoOAuth secure-storage client backed
 by SkipKeychain's encrypted preferences. Its dependency must be visible during
@@ -460,3 +464,140 @@ Remaining failure: Android browser cancellation, preserved in
 session completion/cancellation path. The broader recovery suite is not fully
 green despite the fresh baseline, multi-account, offline and revocation passes.
 All changes remain isolated; nothing has been landed or pushed.
+
+## Fresh baseline after native browser integration (2026-09-30)
+
+Run `20260930T073848Z` passed all 21 UI/network phases on its first attempt
+(`resumed: false`). Both platforms created new accounts through the provider UI,
+completed login callbacks, restored sessions and rotated credentials, and proved
+cross-device local-logout isolation. Each expiry phase recorded
+`getSession 401 → refresh 200 → getSession 200`. The preceding Android
+environment-accessor crash remains recorded in `20260930T064544Z`.
+
+The native Android presenter uses the bridged WebAuthenticationSession
+initializer. The dependency's environment accessor is a transpilation stub that
+traps in native Swift; the generated presenter no longer calls it. Callback
+ownership and cancellation/retry are covered by deterministic coordinator tests.
+The full recovery run is recorded separately and must pass before claiming
+browser-cancellation runtime coverage.
+
+### Android runtime cancellation investigation (2026-09-30)
+
+The fresh 21-phase baseline above passed, but the following full recovery run did
+not: `20260930T073848Z/recovery-20260930T020331/report.json`. iOS passed all four
+stories. Android passed offline recovery, failed multi-account setup with a
+FoundationNetworking task-registry trap, stalled during cancellation-story setup
+with an ANR, and failed revocation reauthentication. These are retained failures,
+not a completed slice.
+
+The ANR matches [swift-corelibs-foundation issue 5412](https://github.com/swiftlang/swift-corelibs-foundation/issues/5412):
+Swift task cancellation holds its task lock while synchronously entering the
+URLSession work queue; request completion holds that queue while resuming the
+Swift task. [Upstream PR 5417](https://github.com/swiftlang/swift-corelibs-foundation/pull/5417)
+changes the cancellation hop to asynchronous. The installed 6.3.3 Android runtime
+still uses the synchronous hop.
+
+A second race occurs across cancellation's later `_getProtocol` callback: the
+request can complete and leave the task registry before the queued cancellation
+block reports failure. The candidate patch checks `state != .completed` inside
+that later work-queue block. It does not suppress cancellation of active requests.
+
+`Scripts/android-networking-overlay.py` builds an **explicit, local, arm64-only**
+SDK overlay from the checksum-verified 6.3.3 source release, with these two changes.
+It verifies the original runtime hash and matching compiler, preserves the
+installed SDK, and records source/runtime hashes and the build command. No OAuth,
+DNS, TLS, or private-CA validation changes are involved. This remains a local
+runtime workaround pending an upstream SDK containing both fixes; it must not be
+mistaken for a generally released Swift fix.
+
+Build it through the compiler lane:
+
+```sh
+~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh --wait --priority normal exec \
+  python3 -B Scripts/android-networking-overlay.py \
+  --sdk "$HOME/Library/org.swift.swiftpm/swift-sdks/swift-6.3.3-RELEASE_android.artifactbundle" \
+  --swiftc "$HOME/Library/Developer/Toolchains/swift-6.3.3-RELEASE.xctoolchain/usr/bin/swiftc" \
+  --output .build/android-networking-overlay
+```
+
+Pass the printed `SWIFT_ANDROID_SDK_BUNDLE` to the canonical Android build with
+`--adopt-build-config`, retaining the local package overrides documented in
+OME-033. Verify the packaged runtime hash against `manifest.json` before claiming
+runtime proof. Other Android architectures retain the stock runtime and are not
+covered by this workaround.
+
+Isolated emulator evidence: stock runtime deadlocked; asynchronous cancellation
+alone reproduced the registry trap; both changes completed 3,000 connection-error
+cancellation races. A separate bounded HTTP keep-alive probe completed 1,000
+successful responses, 1,861 cancellations, and 139 connection refusals without a
+trap or deadlock. Earlier HTTP/1.0 stress probes had an empty response and a timeout;
+those results are retained and are not counted as passes. App recovery validation with the overlay passed all four Android stories and
+all 15 phases in `20260930T073848Z/recovery-20260930T030133`. The normal Android
+test target also passed all 354 tests in 31 suites with the overlay. The fresh
+two-platform baseline `20260930T091230Z` passed iOS signup but failed Android
+signup after browser authorization, before token exchange. No native crash or
+ANR was recorded. The retained failure is being investigated in Skip's Custom
+Tabs fallback, which treats TAB_HIDDEN as cancellation even during a successful
+redirect. This is separate from the fixed Foundation networking cancellation
+failures. The cancellation story now also rejects a spurious Sign in failed label.
+
+The Android harness now aligns Skip runtime packaging with the selected SwiftPM
+SDK, records the arm64 networking runtime hash in its build inputs, and checks
+all packaged networking libraries against that SDK before installation. The
+artifact check accepts the overlay APK and rejects it against the stock SDK.
+
+The Custom Tabs candidate is isolated in repository
+`/Users/woody/Developer/swift-packages/3rd-party/skip/skip-authentication-services`,
+workspace
+`/Users/woody/Developer/swift-packages/3rd-party/skip/worktrees/skip-authentication-services-callback-race`,
+change `nqqqzkmz`, based on the app's pinned `6ebda51ac9c2d2160a33c2563666ef1044ca89f2`.
+Its local destination is unset. The canonical local alias is
+`/Users/woody/Developer/ometools/worktrees/skip-authentication-services`; select it
+with `OME_SKIP_AUTHENTICATION_SERVICES_PATH`. The fix keeps TAB_HIDDEN
+nonterminal and uses the existing intent-before-resume lifecycle to distinguish
+success from cancellation. Debug diagnostics contain lifecycle labels only.
+Shared native authorization diagnostics record error type and numeric code, never
+callback URLs, authorization codes, or tokens.
+
+The packaged candidate contains the updated Custom Tabs code and the verified
+networking runtime. Fresh baseline `20260930T093720Z` passed all 21 phases in one uninterrupted attempt: signup, logout, login, session restoration, real token expiry and refresh, refreshed-session restoration, cross-platform account login, and peer survival after local logout. Both expiry phases recorded `getSession 401 → refresh 200 → getSession 200`. Android passed all four recovery stories and all 15 phases, including the stricter cancellation assertion, in `20260930T093720Z/recovery-20260930T040401`. The clean iOS rerun passed all four stories and all 15 phases in `20260930T093720Z/recovery-20260930T043858`.
+The normal UI rerun before this browser-only change passed all four stories and
+all 18 image comparisons with zero changed pixels; the Compose rerun executed
+both tests with zero failures or skips.
+
+The first final recovery attempt retained two iOS infrastructure failures: cancellation/retry and offline setup both completed OAuth exchange, then Maestro 2.9.0 lost its XCTest driver while querying a stale Safari WebView. The driver retrieved the OME hierarchy, spent about 92 seconds querying Safari, and reported `Timed out while evaluating UI query`. Multiple-account and revocation stories passed. The [upstream hierarchy handler](https://github.com/mobile-dev-inc/Maestro/blob/main/maestro-ios-xctest-runner/maestro-driver-iosUITests/Routes/Handlers/ViewHierarchyHandler.swift) also queries background SafariViewService instances. The dedicated iOS simulator was restarted without erasing app data before a separate clean rerun; no app-side delay or auth bypass was added.
+
+### Completed local validation (2026-09-30)
+
+| Gate | Result |
+| --- | --- |
+| Host tests | 978 tests / 95 suites passed |
+| iOS Simulator tests | 356 tests / 30 suites passed |
+| Android instrumentation | 354 tests / 31 suites passed with the final Custom Tabs fix and networking overlay |
+| Android Compose | 2 tests passed; no failures or skips |
+| Normal UI stories | Attendee and refresh passed on both platforms |
+| Image comparisons | 18 passed; zero changed pixels |
+| Auth harness tests | 17 passed |
+| Fresh private-auth baseline | 21 phases passed in one uninterrupted attempt on both platforms |
+| Android recovery | All 4 stories / 15 phases passed |
+| iOS recovery after simulator restart | All 4 stories / 15 phases passed; all 15 driver logs free of the earlier UI-query timeout |
+
+Recovery covers multiple accounts, cancellation followed by successful login,
+offline preservation and recovery, and revocation followed by reauthentication
+and restoration. The preceding iOS driver failures remain recorded separately;
+the successful rerun does not change their results. Restarting the dedicated
+simulator was sufficient for this rerun, but does not establish a fix in Maestro.
+
+The final local proof depends on the explicitly selected arm64 networking SDK
+overlay and the isolated companion package overrides. It is not a remote-only
+dependency build or proof of an upstream release. OME source change `ryuruqkz`,
+shared authorization change `yvoxklxz`, and Custom Tabs change `nqqqzkmz`
+remain isolated; no local landing or remote push was performed.
+
+Final commands and evidence:
+
+- `python3 -B Scripts/auth-e2e/run.py --prepared .build/auth-e2e/runs/20260930T093720Z --ios-device 736C34A7-D420-4F8C-964A-900ED47BF915 --android-device emulator-5580 --ios-app-id app.openmusicevent --android-app-id fm.woody.openmusicevent`: exit 0, baseline report above.
+- `python3 -B Scripts/auth-e2e/recovery.py .build/auth-e2e/runs/20260930T093720Z --platform both --scenario all`: exit 1 because of the retained iOS driver failures; Android passed all phases.
+- `python3 -B Scripts/auth-e2e/recovery.py .build/auth-e2e/runs/20260930T093720Z --platform ios --scenario all` after restarting the dedicated simulator: exit 0, clean iOS report above.
+- Final Android test log: `/private/tmp/ome-custom-tabs-android-tests.log`.
+- Normal UI and Compose rerun logs: `/private/tmp/ome-networking-overlay-normal-ui.log` and `/private/tmp/ome-overlay-compose-tests.log`.

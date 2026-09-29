@@ -228,7 +228,8 @@ class Story:
         else:
             commands += [{'pressKey': 'Back'}]
         commands += [visible({'id': 'field.account.handle'}),
-            visible({'id': 'button.account.submit', 'enabled': True}), tap('Close'),
+            visible({'id': 'button.account.submit', 'enabled': True}),
+            {'assertNotVisible': 'Sign in failed.'}, tap('Close'),
             account_status(first), {'assertNotVisible': row(second)}, tap('Close'), visible(menu(first))]
         self.phase('cancel-browser-login', commands, require=lambda e: ('exchange', '200') not in e)
         self.add(second, 'login-after-cancellation')

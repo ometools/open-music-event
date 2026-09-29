@@ -129,7 +129,9 @@ appId: ${APP_ID}
 
 # Contributor navigation proves that one artist can appear across stages and
 # days, not merely as text embedded in a performance card.
-- tapOn: Contributors
+- tapOn: More
+- tapOn:
+    id: tab-feature.contributors
 - extendedWaitUntil:
     visible:
       id: view.contributors.testival-source-testival-2026
@@ -157,7 +159,8 @@ appId: ${APP_ID}
 
 # Overflow features remain reachable through More on compact iOS and Android.
 # Canopy's detail proves the stage lineup and stage-owned schedule are live.
-- tapOn: More
+# Return from Contributors explicitly; reselecting More does not pop on Android.
+- runFlow: helpers/back.yaml
 - tapOn:
     id: tab-feature.stages
 - extendedWaitUntil:
@@ -218,8 +221,7 @@ appId: ${APP_ID}
 
 # Communications finish the functional story without adding another visual
 # baseline: General has a pinned source post, while Safety requires alerts.
-- tapOn:
-    id: tab-feature.communications
+- tapOn: Comms
 - extendedWaitUntil:
     visible:
       id: view.communications.testival-source-testival-2026

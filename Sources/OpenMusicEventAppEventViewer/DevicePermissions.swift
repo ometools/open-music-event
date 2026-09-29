@@ -72,7 +72,8 @@ public struct DevicePermissionsClient: Sendable {
 
 extension DevicePermissionsClient: DependencyKey {
     public static var liveValue: Self {
-        live(supportsCriticalAlerts: false)
+        @Dependency(\.deviceSupportsCriticalAlerts) var supportsCriticalAlerts
+        return live(supportsCriticalAlerts: supportsCriticalAlerts)
     }
 
     public static func live(supportsCriticalAlerts: Bool) -> Self {
@@ -175,7 +176,17 @@ extension DevicePermissionsClient: DependencyKey {
     }
 }
 
+private enum DeviceSupportsCriticalAlertsKey: DependencyKey {
+    static let liveValue = false
+    static let testValue = false
+}
+
 public extension DependencyValues {
+    var deviceSupportsCriticalAlerts: Bool {
+        get { self[DeviceSupportsCriticalAlertsKey.self] }
+        set { self[DeviceSupportsCriticalAlertsKey.self] = newValue }
+    }
+
     var devicePermissions: DevicePermissionsClient {
         get { self[DevicePermissionsClient.self] }
         set { self[DevicePermissionsClient.self] = newValue }

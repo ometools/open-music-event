@@ -1,6 +1,10 @@
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+#if os(Android) || SKIP_BRIDGE
+import SkipSwiftUI
+#else
 import SwiftUI
+#endif
 
 public struct HeroImage<Placeholder: View, ChromeTrailingContent: View>: View {
     let title: Text

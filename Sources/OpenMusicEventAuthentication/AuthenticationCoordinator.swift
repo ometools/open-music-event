@@ -3,9 +3,10 @@ import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
+import Foundation
 import OpenMusicEventComponents
 import Sharing
-#if SKIP_BRIDGE
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #else
 import SwiftUI
@@ -282,10 +283,14 @@ public struct OpenMusicEventAuthorizationFormView: View {
         }
     }
 
-    private func authorizationErrorText(
+    func authorizationErrorText(
         _ resource: TCATProtoLocalizedStringResource
     ) -> Text {
+        #if SKIP_BRIDGE && !os(Android)
+        Text(String(localized: resource))
+        #else
         Text(resource)
+        #endif
     }
 
     private func requestSignInActorSearch(

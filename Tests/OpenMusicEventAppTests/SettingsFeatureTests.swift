@@ -19,7 +19,6 @@ import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
-import Synchronization
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -417,8 +416,8 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings requests Critical Alerts separately and reloads the system status`() async throws {
         let database = try makePreparedDatabase()
-        let criticalAlertsWereRequested = Mutex(false)
-        let loadCount = Mutex(0)
+        let criticalAlertsWereRequested = TestMutex(false)
+        let loadCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: {
                 loadCount.withLock { $0 += 1 }
@@ -464,9 +463,9 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings requests notifications before Critical Alerts when setup has not started`() async throws {
         let database = try makePreparedDatabase()
-        let criticalAlertRequestCount = Mutex(0)
-        let notificationRequestCount = Mutex(0)
-        let notificationsWereRequested = Mutex(false)
+        let criticalAlertRequestCount = TestMutex(0)
+        let notificationRequestCount = TestMutex(0)
+        let notificationsWereRequested = TestMutex(false)
         let client = DevicePermissionsClient(
             load: {
                 DevicePermissions(
@@ -614,8 +613,8 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings opens system settings to manage allowed notifications`() async throws {
         let database = try makePreparedDatabase()
-        let settingsOpenCount = Mutex(0)
-        let requestCount = Mutex(0)
+        let settingsOpenCount = TestMutex(0)
+        let requestCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: { DevicePermissions(notifications: .authorized) },
             openNotificationSettings: {
@@ -650,8 +649,8 @@ struct SettingsFeatureTests {
     @Test
     func `Event Settings opens system settings to manage enabled Critical Alerts`() async throws {
         let database = try makePreparedDatabase()
-        let settingsOpenCount = Mutex(0)
-        let requestCount = Mutex(0)
+        let settingsOpenCount = TestMutex(0)
+        let requestCount = TestMutex(0)
         let client = DevicePermissionsClient(
             load: {
                 DevicePermissions(
@@ -1020,7 +1019,14 @@ private func makeEventSettingsAuthoringExitFixture(
                         WorkspaceContext<SourceWorkspaceResource>(
                             state: SharedReader(
                                 value: WorkspaceState(
-                                    id: WorkspaceID(rawValue: workspace.id.rawValue)
+                                    id: WorkspaceID(rawValue: workspace.id.rawValue),
+                                    availability: .ready(WorkspaceSession(
+                                        source: resource,
+                                        baseline: WorkspaceBranchReference(
+                                            branch: WorkspaceBranch(rawValue: "main"),
+                                            revision: WorkspaceRevision(rawValue: "published-revision")
+                                        )
+                                    ))
                                 )
                             )
                         )

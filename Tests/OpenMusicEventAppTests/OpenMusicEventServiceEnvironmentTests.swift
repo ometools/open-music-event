@@ -7,6 +7,7 @@ import Dependencies
 import Foundation
 import HTTPClient
 import HTTPTypes
+import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -111,7 +112,7 @@ struct OpenMusicEventServiceEnvironmentTests {
     }
 
     @Test @MainActor
-    func `persisted app delegate restores the selected environment`() throws {
+    func `persisted app delegate restores the selected environment and retains injected permissions`() async throws {
         #if os(Android)
         let userDefaults = UserDefaults.standard
         let previousEnvironment = userDefaults.string(
@@ -140,8 +141,13 @@ struct OpenMusicEventServiceEnvironmentTests {
             forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
         )
 
+        let expectedPermissions = DevicePermissions(
+            criticalAlerts: .enabled,
+            notifications: .authorized
+        )
         let appDelegate = try withDependencies {
             $0.context = .test
+            $0.devicePermissions.load = { expectedPermissions }
             try $0.bootstrapDatabase()
         } operation: {
             #if os(Android)
@@ -155,6 +161,9 @@ struct OpenMusicEventServiceEnvironmentTests {
         }
 
         expectNoDifference(appDelegate.serviceEnvironment, .staging)
+        let permissions = appDelegate.store.state.content.content.$permissions
+        try await permissions.load()
+        expectNoDifference(permissions.wrappedValue, expectedPermissions)
     }
 
     @Test @MainActor

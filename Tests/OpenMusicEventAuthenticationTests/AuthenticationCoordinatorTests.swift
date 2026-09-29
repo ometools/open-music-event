@@ -15,6 +15,75 @@ import Testing
 @Suite("AuthenticationCoordinator", .serialized, .dependencies { $0.defaultPort = 443 })
 struct AuthenticationCoordinatorTests {
     @Test
+    func cancellingBrowserAuthorizationPreservesTheExistingAccountAndEnablesRetry() async throws {
+        let session = openMusicEventTestSession(permissions: OpenMusicEventOAuth.baseAuthRequirement.permissions)
+        var sessions = OAuth.SessionStore()
+        sessions.upsert(session)
+        var state = AuthorizationFlow.State(
+            requirement: OpenMusicEventOAuth.baseAuthRequirement,
+            loginHint: "second.example.test",
+            sessionStore: Shared(value: sessions)
+        )
+        // The second account's browser is open; the first account remains signed in.
+        state.isLoading = true
+        state.pendingSession = try testPendingSession()
+        state.browserAuthorizationURL = URL(string: "https://pds.example.test/oauth/authorize")!
+        let store = Store(initialState: state) {
+            AuthorizationFlow()
+        }
+
+        await store.send(.cancel)?.value
+
+        #expect(store.isSubmitDisabled == false)
+        #expect(store.pendingSession == nil)
+        #expect(store.browserAuthorizationURL == nil)
+        #expect(store.error == nil)
+        expectNoDifference(store.sessionStore, sessions)
+    }
+
+    @Test
+    func browserSessionOwnsTheCallbackEvenWhenTheAppReceivesTheSameURL() async throws {
+        let recorder = AuthorizationRequestRecorder()
+        let requirement = OpenMusicEventOAuth.baseAuthRequirement
+        let session = openMusicEventTestSession(permissions: requirement.permissions)
+        var state = AuthenticationCoordinator.State.localTestState()
+        var authorization = AuthorizationFlow.State(
+            requirement: requirement,
+            loginHint: "woody.fm",
+            sessionStore: state.$sessionStore
+        )
+        authorization.isLoading = true
+        authorization.pendingSession = try testPendingSession()
+        authorization.browserAuthorizationURL = URL(string: "https://pds.example.test/oauth/authorize")!
+        state.authorization = .sheet(authorization)
+        let store = withDependencies {
+            $0[OAuth.Client.self] = successfulOAuthClient(session: session)
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .externalBrowser
+            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+        } operation: {
+            Store(initialState: state) {
+                AuthenticationCoordinator()
+            }
+        }
+
+        // Android may deliver the intent to both the app and the browser session.
+        // The app delivery must not exchange the code while the session owns it.
+        await store.send(.handleOpenURL(testCallbackURL))?.value
+        #expect(store.authorization?.sheet?.browserAuthorizationURL != nil)
+        #expect(store.session == nil)
+        let eventsAfterAppCallback = await recorder.events
+        expectNoDifference(eventsAfterAppCallback, [])
+
+        // Only the browser session's completion enters the exchange path.
+        await store.send(.authorization(.sheet(.onOpenCallbackURL(testCallbackURL))))?.value
+        #expect(store.authorization == nil)
+        #expect(store.session == session)
+        let eventsAfterBrowserCallback = await recorder.events
+        expectNoDifference(eventsAfterBrowserCallback, [.succeed])
+    }
+
+    @Test
     func authorizationRequestPresentsAuthorizationFlow() {
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]

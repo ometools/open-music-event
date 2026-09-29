@@ -1,10 +1,21 @@
 {
   "ios": {
     "device": "iPhone Air",
-    "runtime": "iOS 26.4"
+    "runtime": "iOS 26.4",
+    "appearance": "dark"
   },
   "android": {
     "avd": "Medium_Phone_API_36",
-    "release": "16"
+    "release": "16",
+    "night_mode": "Night mode: no",
+    "display_size": "1080x2400",
+    "density": 420,
+    "cutout_insets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "status_bar_height": 63
   }
 }

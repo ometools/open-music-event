@@ -22,9 +22,7 @@ appId: ${APP_ID}
 
 # Opening Welcome records attendee-owned read state without introducing another
 # server dependency into this refresh-focused flow.
-- tapOn: More
-- tapOn:
-    id: tab-feature.communications
+- tapOn: Comms
 - extendedWaitUntil:
     visible:
       id: button.channel.general
@@ -81,7 +79,7 @@ appId: ${APP_ID}
 
 # Revision B adds a post while the attendee's earlier source post remains.
 # The Swift story checks its read state and the other local preference tables.
-- tapOn: More
+- tapOn: Comms
 - extendedWaitUntil:
     visible:
       id: button.channel.general

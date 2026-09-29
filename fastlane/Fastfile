@@ -237,7 +237,15 @@ def ios_snapshot_profile(device)
       .sub("com.apple.CoreSimulator.SimRuntime.", "")
       .sub("iOS-", "iOS ")
       .tr("-", ".")
-    return { "device" => match.fetch("name"), "runtime" => runtime }
+    appearance, appearance_error, appearance_status = Open3.capture3(
+      "xcrun", "simctl", "ui", device, "appearance"
+    )
+    UI.user_error!("Unable to inspect iOS appearance: #{appearance_error}") unless appearance_status.success?
+    return {
+      "device" => match.fetch("name"),
+      "runtime" => runtime,
+      "appearance" => appearance.strip
+    }
   end
 
   UI.user_error!("The iOS Simulator #{device} is not registered")
@@ -255,7 +263,39 @@ def android_snapshot_profile(device)
   )
   UI.user_error!("Unable to inspect the Android release: #{release_error}") unless release_status.success?
 
-  { "avd" => avd, "release" => release_output.strip }
+  night_output, night_error, night_status = Open3.capture3(
+    "adb", "-s", device, "shell", "cmd", "uimode", "night"
+  )
+  UI.user_error!("Unable to inspect Android night mode: #{night_error}") unless night_status.success?
+  display_output, display_error, display_status = Open3.capture3(
+    "adb", "-s", device, "shell", "dumpsys", "display"
+  )
+  UI.user_error!("Unable to inspect Android display geometry: #{display_error}") unless display_status.success?
+  display = display_output.lines.find do |line|
+    line.include?("DisplayDeviceInfo{") && line.include?("FLAG_ALLOWED_TO_BE_DEFAULT_DISPLAY")
+  end
+  size = display&.match(/, (\d+) x (\d+),/)
+  density = display&.match(/, density (\d+),/)
+  UI.user_error!("Unable to identify the Android default display") unless size && density
+  cutout = display.match(/cutout DisplayCutout\{insets=Rect\((\d+), (\d+) - (\d+), (\d+)\)/)
+  UI.user_error!("Unrecognized Android display cutout") if display.include?("cutout ") && !cutout
+
+  window_output, window_error, window_status = Open3.capture3(
+    "adb", "-s", device, "shell", "dumpsys", "window"
+  )
+  UI.user_error!("Unable to inspect Android window insets: #{window_error}") unless window_status.success?
+  status_bar = window_output.match(/type=statusBars frame=\[\d+,(\d+)\]\[\d+,(\d+)\]/)
+  UI.user_error!("Unable to identify the Android status-bar inset") unless status_bar
+
+  {
+    "avd" => avd,
+    "release" => release_output.strip,
+    "night_mode" => night_output.strip,
+    "display_size" => "#{size[1]}x#{size[2]}",
+    "density" => density[1].to_i,
+    "status_bar_height" => status_bar[2].to_i - status_bar[1].to_i,
+    "cutout_insets" => cutout ? cutout.captures.map(&:to_i) : [0, 0, 0, 0]
+  }
 end
 
 def verify_snapshot_profiles!(ios_device:, android_device:)
@@ -322,9 +362,20 @@ lane :check do
   run_local_skip("meta", "index")
 end
 
-desc "Run the complete Swift package suite on the macOS host"
+desc "Run the native Swift package tests on the macOS host"
 lane :host_tests do
-  run_in_repo("swift", "test", "--no-parallel")
+  # The Compose fixture is executed by compose_tests on Android. Its generated
+  # XCSkipTests entry point otherwise tries to run the UI through the host JVM.
+  run_in_repo(
+    "swift", "test", "--build-system", "native", "--skip-update", "--no-parallel",
+    "--skip", "SwiftUITabFeaturesFuseFixturesTests"
+  )
+end
+
+desc "Run the real Compose navigation and contact fixtures on Android"
+lane :compose_tests do |options|
+  device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  run_android_harness("--compose-tests", "--serial", device)
 end
 
 desc "Run OpenMusicEventAppTests on an iOS Simulator"
@@ -514,8 +565,9 @@ lane :record_ui_snapshots do |options|
   run_dual_platform_ui_suite(options, snapshot_action: "record")
 end
 
-desc "Run both platform suites, then the deterministic Testival visual suite"
+desc "Run host, iOS, Android, Compose, and Testival visual suites"
 lane :all_tests do |options|
+  host_tests
   # This is the one-command path for a local machine or CI job that has both
   # simulators available. A failing non-UI suite stops the UI phase.
   suite(
@@ -523,6 +575,8 @@ lane :all_tests do |options|
     android_device: options[:android_device],
     adopt_android_build_config: options[:adopt_android_build_config]
   )
+
+  compose_tests(device: options[:android_device])
 
   # android_tests produced validated native products. The UI lane takes the
   # harness's guarded incremental path, while still repackaging a UI-marked APK.

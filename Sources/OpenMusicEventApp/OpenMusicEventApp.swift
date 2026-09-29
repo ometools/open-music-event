@@ -519,6 +519,7 @@ struct OpenMusicEventApplicationRuntime {
             }
             .sheet(item: authorizationSheetStore(authenticationStore)) { authorizationStore in
                 OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
+                    .modifier(OAuthBrowserSessionModifier(store: authorizationStore))
             }
             .onOpenURL { url in
                 guard OpenMusicEventOAuth.isCallbackURL(url) else { return }
@@ -677,9 +678,7 @@ struct OpenMusicEventApplicationRuntime {
             if let brandedEventRouteClaims = variant.brandedEventRouteClaims(for: environment) {
                 $0.brandedEventRouteClaims = brandedEventRouteClaims
             }
-            $0.devicePermissions = .live(
-                supportsCriticalAlerts: appConfiguration.supportsCriticalAlerts
-            )
+            $0.deviceSupportsCriticalAlerts = appConfiguration.supportsCriticalAlerts
         } operation: {
             @Dependency(\.notificationsClient) var notificationsClient
             let selectedEventRestoration = restoresSelectedEvent
@@ -1067,6 +1066,7 @@ struct OpenMusicEventImmediateAuthorizationMount: View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
+            .modifier(OAuthBrowserSessionModifier(store: store))
     }
 }
 #endif

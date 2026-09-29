@@ -23,7 +23,6 @@ import SourceControlClient
 import SQLiteData
 import Sharing
 import SourceEditing
-import Synchronization
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -384,8 +383,8 @@ struct WorkspaceAuthoringStoryTests {
             .execute(db)
         }
 
-        let reconciledBaselines = Mutex<[WorkspaceBranchReference]>([])
-        let attendeeRefreshes = Mutex<[OMERecord.Event.ID]>([])
+        let reconciledBaselines = TestMutex<[WorkspaceBranchReference]>([])
+        let attendeeRefreshes = TestMutex<[OMERecord.Event.ID]>([])
         let session = workspaceStoryOAuthSession(actorID: actorID)
         try await withDependencies {
             $0.context = .test
@@ -543,6 +542,7 @@ struct WorkspaceAuthoringStoryTests {
         expectNoDifference(role, .collaborator([.propose, .merge]))
     }
 
+    #if os(macOS)
     @Test(
         .disabled(
             "A later branch picker must supply an exact immutable reference before this story is restored."
@@ -812,7 +812,9 @@ struct WorkspaceAuthoringStoryTests {
             await store.dismount(timeout: .seconds(1))
         }
     }
+    #endif
 
+    #if os(macOS)
     @Test(.tcaExhaustivity(.off))
     func `saved authoring access is available in settings while the source opens`() async throws {
         let database = try makeWorkspaceStoryDatabase()
@@ -940,7 +942,9 @@ struct WorkspaceAuthoringStoryTests {
             expectNoDifference(operations.count(of: "fetch"), 0)
         }
     }
+    #endif
 
+    #if os(macOS)
     @Test(.tcaExhaustivity(.off))
     func `an organizer retries failed source preparation without losing authoring access`() async throws {
         let database = try makeWorkspaceStoryDatabase()
@@ -1176,6 +1180,7 @@ struct WorkspaceAuthoringStoryTests {
             await opened.dismount(timeout: .seconds(1))
         }
     }
+    #endif
 
     @Test(.tcaExhaustivity(.off))
     func `confirmed exit waits for public attendee restoration before clearing authoring`() async throws {
@@ -1439,6 +1444,7 @@ struct WorkspaceAuthoringStoryTests {
         }
     }
 
+    #if os(macOS)
     @Test(
         .tcaExhaustivity(.off),
         arguments: [EventTarget.settings, .workspace]
@@ -1564,6 +1570,7 @@ struct WorkspaceAuthoringStoryTests {
             await opened.dismount(timeout: .seconds(1))
         }
     }
+    #endif
 
     @Test
     func `an authenticated attendee cannot enter authoring and never touches Git`() async throws {
@@ -1686,6 +1693,8 @@ private func workspaceIsPreparing<Source>(
     return true
 }
 
+// These integration fixtures invoke the macOS Git executable.
+#if os(macOS)
 private struct WorkspaceStoryGitFixture {
     static let alternateBranch = "festival-preview"
     static let malformedBranch = "malformed-source"
@@ -1794,6 +1803,8 @@ private func workspaceStoryRunGit(_ arguments: [String], at directory: URL) thro
     }
     return outputData
 }
+
+#endif
 
 private func workspaceStoryOAuthStorage(actorID: DID) -> OAuthSessionStorage {
     let session = workspaceStoryOAuthSession(actorID: actorID)
@@ -2265,7 +2276,7 @@ private struct WorkspaceStoryDependencyPropagationObservation: Equatable, Sendab
 }
 
 private final class WorkspaceStoryDependencyPropagationRecorder: Sendable {
-    let observations = Mutex<[WorkspaceStoryDependencyPropagationObservation]>([])
+    let observations = TestMutex<[WorkspaceStoryDependencyPropagationObservation]>([])
     let preparedDatabaseID: ObjectIdentifier
 
     init(database: any DatabaseWriter) {
@@ -2570,8 +2581,8 @@ private actor WorkspaceStoryCheckoutPause {
 }
 
 private final class WorkspaceStorySourceControlRecorder: Sendable {
-    private let failsNextCheckout = Mutex(false)
-    private let operations = Mutex<[String]>([])
+    private let failsNextCheckout = TestMutex(false)
+    private let operations = TestMutex<[String]>([])
 
     var snapshot: [String] { operations.withLock { $0 } }
 

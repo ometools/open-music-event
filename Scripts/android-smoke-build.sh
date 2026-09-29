@@ -10,6 +10,7 @@ the app test target inside an Android instrumentation APK.
 
 Options:
   --tests                  Run OpenMusicEventAppTests in an instrumentation APK instead of building the app.
+  --compose-tests          Run the Compose fixture tests on the selected Android device.
   --configuration NAME    Build configuration: debug or release. Default: debug.
   --artifact apk|bundle   Android wrapper artifact. Default: apk.
                           bundle produces an AAB and cannot be installed directly.
@@ -231,7 +232,21 @@ run() {
 
 ROOT="$(repo_root)"
 APP_ROOT="$ROOT"
+launch_android_app() {
+  local component
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    run adb -s "$ANDROID_SERIAL" shell cmd package resolve-activity --brief "$ANDROID_APPLICATION_ID"
+    component="$ANDROID_APPLICATION_ID/<resolved-launcher>"
+  else
+    component="$(adb -s "$ANDROID_SERIAL" shell cmd package resolve-activity --brief "$ANDROID_APPLICATION_ID" | tr -d '\r' | tail -n 1)"
+    [[ "$component" == "$ANDROID_APPLICATION_ID/"* ]] \
+      || fail "could not resolve launcher activity for $ANDROID_APPLICATION_ID: $component"
+  fi
+  run adb -s "$ANDROID_SERIAL" shell am start -W -n "$component"
+}
+
 RUN_TESTS=0
+RUN_COMPOSE_TESTS=0
 RUN_INSTALLED=0
 CONFIGURATION="debug"
 CONFIGURATION_EXPLICIT=0
@@ -272,6 +287,8 @@ if [[ -n "${SKIP_SHARING_SWIFT_SHARING+x}" ]]; then
   SKIP_SHARING_EXPLICIT=1
 fi
 SKIP_SHARING_SWIFT_SHARING="${SKIP_SHARING_SWIFT_SHARING:-}"
+SWIFT_SDK_HOME_EXPLICIT=0
+[[ -z "${SWIFT_SDK_HOME+x}" ]] || SWIFT_SDK_HOME_EXPLICIT=1
 SWIFT_SDK_HOME="${SWIFT_SDK_HOME:-${HOME}/Library/org.swift.swiftpm/swift-sdks}"
 SWIFT_ANDROID_SDK_BUNDLE_EXPLICIT=0
 if [[ -n "${SWIFT_ANDROID_SDK_BUNDLE+x}" ]]; then
@@ -301,6 +318,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tests)
       RUN_TESTS=1
+      shift
+      ;;
+    --compose-tests)
+      RUN_TESTS=1
+      RUN_COMPOSE_TESTS=1
       shift
       ;;
     --configuration)
@@ -469,7 +491,7 @@ if [[ "$RUN_INSTALLED" -eq 1 ]]; then
   fi
   if [[ "$LAUNCH" -eq 1 ]]; then
     run adb -s "$ANDROID_SERIAL" shell am force-stop "$ANDROID_APPLICATION_ID"
-    run adb -s "$ANDROID_SERIAL" shell monkey -p "$ANDROID_APPLICATION_ID" 1
+    launch_android_app
   fi
   if [[ "$LOGS" -eq 1 ]]; then
     LOGCAT_FILTERS="${LOGCAT_FILTERS:-$ANDROID_APPLICATION_ID/OpenMusicEventApp OpenMusicEvent AndroidRuntime SwiftRuntime skip.ui.SkipUI}"
@@ -483,6 +505,9 @@ ANDROID_TEST_APP_APK="${OME_ANDROID_TEST_APP_APK:-$APP_ROOT/.build/Android/app/o
 if [[ "$SMOKE_ROOT_EXPLICIT" -eq 0 ]]; then
   APP_ROOT_FINGERPRINT="$(printf '%s' "$APP_ROOT" | shasum -a 256 | cut -c 1-12)"
   SMOKE_ROOT="/private/tmp/ome-android-smoke-$(basename "$APP_ROOT")-$APP_ROOT_FINGERPRINT"
+  if [[ "$RUN_COMPOSE_TESTS" -eq 1 ]]; then
+    SMOKE_ROOT="$SMOKE_ROOT-compose"
+  fi
 fi
 if [[ -z "$SKIP_SHARING_SWIFT_SHARING" ]]; then
   OME_WORKSPACE_CONTAINER="$(dirname "$ROOT")"
@@ -662,6 +687,12 @@ if [[ -f "$NATIVE_BUILD_CONFIG_FILE" ]]; then
   apply_pinned_config_value ome_android_app_build OME_ANDROID_APP_BUILD "$OME_ANDROID_APP_BUILD_EXPLICIT"
 fi
 
+# Skip copies runtime libraries from SWIFT_SDK_HOME, while SwiftPM builds with
+# the selected artifact bundle. Keep both consumers on the same SDK.
+if [[ "$SWIFT_SDK_HOME_EXPLICIT" -eq 0 ]]; then
+  SWIFT_SDK_HOME="$(dirname "$SWIFT_ANDROID_SDK_BUNDLE")"
+fi
+
 if [[ "${BUILD_CONFIG_VERSION:-0}" =~ ^(4|5|6)$ ]]; then
   check_pinned_config_value \
     ome_open_music_event_path \
@@ -701,6 +732,7 @@ SKIP_SHARING_SWIFT_SHARING="$(logical_absolute_path "$SKIP_SHARING_SWIFT_SHARING
 SKIP_SHARING_SWIFT_SHARING_RESOLVED="$(cd "$SKIP_SHARING_SWIFT_SHARING" && pwd -P)"
 
 ANDROID_LOCAL_PACKAGE_INPUTS=(
+  "swift-hero-image-list|$(android_workspace_package_path "$OME_PACKAGE_ROOT" swift-hero-image-list)"
   "TCA26|$OME_TCA26_PATH"
   "composable-atmosphere-userinput|$(android_workspace_package_path "$OME_PACKAGE_ROOT" composable-atmosphere-userinput)"
   "swift-composable-notifications|$COMPOSABLE_NOTIFICATIONS_PATH"
@@ -724,6 +756,21 @@ if [[ -d "$SKIP_DEPENDENCY_ROOT/skip-kit" ]]; then
 fi
 if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
   ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-composable-workspace|$COMPOSABLE_WORKSPACE_PATH")
+fi
+if [[ -n "${OME_FILE_TREE_PATH:-}" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-file-tree|$OME_FILE_TREE_PATH")
+fi
+if [[ -n "${OME_CLOCKS_PATH:-}" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-clocks|$OME_CLOCKS_PATH")
+fi
+if [[ -n "${OME_CUSTOM_DUMP_PATH:-}" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-custom-dump|$OME_CUSTOM_DUMP_PATH")
+fi
+if [[ -n "${OME_SKIP_AUTHENTICATION_SERVICES_PATH:-}" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("skip-authentication-services|$OME_SKIP_AUTHENTICATION_SERVICES_PATH")
+fi
+if [[ -n "${OME_DEBUG_SNAPSHOTS_PATH:-}" ]]; then
+  ANDROID_LOCAL_PACKAGE_INPUTS+=("swift-debug-snapshots|$OME_DEBUG_SNAPSHOTS_PATH")
 fi
 for package_input in "${ANDROID_LOCAL_PACKAGE_INPUTS[@]}"; do
   package_input_path="${package_input#*|}"
@@ -972,6 +1019,10 @@ verify_swift_sdks() {
   [[ -d "$SWIFT_SDK_HOME" ]] || fail "Swift SDK directory does not exist: $SWIFT_SDK_HOME"
   [[ -d "$SWIFT_ANDROID_SDK_BUNDLE" ]] || fail "Swift Android SDK artifact bundle does not exist: $SWIFT_ANDROID_SDK_BUNDLE"
   [[ -d "$SWIFT_TOOLCHAIN_DIR" ]] || fail "Swift toolchain directory does not exist: $SWIFT_TOOLCHAIN_DIR"
+  local runtime_sdk="$SWIFT_SDK_HOME/$(basename "$SWIFT_ANDROID_SDK_BUNDLE")"
+  [[ -d "$runtime_sdk" ]] || fail "Skip runtime SDK is missing: $runtime_sdk"
+  [[ "$(cd "$runtime_sdk" && pwd -P)" == "$(cd "$SWIFT_ANDROID_SDK_BUNDLE" && pwd -P)" ]] \
+    || fail "Skip runtime SDK and SwiftPM artifact bundle must resolve to the same SDK"
 
   mkdir -p "$isolated_sdk_home"
   for sdk_link in "$isolated_sdk_home"/*android*.artifactbundle; do
@@ -982,48 +1033,7 @@ verify_swift_sdks() {
 }
 
 configure_android_namespace_init_script() {
-  cat > "$ANDROID_NAMESPACE_INIT_SCRIPT" <<'KOTLIN'
-import java.io.File
-import org.gradle.api.Project
-import org.gradle.kotlin.dsl.withGroovyBuilder
-
-val packageDeclaration = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)""")
-
-fun packageName(file: File): String? = file.useLines { lines ->
-    lines.mapNotNull { packageDeclaration.find(it)?.groupValues?.get(1) }.firstOrNull()
-}
-
-fun Project.inferredAndroidNamespace(): String {
-    val declaredPackage = sequenceOf(
-        projectDir.resolve("src/main/kotlin"),
-        projectDir.resolve("src/main/java"),
-    )
-        .filter(File::isDirectory)
-        .flatMap { sourceRoot ->
-            sourceRoot.walkTopDown()
-                .filter { source -> source.isFile && source.extension in setOf("kt", "java") }
-                .mapNotNull(::packageName)
-        }
-        .firstOrNull()
-
-    if (declaredPackage != null) {
-        return if (declaredPackage == rootProject.name) "$declaredPackage.module" else declaredPackage
-    }
-
-    val fallbackName = name.replace(Regex("[^A-Za-z0-9_]"), "_")
-    return "skip.generated.$fallbackName"
-}
-
-gradle.beforeProject {
-    pluginManager.withPlugin("com.android.library") {
-        val inferredNamespace = inferredAndroidNamespace()
-        extensions.getByName("android").withGroovyBuilder {
-            setProperty("namespace", inferredNamespace)
-        }
-        logger.lifecycle("Configured generated Android namespace for $path: $inferredNamespace")
-    }
-}
-KOTLIN
+  cp "$ROOT/Scripts/android-library-namespace.init.gradle.kts" "$ANDROID_NAMESPACE_INIT_SCRIPT"
 }
 
 ensure_skip_command() {
@@ -1102,6 +1112,8 @@ configure_nested_skip_command() {
   local quoted_composable_atmosphere_tangled
   local quoted_composable_workspace
   local quoted_dependencies_http_client
+  local quoted_file_tree
+  local quoted_clocks
 
   printf -v quoted_android_app_build '%q' "$OME_ANDROID_APP_BUILD"
   printf -v quoted_skiplocal '%q' "$SKIPLOCAL"
@@ -1124,6 +1136,26 @@ configure_nested_skip_command() {
       printf 'export OME_COMPOSABLE_NOTIFICATIONS_PATH=%s\n' "$quoted_composable_notifications"
       printf 'export OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH=%s\n' "$quoted_composable_atmosphere_tangled"
       printf 'export OME_DEPENDENCIES_HTTP_CLIENT_PATH=%s\n' "$quoted_dependencies_http_client"
+      if [[ -n "${OME_SKIP_AUTHENTICATION_SERVICES_PATH:-}" ]]; then
+        printf -v quoted_authentication_services '%q' "$OME_SKIP_AUTHENTICATION_SERVICES_PATH"
+        printf 'export OME_SKIP_AUTHENTICATION_SERVICES_PATH=%s\n' "$quoted_authentication_services"
+      fi
+      if [[ -n "${OME_DEBUG_SNAPSHOTS_PATH:-}" ]]; then
+        printf -v quoted_debug_snapshots '%q' "$OME_DEBUG_SNAPSHOTS_PATH"
+        printf 'export OME_DEBUG_SNAPSHOTS_PATH=%s\n' "$quoted_debug_snapshots"
+      fi
+      if [[ -n "${OME_CUSTOM_DUMP_PATH:-}" ]]; then
+        printf -v quoted_custom_dump '%q' "$OME_CUSTOM_DUMP_PATH"
+        printf 'export OME_CUSTOM_DUMP_PATH=%s\n' "$quoted_custom_dump"
+      fi
+      if [[ -n "${OME_CLOCKS_PATH:-}" ]]; then
+        printf -v quoted_clocks '%q' "$OME_CLOCKS_PATH"
+        printf 'export OME_CLOCKS_PATH=%s\n' "$quoted_clocks"
+      fi
+      if [[ -n "${OME_FILE_TREE_PATH:-}" ]]; then
+        printf -v quoted_file_tree '%q' "$OME_FILE_TREE_PATH"
+        printf 'export OME_FILE_TREE_PATH=%s\n' "$quoted_file_tree"
+      fi
       if [[ -n "$COMPOSABLE_WORKSPACE_PATH" ]]; then
         printf -v quoted_composable_workspace '%q' "$COMPOSABLE_WORKSPACE_PATH"
         printf 'export OME_COMPOSABLE_WORKSPACE_PATH=%s\n' "$quoted_composable_workspace"
@@ -1206,6 +1238,31 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "  dry run:     yes"
 fi
 
+run_compose_tests() {
+  ANDROID_PACKAGE_RESOLUTION_CAPTURE=1
+  local scratch="$SMOKE_ROOT/compose-host"
+  local gradle_project
+  run env SKIP_PLUGIN_DISABLED=0 SKIP_ACTION=none swift build \
+    --package-path "$APP_ROOT" --scratch-path "$scratch" \
+    --build-system native --skip-update --target SwiftUITabFeaturesFuseFixturesTests
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    gradle_project="$scratch/plugins/outputs/OME/SwiftUITabFeaturesFuseFixturesTests/destination/skipstone"
+  else
+    local projects=("$scratch"/plugins/outputs/*/SwiftUITabFeaturesFuseFixturesTests/destination/skipstone)
+    [[ "${#projects[@]}" -eq 1 && -d "${projects[0]}" ]] \
+      || fail "expected one generated Compose test project"
+    gradle_project="${projects[0]}"
+  fi
+  local test_started
+  test_started="$(date +%s)"
+  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$gradle_project" \
+    --no-daemon --init-script "$ANDROID_NAMESPACE_INIT_SCRIPT" \
+    :SwiftUITabFeaturesFuseFixtures:connectedDebugAndroidTest --rerun
+  run python3 "$ROOT/Scripts/check-compose-test-results.py" \
+    "$gradle_project/SwiftUITabFeaturesFuseFixtures/build/outputs/androidTest-results/connected/debug" \
+    --since "$test_started"
+}
+
 run_android_tests() {
   [[ -f "$ANDROID_TEST_APP_APK" ]] \
     || fail "Android tests require the canonical app APK at $ANDROID_TEST_APP_APK; run Scripts/android-smoke-build.sh first"
@@ -1250,6 +1307,8 @@ app_root=$APP_ROOT
 ome_open_music_event_path=${OME_OPEN_MUSIC_EVENT_PATH:-none}
 ome_open_music_event_path_resolved=${OME_OPEN_MUSIC_EVENT_PATH_RESOLVED:-none}
 swift_android_sdk_bundle=$SWIFT_ANDROID_SDK_BUNDLE
+swift_sdk_home=$SWIFT_SDK_HOME
+foundation_networking_arm64_sha256=$(shasum -a 256 "$SWIFT_ANDROID_SDK_BUNDLE/swift-android/swift-resources/usr/lib/swift-aarch64/android/libFoundationNetworking.so" | awk '{ print $1 }')
 swift_toolchain_dir=$SWIFT_TOOLCHAIN_DIR
 skiplocal=$SKIPLOCAL
 skiplocal_resolved=$SKIPLOCAL_RESOLVED
@@ -1649,7 +1708,9 @@ artifact_path() {
 prepare_android_package_resolution
 invalidate_stale_package_resolution_state
 
-if [[ "$RUN_TESTS" -eq 1 ]]; then
+if [[ "$RUN_COMPOSE_TESTS" -eq 1 ]]; then
+  run_compose_tests
+elif [[ "$RUN_TESTS" -eq 1 ]]; then
   run_android_tests
 else
   build_app
@@ -1661,6 +1722,7 @@ if [[ "$DRY_RUN" -eq 0 && "$RUN_TESTS" -eq 0 ]]; then
   ARTIFACT_PATH="$(artifact_path)"
   [[ -n "$ARTIFACT_PATH" ]] || fail "no $CONFIGURATION $ARTIFACT artifact found"
   echo "Android artifact: $ARTIFACT_PATH"
+  run python3 -B "$ROOT/Scripts/verify-android-runtime.py" "$ARTIFACT_PATH" "$SWIFT_ANDROID_SDK_BUNDLE"
 fi
 
 if [[ "$DRY_RUN" -eq 0 && ( "$INSTALL" -eq 1 || "$LOGS" -eq 1 ) ]]; then
@@ -1683,7 +1745,7 @@ fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
   run adb -s "$ANDROID_SERIAL" shell am force-stop "$ANDROID_APPLICATION_ID"
-  run adb -s "$ANDROID_SERIAL" shell monkey -p "$ANDROID_APPLICATION_ID" 1
+  launch_android_app
 fi
 
 if [[ "$LOGS" -eq 1 ]]; then

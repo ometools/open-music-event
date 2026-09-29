@@ -9,7 +9,7 @@ import IssueReporting
 import OpenMusicEventComponents
 import Sharing
 import SQLiteData
-#if SKIP_BRIDGE
+#if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
 #else
 import SwiftUI

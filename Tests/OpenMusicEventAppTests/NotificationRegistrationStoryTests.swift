@@ -909,6 +909,7 @@ private func writeNotificationSourceRepository(
         name: Announcements
         description: Official festival updates.
         defaultNotificationState: subscribed
+        notificationsRequired: false
         """.utf8
     ).write(to: channels.appending(path: "announcements.yml"))
     for (postID, post) in posts {
@@ -960,7 +961,12 @@ private actor FakeFCMTransport {
     private var recordedRequests: [NotificationProviderHTTPRequest] = []
 
     func deliverNotifications(_ delivery: @escaping Delivery) {
-        self.delivery = delivery
+        // Delivery re-enters the app from the server, which owns a different database.
+        self.delivery = withEscapedDependencies { dependencies in
+            { json in
+                await dependencies.yield { await delivery(json) }
+            }
+        }
     }
 
     func send(

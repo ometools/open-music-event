@@ -61,17 +61,58 @@ For a temporary isolated SkipRunner build, add:
 export SKIP_COMMAND_OVERRIDE=/absolute/path/to/SkipRunner
 ```
 
-The `suite` lane runs both platform test suites and reports either platform's failure after attempting both. The standalone `ui_tests` lane first checks Maestro and both devices, builds and launches each app, then runs the same `.maestro/00-launch.yaml` flow on iOS and Android. `all_tests` composes those lanes and takes the guarded Android `--no-prebuild` path for its UI phase, reusing the canonical APK produced by `android_tests` instead of repeating the full Skip prebuild.
+The `suite` lane runs both platform test suites and reports either platform's failure after attempting both. The standalone `ui_tests` lane checks Maestro and the device appearance profiles, builds both apps, then runs the Testival attendee and refresh stories on each platform with fresh fixture state. It compares their screenshots against the platform baselines.
+
+`all_tests` runs host tests, both platform suites, Android Compose regressions, then the dual-platform visual suite. The Compose fixture is excluded from the host runner because its generated entry point otherwise invokes Android UI tests through the host JVM. The dedicated `compose_tests` lane executes it on the emulator and requires fresh reports containing both regressions with no failures or skips. The UI phase uses the guarded Android `--no-prebuild` path to reuse validated native products while repackaging the automation configuration.
+
+Temporary local dependency overrides must use paths whose final component
+matches the canonical package identity. The current isolated validation uses
+`OME_FILE_TREE_PATH` (`swift-file-tree`), `OME_CLOCKS_PATH` (`swift-clocks`),
+`OME_CUSTOM_DUMP_PATH` (`swift-custom-dump`) and
+`OME_DEBUG_SNAPSHOTS_PATH` (`swift-debug-snapshots`), and
+`OME_SKIP_AUTHENTICATION_SERVICES_PATH` (`skip-authentication-services`). Use a symlink to an
+isolated workspace when needed; a custom basename can introduce a second package
+identity in Xcode.
+
+The Android graph exports a SwiftUI compatibility module. Optional
+`canImport(SwiftUI)` imports in packages without declared UI dependencies can
+therefore pull in JNI modules they cannot resolve. The isolated companion fixes
+remove unused FileTree UI code and restrict Clocks, CustomDump and DebugSnapshots
+Apple SwiftUI extensions to non-Android builds. Exact Android compiler probes
+failed before each guard and passed afterward; the complete final Android suite
+passed 354 tests after the DebugSnapshots fix.
 
 ## Current Local Proof
 
-Validated from the isolated `main@origin` Fastlane workspace on 2026-08-27:
+Validated in the isolated `open-music-event-local-fastlane` workspace on
+2026-09-30, using the local companion dependency overrides:
 
-- iOS Simulator suite: 320 tests in 27 suites passed.
-- Android instrumentation suite: 322 tests in 28 suites passed with the default serial worker width.
-- Dual-platform UI lane: Android and iOS debug apps built, installed, and launched; Maestro 2.9.0 found `app.root` and captured the launch screenshot on both platforms.
+- Host: 978 tests in 95 suites passed.
+- iOS Simulator: 356 tests in 30 suites passed.
+- Android instrumentation: 354 tests in 31 suites passed.
+- Android Compose: both regression tests passed in fresh JUnit reports, with no skips.
+- Testival attendee and refresh stories passed on both platforms.
+- All 18 screenshot comparisons passed with zero changed pixels.
 
-The Android instrumentation path currently uses an isolated SkipRunner build supplied through `SKIP_COMMAND_OVERRIDE`. Keep `SKIPLOCAL` pointed at the canonical local `skipstone` checkout until that runner work is reviewed and landed separately.
+The final seven Android baseline updates cover the tab bar after Comms replaced
+the direct Contributors tab. Contributors remains accessible under More. After
+correcting the task-owned emulator profile, those seven images had no changed
+content pixels above the tab bar; Browse and event detail retained their original
+baselines. Comparator tolerances were unchanged.
+
+The Android image preflight checks AVD name, OS release, appearance, resolution,
+density, cutout insets and status-bar height. A renamed Pixel 7 profile and a
+cached 136-pixel status bar both failed the guard. The baseline profile uses
+1080×2400 at 420 dpi, no cutout, and a 63-pixel status bar. Removing an emulator
+overlay can require a reboot before Android refreshes its cached insets.
+
+Private-auth baseline and recovery evidence is tracked separately in
+`Docs/PrivateAuthenticationE2E.md`. These normal-suite results do not establish
+browser callback or OAuth refresh behavior.
+
+The Android instrumentation path uses an isolated SkipRunner build supplied
+through `SKIP_COMMAND_OVERRIDE`. The source changes and companion fixes remain
+isolated; this is local validation, not proof of a landed or remote-only build.
 
 ## Evidence Levels
 
@@ -88,10 +129,3 @@ The Android instrumentation path currently uses an isolated SkipRunner build sup
 - Prefer a narrow smoke flow over broad UI automation until the app flow settles.
 - Code pointers: `Android`, `Sources/OpenMusicEventApp`, `Sources/OpenMusicEventAppEventViewer`, `Tests/OpenMusicEventAppTests`.
 
-## Open Questions
-
-- Which fixture event should become the Android baseline?
-
-## Next Step
-
-- Define the first smoke path immediately after the app launches reliably on Android.

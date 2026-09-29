@@ -6,7 +6,6 @@ import SwiftUITabFeaturesFuseFixtures
 
 #if SKIP
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -93,9 +92,9 @@ final class MoreNavigationComposeTests: XCTestCase {
             ContactInfoViewerFixture().Compose()
         }
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Reporting").assertIsDisplayed()
+        composeRule.onNodeWithText("REPORTING").assertIsDisplayed()
         composeRule.onNodeWithText("Report Incident").assertIsDisplayed()
-        composeRule.onNodeWithText("Contact Numbers").assertIsDisplayed()
+        composeRule.onNodeWithText("CONTACT NUMBERS").assertIsDisplayed()
         composeRule.onNodeWithText("On Site Emergency Services").assertIsDisplayed()
         #endif
     }

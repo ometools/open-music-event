@@ -4,7 +4,6 @@ import Dependencies
 import Foundation
 import HTTPClient
 import OpenMusicEventLexicon
-import Synchronization
 import Testing
 import XRPCClient
 
@@ -25,7 +24,7 @@ struct WorkspaceProposalClientTests {
             repository: "tangled.org/owner/events",
             branch: " refs/heads/main "
         )
-        let requests = Mutex<[URL]>([])
+        let requests = LockIsolated<[URL]>([])
         let client = WorkspaceProposalClient.openMusicEvent(
             appViewHost: "stg.openmusicevent.app"
         )
@@ -34,7 +33,7 @@ struct WorkspaceProposalClientTests {
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { request, _ in
                 let url = try #require(request.url)
-                requests.withLock { $0.append(url) }
+                requests.withValue { $0.append(url) }
                 #expect(url.host == "stg.openmusicevent.app")
 
                 switch url.path {
@@ -138,7 +137,7 @@ struct WorkspaceProposalClientTests {
         expectNoDifference(detail.uri, proposalURI)
         expectNoDifference(detail.source?.revision, "source-revision")
         #expect(detail.presentation?.groups.isEmpty == true)
-        #expect(requests.withLock(\.count) == 3)
+        #expect(requests.withValue(\.count) == 3)
     }
 }
 
