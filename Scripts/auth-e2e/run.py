@@ -64,6 +64,7 @@ def main():
     parser.add_argument('--check-devices', action='store_true')
     parser.add_argument('--prepare', action='store_true', help='Create a run for DNS/HTTPS provisioning without starting UI tests')
     parser.add_argument('--resume', type=Path, help='Resume an incomplete run using its UI-created accounts')
+    parser.add_argument('--prepared', type=Path, help='Start a provisioned run that has never started UI tests')
     args = parser.parse_args()
     dedicated_ios(args.ios_device)
     dedicated_android(args.android_device)
@@ -73,11 +74,15 @@ def main():
     runs = ROOT / '.build/auth-e2e/runs'
     platforms = [dict(platform='ios', device=args.ios_device, app=args.ios_app_id),
                  dict(platform='android', device=args.android_device, app=args.android_app_id)]
-    if args.resume:
-        artifacts = args.resume.resolve()
+    if args.resume and args.prepared:
+        parser.error('--resume and --prepared are mutually exclusive')
+    if args.resume or args.prepared:
+        artifacts = (args.resume or args.prepared).resolve()
         if artifacts.parent != runs.resolve():
             raise ValueError('Resume requires a run directory inside this workspace')
         report = json.loads((artifacts / 'report.json').read_text())
+        if args.prepared and (report.get('phases') or report.get('attempts')):
+            raise ValueError('Prepared run has already started; cannot claim an uninterrupted fresh run')
         if report.get('platforms', platforms) != platforms:
             raise ValueError('Resume must use the original devices and app IDs')
         if report['passed']:
@@ -111,9 +116,11 @@ def main():
             addresses = set()
         if '127.0.0.1' not in addresses:
             raise RuntimeError('Private account routing is missing for ' + handle
-                               + '. Run prepare-run.py and host-routing.py install --run for ' + str(artifacts)
+                               + '. Run prepare-run.py for ' + str(artifacts) + ' and verify the one-time Mac resolver installation'
                                + ', then resume it. No UI tests were started.')
     started = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    report.setdefault('attempts', []).append(dict(started=started, resumed=bool(args.resume)))
+    (artifacts / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
 
     def events(target):
         if target['platform'] == 'ios':

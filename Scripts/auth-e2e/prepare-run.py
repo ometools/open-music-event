@@ -41,10 +41,14 @@ def main():
     subprocess.run(['python3', str(Path(__file__).with_name('configure-android.py')),
                     '--device', args.android_device, '--run', str(args.run)], check=True)
     print('Private gateway, DNS and emulator routes prepared; PDS accounts and CA preserved.')
-    print('Install the matching Mac host block, then resume this run:')
-    import shlex
-    print(shlex.join(['sudo', '/opt/homebrew/bin/python3', str(Path(__file__).with_name('host-routing.py').resolve()),
-                      'install', '--run', str(args.run.resolve())]))
+    subprocess.run(['docker', 'compose', '-p', PROJECT, '-f',
+                    str(Path(__file__).with_name('host-dns.compose.yaml')),
+                    'up', '-d', 'host-dns'], check=True)
+    if not hosts.RESOLVER.exists() or hosts.RESOLVER.read_text() != hosts.RESOLVER_CONTENT:
+        print('One-time Mac setup required: sudo /opt/homebrew/bin/python3 '
+              + str(Path(__file__).with_name('host-routing.py').resolve()) + ' install')
+    else:
+        print('Mac domain resolver is installed; no per-run sudo or hosts edits are needed.')
 
 
 if __name__ == '__main__':

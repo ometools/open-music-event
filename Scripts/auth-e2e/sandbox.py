@@ -127,6 +127,8 @@ def main():
         configure_appview()
         sandbox('apply')
         sandbox('up', '--build')
+        subprocess.run(['docker', 'compose', '-p', PROJECT, '-f',
+                        str(SOURCE / 'host-dns.compose.yaml'), 'up', '-d', 'host-dns'], check=True)
     elif command == 'access':
         sandbox('access', '--json')
     elif command == 'hosts':

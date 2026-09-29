@@ -5,6 +5,10 @@ from unittest.mock import patch
 import json
 import subprocess
 import tempfile
+import os
+import shlex
+import io
+import threading
 
 
 def module(name, filename):
@@ -17,6 +21,8 @@ def module(name, filename):
 runner = module('runner', 'run.py')
 hosts = module('hosts', 'host-routing.py')
 provision = module('provision', 'prepare-run.py')
+recovery = module('recovery', 'recovery.py')
+android = module('android', 'configure-android.py')
 
 
 class HarnessTests(unittest.TestCase):
@@ -108,6 +114,102 @@ class HarnessTests(unittest.TestCase):
                 self.assertEqual(len(list(root.rglob('report.json'))), 1)
                 self.assertFalse(any(call.args[0][0] == 'maestro' for call in execute.call_args_list))
 
+    def test_prepared_run_cannot_disguise_an_earlier_attempt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = root / '.build/auth-e2e/runs/started'
+            run.mkdir(parents=True)
+            (run / 'report.json').write_text(json.dumps(dict(passed=False, phases=[],
+                attempts=[dict(started='earlier', resumed=False)])))
+            arguments = ['run.py', '--ios-device', 'ios', '--android-device', 'android',
+                         '--ios-app-id', 'ios.app', '--android-app-id', 'android.app',
+                         '--prepared', str(run)]
+            with patch.object(runner, 'ROOT', root), patch.object(runner, 'dedicated_ios'), \
+                 patch.object(runner, 'dedicated_android'), \
+                 patch.object(runner.subprocess, 'run') as execute, patch('sys.argv', arguments):
+                with self.assertRaisesRegex(ValueError, 'already started'):
+                    runner.main()
+            self.assertFalse(any(c.args[0][0] == 'maestro' for c in execute.call_args_list))
+
+    def test_fault_injection_restores_pds_after_failed_ui_assertion(self):
+        for mode, restore in [('paused', 'unpause'), ('stopped', 'start')]:
+            with self.subTest(mode=mode), patch.object(recovery.subprocess, 'run',
+                    return_value=subprocess.CompletedProcess([], 0)) as execute:
+                with self.assertRaisesRegex(RuntimeError, 'UI assertion'):
+                    with recovery.unavailable(mode):
+                        raise RuntimeError('UI assertion')
+                self.assertIn(['docker', restore, recovery.PDS],
+                              [c.args[0] for c in execute.call_args_list])
+
+    def test_provisioning_skips_an_already_shared_mount(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / 'source', root / 'target'
+            source.write_text('certificate fixture')
+            target.symlink_to(source)
+            marker = root / 'mounted'
+            mount = root / 'mount'
+            mount.write_text('#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
+            mount.chmod(0o700)
+            shell = shlex.split(android.mount_command('1', str(source), str(target)))[-1]
+            environment = dict(os.environ, PATH=str(root) + ':' + os.environ['PATH'])
+            subprocess.run(['sh', '-c', shell], env=environment, check=True)
+            self.assertFalse(marker.exists())
+            target.unlink()
+            target.write_text('different inode')
+            subprocess.run(['sh', '-c', shell], env=environment, check=True)
+            self.assertTrue(marker.exists())
+
+    def test_recovery_timeout_is_saved_as_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            story = recovery.Story(dict(platform='ios', device='ios', app='test.app'),
+                                   Path(temporary), 'fixture-password')
+            with patch.object(story, 'events', return_value=[]), \
+                 patch.object(recovery.subprocess, 'run',
+                              side_effect=subprocess.TimeoutExpired('maestro', 300)):
+                with self.assertRaisesRegex(RuntimeError, 'timeout failed'):
+                    story.phase('timeout', [])
+            report = json.loads((Path(temporary) / 'report.json').read_text())
+            self.assertEqual(report[0]['uiExitCode'], 124)
+            self.assertFalse(report[0]['passed'])
+
+    def test_live_android_evidence_survives_flow_log_reset_and_closes_on_failure(self):
+        consumed = threading.Event()
+        first = '09-29 12:00:00.001 123 I OME_AUTH_E2E getSession status=401\n'
+        second = '09-29 12:00:00.002 123 I OME_AUTH_E2E getSession status=200\n'
+
+        class Output(io.StringIO):
+            def __iter__(self):
+                yield first
+                yield 'unrelated log line\n'
+                yield second
+                consumed.set()
+
+        class Process:
+            stdout = Output()
+            stopped = False
+            def poll(self): return None
+            def terminate(self): self.stopped = True
+            def wait(self, timeout): return 0
+
+        process = Process()
+        story = recovery.Story(dict(platform='android', device='emulator-test', app='test.app'),
+                               Path('/unused'), 'fixture-password')
+        with patch.object(recovery.subprocess, 'Popen', return_value=process) as start:
+            with self.assertRaisesRegex(RuntimeError, 'UI failed'):
+                with story.live_events() as snapshot:
+                    self.assertTrue(consumed.wait(timeout=2))
+                    # The live reader retains both status lines independently of
+                    # Maestro clearing the device ring buffer for its next flow.
+                    self.assertEqual(snapshot(), [first.rstrip(), second.rstrip()])
+                    self.assertEqual(runner.new_events([first.rstrip()], snapshot()),
+                                     [('getSession', '200')])
+                    raise RuntimeError('UI failed')
+        self.assertTrue(process.stopped)
+        self.assertTrue(process.stdout.closed)
+        self.assertIn('app.openmusicevent/auth-e2e:I', start.call_args.args[0])
+        self.assertIn('*:S', start.call_args.args[0])
+
     def test_log_rotation_does_not_hide_repeated_status_codes(self):
         before = ['09-28 20:00:00.000 123 I OME_AUTH_E2E getSession status=200']
         after = ['09-28 20:05:00.000 456 I OME_AUTH_E2E getSession status=401',
@@ -124,6 +226,34 @@ class HarnessTests(unittest.TestCase):
     def test_expired_session_refresh_and_retry_are_required_in_order(self):
         self.assertTrue(runner.refresh_proven([('getSession', '401'), ('refresh', '400'),
                                                ('refresh', '200'), ('getSession', '200')]))
+
+    def test_domain_resolver_install_is_one_time_and_preserves_unrelated_hosts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolver = root / 'resolver/ome-auth.test'
+            host_file = root / 'hosts'
+            original = '127.0.0.1 localhost\n192.0.2.1 other.test\n'
+            host_file.write_text(hosts.updated(original, True, ['old.pds1.ome-auth.test']))
+            hosts.install_resolver(resolver, host_file)
+            self.assertEqual(resolver.read_text(), hosts.RESOLVER_CONTENT)
+            self.assertEqual(host_file.read_text(), original)
+            hosts.install_resolver(resolver, host_file)
+            self.assertEqual(host_file.read_text(), original)
+            hosts.install_resolver(resolver, host_file, remove=True)
+            self.assertFalse(resolver.exists())
+            self.assertEqual(host_file.read_text(), original)
+
+    def test_domain_resolver_does_not_replace_unrecognized_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolver = root / 'ome-auth.test'
+            resolver.write_text('nameserver 192.0.2.1\n')
+            host_file = root / 'hosts'
+            host_file.write_text('127.0.0.1 localhost\n')
+            for remove in (False, True):
+                with self.assertRaisesRegex(ValueError, 'Unrecognized resolver'):
+                    hosts.install_resolver(resolver, host_file, remove=remove)
+            self.assertEqual(resolver.read_text(), 'nameserver 192.0.2.1\n')
 
     def test_host_install_is_idempotent_and_preserves_other_entries(self):
         original = '127.0.0.1 localhost\n192.0.2.1 other.test\n'

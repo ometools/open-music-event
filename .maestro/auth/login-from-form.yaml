@@ -1,0 +1,5 @@
+appId: ${APP_ID}
+---
+- tapOn: {id: field.account.handle}
+- inputText: ${HANDLE}
+- runFlow: submit-login-form.yaml

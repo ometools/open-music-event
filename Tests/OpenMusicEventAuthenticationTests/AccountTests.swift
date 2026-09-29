@@ -1031,6 +1031,47 @@ struct AccountTests {
     }
 
     @Test
+    func reauthorizingAnExistingAccountRefreshesItsVerifiedHandle() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let renewed = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        var stored = OAuth.SessionStore()
+        stored.upsert(alice)
+        let sessions = Shared(value: stored)
+        let authorization = AccountAuthorizationRecorder(signInContinuation: .suspended)
+        let validation = AccountSessionValidationRecorder(results: [alice.accountID: .requiresRelog])
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+            $0.openMusicEventAuthorizationRequests = .recording(authorization, sessionStore: sessions)
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
+        } operation: {
+            Store(initialState: Account.State.localTestState(
+                presentation: .accountManagement,
+                sessionStore: sessions,
+                selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
+            )) {
+                Account()
+            }
+        }
+        try await waitForCondition {
+            store.accountSessionValidationStatuses[alice.accountID] == .requiresRelog
+        }
+        let handle = Atmosphere.Account.Handle(rawValue: "alice.example.com")
+        await validation.setResult(.accepted(handle: handle), for: alice.accountID)
+        await store.send(.accountRowTapped(alice.accountID))?.value
+        let login = store.send(.submitAuthenticationFormButtonTapped)
+        try await waitForCondition { store.isLoginInProgress }
+        await authorization.resumeSignIn(returning: renewed)
+        await login?.value
+        try await waitForCondition { !store.isLoginInProgress }
+
+        expectNoDifference(store.accountSessionIDs, [alice.accountID.rawValue.description])
+        expectNoDifference(store.session, renewed)
+        expectNoDifference(store.presentation, .accountManagement)
+        expectNoDifference(store.verifiedAccountHandles[alice.accountID], handle)
+        expectNoDifference(store.accountRows.first?.pickerHandle, "@alice.example.com")
+    }
+
+    @Test
     func signInFormKeepsSheetPresentedWhileAuthorizationIsInFlight() async throws {
         let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
@@ -1593,7 +1634,7 @@ private actor AccountAuthorizationRecorder {
 }
 
 private actor AccountSessionValidationRecorder {
-    private let results: [Atmosphere.Account.ID: OpenMusicEventAccountSessionValidationClient.ValidationResult]
+    private var results: [Atmosphere.Account.ID: OpenMusicEventAccountSessionValidationClient.ValidationResult]
     private var validatedAccountIDs: [Atmosphere.Account.ID] = []
 
     init(
@@ -1607,6 +1648,13 @@ private actor AccountSessionValidationRecorder {
     ) -> OpenMusicEventAccountSessionValidationClient.ValidationResult {
         validatedAccountIDs.append(accountID)
         return results[accountID] ?? .accepted()
+    }
+
+    func setResult(
+        _ result: OpenMusicEventAccountSessionValidationClient.ValidationResult,
+        for accountID: Atmosphere.Account.ID
+    ) {
+        results[accountID] = result
     }
 
     func snapshotValidatedAccountIDs() -> [Atmosphere.Account.ID] {

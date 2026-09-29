@@ -14,6 +14,16 @@ from run import dedicated_android
 from sandbox import UPSTREAM
 
 
+def mount_command(pid, source, target):
+    # Mount namespaces may share propagation. Test inside the target namespace:
+    # another namespace's bind may already have installed this exact inode.
+    if not pid.isdecimal():
+        raise ValueError('Unexpected process identifier')
+    import shlex
+    command = f'[ {shlex.quote(source)} -ef {shlex.quote(target)} ] || mount --bind {shlex.quote(source)} {shlex.quote(target)}'
+    return f'nsenter -t {pid} -m -- sh -c {shlex.quote(command)}'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device', required=True)
@@ -59,7 +69,10 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / 'hosts'
         path.write_text(updated)
-        adb('push', str(path), '/data/local/tmp/ome-auth-hosts')
+        # adb push replaces an existing inode; a bind mount would retain the
+        # deleted file. Copy bytes into the stable mounted inode instead.
+        adb('push', str(path), '/data/local/tmp/ome-auth-hosts.incoming')
+        adb('shell', 'cat /data/local/tmp/ome-auth-hosts.incoming > /data/local/tmp/ome-auth-hosts')
     adb('shell', 'chmod 644 /data/local/tmp/ome-auth-hosts; chcon u:object_r:system_file:s0 /data/local/tmp/ome-auth-hosts')
 
     # Existing resolver and zygote namespaces need the same mounts as init.
@@ -70,9 +83,9 @@ def main():
     for pid in sorted(pids):
         if not pid.isdecimal():
             raise RuntimeError('Unexpected process identifier')
-        adb('shell', f'nsenter -t {pid} -m -- mount --bind {stage} /apex/com.android.conscrypt/cacerts')
-        adb('shell', f'nsenter -t {pid} -m -- mount --bind {stage} /system/etc/security/cacerts')
-        adb('shell', f'nsenter -t {pid} -m -- mount --bind /data/local/tmp/ome-auth-hosts /system/etc/hosts')
+        adb('shell', mount_command(pid, stage, '/apex/com.android.conscrypt/cacerts'))
+        adb('shell', mount_command(pid, stage, '/system/etc/security/cacerts'))
+        adb('shell', mount_command(pid, '/data/local/tmp/ome-auth-hosts', '/system/etc/hosts'))
     print('Private DNS and CA mounted in the dedicated emulator; restart app and browser processes.')
 
 

@@ -48,6 +48,14 @@ refresh-token and session lifetimes are unchanged. It also permits exactly
 local-hostname client-ID check. Other local clients remain rejected. Both patches
 fail if the pinned source changes, and the image build tests the client exception. The app's OAuth metadata grants only `atproto` for this slice.
 
+The one-time `host-routing.py install` command installs
+`/etc/resolver/ome-auth.test` pointing to `127.0.0.1:1053` and removes only the
+previous OME block from `/etc/hosts`. A separate host-facing CoreDNS service answers
+all names under `ome-auth.test` with `127.0.0.1`; it binds UDP and TCP only on
+localhost and does not forward unrelated domains. Internal Docker DNS continues
+to return the gateway's internal address. The host DNS service starts with
+`sandbox.py up` or `prepare-run.py`; subsequent test runs need no Mac sudo.
+
 The host relay binds **127.0.0.1:443**. On Docker Desktop its external network has
 higher priority than the internal Atmosphere network; without that priority, host
 connections reset even though container-to-container TLS succeeds.
@@ -101,8 +109,6 @@ Scripts/fastlane-local.sh auth_e2e \
 # Use the run directory printed above. Provision exact account hostnames before UI work.
 python3 Scripts/auth-e2e/prepare-run.py .build/auth-e2e/runs/RUN_ID \
   --android-device ANDROID_SERIAL
-sudo /opt/homebrew/bin/python3 Scripts/auth-e2e/host-routing.py install \
-  --run .build/auth-e2e/runs/RUN_ID
 
 Scripts/fastlane-local.sh auth_e2e \
   ios_device:IOS_UDID android_device:ANDROID_SERIAL \
@@ -157,7 +163,7 @@ or replace image baselines. Auth screenshots are evidence, not visual baselines.
   app was used to isolate the toolbar check. No full E2E pass is claimed.
 - The OME source workspace remains isolated; its default workspace is unchanged.
 
-Stop services with `sandbox.py down`. Remove just the host block with
+Stop services with `sandbox.py down`. Remove just the macOS domain resolver with
 `sudo python3 Scripts/auth-e2e/host-routing.py remove`. Device/CA removal is a
 separate explicit cleanup operation; everyday simulator and emulator state is
 outside this harness's scope.
@@ -195,11 +201,11 @@ all login and cross-device phases. Repeating the suite does not require deleting
 PDS accounts. Resume keeps the original handles and saved password.
 
 Before UI work, prepare the run's exact hostnames in the private gateway, CoreDNS,
-Android hosts mount, and Mac hosts block using the commands above. Signup itself
+and Android hosts mount using the commands above. The Mac resolver is installed once. Signup itself
 can succeed before account-handle DNS exists, but subsequent handle login cannot.
 The runner checks Mac resolution before touching either UI. Provisioning preserves
 existing PDS accounts and the private CA; restart the Android app and Chrome after
-remounting routes. Administrator access is needed only for the Mac hosts update.
+remounting routes. No administrator access is needed for subsequent runs.
 
 ## Native callback verification (2026-09-28)
 
@@ -334,3 +340,123 @@ used. All 10 Python harness tests passed as well.
 Both source workspaces remain isolated; these changes have not been landed or
 pushed. Validation-only root `Package.resolved` churn was restored.
 The original failed combined report remains unchanged.
+
+
+## Repeatable provisioning and recovery stories
+
+macOS uses a one-time `/etc/resolver/ome-auth.test` domain resolver pointing to
+CoreDNS on loopback port 1053. `host-dns.compose.yaml` serves wildcard loopback A
+records only for the private domain; it does not change the Mac's default DNS.
+`preflight.py` checks a new random hostname, so old `/etc/hosts` entries cannot
+mask a broken resolver. Each run still provisions its private HTTPS routes and
+Android names. New runs require no further Mac administrator command.
+
+Use `run.py --prepared RUN` to start a provisioned, never-started baseline.
+It refuses any recorded earlier attempt; `--resume` remains explicitly separate.
+Run `recovery.py RUN` after a passed baseline to exercise both accounts through
+browser login, in-flight selection, process restoration, removing one account,
+browser cancellation, PDS interruption, grant revocation and reauthorization.
+The recovery report records each phase's UI result and status-only network events.
+Revocation is restricted to the UI-created private account and sandbox client.
+Fault injection restores the PDS in a `finally` block, including failed UI checks.
+
+Android provisioning checks source/target inode identity inside each mount
+namespace before binding. Shared mount propagation means blind repeated binds
+can multiply: the fresh `20260929T195720Z` run exposed 16,384 stacked binds on each
+CA directory. Android killed OME during `AndroidBootstrap.setupCACerts`, before
+signup. That failed run is preserved. Hosts updates now write into the existing
+bound inode instead of replacing it with `adb push`. A dedicated emulator reboot
+clears previously accumulated temporary mounts while preserving account data.
+
+After the fix, two consecutive live provisioning runs each reported one mount at
+all three sandbox targets. The installed Android app then cold-started in 3.2s.
+The Python harness has 16 passing tests, including restoration after failed fault
+injection, preserved timeout evidence, refusal to relabel a resumed run as fresh,
+and skipping an already-bound inode. No Swift source or installed app changed
+for this provisioning repair.
+
+The post-repair fresh baseline `20260929T203916Z` passed all 21 phases on its first
+attempt (`resumed: false`), using two new UI-created accounts. Both platforms
+proved real expiry/refresh, persisted rotated credentials, and same-account
+cross-device logout isolation. No resumed phase, account reset, or manual UI
+intervention was used in this run. Recovery stories are recorded separately.
+
+The first recovery run (`recovery-20260929T145612`) preserved two new failures:
+- iOS passed multi-account switching/removal, browser cancellation/retry, and
+  offline preservation/recovery. Reauthorization exchanged tokens successfully
+  but left the account label without its verified handle: the account-ID set had
+  not changed, so no validation ran for the replacement authorization.
+- Android's Accounts sheet rendered its custom bridged Section as overlapping
+  content, making Add Another Account inaccessible and blocking scenario setup.
+
+The account feature now requests its existing account validation after successful
+sign-in/sign-up storage completes, including replacement authorization for an
+existing ID. The new `reauthorizingAnExistingAccountRefreshesItsVerifiedHandle`
+test first failed on the missing handle and now passes. All 64 focused auth tests
+pass. Account management sections now compose directly inside the native Form
+builder, preserving the authentication surface when no accounts remain. Device
+verification of these fixes is tracked in subsequent reports; the original
+failure reports are retained.
+
+The rebuilt iOS app passed the complete revocation story in
+`recovery-20260929T152210`: private grant removal, Sign in required, reauthorization
+with the verified handle restored, preservation of the other account, and
+restoration after relaunch. The iOS build passed. Android also built and installed
+successfully (Gradle 6m25s); its repaired account-sheet stories are tracked next.
+
+Android recovery `recovery-20260929T152916` passed PDS interruption and recovery
+with both accounts and selection preserved. Browser cancellation remains a
+confirmed product failure: Back returns from Chrome, but the external-browser
+authorization remains pending and the submit button stays disabled. The shared
+Android external-browser path opens the URL without receiving a cancellation
+result; the test remains red rather than adding a UI lifecycle workaround.
+
+The corrected multi-account row selectors passed the visible assertions through
+selection and validation in `recovery-20260929T154431`, but its network-evidence
+assertion captured no new events. This is not counted as a complete pass. Earlier
+revocation setup also exposed a test-input problem: Android eraseText left part
+of the prefilled DID. Reauthorization now submits the asserted prefilled
+identifier, exercising the actual product flow.
+
+Account action icon mappings are implemented in shared SkipUI Image.swift, in
+workspace skip-ui-label-accessibility, rather than as OME view substitutions.
+The final Android APK compiled successfully with these mappings and was
+installed preserving account data. Visual and final runtime results follow.
+
+The final Android APK passed the complete revoked-grant story in
+`recovery-20260929T155213`, including submission of the prefilled account ID,
+reauthorization, verified handle restoration, preservation of the second
+account, and relaunch.
+
+The multi-account evidence gap was traced to Maestro 2.9.0
+`AndroidDriver.startDeviceLogCapture`, which executes `logcat -c` at every flow
+start. Requests completed between PDS unpause and the next flow were erased.
+Recovery now keeps a filtered live auth-event reader across that boundary,
+starts the assertion window immediately before unpause, and closes the reader
+even on failure. Timestamped status-only observations are retained in each
+phase artifact. The harness has 17 passing tests including this cleanup and
+event-retention behavior. OAuth validation and UI assertions remain unchanged.
+
+Android multi-account recovery passed completely in
+`recovery-20260929T160133`: both accounts were checking while the PDS was paused,
+switching preserved the selected identity, post-unpause validation had both UI
+and HTTP proof, selection survived relaunch, removing the second account left
+the first intact, and that state survived another relaunch. The Accounts screen
+also visually confirmed the shared Add Account and Log Out icon mappings.
+
+Fresh run `20260929T215517Z` was prepared on the final builds. Its routing
+provisioning confirmed the existing Mac resolver and required no per-run sudo.
+
+Final-build baseline `20260929T215517Z` passed all 21 phases on its first attempt
+(`resumed: false`, no failures). Both iOS and Android recorded getSession 401,
+refresh 200, and getSession 200 after the real expiry wait, then restored the
+rotated session on another relaunch. Same-account sessions survived peer local
+logout, and each platform signed into the account created on the other.
+No manual UI intervention or account reset was used. Private PDS, DNS and
+gateway were confirmed running and unpaused afterward.
+
+Remaining failure: Android browser cancellation, preserved in
+`recovery-20260929T152916`. Its fix belongs in the shared browser authorization
+session completion/cancellation path. The broader recovery suite is not fully
+green despite the fresh baseline, multi-account, offline and revocation passes.
+All changes remain isolated; nothing has been landed or pushed.

@@ -5,10 +5,20 @@ import socket
 import ssl
 import subprocess
 import urllib.request
+import uuid
 from sandbox import PROJECT, UPSTREAM
 
 
 def main():
+    # A never-provisioned name proves domain DNS works, rather than a stale hosts entry.
+    probe = 'dns-check-' + uuid.uuid4().hex + '.pds1.ome-auth.test'
+    try:
+        addresses = {entry[4][0] for entry in socket.getaddrinfo(probe, 443)}
+    except socket.gaierror as error:
+        raise RuntimeError('Sandbox domain DNS is unavailable. Start host-dns and install '
+                           'the one-time resolver with host-routing.py install.') from error
+    if addresses != {'127.0.0.1'}:
+        raise RuntimeError('Sandbox domain DNS must resolve fresh names only to 127.0.0.1')
     context = ssl.create_default_context(cafile=str(UPSTREAM / 'state/ca/root.crt'))
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
                                          urllib.request.HTTPSHandler(context=context))

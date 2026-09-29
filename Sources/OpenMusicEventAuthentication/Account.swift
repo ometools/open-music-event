@@ -806,6 +806,8 @@ public struct Account {
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
                             )
+                            let validation = try store.send(.accountSessionsChanged)
+                            await validation?.value
                             try await Self.hydrateProfile(
                                 for: session,
                                 using: blueskyActorProfileCache
@@ -855,6 +857,8 @@ public struct Account {
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
                             )
+                            let validation = try store.send(.accountSessionsChanged)
+                            await validation?.value
                             try await Self.hydrateProfile(
                                 for: session,
                                 using: blueskyActorProfileCache
@@ -1069,7 +1073,7 @@ public struct AccountView: View {
             AccountAuthenticationSubmitSection(store: store)
 
         case .accountManagement:
-            AccountManagementSection(store: store)
+            accountManagementFormSections(store: store)
         }
     }
 }
@@ -1154,11 +1158,18 @@ public struct AccountPresentationView: View {
 
 struct AccountManagementPresentationView: View {
     @Bindable var store: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         NavigationStack {
             _AuthenticationForm {
-                AccountView(store: store)
+                switch store.surface {
+                case .authentication:
+                    accountAuthenticationFormSections(store: store, showsTechnicalDetails: showsTechnicalDetails)
+                    AccountAuthenticationSubmitSection(store: store)
+                case .accountManagement:
+                    accountManagementFormSections(store: store)
+                }
             }
             #if os(macOS)
             .frame(maxWidth: 720)
@@ -1242,77 +1253,77 @@ struct AccountPickerRow: View {
     }
 }
 
-struct AccountManagementSection: View {
-    @Bindable var store: StoreOf<Account>
-
-    var body: some View {
-        Section("Account") {
-            ForEach(store.accountRows) { row in
-                Button {
-                    select(row)
-                } label: {
-                    AccountRowView(row: row)
-                }
-                .buttonStyle(.plain)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        logOut(row)
-                    } label: {
-                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-                .contextMenu {
-                    Button {
-                        select(row)
-                    } label: {
-                        Label(
-                            row.requiresRelog
-                                ? "Sign In Again"
-                                : row.isSelected ? "Current Account" : "Select Account",
-                            systemImage: row.isSelected ? "checkmark" : "checkmark.circle"
-                        )
-                    }
-                    .disabled(row.isSelected && !row.requiresRelog)
-
-                    Button(role: .destructive) {
-                        logOut(row)
-                    } label: {
-                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-            }
-
+@MainActor
+@ViewBuilder
+func accountManagementFormSections(store: StoreOf<Account>) -> some View {
+    Section("Account") {
+        ForEach(store.accountRows) { row in
             Button {
-                store.send(.addAnotherAccountButtonTapped)
+                selectAccount(row, store: store)
             } label: {
-                Label("Add Another Account", systemImage: "person.badge.plus")
+                AccountRowView(row: row)
             }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    logOutAccount(row, store: store)
+                } label: {
+                    Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+            .contextMenu {
+                Button {
+                    selectAccount(row, store: store)
+                } label: {
+                    Label(
+                        row.requiresRelog
+                            ? "Sign In Again"
+                            : row.isSelected ? "Current Account" : "Select Account",
+                        systemImage: row.isSelected ? "checkmark" : "checkmark.circle"
+                    )
+                }
+                .disabled(row.isSelected && !row.requiresRelog)
 
-            Button(role: .destructive) {
-                store.send(.signOutAllButtonTapped)
-            } label: {
-                Label("Log Out of All Accounts", systemImage: "rectangle.portrait.and.arrow.right")
+                Button(role: .destructive) {
+                    logOutAccount(row, store: store)
+                } label: {
+                    Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
             }
-            .accessibilityIdentifier("button.account.logout-all")
+        }
 
-            if let errorMessage = store.errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-            }
+        Button {
+            store.send(.addAnotherAccountButtonTapped)
+        } label: {
+            Label("Add Another Account", systemImage: "person.badge.plus")
+        }
+
+        Button(role: .destructive) {
+            store.send(.signOutAllButtonTapped)
+        } label: {
+            Label("Log Out of All Accounts", systemImage: "rectangle.portrait.and.arrow.right")
+        }
+        .accessibilityIdentifier("button.account.logout-all")
+
+        if let errorMessage = store.errorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.red)
         }
     }
+}
 
-    private func logOut(_ row: Account.AccountRow) {
-        withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
-            _ = store.send(.accountLogOutButtonTapped(row.id))
-        }
+@MainActor
+private func logOutAccount(_ row: Account.AccountRow, store: StoreOf<Account>) {
+    withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
+        _ = store.send(.accountLogOutButtonTapped(row.id))
     }
+}
 
-    private func select(_ row: Account.AccountRow) {
-        guard !row.isSelected else { return }
-        withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
-            _ = store.send(.accountRowTapped(row.id))
-        }
+@MainActor
+private func selectAccount(_ row: Account.AccountRow, store: StoreOf<Account>) {
+    guard !row.isSelected else { return }
+    withAnimation(_AuthenticationAnimation.easeInOut(duration: 0.2)) {
+        _ = store.send(.accountRowTapped(row.id))
     }
 }
 

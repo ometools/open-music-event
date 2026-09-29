@@ -1,0 +1,42 @@
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible: {id: button.account.submit, enabled: true}
+    timeout: 15000
+- tapOn: {id: button.account.submit, enabled: true}
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - extendedWaitUntil:
+          visible: Continue
+          timeout: 60000
+      - tapOn: Continue
+- extendedWaitUntil:
+    visible: Password
+    timeout: 30000
+- tapOn: Password
+- inputText: ${PASSWORD}
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      # Safari may show only its input toolbar; hideKeyboard then fails.
+      - tapOn: Enter your password
+- runFlow:
+    when: {visible: "Use Strong Password?"}
+    commands:
+      - tapOn: Close
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - tapOn:
+          text: Done
+          optional: true
+- scrollUntilVisible:
+    element:
+      text: Sign in
+      below: Password
+    direction: DOWN
+- tapOn:
+    text: Sign in
+    below: Password
+- runFlow: consent.yaml
