@@ -12,6 +12,7 @@ do {
         ProgramItem.self,
         Contributor.self,
         Social.Post.self,
+        Social.Category.self,
         OME.Color.self,
         OME.SemanticIcon.self,
     ])

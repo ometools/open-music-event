@@ -390,6 +390,35 @@
       },
       "type" : "object"
     },
+    "mapStyle" : {
+      "description" : "One named base-map image with a stable identity inside its event. Renaming or reordering the style preserves its identity.",
+      "properties" : {
+        "id" : {
+          "description" : "A stable event-local style identifier, independent of its title and array position.",
+          "maxLength" : 100,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "image" : {
+          "description" : "The base image for this map style. Local asset paths and cache policy are not part of the public image.",
+          "ref" : "#image",
+          "type" : "ref"
+        },
+        "title" : {
+          "description" : "The attendee-facing style title.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "title",
+        "image"
+      ],
+      "type" : "object"
+    },
     "mediaRecord" : {
       "description" : "A live reference to an independently published AT Protocol media record. The record keeps its own identity, lifecycle, and social activity.",
       "properties" : {
@@ -487,6 +516,41 @@
         "gridOfSquares"
       ],
       "type" : "string"
+    },
+    "siteMap" : {
+      "description" : "An event's selectable site-map presentation. Styles have stable event-local identities and organizer-defined display order.",
+      "nullable" : [
+        "defaultStyleID"
+      ],
+      "properties" : {
+        "defaultStyleID" : {
+          "description" : "The stable identifier of the default style. It must identify a style in this map.",
+          "maxLength" : 100,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "styles" : {
+          "description" : "Ordered selectable map styles. The first style is the default when no defaultStyleID is supplied.",
+          "items" : {
+            "ref" : "#mapStyle",
+            "type" : "ref"
+          },
+          "minLength" : 1,
+          "type" : "array"
+        },
+        "title" : {
+          "description" : "The attendee-facing map title.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "title",
+        "styles"
+      ],
+      "type" : "object"
     },
     "siteMapImage" : {
       "description" : "An image intended as a site-map base layer.",

@@ -34,7 +34,7 @@ extension Social {
         @LexiconField(description: "The optional DID-based events.openmusic.event record this post concerns.")
         public var event: ATProto.URI? = nil
 
-        @LexiconField(description: "An optional organizer-defined category record that directs this post within its event.")
+        @LexiconField(description: "An optional DID-based social.ome.category record that directs this post within its event.")
         public var category: ATProto.URI? = nil
 
         @LexiconField(description: "Pinned references to equivalent records syndicated from this post.", minLength: 1)
@@ -47,6 +47,9 @@ extension Social {
         @LexiconField(description: "Client-declared timestamp when this post was most recently updated.")
         public var updatedAt: ATProto.DateTime? = nil
 
+        @LexiconField(description: "The author's requested notification delivery behavior. Omitted means unspecified. This is intent, not delivery authorization; clients verify the event and category authority before sending notifications.")
+        public var delivery: Open<Delivery>? = nil
+
         public func validateReferences() throws {
             try LexiconCoding.validateRecordURI(id, type: Self.self)
             if let event {
@@ -56,14 +59,14 @@ extension Social {
                 guard let event else {
                     throw ValidationError("A post category requires an event", path: ["category"])
                 }
-                guard case .did = category.authority,
-                      category.collection != nil,
-                      category.rkey != nil
-                else {
-                    throw ValidationError("A post category requires a complete DID-authored record URI", path: ["category"])
-                }
+                try LexiconCoding.validateRecordURI(category, type: Social.Category.self)
                 guard category.authority == event.authority else {
                     throw ValidationError("A post category must be published in its event's repository", path: ["category"])
+                }
+            }
+            if delivery == .known(.emergency) {
+                guard let event, id.authority == event.authority else {
+                    throw ValidationError("Emergency delivery requires an event-organizer-authored post", path: ["delivery"])
                 }
             }
             guard !text.isEmpty || embed != nil else {
@@ -83,6 +86,31 @@ extension Social {
             }
             _ = try encodeLexicon()
         }
+
+        public func validateGraph(event: Event, category: Social.Category? = nil) throws {
+            try validateReferences()
+            try event.validateReferences()
+            guard self.event == event.id else {
+                throw ValidationError("The post must identify the supplied event", path: ["event"])
+            }
+            if let categoryURI = self.category {
+                guard let category, category.id == categoryURI else {
+                    throw ValidationError("The post category must be resolved", path: ["category"])
+                }
+                try category.validateGraph(event: event)
+            } else if category != nil {
+                throw ValidationError("The post does not reference the supplied category", path: ["category"])
+            }
+        }
+    }
+}
+
+extension Social.Post {
+    @Lexicon("social.ome.defs#delivery", type: .string, description: "A known post delivery preference. Silent does not request a notification; standard requests ordinary delivery; emergency requests time-sensitive organizer delivery. Unknown values do not imply emergency authority.")
+    public enum Delivery: String, Equatable, Sendable {
+        case silent
+        case standard
+        case emergency
     }
 }
 

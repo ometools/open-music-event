@@ -15,13 +15,26 @@ This is an incremental integration checkpoint. Existing app consumers and legacy
 Validation so far:
 - Protocol/authoring: 206 tests in 34 suites passed, exit 0 (deduplicated).
 - ATProtoSQLite: 10 tests in 3 suites passed, exit 0.
-- OME model graph: 101 tests in 16 suites passed, exit 0.
+- OME model graph with the approved public extensions: 106 tests in 17 suites passed, exit 0.
 - ome-export-lexicons --output Lexicons/Generated --check: exit 0, no schema drift.
-- Full native consumer regression: running. iOS UI, private-PDS publication and field CRUD are still unverified.
+- Full native consumer regression before the public-model additions: 1,060 tests in 105 suites passed, exit 0. Final iOS regression is running; private-PDS publication and field CRUD are still unverified.
 
 The model graph uses a separate compiler cache because the initial reuse of full-app SwiftSyntax objects failed at macro linking. A clean cache compiled and tested the models. Validation-only Package.resolved narrowing was restored before the full app run.
 
 Tangled's existing package-restructure workspace has a child change for canonical JSON accessors (source/base 521fad19, destination unset). Its source workspace is /Users/woody/Developer/ometools/worktrees/composable-atmosphere-tangled-reorg. The original record and authoring workspaces remain untouched.
+
+## Approved public-model extensions
+
+Woody chose to extend the public models before replacing the affected UI. This is a separate child change above the validated integration checkpoint.
+
+- Social.Category (social.ome.category) belongs to one event repository, with name, description, media, default subscription state and required-subscription policy. Attendee choices remain per-account state.
+- Event.categories is the complete ordered category list. URI validation rejects duplicate, wrong-collection and foreign-repository references; graph validation verifies category membership.
+- Social.Post.delivery preserves silent, standard and emergency intent as an open string. Emergency intent requires event-organizer authorship. Publication/ingestion must call semantic validation; decoding alone does not authorize notification delivery.
+- Event.siteMap embeds the map title, ordered styles with stable local IDs, images and optional defaultStyleID. Renaming/reordering preserves selection; deleting the default requires choosing another or clearing it. No separate map record is needed for this event-owned lifecycle.
+
+The field inventory now has 155 rows. New tests cover category persistence and CRUD, contradictory subscription policy, ownership/reference failures, map selection and unknown-value preservation. UI wiring remains pending. Existing contributor presentation policies, post pinning/manual ordering and the full rich-text/embed contract still need decisions or further modeling before their legacy consumers can be removed.
+
+These choices use record references for independently owned categories and embedded objects for event-owned map values, consistent with the [ATProto Lexicon type model](https://atproto.com/specs/lexicon). They are OME design choices, not protocol-mandated record boundaries.
 
 ## Field inventory
 
@@ -40,7 +53,7 @@ Each user-authored field requires a discoverable form control, creation/update, 
 | Program items | EditPerformance requires stage and complete start/end | Support optional time/place and ordered credits; review sparse-item presentation before implementation |
 | Contributor links | EditableContributorLinkSection only edits URL and platform and removes rows | Cover title, description, role payload, optional clearing and order using visible row menus |
 | Media | Existing picker edits legacy local image wrappers | Cover all new media/source/role variants; keep caching metadata separate from public payload |
-| Posts | New Social.Post.category references a category record but exporter has no category root | Decide category/channel ownership before replacing existing communications |
+| Posts | Social.Category now defines the previously missing category record | Replace the legacy channel/post consumers and validate delivery authorization at publication/ingestion |
 | Publication | Record workspace has Event publication/readback only | Extend to the complete approved graph and prove zero writes to retired collections |
 
 Source evidence: Sources/OpenMusicEventAppEventViewer/EditEventInfo.swift; StagesViewer.swift (EditStageLoadedForm); Schedule/EditPerformance.swift; Contributors/ContributorsViewer.swift (EditableContributorLinkSection); ImageAssetPicker.swift. New contracts live in the record workspace's Sources/OpenMusicEventLexicon and Sources/OpenMusicEventLexiconExport/main.swift.
@@ -88,7 +101,7 @@ Private sandbox image fixtures must be served inside the sandbox. Successfully l
 
 - Recommended: show untimed/unplaced items in an Unscheduled section within the existing program screen. User response pending.
 - Recommended: explicit app Publish uses the organizer's session to write approved records; AppView indexes readback. User response pending.
-- Missing public model coverage must be reviewed before introducing additional schema fields or removing current UI features.
+- Approved: extend public category, notification and map models before replacing those UI features. Do not remove still-unmapped controls.
 
 ## Execution and acceptance
 

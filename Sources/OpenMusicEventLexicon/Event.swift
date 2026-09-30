@@ -64,9 +64,37 @@ public struct Event: RecordCodable, Equatable {
     @LexiconField(description: "Whether the organizer requests a response from attendees. Omitted when unspecified.")
     public var rsvpExpected: Bool? = nil
 
+    @LexiconField(description: "The event's post categories in organizer-defined display order. When present this is the complete category list.", minLength: 1)
+    @Column(as: [ATProto.URI].JSONRepresentation?.self)
+    public var categories: [ATProto.URI]? = nil
+
+    @LexiconField(description: "The event's selectable site-map images and default style.")
+    @Column(as: SiteMap.JSONRepresentation?.self)
+    public var siteMap: SiteMap? = nil
+
     /// Call at the authoring or verified ingestion boundary, separately from payload decoding.
     public func validateReferences() throws {
         try LexiconCoding.validateRecordURI(id, type: Self.self)
+
+        var seenCategories: Set<ATProto.URI> = []
+        for (index, category) in (categories ?? []).enumerated() {
+            do { try LexiconCoding.validateRecordURI(category, type: Social.Category.self) }
+            catch let error as ValidationError {
+                throw ValidationError(error.reason, path: ["categories", String(index)] + error.path)
+            }
+            guard category.authority == id.authority else {
+                throw ValidationError("An event's category must be published in the event repository", path: ["categories", String(index)])
+            }
+            guard seenCategories.insert(category).inserted else {
+                throw ValidationError("An event's category cannot be repeated", path: ["categories", String(index)])
+            }
+        }
+        if let siteMap {
+            do { try siteMap.validate() }
+            catch let error as ValidationError {
+                throw ValidationError(error.reason, path: ["siteMap"] + error.path)
+            }
+        }
 
         var seenPrograms: Set<ATProto.URI> = []
         for (index, program) in (programs ?? []).enumerated() {

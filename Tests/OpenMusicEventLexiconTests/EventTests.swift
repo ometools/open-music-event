@@ -52,7 +52,14 @@ struct EventTests {
             links: [.init(url: try #require(URL(string: "https://example.com/tickets")), role: .known(.tickets(.init())))],
             programs: [programURI],
             schedules: [scheduleURI],
-            rsvpExpected: true
+            rsvpExpected: true,
+            categories: [#require(ATProto.URI("at://did:plc:wickedwoods/social.ome.category/3mrdbziccpcam"))],
+            siteMap: .init(title: "Festival map", styles: [
+                .init(id: "public", title: "Public", image: .init(
+                    source: .known(.url(#require(URL(string: "https://example.com/map.png")))),
+                    role: .known(.siteMap)
+                )),
+            ], defaultStyleID: "public")
         )
         event.media = [
             .known(.image(.init(source: .known(.url(try #require(URL(string: "https://example.com/poster.png"))))))),
@@ -82,7 +89,9 @@ struct EventTests {
                   "media" TEXT,
                   "programs" TEXT,
                   "schedules" TEXT,
-                  "rsvpExpected" INTEGER
+                  "rsvpExpected" INTEGER,
+                  "categories" TEXT,
+                  "siteMap" TEXT
                 ) STRICT
                 """
             )
@@ -154,7 +163,7 @@ struct EventTests {
         }
     }
 
-    @Test(arguments: ["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected"])
+    @Test(arguments: ["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"])
     func `optional fields accept explicit null`(_ field: String) throws {
         let event = try Event(id: uri, name: "Event", createdAt: "2026-09-15T00:00:00Z", timeZone: .gmt)
         var object = try #require(event.encodeLexicon().object)
@@ -355,7 +364,7 @@ struct EventTests {
         let event = try #require(documents.first { $0.id.rawValue == "events.openmusic.event" })
         let record = try #require(Lexicon.JSONValue(encoding: event).object?["defs"]?.object?["main"]?.object?["record"]?.object)
         expectNoDifference(record["required"], .array(["name", "createdAt", "timeZone"]))
-        expectNoDifference(record["nullable"], .array(["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected"]))
+        expectNoDifference(record["nullable"], .array(["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"]))
         expectNoDifference(record["properties"]?.object?["name"], .object([
             "description": "The public name of the event.",
             "type": "string", "minLength": 1, "maxLength": 5_000, "maxGraphemes": 500,
@@ -390,7 +399,7 @@ struct EventTests {
         ]))
         expectNoDifference(Set(try #require(record["properties"]?.object).keys), [
             "name", "createdAt", "timeZone", "description", "start", "end", "status", "mode",
-            "locations", "links", "media", "programs", "schedules", "rsvpExpected",
+            "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap",
         ])
 
         let definitions = try #require(documents.first { $0.id.rawValue == "events.openmusic.defs" })

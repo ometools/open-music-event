@@ -15,9 +15,20 @@
           "media",
           "programs",
           "schedules",
-          "rsvpExpected"
+          "rsvpExpected",
+          "categories",
+          "siteMap"
         ],
         "properties" : {
+          "categories" : {
+            "description" : "The event's post categories in organizer-defined display order. When present this is the complete category list.",
+            "items" : {
+              "format" : "at-uri",
+              "type" : "string"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
           "createdAt" : {
             "description" : "Client-declared timestamp when this event record was created.",
             "format" : "datetime",
@@ -102,6 +113,11 @@
             },
             "minLength" : 1,
             "type" : "array"
+          },
+          "siteMap" : {
+            "description" : "The event's selectable site-map images and default style.",
+            "ref" : "events.openmusic.defs#siteMap",
+            "type" : "ref"
           },
           "start" : {
             "description" : "The event's starting calendar day or exact instant. Omitted when it has not been announced.",

@@ -11,17 +11,27 @@
           "event",
           "category",
           "syndications",
-          "updatedAt"
+          "updatedAt",
+          "delivery"
         ],
         "properties" : {
           "category" : {
-            "description" : "An optional organizer-defined category record that directs this post within its event.",
+            "description" : "An optional DID-based social.ome.category record that directs this post within its event.",
             "format" : "at-uri",
             "type" : "string"
           },
           "createdAt" : {
             "description" : "Client-declared timestamp when this post was originally created.",
             "format" : "datetime",
+            "type" : "string"
+          },
+          "delivery" : {
+            "description" : "The author's requested notification delivery behavior. Omitted means unspecified. This is intent, not delivery authorization; clients verify the event and category authority before sending notifications.",
+            "knownValues" : [
+              "silent",
+              "standard",
+              "emergency"
+            ],
             "type" : "string"
           },
           "embed" : {

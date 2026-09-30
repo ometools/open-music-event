@@ -130,6 +130,12 @@ struct SocialPostTests {
             return
         }
 
+        guard case .string(let delivery) = schema.properties["delivery"] else {
+            Issue.record("Expected an open delivery string")
+            return
+        }
+        expectNoDifference(delivery.knownValues, ["silent", "standard", "emergency"])
+        #expect(delivery.values == nil)
         expectNoDifference(schema.required, ["text", "createdAt"])
         expectNoDifference(Set(schema.properties.keys), [
             "title",
@@ -141,6 +147,7 @@ struct SocialPostTests {
             "syndications",
             "createdAt",
             "updatedAt",
+            "delivery",
         ])
         guard case .array(let facets) = schema.properties["facets"],
               case .ref(let facet) = facets.items,
