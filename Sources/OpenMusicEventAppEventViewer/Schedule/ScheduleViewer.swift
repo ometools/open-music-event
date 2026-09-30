@@ -301,10 +301,7 @@ public struct ScheduleViewer {
         }
 
         public var showStageNameLabels: Bool {
-            get { scheduleViewerState.showStageNameLabels }
-            set {
-                scheduleViewerState.showStageNameLabels = newValue
-            }
+            visibleStages.count > 1
         }
 
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {

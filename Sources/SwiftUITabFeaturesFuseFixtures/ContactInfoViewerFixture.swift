@@ -53,7 +53,6 @@ public struct ContactInfoViewerFixture: View {
                             description: nil
                         )
                     ],
-                    categoryConfigs: nil,
                     reportingLinks: [
                         OMERecord.Event.ReportingLink(
                             name: "Report Incident",

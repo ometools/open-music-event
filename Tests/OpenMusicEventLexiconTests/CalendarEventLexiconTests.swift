@@ -230,7 +230,6 @@ private func makeEvent(id: OME.Event.ID) throws -> OME.Event {
         iconImageURL: nil,
         siteMapImageURL: nil,
         contactNumbers: nil,
-        categoryConfigs: nil,
         reportingLinks: nil,
         owner: nil
     )

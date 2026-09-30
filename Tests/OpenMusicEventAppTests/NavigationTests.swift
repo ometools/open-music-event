@@ -3921,7 +3921,6 @@ struct NavigationTests {
         )?.value
         await firstVisit.modify {
             $0.selectedStageID = stageLocalID("main")
-            $0.showStageNameLabels = true
         }?.value
 
         let storedState = try await database.read { db in
@@ -3946,7 +3945,6 @@ struct NavigationTests {
         await waitForObservation {
             returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal)
                 && returnVisit.state.selectedStageID == stageLocalID("main")
-                && returnVisit.state.showStageNameLabels
         }
 
         let workshopVisit = withDependencies {
@@ -3966,13 +3964,10 @@ struct NavigationTests {
 
         #expect(storedState.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(storedState.selectedStageID == stageLocalID("main"))
-        #expect(storedState.showStageNameLabels)
         #expect(returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(returnVisit.state.selectedStageID == stageLocalID("main"))
-        #expect(returnVisit.state.showStageNameLabels)
         #expect(workshopVisit.state.scheduleKind == .singleStageAtOnce)
         #expect(workshopVisit.state.selectedStageID == nil)
-        #expect(!workshopVisit.state.showStageNameLabels)
         await workshopVisit.dismount()
     }
 
@@ -3985,7 +3980,6 @@ struct NavigationTests {
             scheduleDivision: .schedule
         )
         storedState.selectedStageID = stageLocalID("main")
-        storedState.showStageNameLabels = true
         storedState.filteringFavorites = true
         storedState.scheduleKind = .allStagesAtOnce(.horizontal)
         storedState.syncScheduleKindStorage()
@@ -4019,7 +4013,6 @@ struct NavigationTests {
             .fetch(db)
         }
         #expect(mergedState.selectedStageID == stageLocalID("main"))
-        #expect(mergedState.showStageNameLabels)
         #expect(mergedState.filteringFavorites)
         #expect(mergedState.scheduleKind == .list)
     }

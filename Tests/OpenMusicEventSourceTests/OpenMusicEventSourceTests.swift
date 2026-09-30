@@ -564,7 +564,6 @@ struct OpenMusicEventSourceTests {
                             timeZone: try #require(TimeZone(identifier: "America/Denver")),
                             images: nil,
                             contactNumbers: nil,
-                            categoryConfigs: nil,
                             schedule: InlineScheduleDTO(
                                 scheduleItems: [
                                     "main": [
@@ -805,7 +804,7 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func contributorProfilePoliciesAndActorsRoundTrip() throws {
+    func retiredPoliciesAreIgnoredAndActorsRoundTrip() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -822,6 +821,9 @@ struct OpenMusicEventSourceTests {
         try """
         name: Actor Event
         timeZone: America/Denver
+        categoryConfigs:
+          music:
+            showStageNameLabels: true
         policies:
           contributors:
             listing:
@@ -869,25 +871,6 @@ struct OpenMusicEventSourceTests {
         let repository = try tree.read(from: repositoryURL).output.requiredValue
         let event = try #require(repository.events.first?.components)
 
-        expectNoDifference(
-            event.event.policies,
-            OME.Event.Policies(
-                contributors: .init(
-                    listing: .known(.scheduleContributors),
-                    profile: .known(
-                        .actorProfiles(
-                            .init(
-                                providers: [
-                                    .known(.bskyActorProfile),
-                                    .unknown(.string("social.example.profile")),
-                                ]
-                            )
-                        )
-                    )
-                )
-            )
-        )
-
         let performance = try #require(event.schedules?.first?.data.scheduleItems["main"]?.first)
         expectNoDifference(
             performance.contributors?.map(\.subject),
@@ -899,6 +882,12 @@ struct OpenMusicEventSourceTests {
 
         let outputURL = try temporaryRepositoryURL()
         _ = try tree.write(repository, to: outputURL)
+        let writtenEvent = try String(
+            contentsOf: outputURL.appending(path: "events/actor-event/event.yml"),
+            encoding: .utf8
+        )
+        #expect(!writtenEvent.contains("policies:"))
+        #expect(!writtenEvent.contains("categoryConfigs:"))
         let roundTripped = try tree.read(from: outputURL).output.requiredValue
 
         expectNoDifference(roundTripped, repository)

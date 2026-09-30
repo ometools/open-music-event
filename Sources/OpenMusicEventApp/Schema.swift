@@ -123,9 +123,6 @@ private func prepareOpenMusicEventDatabase(
     _ database: any DatabaseWriter
 ) throws {
     var migrator = DatabaseMigrator()
-    #if DEBUG
-    migrator.eraseDatabaseOnSchemaChange = true
-    #endif
     OME.DatabaseMigrations.register(into: &migrator)
     BlueskyActorCacheMigrations.register(into: &migrator)
     OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
@@ -394,6 +391,12 @@ public enum OpenMusicEventAppDatabaseMigrations {
             """
         )
         .execute(db)
+    }
+
+    migrator.registerMigration("Remove stage label preferences") { db in
+        try #sql("""
+            ALTER TABLE "scheduleViewerState" DROP COLUMN "showStageNameLabels"
+            """).execute(db)
     }
     }
 }

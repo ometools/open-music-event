@@ -104,8 +104,7 @@ extension OpenMusicEventSourceEvent {
                 uris: nil,
                 timeZone: TimeZone(secondsFromGMT: 0)!,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             )
         )
     }

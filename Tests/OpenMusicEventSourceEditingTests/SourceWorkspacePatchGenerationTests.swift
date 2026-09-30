@@ -169,8 +169,7 @@ struct SourceWorkspacePatchGenerationTests {
                             uris: nil,
                             timeZone: try #require(TimeZone(identifier: "America/Denver")),
                             images: nil,
-                            contactNumbers: nil,
-                            categoryConfigs: nil
+                            contactNumbers: nil
                         ),
                         communicationPosts: [
                             DirectoryContent(
@@ -562,8 +561,7 @@ struct SourceWorkspacePatchGenerationTests {
                             uris: nil,
                             timeZone: TimeZone(secondsFromGMT: 0)!,
                             images: nil,
-                            contactNumbers: nil,
-                            categoryConfigs: nil
+                            contactNumbers: nil
                         )
                     )
                 )

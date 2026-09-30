@@ -1767,8 +1767,7 @@ struct ScheduleAuthoringTests {
                     imageURL: nil,
                     iconImageURL: nil,
                     siteMapImageURL: nil,
-                    contactNumbers: nil,
-                    categoryConfigs: nil
+                    contactNumbers: nil
                 )
             }
             .execute(db)

@@ -23,7 +23,6 @@ public enum EventEditingIntent: Equatable, Sendable {
     case editContributor(eventID: OMERecord.Event.ID, contributorID: OMERecord.ID<OMERecord.Contributor>)
     case eventWorkspace(OMERecord.Event.ID)
     case editEventInfo(OMERecord.Event.ID)
-    case editEventPolicies(OMERecord.Event.ID)
     case editLocation(OMERecord.Event.ID)
     case editPerformance(eventID: OMERecord.Event.ID, performanceID: OMERecord.ID<OMERecord.Performance>)
     case editPoster(OMERecord.Poster.ID)

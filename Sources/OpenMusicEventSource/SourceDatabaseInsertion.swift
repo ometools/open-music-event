@@ -415,16 +415,12 @@ public extension OME {
 
             contributors.append(contentsOf: explicitContributors)
 
-            let scheduleContributorIndex = Self.scheduleContributorIndex(
-                for: sourceEvent,
-                organizerID: organizerID,
-                eventID: localEventID,
-                explicitContributors: explicitContributors
+            let scheduleContributorIndex = ScheduleContributorIndex(
+                contributorIDs: Set(explicitContributors.compactMap { $0.id?.contributorID })
             )
-            contributors.append(contentsOf: scheduleContributorIndex.generatedContributors)
 
             var relationshipContributorIDs: Set<OME.ID<OME.Contributor>> = []
-            for contributor in explicitContributors + scheduleContributorIndex.generatedContributors {
+            for contributor in explicitContributors {
                 guard let contributorID = contributor.id,
                       relationshipContributorIDs.insert(contributorID.contributorID).inserted
                 else { continue }
@@ -746,158 +742,11 @@ public extension OME {
         }
 
         private struct ScheduleContributorIndex {
-            var generatedContributors: [OME.Contributor.Draft] = []
             var contributorIDs: Set<OME.ID<OME.Contributor>> = []
-            var names: [String: OME.ID<OME.Contributor>] = [:]
-            var actors: [OME.Contributor.Actor: OME.ID<OME.Contributor>] = [:]
 
             func contains(contributorID: OME.ID<OME.Contributor>) -> Bool {
                 contributorIDs.contains(contributorID)
             }
-
-            func contributorID(forName name: String) -> OME.ID<OME.Contributor>? {
-                Self.nameKey(name).flatMap { names[$0] }
-            }
-
-            func contributorID(forActor actor: OME.Contributor.Actor) -> OME.ID<OME.Contributor>? {
-                actors[actor]
-            }
-
-            mutating func addGeneratedContributor(
-                for contributor: ScheduleDTO.ScheduleItem.Contributor,
-                organizerID: OME.Organizer.ID,
-                eventID: OME.ID<OME.Event>,
-                usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
-            ) {
-                switch contributor.subject {
-                case .id:
-                    return
-
-                case let .name(name):
-                    guard let displayName = SourceDatabaseInsertion.scheduleContributorDisplayName(forName: name),
-                          let key = Self.nameKey(displayName),
-                          names[key] == nil
-                    else { return }
-
-                    let contributorID = SourceDatabaseInsertion.generatedScheduleContributorID(
-                        prefix: "schedule-name",
-                        value: displayName,
-                        usedContributorIDs: &usedContributorIDs
-                    )
-                    names[key] = contributorID
-                    generatedContributors.append(
-                        OME.Contributor.Draft(
-                            id: .init(
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                contributorID: contributorID
-                            ),
-                            name: displayName,
-                            did: nil,
-                            bio: nil,
-                            images: nil,
-                            links: nil
-                        )
-                    )
-                    contributorIDs.insert(contributorID)
-
-                case let .actor(actor):
-                    guard actors[actor] == nil else { return }
-
-                    let displayName = actor.description
-                    let contributorID = SourceDatabaseInsertion.generatedScheduleContributorID(
-                        prefix: "schedule-actor",
-                        value: displayName,
-                        usedContributorIDs: &usedContributorIDs
-                    )
-                    actors[actor] = contributorID
-                    generatedContributors.append(
-                        OME.Contributor.Draft(
-                            id: .init(
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                contributorID: contributorID
-                            ),
-                            name: displayName,
-                            did: actor.didValue,
-                            bio: nil,
-                            images: nil,
-                            links: nil
-                        )
-                    )
-                    contributorIDs.insert(contributorID)
-                }
-            }
-
-            mutating func addGeneratedScheduleContributors(
-                from scheduleItemsByStageID: ScheduleDTO.ScheduleItems,
-                organizerID: OME.Organizer.ID,
-                eventID: OME.ID<OME.Event>,
-                usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
-            ) {
-                for stageID in scheduleItemsByStageID.keys.sorted() {
-                    for scheduleItem in scheduleItemsByStageID[stageID] ?? [] {
-                        for contributor in scheduleItem.contributors ?? [] {
-                            addGeneratedContributor(
-                                for: contributor,
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                usedContributorIDs: &usedContributorIDs
-                            )
-                        }
-                    }
-                }
-            }
-
-            static func nameKey(_ name: String) -> String? {
-                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed.lowercased()
-            }
-        }
-
-        private static func scheduleContributorIndex(
-            for sourceEvent: OpenMusicEventSourceEvent,
-            organizerID: OME.Organizer.ID,
-            eventID: OME.ID<OME.Event>,
-            explicitContributors: [OME.Contributor.Draft]
-        ) -> ScheduleContributorIndex {
-            var index = ScheduleContributorIndex(
-                contributorIDs: Set(explicitContributors.compactMap { $0.id?.contributorID })
-            )
-            guard sourceEvent.event.policies?.contributors?.usesScheduleContributorListing == true else {
-                return index
-            }
-
-            var usedContributorIDs = index.contributorIDs
-
-            for contributor in explicitContributors {
-                guard let contributorID = contributor.id?.contributorID,
-                      let key = ScheduleContributorIndex.nameKey(contributor.name),
-                      index.names[key] == nil
-                else { continue }
-
-                index.names[key] = contributorID
-            }
-
-            if let inlineSchedule = sourceEvent.event.schedule {
-                index.addGeneratedScheduleContributors(
-                    from: inlineSchedule.scheduleItems,
-                    organizerID: organizerID,
-                    eventID: eventID,
-                    usedContributorIDs: &usedContributorIDs
-                )
-            }
-
-            for schedule in sourceEvent.schedules ?? [] {
-                index.addGeneratedScheduleContributors(
-                    from: schedule.data.scheduleItems,
-                    organizerID: organizerID,
-                    eventID: eventID,
-                    usedContributorIDs: &usedContributorIDs
-                )
-            }
-
-            return index
         }
 
         private static func contributorID(
@@ -918,10 +767,10 @@ public extension OME {
                     )
                 }
                 return contributorID
-            case let .name(name):
-                return index.contributorID(forName: name)
-            case let .actor(actor):
-                return index.contributorID(forActor: actor)
+            case .name:
+                return nil
+            case .actor:
+                return nil
             }
         }
 
@@ -968,36 +817,6 @@ public extension OME {
                 object: .record(.init(performanceID: performanceID)),
                 createdAt: pendingRelationshipCreatedAt
             )
-        }
-
-        private static func scheduleContributorDisplayName(forName name: String) -> String? {
-            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        private static func generatedScheduleContributorID(
-            prefix: String,
-            value: String,
-            usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
-        ) -> OME.ID<OME.Contributor> {
-            let encodedValue = value.addingPercentEncoding(
-                withAllowedCharacters: generatedContributorIDAllowedCharacters
-            ) ?? value
-            let baseID = "\(prefix)-\(encodedValue)"
-            var candidate = OME.ID<OME.Contributor>(.init(baseID))
-            var suffix = 2
-
-            while usedContributorIDs.contains(candidate) {
-                candidate = OME.ID<OME.Contributor>(.init("\(baseID)-\(suffix)"))
-                suffix += 1
-            }
-
-            usedContributorIDs.insert(candidate)
-            return candidate
-        }
-
-        private static var generatedContributorIDAllowedCharacters: CharacterSet {
-            CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         }
 
         private static let pendingRelationshipCreatedAt = "1970-01-01T00:00:00Z"
@@ -1240,15 +1059,6 @@ private extension Date {
             date = nextDate
         }
         return date
-    }
-}
-
-private extension OME.Event.ContributorPolicies {
-    var usesScheduleContributorListing: Bool {
-        if case .known(.scheduleContributors)? = listing {
-            return true
-        }
-        return false
     }
 }
 

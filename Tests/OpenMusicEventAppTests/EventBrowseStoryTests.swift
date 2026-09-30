@@ -976,8 +976,7 @@ struct EventBrowseStoryTests {
                             materializationPolicy: .lazy
                         ),
                     ],
-                    contactNumbers: nil,
-                    categoryConfigs: nil
+                    contactNumbers: nil
                 )
             }
             .execute(db)
@@ -2098,8 +2097,7 @@ private func wickedWoodsSourceEvent(
                 uris: nil,
                 timeZone: timeZone,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             ),
             channels: includesCommunicationPost
                 ? [

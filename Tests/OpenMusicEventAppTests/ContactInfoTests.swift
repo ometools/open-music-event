@@ -234,7 +234,6 @@ func insertContactInfoEvent(
                 timeZone: TimeZone(identifier: "UTC")!,
                 images: nil,
                 contactNumbers: contactNumbers,
-                categoryConfigs: nil,
                 reportingLinks: reportingLinks
             )
         }

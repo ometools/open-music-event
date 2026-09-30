@@ -1648,8 +1648,6 @@ struct DatabaseMigrationTests {
                     timeZone: timeZone,
                     images: nil,
                     contactNumbers: nil,
-                    categoryConfigs: nil,
-                    policies: nil,
                     reportingLinks: nil
                 )
             }
@@ -1668,8 +1666,6 @@ struct DatabaseMigrationTests {
                     timeZone: timeZone,
                     images: nil,
                     contactNumbers: nil,
-                    categoryConfigs: nil,
-                    policies: nil,
                     reportingLinks: nil
                 )
             }
@@ -1790,8 +1786,7 @@ private func seedSearchEvent(
                 uris: nil,
                 timeZone: timeZone,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             )
         }
         .execute(db)

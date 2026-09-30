@@ -65,8 +65,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
         timeZone: TimeZone,
         images: [SourceImageAsset]?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
-        categoryConfigs: OMERecord.Event.CategoryConfigs?,
-        policies: OMERecord.Event.Policies? = nil,
         reportingLinks: [OMERecord.Event.ReportingLink]? = nil,
         owner: OMERecord.Contributor.Actor? = nil,
         schedule: InlineScheduleDTO? = nil
@@ -83,8 +81,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.timeZone = timeZone
         self.images = images?.bundlingAppearancePairs()
         self.contactNumbers = contactNumbers
-        self.categoryConfigs = categoryConfigs
-        self.policies = policies
         self.reportingLinks = reportingLinks
         self.owner = owner
         self.schedule = schedule
@@ -105,8 +101,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
         iconImageURL: URL?,
         siteMapImageURL: URL?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
-        categoryConfigs: OMERecord.Event.CategoryConfigs?,
-        policies: OMERecord.Event.Policies? = nil,
         reportingLinks: [OMERecord.Event.ReportingLink]? = nil,
         owner: OMERecord.Contributor.Actor? = nil,
         schedule: InlineScheduleDTO? = nil
@@ -128,8 +122,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
                 siteMapURL: siteMapImageURL
             ),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs,
-            policies: policies,
             reportingLinks: reportingLinks,
             owner: owner,
             schedule: schedule
@@ -150,8 +142,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: draft.timeZone,
             images: draft.images?.sourceImageAssets(),
             contactNumbers: draft.contactNumbers,
-            categoryConfigs: draft.categoryConfigs,
-            policies: draft.policies,
             reportingLinks: draft.reportingLinks,
             owner: draft.owner,
             schedule: nil
@@ -170,8 +160,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
     @SourceTimeZone public var timeZone: TimeZone
     public var images: [SourceImageAsset]?
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
-    public var categoryConfigs: OMERecord.Event.CategoryConfigs?
-    public var policies: OMERecord.Event.Policies?
     public var reportingLinks: [OMERecord.Event.ReportingLink]?
     public var owner: OMERecord.Contributor.Actor?
     public var schedule: InlineScheduleDTO?
@@ -190,8 +178,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: timeZone,
             images: images?.recordImageAssets(),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs,
-            policies: policies,
             reportingLinks: reportingLinks,
             owner: owner
         )
@@ -225,8 +211,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
         case iconImageURL
         case siteMapImageURL
         case contactNumbers
-        case categoryConfigs
-        case policies
         case reportingLink
         case reportingLinks
         case owner
@@ -255,8 +239,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: try container.decode(SourceTimeZone.self, forKey: .timeZone).wrappedValue,
             images: images,
             contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
-            categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
-            policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies),
             reportingLinks: try container.decodeIfPresent([OMERecord.Event.ReportingLink].self, forKey: .reportingLinks)
                 ?? container.decodeIfPresent(OMERecord.Event.ReportingLink.self, forKey: .reportingLink).map { [$0] },
             owner: try container.decodeIfPresent(OMERecord.Contributor.Actor.self, forKey: .owner),
@@ -278,8 +260,6 @@ public struct EventDTO: Codable, Equatable, Sendable {
         try container.encode(SourceTimeZone(wrappedValue: timeZone), forKey: .timeZone)
         try container.encodeIfPresent(images, forKey: .images)
         try container.encodeIfPresent(contactNumbers, forKey: .contactNumbers)
-        try container.encodeIfPresent(categoryConfigs, forKey: .categoryConfigs)
-        try container.encodeIfPresent(policies, forKey: .policies)
         try container.encodeIfPresent(reportingLinks, forKey: .reportingLinks)
         try container.encodeIfPresent(owner, forKey: .owner)
         try container.encodeIfPresent(schedule, forKey: .schedule)

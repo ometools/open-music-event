@@ -394,8 +394,7 @@ private func insertServiceEnvironmentEvent(
                 uris: nil,
                 timeZone: .gmt,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             )
         }
         .execute(db)

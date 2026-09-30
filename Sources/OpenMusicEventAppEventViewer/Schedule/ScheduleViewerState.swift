@@ -5,13 +5,11 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     public init(
         id: ID,
         selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
-        showStageNameLabels: Bool = false,
         filteringFavorites: Bool = false,
         scheduleKind: ScheduleKind = .singleStageAtOnce
     ) {
         self.id = id
         self.selectedStageID = selectedStageID
-        self.showStageNameLabels = showStageNameLabels
         self.filteringFavorites = filteringFavorites
         self.scheduleKind = scheduleKind
         self.legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
@@ -150,7 +148,6 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
 
     public var id: ID
     public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
-    public var showStageNameLabels = false
     public var filteringFavorites = false
     @Column("scheduleKind") public var scheduleKind: ScheduleKind = .singleStageAtOnce
     @Column("manyStagesOrientation") var legacyManyStagesOrientation: ScheduleKind.Orientation = .vertical
@@ -202,10 +199,6 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
             storedValue.selectedStageID = newValue.selectedStageID
             hasChanges = true
         }
-        if oldValue.showStageNameLabels != newValue.showStageNameLabels {
-            storedValue.showStageNameLabels = newValue.showStageNameLabels
-            hasChanges = true
-        }
         if oldValue.filteringFavorites != newValue.filteringFavorites {
             storedValue.filteringFavorites = newValue.filteringFavorites
             hasChanges = true
@@ -241,23 +234,12 @@ struct ScheduleViewerStateRequest: FetchKeyRequest {
             return state
         }
 
-        let showStageNameLabels = try defaultShowStageNameLabels(db)
         return ScheduleViewerState(
             id: ScheduleViewerState.ID(
                 eventID: eventID,
                 category: scheduleDivision.id
-            ),
-            showStageNameLabels: showStageNameLabels
+            )
         )
     }
 
-    private func defaultShowStageNameLabels(_ db: Database) throws -> Bool {
-        guard let category = scheduleDivision.category else {
-            return false
-        }
-        let event = try OMERecord.Event
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        return event?.categoryConfigs?[category]?.showStageNameLabels ?? false
-    }
 }

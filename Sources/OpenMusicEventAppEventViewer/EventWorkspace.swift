@@ -1115,8 +1115,6 @@ extension String {
             "Biography"
         case "customTitle":
             "Title"
-        case "categoryConfigs":
-            "Stage categories"
         case "contactNumbers":
             "Contact numbers"
         case "defaultNotificationState":

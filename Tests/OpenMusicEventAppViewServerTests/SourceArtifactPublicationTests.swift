@@ -449,7 +449,6 @@ private extension SourceArtifactPublicationTests {
             iconImageURL: nil,
             siteMapImageURL: nil,
             contactNumbers: nil,
-            categoryConfigs: nil,
             reportingLinks: nil,
             owner: nil
         )

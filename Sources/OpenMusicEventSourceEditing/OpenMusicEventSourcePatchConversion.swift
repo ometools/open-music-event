@@ -601,11 +601,6 @@ private extension OpenMusicEventSourceEvent {
 
         let additions = contributors
             .filter { !consumedContributorIDs.contains($0.id.contributorID) }
-            .filter {
-                !(event.usesScheduleContributorListing
-                    && $0.isScheduleDerivedContributor
-                    && !$0.hasSourceProfileContent)
-            }
             .sorted { lhs, rhs in
                 lhs.id.contributorID.rawValue.rawValue < rhs.id.contributorID.rawValue.rawValue
             }
@@ -1154,8 +1149,6 @@ private extension OME.Event {
             timeZone: timeZone,
             images: images,
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs,
-            policies: policies,
             reportingLinks: reportingLinks
         )
     }
@@ -1339,15 +1332,6 @@ private extension Date {
     }
 }
 
-private extension EventDTO {
-    var usesScheduleContributorListing: Bool {
-        if case .known(.scheduleContributors)? = policies?.contributors?.listing {
-            return true
-        }
-        return false
-    }
-}
-
 private extension OME.Stage {
     func sourceDraft(
         preservingSourceID id: OME.Stage.ID?
@@ -1379,18 +1363,6 @@ private extension OME.Poster {
 }
 
 private extension OME.Contributor {
-    var hasSourceProfileContent: Bool {
-        bio?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            || did != nil
-            || images?.isEmpty == false
-            || links?.isEmpty == false
-    }
-
-    var isScheduleDerivedContributor: Bool {
-        id.contributorID.rawValue.rawValue.hasPrefix("schedule-name-")
-            || id.contributorID.rawValue.rawValue.hasPrefix("schedule-actor-")
-    }
-
     func sourceDraft(
         preservingSourceID id: OME.Contributor.ID?
     ) -> OME.Contributor.Draft {

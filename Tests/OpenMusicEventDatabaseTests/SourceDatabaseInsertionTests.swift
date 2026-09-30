@@ -878,9 +878,8 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func scheduleContributorListingCreatesContributorsFromNames() throws {
+    func scheduleNamesRemainCreditsWithoutCreatingContributors() throws {
         let source = try makeSourceRepository(
-            eventPolicies: scheduleContributorListingPolicy(),
             includeDefaultContributor: false,
             scheduleItems: [
                 "meadow": [
@@ -906,22 +905,7 @@ struct SourceDatabaseInsertionTests {
             )
         )
 
-        expectNoDifference(
-            insertion.contributors,
-            [
-                OME.Contributor.Draft(
-                    id: contributorID(
-                        "schedule-name-Guest%20Artist",
-                        eventID: "testival-source-testival-2026",
-                        organizerID: organizerID
-                    ),
-                    name: "Guest Artist",
-                    bio: nil,
-                    images: nil,
-                    links: nil
-                )
-            ]
-        )
+        #expect(insertion.contributors.isEmpty)
         expectNoDifference(
             insertion.scheduleItemContributors,
             [
@@ -930,7 +914,7 @@ struct SourceDatabaseInsertionTests {
                         scheduleItemID: scheduleItemID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                         sortIndex: 0
                     ),
-                    contributorID: id("schedule-name-Guest%20Artist"),
+                    contributorID: nil,
                     anonymousName: "Guest Artist"
                 )
             ]
@@ -942,18 +926,6 @@ struct SourceDatabaseInsertionTests {
                     subject: .identity(did: organizerID),
                     role: .organizer,
                     object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
-                    createdAt: pendingRelationshipCreatedAt
-                ),
-                OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("schedule-name-Guest%20Artist", eventID: "testival-source-testival-2026", organizerID: organizerID))),
-                    role: .contributor,
-                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
-                    createdAt: pendingRelationshipCreatedAt
-                ),
-                OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("schedule-name-Guest%20Artist", eventID: "testival-source-testival-2026", organizerID: organizerID))),
-                    role: .performer,
-                    object: .record(.init(performanceID: performanceID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]
@@ -1009,10 +981,9 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func scheduleContributorListingCreatesContributorsFromActors() throws {
+    func scheduleActorsRemainCreditsWithoutCreatingContributors() throws {
         let actor = try #require(OME.Contributor.Actor("ARTIST.BSKY.SOCIAL"))
         let source = try makeSourceRepository(
-            eventPolicies: scheduleContributorListingPolicy(),
             includeDefaultContributor: false,
             scheduleItems: [
                 "meadow": [
@@ -1038,22 +1009,7 @@ struct SourceDatabaseInsertionTests {
             )
         )
 
-        expectNoDifference(
-            insertion.contributors,
-            [
-                OME.Contributor.Draft(
-                    id: contributorID(
-                        "schedule-actor-artist.bsky.social",
-                        eventID: "testival-source-testival-2026",
-                        organizerID: organizerID
-                    ),
-                    name: "artist.bsky.social",
-                    bio: nil,
-                    images: nil,
-                    links: nil
-                )
-            ]
-        )
+        #expect(insertion.contributors.isEmpty)
         expectNoDifference(
             insertion.scheduleItemContributors,
             [
@@ -1062,7 +1018,7 @@ struct SourceDatabaseInsertionTests {
                         scheduleItemID: scheduleItemID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                         sortIndex: 0
                     ),
-                    contributorID: id("schedule-actor-artist.bsky.social"),
+                    contributorID: nil,
                     anonymousName: nil,
                     contributorActor: actor
                 )
@@ -1071,9 +1027,8 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func explicitContributorsWinOverScheduleContributorListing() throws {
+    func explicitContributorsRemainIndependentOfNamedCredits() throws {
         let source = try makeSourceRepository(
-            eventPolicies: scheduleContributorListingPolicy(),
             scheduleItems: [
                 "meadow": [
                     .init(
@@ -1116,7 +1071,7 @@ struct SourceDatabaseInsertionTests {
                         scheduleItemID: scheduleItemID("artist-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                         sortIndex: 0
                     ),
-                    contributorID: id("artist-one"),
+                    contributorID: nil,
                     anonymousName: "Artist One"
                 )
             ]
@@ -6369,7 +6324,6 @@ struct SourceDatabaseInsertionTests {
         eventDirectoryName: String = "testival-2026",
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
-        eventPolicies: OME.Event.Policies? = nil,
         reportingLinks: [OME.Event.ReportingLink]? = nil,
         eventLocations: [OME.Event.Location]? = nil,
         eventContactNumbers: [OME.Event.ContactNumber]? = nil,
@@ -6436,8 +6390,6 @@ struct SourceDatabaseInsertionTests {
                             timeZone: timeZone,
                             images: eventImages,
                             contactNumbers: eventContactNumbers,
-                            categoryConfigs: nil,
-                            policies: eventPolicies,
                             reportingLinks: reportingLinks
                         ),
                         stages: [
@@ -6586,8 +6538,7 @@ struct SourceDatabaseInsertionTests {
                             uris: nil,
                             timeZone: timeZone,
                             images: nil,
-                            contactNumbers: nil,
-                            categoryConfigs: nil
+                            contactNumbers: nil
                         ),
                         channels: [
                             try FileContent(
@@ -6857,14 +6808,6 @@ private func scheduleItemID(
 }
 
 private let pendingRelationshipCreatedAt = "1970-01-01T00:00:00Z"
-
-private func scheduleContributorListingPolicy() -> OME.Event.Policies {
-    OME.Event.Policies(
-        contributors: .init(
-            listing: .known(.scheduleContributors)
-        )
-    )
-}
 
 private func localDate(
     _ date: LocalDate,

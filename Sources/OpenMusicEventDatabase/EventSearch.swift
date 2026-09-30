@@ -88,8 +88,8 @@ public struct EventSearchFeature: Equatable, Identifiable, Sendable {
         Self(
             id: KnownID.about,
             title: "About",
-            body: "Event description, details, policies, and general information.",
-            keywords: "about info details description policies"
+            body: "Event description, details and general information.",
+            keywords: "about info details description"
         ),
     ]
 }

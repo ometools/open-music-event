@@ -62,7 +62,6 @@ public struct ScheduleAddMenu: View {
 }
 
 public struct ScheduleKindMenu: View {
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Bindable var store: StoreOf<ScheduleViewer>
 
     public init(store: StoreOf<ScheduleViewer>) {
@@ -77,16 +76,6 @@ public struct ScheduleKindMenu: View {
                 }
             }
 
-            if needsStageDisambiguation {
-                Section("Display") {
-                    Toggle(isOn: $store.showStageNameLabels.portableAnimation()) {
-                        Label(
-                            "Show Stage Labels",
-                            mappedSystemImage: "tag"
-                        )
-                    }
-                }
-            }
         } label: {
             selectedModeLabel
                 .labelStyle(.iconOnly)

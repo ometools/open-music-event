@@ -37,17 +37,11 @@ public struct EventSearch {
             _contributors = FetchAll(
                 ContributorProfile.all(eventID: eventID, hydration: .none)
             )
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
-            )
             _performanceContributors = FetchAll(
                 EventSearch.performanceContributorsQuery(eventID: eventID)
             )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
-            )
-            _scheduleViewerStates = FetchAll(
-                ScheduleViewerState.forEvent(eventID: eventID)
             )
         }
 
@@ -60,10 +54,8 @@ public struct EventSearch {
         public var content: EventSearchContent
 
         @FetchAll var contributors: [ContributorProfile]
-        @FetchOne var event: OMERecord.Event?
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll var performanceRows: [PerformanceRow]
-        @FetchAll var scheduleViewerStates: [ScheduleViewerState]
 
         public var query = ""
 
@@ -261,12 +253,10 @@ public struct EventSearchView: View {
                         content: store.content,
                         now: currentDate,
                         contributors: store.contributors,
-                        event: store.event,
                         eventTimePresentation: eventTimePresentation,
                         timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
                         performanceContributors: store.performanceContributors,
                         performanceRows: store.performanceRows,
-                        scheduleViewerStates: store.scheduleViewerStates,
                         openTarget: { store.send(.openTarget($0)) }
                     )
                     .task(id: currentDate) {
@@ -296,12 +286,10 @@ struct EventSearchContentView: View {
     let content: EventSearchContent
     let now: Date
     let contributors: [ContributorProfile]
-    let event: OMERecord.Event?
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
     let performanceRows: [PerformanceRow]
-    let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -312,11 +300,9 @@ struct EventSearchContentView: View {
                     dashboard: dashboard,
                     now: now,
                     contributors: contributors,
-                    event: event,
                     eventTimePresentation: eventTimePresentation,
                     timeZoneDisclosure: timeZoneDisclosure,
                     performanceContributors: performanceContributors,
-                    scheduleViewerStates: scheduleViewerStates,
                     openTarget: openTarget
                 )
 
@@ -364,11 +350,9 @@ struct EventSearchDashboardView: View {
     let dashboard: EventSearchDashboard
     let now: Date
     let contributors: [ContributorProfile]
-    let event: OMERecord.Event?
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
-    let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -486,12 +470,7 @@ struct EventSearchDashboardView: View {
     }
 
     func showStageNameLabels(for stage: OMERecord.Stage) -> Bool {
-        let division = ScheduleViewer.ScheduleDivision(category: stage.category)
-        if let state = scheduleViewerStates.first(where: { $0.id.category == division.id }) {
-            return state.showStageNameLabels
-        }
-        guard let category = stage.category else { return false }
-        return event?.categoryConfigs?[category]?.showStageNameLabels ?? false
+        dashboard.stageRows.filter { $0.stage.category == stage.category }.count > 1
     }
 }
 

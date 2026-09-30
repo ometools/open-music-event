@@ -23,8 +23,6 @@ func testEventDraft(
         timeZone: timeZone,
         images: nil,
         contactNumbers: nil,
-        categoryConfigs: nil,
-        policies: nil,
         reportingLinks: nil
     )
 }

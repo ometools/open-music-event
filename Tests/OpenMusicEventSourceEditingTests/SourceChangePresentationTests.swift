@@ -192,8 +192,7 @@ private func insertSourcePresentationContributor(
             uris: nil,
             timeZone: timeZone,
             images: nil,
-            contactNumbers: nil,
-            categoryConfigs: nil
+            contactNumbers: nil
         )
     }
     .execute(db)

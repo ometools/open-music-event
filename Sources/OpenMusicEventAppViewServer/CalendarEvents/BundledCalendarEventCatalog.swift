@@ -74,7 +74,6 @@ private struct BundledCalendarEvent: Decodable {
             timeZone: timeZone,
             images: images,
             contactNumbers: nil,
-            categoryConfigs: nil,
             reportingLinks: nil,
             owner: nil
         )

@@ -601,12 +601,6 @@ public struct EventViewer {
                     .eventInfoForm(EditEventInfo.State(eventID: eventID))
                 }
 
-            case let .editEventPolicies(eventID):
-                guard eventID == self.eventID else { return }
-                self.destination = withEventDependencies {
-                    .eventPoliciesForm(EditEventPolicies.State(eventID: eventID))
-                }
-
             case let .editLocation(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
@@ -829,7 +823,6 @@ public struct EventViewer {
         case contributorForm(EditContributor)
         case copyStagesFromEvent(CopyStagesFromEvent)
         case eventInfoForm(EditEventInfo)
-        case eventPoliciesForm(EditEventPolicies)
         case locationForm(EditLocation)
         case performanceForm(EditPerformance)
         case scheduleForm(EditSchedule)
@@ -1172,8 +1165,6 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
             destinationID("copyStagesFromEvent", store.eventID)
         case let .eventInfoForm(store):
             destinationID("eventInfoForm", store.eventID)
-        case let .eventPoliciesForm(store):
-            destinationID("eventPoliciesForm", store.eventID)
         case let .locationForm(store):
             destinationID("locationForm", store.eventID)
         case let .performanceForm(store):
@@ -1251,8 +1242,6 @@ public struct EventViewerView: View {
             EditContactInfoView(store: formStore)
         case let .eventInfoForm(formStore):
             EditEventInfoView(store: formStore)
-        case let .eventPoliciesForm(formStore):
-            EditEventPoliciesView(store: formStore)
         case let .locationForm(formStore):
             EditLocationView(store: formStore)
         case let .performanceForm(formStore):
@@ -1875,7 +1864,6 @@ private extension EventEditingIntent {
              let .editContactInfo(eventID),
              let .editContributor(eventID, _),
              let .editEventInfo(eventID),
-             let .editEventPolicies(eventID),
              let .editLocation(eventID),
              let .editPerformance(eventID, _),
              let .editStage(eventID, _),

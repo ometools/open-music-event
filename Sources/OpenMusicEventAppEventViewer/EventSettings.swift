@@ -42,7 +42,6 @@ public struct EventSettings {
         case criticalAlertPermissionButtonTapped
         case destination(Destination.Action)
         case enterAuthoringButtonTapped
-        case eventPoliciesButtonTapped
         case exitAuthoringButtonTapped
         case notificationPermissionButtonTapped
         case testErrorButtonTapped
@@ -87,16 +86,6 @@ public struct EventSettings {
             case .enterAuthoringButtonTapped:
                 store.addTask {
                     let task = try store.post(key: AuthoringRequested.self, value: ())
-                    await task?.value
-                }
-
-            case .eventPoliciesButtonTapped:
-                let eventID = state.eventID
-                store.addTask {
-                    let task = try store.post(
-                        key: EventEditingRequested.self,
-                        value: .editEventPolicies(eventID)
-                    )
                     await task?.value
                 }
 
@@ -460,14 +449,6 @@ public struct EventSettingsView: View {
             if case let .some(.active(grant)) = authoringPhase,
                grant.access.canEditContent
             {
-                Section("Policies") {
-                    Button {
-                        store.send(.eventPoliciesButtonTapped)
-                    } label: {
-                        Label("Event Policies", systemImage: "slider.horizontal.3")
-                    }
-                }
-
                 Section("Error Handling") {
                     Button {
                         store.send(.testErrorButtonTapped)

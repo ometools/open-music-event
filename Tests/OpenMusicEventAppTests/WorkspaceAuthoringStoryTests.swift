@@ -2656,8 +2656,7 @@ private func insertUnrelatedWorkspaceStoryEvent(
                 uris: nil,
                 timeZone: timeZone,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             )
         }
         .execute(db)
@@ -2736,8 +2735,7 @@ private func workspaceStorySourceEvent(
                 uris: nil,
                 timeZone: timeZone,
                 images: nil,
-                contactNumbers: nil,
-                categoryConfigs: nil
+                contactNumbers: nil
             )
         )
     )

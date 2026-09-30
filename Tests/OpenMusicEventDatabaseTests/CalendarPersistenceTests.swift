@@ -154,7 +154,6 @@ struct CalendarPersistenceTests {
                     iconImageURL: nil,
                     siteMapImageURL: nil,
                     contactNumbers: nil,
-                    categoryConfigs: nil,
                     owner: owner
                 )
             }

@@ -177,11 +177,7 @@ extension OpenMusicEvent {
         @Column(as: [OpenMusicEvent.Event.ContactNumber].JSONRepresentation?.self)
         public var contactNumbers: [OpenMusicEvent.Event.ContactNumber]?
 
-        @Column(as: OpenMusicEvent.Event.CategoryConfigs.JSONRepresentation?.self)
-        public var categoryConfigs: OpenMusicEvent.Event.CategoryConfigs?
 
-        @Column(as: OpenMusicEvent.Event.Policies.JSONRepresentation?.self)
-        public var policies: OpenMusicEvent.Event.Policies?
 
         @Column(as: [OpenMusicEvent.Event.ReportingLink].JSONRepresentation?.self)
         public var reportingLinks: [OpenMusicEvent.Event.ReportingLink]?
@@ -279,12 +275,6 @@ extension OpenMusicEvent.Event {
         public var name: String
         public var url: URL
         public var description: String?
-    }
-
-    public typealias CategoryConfigs = [OpenMusicEvent.Stage.Category: CategoryConfig]
-
-    public struct CategoryConfig: Codable, Sendable, Equatable {
-        public var showStageNameLabels: Bool
     }
 
     public static func reference(

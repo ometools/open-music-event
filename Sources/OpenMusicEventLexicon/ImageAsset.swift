@@ -303,7 +303,6 @@ public extension OpenMusicEvent.Event.Draft {
         iconImageURL: URL? = nil,
         siteMapImageURL: URL? = nil,
         contactNumbers: [OME.Event.ContactNumber]? = nil,
-        categoryConfigs: OME.Event.CategoryConfigs? = nil,
         reportingLinks: [OME.Event.ReportingLink]? = nil,
         owner: OME.Contributor.Actor? = nil
     ) {
@@ -324,7 +323,6 @@ public extension OpenMusicEvent.Event.Draft {
                 siteMapURL: siteMapImageURL
             ),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs,
             reportingLinks: reportingLinks,
             owner: owner
         )

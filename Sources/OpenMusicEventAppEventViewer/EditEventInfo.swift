@@ -479,8 +479,7 @@ private extension OMERecord.Event.Draft {
             imageURL: nil,
             iconImageURL: nil,
             siteMapImageURL: nil,
-            contactNumbers: nil,
-            categoryConfigs: nil
+            contactNumbers: nil
         )
     }
 
