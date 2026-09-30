@@ -276,12 +276,12 @@ public extension OpenMusicEvent.WorkspaceProposal {
         case poster(OpenMusicEvent.Poster)
 
         public static let unionTypes: OpenUnionTypes<Self> = [
-            .type(OpenMusicEvent.Calendar.nsid.rawValue, \.calendar),
-            .type(OpenMusicEvent.Relationship.nsid.rawValue, \.relationship),
-            .type(OpenMusicEvent.Event.nsid.rawValue, \.event),
-            .type(OpenMusicEvent.Stage.nsid.rawValue, \.stage),
-            .type(OpenMusicEvent.Contributor.nsid.rawValue, \.contributor),
-            .type(OpenMusicEvent.Schedule.nsid.rawValue, \.schedule),
+            .type(.init(nsid: OpenMusicEvent.Calendar.nsid), \.calendar),
+            .type(.init(nsid: OpenMusicEvent.Relationship.nsid), \.relationship),
+            .type(.init(nsid: OpenMusicEvent.Event.nsid), \.event),
+            .type(.init(nsid: OpenMusicEvent.Stage.nsid), \.stage),
+            .type(.init(nsid: OpenMusicEvent.Contributor.nsid), \.contributor),
+            .type(.init(nsid: OpenMusicEvent.Schedule.nsid), \.schedule),
             .type("app.openmusicevent.workspace.proposal#scheduleItem", \.scheduleItem),
             .type(
                 "app.openmusicevent.workspace.proposal#scheduleItemPerformanceDetails",
@@ -291,12 +291,12 @@ public extension OpenMusicEvent.WorkspaceProposal {
                 "app.openmusicevent.workspace.proposal#scheduleItemContributor",
                 \.scheduleItemContributor
             ),
-            .type(OpenMusicEvent.Channel.nsid.rawValue, \.channel),
+            .type(.init(nsid: OpenMusicEvent.Channel.nsid), \.channel),
             .type(
                 "app.openmusicevent.workspace.proposal#communicationPost",
                 \.communicationPost
             ),
-            .type(OpenMusicEvent.Poster.nsid.rawValue, \.poster),
+            .type(.init(nsid: OpenMusicEvent.Poster.nsid), \.poster),
         ]
     }
 

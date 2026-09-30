@@ -1,4 +1,5 @@
 import ArgumentParser
+import struct ArgumentParser.ValidationError
 import FileTree
 import Foundation
 import OpenMusicEventLexicon

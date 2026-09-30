@@ -1,0 +1,529 @@
+{
+  "defs" : {
+    "color" : {
+      "description" : "An opaque 24-bit sRGB color encoded as red × 65536 + green × 256 + blue, with each channel from 0 through 255.",
+      "maximum" : 16777215,
+      "minimum" : 0,
+      "type" : "integer"
+    },
+    "contactLink" : {
+      "description" : "A channel for contacting the event or subject.",
+      "nullable" : [
+        "use"
+      ],
+      "properties" : {
+        "use" : {
+          "description" : "Whether this contact channel is intended for emergencies or non-emergency matters.",
+          "knownValues" : [
+            "emergency",
+            "nonEmergency"
+          ],
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "day" : {
+      "description" : "A calendar day in the event's declared time zone, used when an exact instant is not appropriate or not yet known.",
+      "properties" : {
+        "value" : {
+          "description" : "A calendar date written as YYYY-MM-DD.",
+          "maxLength" : 10,
+          "minLength" : 10,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "value"
+      ],
+      "type" : "object"
+    },
+    "eventPlaceCamping" : {
+      "description" : "A camping destination within an event.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "eventPlaceEntrance" : {
+      "description" : "An entrance or gate within an event.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "eventPlaceInfo" : {
+      "description" : "An information point within an event.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "eventPlaceStage" : {
+      "description" : "Stage use of an event place. All event-specific display data belongs to the containing place, and persistent identity is optional.",
+      "nullable" : [
+        "stage",
+        "color"
+      ],
+      "properties" : {
+        "color" : {
+          "description" : "The organizer's presentation color for this stage use. Missing means unspecified, without inheritance from a persistent stage.",
+          "ref" : "#color",
+          "type" : "ref"
+        },
+        "stage" : {
+          "description" : "An optional DID-based events.openmusic.stage record URI for continuity across editions. This is a live identity reference, not required rendering data or proof of the stage owner's agreement. Linking or unlinking it preserves the event place's identity.",
+          "format" : "at-uri",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "externalMedia" : {
+      "description" : "Media hosted outside AT Protocol, represented as a portable link card without a closed provider list.",
+      "nullable" : [
+        "title",
+        "description",
+        "thumbnail",
+        "mediaKind"
+      ],
+      "properties" : {
+        "description" : {
+          "description" : "Additional human-readable context about the linked media.",
+          "maxGraphemes" : 3000,
+          "maxLength" : 30000,
+          "type" : "string"
+        },
+        "mediaKind" : {
+          "description" : "The kind of media at the external URL.",
+          "knownValues" : [
+            "audio",
+            "video",
+            "livestream",
+            "playlist",
+            "document"
+          ],
+          "type" : "string"
+        },
+        "thumbnail" : {
+          "description" : "An image used to preview the linked media.",
+          "ref" : "#image",
+          "type" : "ref"
+        },
+        "title" : {
+          "description" : "A short human-readable title for the linked media.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "uri" : {
+          "description" : "The public HTTPS URL of the external media.",
+          "format" : "uri",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "uri"
+      ],
+      "type" : "object"
+    },
+    "focalPoint" : {
+      "description" : "A whole-percentage point in the source image, measured from its top-left before orientation correction.",
+      "properties" : {
+        "x" : {
+          "description" : "The horizontal percentage from the source image's left edge.",
+          "maximum" : 100,
+          "minimum" : 0,
+          "type" : "integer"
+        },
+        "y" : {
+          "description" : "The vertical percentage from the source image's top edge.",
+          "maximum" : 100,
+          "minimum" : 0,
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "x",
+        "y"
+      ],
+      "type" : "object"
+    },
+    "heroImage" : {
+      "description" : "An image intended as the primary visual for its subject.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "iconImage" : {
+      "description" : "A compact image intended to represent its subject.",
+      "nullable" : [
+        "canRepresentSubjectWithoutLabel"
+      ],
+      "properties" : {
+        "canRepresentSubjectWithoutLabel" : {
+          "description" : "Whether a client may use this rendered icon without adjacent visible subject-name text. Missing or false means the visible name remains present.",
+          "type" : "boolean"
+        }
+      },
+      "type" : "object"
+    },
+    "image" : {
+      "description" : "An image attached to an Open Music Event record.",
+      "nullable" : [
+        "title",
+        "alt",
+        "role",
+        "appearance",
+        "focalPoint"
+      ],
+      "properties" : {
+        "alt" : {
+          "description" : "A text alternative that conveys the image's meaningful content. An omitted value means no text alternative was supplied.",
+          "maxGraphemes" : 1000,
+          "maxLength" : 10000,
+          "type" : "string"
+        },
+        "appearance" : {
+          "description" : "The interface appearance for which this image variant is intended.",
+          "knownValues" : [
+            "light",
+            "dark"
+          ],
+          "type" : "string"
+        },
+        "focalPoint" : {
+          "description" : "The preferred focal point to preserve when the image is cropped.",
+          "ref" : "#focalPoint",
+          "type" : "ref"
+        },
+        "renderingMode" : {
+          "default" : "original",
+          "description" : "How clients should render the image. Defaults to original when omitted.",
+          "knownValues" : [
+            "template",
+            "original"
+          ],
+          "type" : "string"
+        },
+        "role" : {
+          "description" : "The image's intended use in an event experience.",
+          "refs" : [
+            "#heroImage",
+            "#logoImage",
+            "#photoImage",
+            "#iconImage",
+            "#siteMapImage",
+            "#posterImage"
+          ],
+          "type" : "union"
+        },
+        "source" : {
+          "description" : "The image content, provided as either a repository blob or a public HTTPS URL.",
+          "refs" : [
+            "#imageBlob",
+            "#imageURL"
+          ],
+          "type" : "union"
+        },
+        "title" : {
+          "description" : "A short attendee-facing title for this image use, such as the name of a selectable map layer.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "source"
+      ],
+      "type" : "object"
+    },
+    "imageBlob" : {
+      "description" : "Image content stored as a blob in the repository that contains the referencing record.",
+      "properties" : {
+        "blob" : {
+          "accept" : [
+            "image/jpeg",
+            "image/png"
+          ],
+          "description" : "A JPEG or PNG image blob.",
+          "maxSize" : 50000000,
+          "type" : "blob"
+        }
+      },
+      "required" : [
+        "blob"
+      ],
+      "type" : "object"
+    },
+    "imageURL" : {
+      "description" : "Image content hosted at a public HTTPS URL.",
+      "properties" : {
+        "url" : {
+          "description" : "The public HTTPS URL from which the image can be retrieved.",
+          "format" : "uri",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "url"
+      ],
+      "type" : "object"
+    },
+    "link" : {
+      "description" : "A public link with optional presentation and purpose metadata.",
+      "nullable" : [
+        "title",
+        "description",
+        "role",
+        "platform"
+      ],
+      "properties" : {
+        "description" : {
+          "description" : "Additional human-readable context about the link.",
+          "maxGraphemes" : 3000,
+          "maxLength" : 30000,
+          "type" : "string"
+        },
+        "platform" : {
+          "description" : "The known external platform that hosts the linked resource.",
+          "knownValues" : [
+            "youtube",
+            "soundcloud",
+            "spotify",
+            "apple_music",
+            "bandcamp",
+            "mixcloud",
+            "twitch",
+            "instagram",
+            "facebook",
+            "twitter",
+            "tiktok",
+            "website",
+            "atproto"
+          ],
+          "type" : "string"
+        },
+        "role" : {
+          "description" : "The link's purpose in the event experience.",
+          "refs" : [
+            "#websiteLink",
+            "#ticketsLink",
+            "#contactLink",
+            "#reportingLink"
+          ],
+          "type" : "union"
+        },
+        "title" : {
+          "description" : "A short human-readable label for the link.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "url" : {
+          "description" : "The URI opened by this link.",
+          "format" : "uri",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "url"
+      ],
+      "type" : "object"
+    },
+    "location" : {
+      "description" : "A named place associated with the event, with optional machine-readable locators and public links.",
+      "nullable" : [
+        "description",
+        "locators",
+        "links"
+      ],
+      "properties" : {
+        "description" : {
+          "description" : "Event-specific information about this location, such as arrival guidance or an announcement status.",
+          "maxGraphemes" : 3000,
+          "maxLength" : 30000,
+          "type" : "string"
+        },
+        "links" : {
+          "description" : "External pages for this location, such as map-provider or venue links.",
+          "items" : {
+            "ref" : "#link",
+            "type" : "ref"
+          },
+          "type" : "array"
+        },
+        "locators" : {
+          "description" : "Machine-readable identifiers or coordinates for this location.",
+          "items" : {
+            "refs" : [
+              "community.lexicon.location.address",
+              "community.lexicon.location.fsq",
+              "community.lexicon.location.geo",
+              "community.lexicon.location.hthree"
+            ],
+            "type" : "union"
+          },
+          "type" : "array"
+        },
+        "name" : {
+          "description" : "The organizer's human-readable name for this event location.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "name"
+      ],
+      "type" : "object"
+    },
+    "logoImage" : {
+      "description" : "An image intended as its subject's logo or wordmark.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "mediaRecord" : {
+      "description" : "A live reference to an independently published AT Protocol media record. The record keeps its own identity, lifecycle, and social activity.",
+      "properties" : {
+        "uri" : {
+          "description" : "The DID-based URI of the referenced media record. This is a live identity reference rather than a CID-pinned revision.",
+          "format" : "at-uri",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "uri"
+      ],
+      "type" : "object"
+    },
+    "photoImage" : {
+      "description" : "A photograph of its subject.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "posterImage" : {
+      "description" : "An image intended as a promotional poster.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "programCredit" : {
+      "description" : "One organizer-authored credit for a program item. The display name keeps the item renderable without dereferencing another repository.",
+      "nullable" : [
+        "contributor",
+        "role"
+      ],
+      "properties" : {
+        "billing" : {
+          "default" : "primary",
+          "description" : "How prominently this contributor is billed. Defaults to primary when omitted.",
+          "knownValues" : [
+            "primary",
+            "supporting"
+          ],
+          "type" : "string"
+        },
+        "contributor" : {
+          "description" : "The optional DID-based URI of this event's organizer-authored events.openmusic.contributor record.",
+          "format" : "at-uri",
+          "type" : "string"
+        },
+        "name" : {
+          "description" : "The organizer-owned display name for this credit.",
+          "maxGraphemes" : 500,
+          "maxLength" : 5000,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "role" : {
+          "description" : "The contributor's role in this program item.",
+          "maxGraphemes" : 100,
+          "maxLength" : 1000,
+          "minLength" : 1,
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "name"
+      ],
+      "type" : "object"
+    },
+    "reportingLink" : {
+      "description" : "A channel for reporting a safety, conduct, or operational concern.",
+      "nullable" : [
+        "use"
+      ],
+      "properties" : {
+        "use" : {
+          "description" : "Whether this reporting channel is intended for an active emergency or a non-emergency matter.",
+          "knownValues" : [
+            "emergency",
+            "nonEmergency"
+          ],
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "semanticIcon" : {
+      "description" : "A platform-neutral name for a familiar pictogram. Values describe the depicted object or gesture, not the purpose assigned to it by a product.",
+      "knownValues" : [
+        "calendar",
+        "heart",
+        "thumbsUp",
+        "personDoingYoga",
+        "speechBubbles",
+        "gridOfSquares"
+      ],
+      "type" : "string"
+    },
+    "siteMapImage" : {
+      "description" : "An image intended as a site-map base layer.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "ticketsLink" : {
+      "description" : "A page where attendees can obtain admission or tickets.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "time" : {
+      "description" : "An exact instant used for an event schedule boundary.",
+      "properties" : {
+        "value" : {
+          "description" : "The exact event boundary as an AT Protocol datetime.",
+          "format" : "datetime",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "value"
+      ],
+      "type" : "object"
+    },
+    "websiteLink" : {
+      "description" : "The event or subject's primary website.",
+      "properties" : {
+
+      },
+      "type" : "object"
+    }
+  },
+  "id" : "events.openmusic.defs",
+  "lexicon" : 1
+}

@@ -284,7 +284,7 @@ private extension Open where Known == OMERecord.Event.Status {
         case .known(let status):
             return status.eventInfoText
         case .unknown(let value):
-            if let stringValue = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let stringValue = value.string?.trimmingCharacters(in: .whitespacesAndNewlines),
                !stringValue.isEmpty {
                 return stringValue
             } else {
@@ -300,7 +300,7 @@ private extension Open where Known == OMERecord.Event.Mode {
         case .known(let mode):
             return mode.eventInfoText
         case .unknown(let value):
-            if let stringValue = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let stringValue = value.string?.trimmingCharacters(in: .whitespacesAndNewlines),
                !stringValue.isEmpty {
                 return stringValue
             } else {

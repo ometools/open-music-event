@@ -1,0 +1,144 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "An organizer-owned music event, including its public boundaries, locations, programs, festival-day schedules, links, and media.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "start",
+          "end",
+          "status",
+          "mode",
+          "locations",
+          "links",
+          "media",
+          "programs",
+          "schedules",
+          "rsvpExpected"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this event record was created.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "A public description of the event.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "end" : {
+            "description" : "The event's ending calendar day or exact instant. Omitted when it has not been announced.",
+            "refs" : [
+              "events.openmusic.defs#day",
+              "events.openmusic.defs#time"
+            ],
+            "type" : "union"
+          },
+          "links" : {
+            "description" : "Public links for the event. Array order is the organizer's preferred display order.",
+            "items" : {
+              "ref" : "events.openmusic.defs#link",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "locations" : {
+            "description" : "Named event locations. Array order is the organizer's preferred display order.",
+            "items" : {
+              "ref" : "events.openmusic.defs#location",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "media" : {
+            "description" : "Media attached to the event. Array order is the organizer's preferred display order.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "mode" : {
+            "description" : "How attendees can participate in the event.",
+            "knownValues" : [
+              "community.lexicon.calendar.event#inperson",
+              "community.lexicon.calendar.event#virtual",
+              "community.lexicon.calendar.event#hybrid"
+            ],
+            "type" : "string"
+          },
+          "name" : {
+            "description" : "The public name of the event.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "programs" : {
+            "description" : "The event's attendee-facing programs in organizer-defined tab order.",
+            "items" : {
+              "format" : "at-uri",
+              "type" : "string"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
+          "rsvpExpected" : {
+            "description" : "Whether the organizer requests a response from attendees. Omitted when unspecified.",
+            "type" : "boolean"
+          },
+          "schedules" : {
+            "description" : "The event's organizer-defined festival days in attendee-facing order.",
+            "items" : {
+              "format" : "at-uri",
+              "type" : "string"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
+          "start" : {
+            "description" : "The event's starting calendar day or exact instant. Omitted when it has not been announced.",
+            "refs" : [
+              "events.openmusic.defs#day",
+              "events.openmusic.defs#time"
+            ],
+            "type" : "union"
+          },
+          "status" : {
+            "description" : "The event's current planning or cancellation status.",
+            "knownValues" : [
+              "community.lexicon.calendar.event#planned",
+              "community.lexicon.calendar.event#scheduled",
+              "community.lexicon.calendar.event#rescheduled",
+              "community.lexicon.calendar.event#cancelled",
+              "community.lexicon.calendar.event#postponed"
+            ],
+            "type" : "string"
+          },
+          "timeZone" : {
+            "description" : "The IANA time-zone identifier used for calendar days and event-local schedule display.",
+            "maxLength" : 64,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "name",
+          "createdAt",
+          "timeZone"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.event",
+  "lexicon" : 1
+}

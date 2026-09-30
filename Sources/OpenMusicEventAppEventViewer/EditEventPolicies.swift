@@ -508,20 +508,20 @@ private extension OMERecord.Event.Draft {
     }
 }
 
-private func unsupportedValueDescription<Known>(
-    _ value: Open<Known>.PartialValue
+private func unsupportedValueDescription(
+    _ value: Lexicon.JSONValue
 ) -> String {
     switch value {
     case let .string(string):
         string
     case let .object(object):
-        object["type"]?.stringValue ?? "Object"
+        object["type"]?.string ?? "Object"
     case let .array(values):
         values.map(unsupportedValueDescription).joined(separator: ", ")
     case let .integer(integer):
         String(integer)
-    case let .double(double):
-        String(double)
+    case let .number(number):
+        number.description
     case let .bool(bool):
         bool ? "true" : "false"
     case .null:

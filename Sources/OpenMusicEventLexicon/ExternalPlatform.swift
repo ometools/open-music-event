@@ -7,8 +7,10 @@
 
 import ATProto
 import Foundation
+import ATProtoTypes
 
-public enum ExternalPlatform: String, Equatable, Codable, Sendable, CaseIterable {
+@Lexicon("events.openmusic.defs#externalPlatform", type: .string, description: "A known external platform associated with a link. Other string values may be used by extensions.")
+public enum ExternalPlatform: String, Equatable, Sendable, CaseIterable {
     case youtube
     case soundcloud
     case spotify

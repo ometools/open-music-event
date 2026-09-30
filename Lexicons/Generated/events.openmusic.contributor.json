@@ -1,0 +1,100 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "An organizer-authored profile for a person, project, or other contributor to one event.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "subject",
+          "source",
+          "description",
+          "roles",
+          "links",
+          "media"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this contributor record was created.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "The organizer-authored public description of this contributor for this event.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based record URI of the events.openmusic.event this contributor participated in.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "links" : {
+            "description" : "Public links for this event contributor. Array order is the organizer's preferred display order.",
+            "items" : {
+              "ref" : "events.openmusic.defs#link",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "media" : {
+            "description" : "Media attached to this event contributor. Array order is the organizer's preferred display order.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "description" : "The organizer-owned display name for this event contributor.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "roles" : {
+            "description" : "Ordered event-wide roles. Array order is the organizer's preferred display order.",
+            "items" : {
+              "description" : "A known event-wide contribution category. Other string values may be used by extensions.",
+              "knownValues" : [
+                "performer",
+                "facilitator",
+                "organizer",
+                "sponsor",
+                "vendor",
+                "volunteer",
+                "staff"
+              ],
+              "type" : "string"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
+          "source" : {
+            "description" : "A pinned DID-authored profile record used as provenance when hydrating this organizer-owned snapshot.",
+            "ref" : "com.atproto.repo.strongRef",
+            "type" : "ref"
+          },
+          "subject" : {
+            "description" : "The stable DID the organizer asserts is represented by this event profile. This assertion is not confirmation by that account.",
+            "format" : "did",
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "event",
+          "name",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.contributor",
+  "lexicon" : 1
+}

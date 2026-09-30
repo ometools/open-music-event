@@ -1,0 +1,91 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "An account-authored public post that may be associated with an Open Music Event and directed to an organizer-defined category.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "title",
+          "facets",
+          "embed",
+          "event",
+          "category",
+          "syndications",
+          "updatedAt"
+        ],
+        "properties" : {
+          "category" : {
+            "description" : "An optional organizer-defined category record that directs this post within its event.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this post was originally created.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "embed" : {
+            "description" : "Media, an external card, or a referenced AT Protocol record using the app.bsky post embed union.",
+            "refs" : [
+              "app.bsky.embed.images",
+              "app.bsky.embed.video",
+              "app.bsky.embed.gallery",
+              "app.bsky.embed.external",
+              "app.bsky.embed.record",
+              "app.bsky.embed.recordWithMedia"
+            ],
+            "type" : "union"
+          },
+          "event" : {
+            "description" : "The optional DID-based events.openmusic.event record this post concerns.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "facets" : {
+            "description" : "Annotations of the post text using app.bsky.richtext.facet byte ranges and features.",
+            "items" : {
+              "ref" : "app.bsky.richtext.facet",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "syndications" : {
+            "description" : "Pinned references to equivalent records syndicated from this post.",
+            "items" : {
+              "ref" : "com.atproto.repo.strongRef",
+              "type" : "ref"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
+          "text" : {
+            "description" : "The post's primary text. It may be empty when the post has an embed.",
+            "maxGraphemes" : 10000,
+            "maxLength" : 100000,
+            "type" : "string"
+          },
+          "title" : {
+            "description" : "An optional display title for clients that support titled posts.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "description" : "Client-declared timestamp when this post was most recently updated.",
+            "format" : "datetime",
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "text",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "social.ome.post",
+  "lexicon" : 1
+}

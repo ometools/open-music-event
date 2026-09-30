@@ -1160,7 +1160,7 @@ extension Open where Known == OME.Event.Status {
     var proposalDisplayName: String? {
         switch self {
         case let .known(status): status.rawValue.proposalHumanized
-        case let .unknown(value): value.stringValue?.proposalNonempty
+        case let .unknown(value): value.string?.proposalNonempty
         }
     }
 }
@@ -1169,7 +1169,7 @@ extension Open where Known == OME.Event.Mode {
     var proposalDisplayName: String? {
         switch self {
         case let .known(mode): mode.rawValue.proposalHumanized
-        case let .unknown(value): value.stringValue?.proposalNonempty
+        case let .unknown(value): value.string?.proposalNonempty
         }
     }
 }

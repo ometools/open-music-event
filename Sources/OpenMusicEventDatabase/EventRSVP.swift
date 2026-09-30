@@ -1,11 +1,8 @@
 import ATProto
+import ATProtoSQLite
 import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
-
-extension ATProto.URI: @retroactive SQLiteType {
-    public static var typeAffinity: SQLiteTypeAffinity { .text }
-}
 
 /// A device-local RSVP. Its identity is the event's durable AT URI plus the
 /// currently selected account, or the one stable logged-out consumer.

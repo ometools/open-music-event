@@ -449,14 +449,14 @@ public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
 private extension Open where Known == OMERecord.Event.Status {
     var customValue: String? {
         guard case let .unknown(value) = self else { return nil }
-        return value.stringValue
+        return value.string
     }
 }
 
 private extension Open where Known == OMERecord.Event.Mode {
     var customValue: String? {
         guard case let .unknown(value) = self else { return nil }
-        return value.stringValue
+        return value.string
     }
 }
 

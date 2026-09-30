@@ -1,0 +1,63 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "A persistent stage identity that can be followed and linked across event editions. Its repository owns this profile; event places own their separate event-specific presentation.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "links",
+          "media"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this record was created. Preserved through profile edits.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "A public description of the persistent stage.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "links" : {
+            "description" : "Public links for the stage, in preferred display order.",
+            "items" : {
+              "ref" : "events.openmusic.defs#link",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "media" : {
+            "description" : "Media for this stage profile, in preferred display order. Event places do not inherit these values automatically.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "description" : "The public name of the persistent stage.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "name",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.stage",
+  "lexicon" : 1
+}

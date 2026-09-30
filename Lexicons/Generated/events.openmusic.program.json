@@ -1,0 +1,62 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "One organizer-defined attendee-facing program within an event, such as the main schedule or workshops.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "icon"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this program record was created.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "A public description of this attendee-facing program.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based record URI of the events.openmusic.event containing this program.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "eventPlaces" : {
+            "description" : "The exhaustive list of places used by this program, in organizer-defined lane order. An empty list means the program contains only unplaced items.",
+            "items" : {
+              "format" : "at-uri",
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "icon" : {
+            "description" : "A platform-neutral icon for this program's tab or section.",
+            "ref" : "events.openmusic.defs#semanticIcon",
+            "type" : "ref"
+          },
+          "title" : {
+            "description" : "The attendee-facing title used for this program's tab or section.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "event",
+          "title",
+          "createdAt",
+          "eventPlaces"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.program",
+  "lexicon" : 1
+}

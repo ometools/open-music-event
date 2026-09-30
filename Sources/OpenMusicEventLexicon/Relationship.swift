@@ -240,8 +240,8 @@ extension OpenMusicEvent.Relationship {
         case record(RecordReference)
 
         public static let unionTypes: OpenUnionTypes<Self> = [
-            .type(IdentityReference.type, \.identity),
-            .type(RecordReference.type, \.record),
+            .type(.init(rawValue: IdentityReference.type), \.identity),
+            .type(.init(rawValue: RecordReference.type), \.record),
         ]
 
         public var identity: IdentityReference? {

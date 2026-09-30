@@ -1,0 +1,26 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "A URI with a content-hash fingerprint.",
+      "properties" : {
+        "cid" : {
+          "description" : "The content identifier of the exact record revision.",
+          "format" : "cid",
+          "type" : "string"
+        },
+        "uri" : {
+          "description" : "The AT Protocol record URI.",
+          "format" : "at-uri",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "uri",
+        "cid"
+      ],
+      "type" : "object"
+    }
+  },
+  "id" : "com.atproto.repo.strongRef",
+  "lexicon" : 1
+}

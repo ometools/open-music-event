@@ -9,6 +9,7 @@ enum PackageBuild: Equatable {
     case app
     case androidApp
     case appView
+    case lexicon
 }
 
 // OME_APPVIEW selects the standalone server graph. OME_ANDROID_APP_BUILD
@@ -16,6 +17,7 @@ enum PackageBuild: Equatable {
 // the complete app development graph, including the AppView targets.
 let environment = ProcessInfo.processInfo.environment
 let packageBuild: PackageBuild = {
+    if environment["OME_LEXICON"] == "1" { return .lexicon }
     if environment["OME_APPVIEW"] == "1" {
         return .appView
     }
@@ -190,7 +192,7 @@ let composableNotificationsDependency: Package.Dependency = {
         path: "/Users/woody/Developer/ometools/worktrees/swift-composable-notifications-atmosphere-reorg"
     )
 }()
-let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView
+let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView || packageBuild == .lexicon
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
 let workspaceSkipRootPath = [
@@ -572,7 +574,7 @@ openMusicEventComponentsDependencies.append(contentsOf: [
         condition: .when(platforms: [.android])
     ),
 ])
-if packageBuild != .appView {
+if packageBuild == .app || packageBuild == .androidApp {
     openMusicEventTimeZonesDependencies.append(
         .product(name: "SkipFuseUI", package: "skip-fuse-ui")
     )
@@ -624,7 +626,7 @@ let routingTestTarget = Target.testTarget(
 let openMusicEventTimeZonesTarget = Target.target(
     name: "OpenMusicEventTimeZones",
     dependencies: openMusicEventTimeZonesDependencies,
-    exclude: packageBuild == .appView ? ["Skip"] : [],
+    exclude: (packageBuild == .appView || packageBuild == .lexicon) ? ["Skip"] : [],
     plugins: skipstonePlugins
 )
 
@@ -647,7 +649,8 @@ let openMusicEventLexiconTestTarget = Target.testTarget(
     dependencies: [
         "OpenMusicEventLexicon",
         .product(name: "CustomDump", package: "swift-custom-dump"),
-    ]
+    ],
+    resources: [.copy("Fixtures")]
 )
 
 let openMusicEventSourceCloneTarget = Target.target(
@@ -1338,6 +1341,23 @@ case .androidApp:
             "OpenMusicEventReleaseTools",
         ].contains(target.name)
     } + [routingTarget, routingTestTarget]
+
+case .lexicon:
+    products = [
+        .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+        .executable(name: "ome-export-lexicons", targets: ["OpenMusicEventLexiconExport"]),
+    ]
+    dependencies = [
+        atprotoDependency, atprotoSQLiteDependency, routingDependency,
+        .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
+        .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+        .package(url: "https://github.com/pointfreeco/sqlite-data", exact: "1.6.6", traits: ["SQLiteDataTagged"]),
+        .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged"]),
+    ]
+    targets = [
+        openMusicEventTimeZonesTarget, openMusicEventLexiconTarget, openMusicEventLexiconTestTarget,
+        .executableTarget(name: "OpenMusicEventLexiconExport", dependencies: ["OpenMusicEventLexicon"]),
+    ]
 
 case .appView:
     products = appViewProducts

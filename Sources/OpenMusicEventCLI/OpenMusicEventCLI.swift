@@ -1,6 +1,7 @@
 import ATProto
 import ATProtoOAuth
 import ArgumentParser
+import struct ArgumentParser.ValidationError
 import Dependencies
 import Foundation
 import Noora
