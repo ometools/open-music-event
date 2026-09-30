@@ -595,12 +595,6 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .workspace
 
-            case let .editEventInfo(eventID):
-                guard eventID == self.eventID else { return }
-                self.destination = withEventDependencies {
-                    .eventInfoForm(EditEventInfo.State(eventID: eventID))
-                }
-
             case let .editLocation(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
@@ -822,7 +816,6 @@ public struct EventViewer {
         case contactInfoForm(EditContactInfo)
         case contributorForm(EditContributor)
         case copyStagesFromEvent(CopyStagesFromEvent)
-        case eventInfoForm(EditEventInfo)
         case locationForm(EditLocation)
         case performanceForm(EditPerformance)
         case scheduleForm(EditSchedule)
@@ -1163,8 +1156,6 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
             destinationID("contributorForm", store.eventID, store.mode.contributorID)
         case let .copyStagesFromEvent(store):
             destinationID("copyStagesFromEvent", store.eventID)
-        case let .eventInfoForm(store):
-            destinationID("eventInfoForm", store.eventID)
         case let .locationForm(store):
             destinationID("locationForm", store.eventID)
         case let .performanceForm(store):
@@ -1240,8 +1231,6 @@ public struct EventViewerView: View {
             EditStageView(store: formStore)
         case let .contactInfoForm(formStore):
             EditContactInfoView(store: formStore)
-        case let .eventInfoForm(formStore):
-            EditEventInfoView(store: formStore)
         case let .locationForm(formStore):
             EditLocationView(store: formStore)
         case let .performanceForm(formStore):
@@ -1464,10 +1453,7 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
-                        EventInfoViewerView(
-                            store: featureStore,
-                            showsAuthoringControls: store.showsAuthoringControls
-                        )
+                        EventInfoViewerView(store: featureStore)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button {
@@ -1642,10 +1628,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(
-                        store: featureStore,
-                        showsAuthoringControls: store.showsAuthoringControls
-                    )
+                    EventInfoViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1762,10 +1745,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(
-                        store: featureStore,
-                        showsAuthoringControls: store.showsAuthoringControls
-                    )
+                    EventInfoViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1863,7 +1843,6 @@ private extension EventEditingIntent {
              let .deletePerformance(eventID, _),
              let .editContactInfo(eventID),
              let .editContributor(eventID, _),
-             let .editEventInfo(eventID),
              let .editLocation(eventID),
              let .editPerformance(eventID, _),
              let .editStage(eventID, _),

@@ -1,5 +1,6 @@
 import HeroImageList
 import ATProto
+import ATProtoTypes
 import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
@@ -12,6 +13,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import OpenMusicEventAuthentication
 import SourceEditing
@@ -1237,6 +1239,32 @@ public struct EventBrowseDetail {
     public struct State: Identifiable {
         public init(event: CalendarEvent) {
             self.event = event
+            _record = FetchOne(Event.find(event.uri))
+        }
+
+        @FetchOne public var record: Event?
+        public var eventInfoForm: EditEventInfo.State?
+        public var title: String { record?.name ?? event.name }
+        public var eventDescription: String? {
+            if let record { return record.description }
+            return event.description
+        }
+
+        public var dateText: String? {
+            guard let record else { return event.detailDateText }
+            let formatter = DateFormatter()
+            formatter.timeZone = record.timeZone
+            formatter.dateStyle = .long
+            func text(_ boundary: Open<Event.Time>?) -> String? {
+                guard let boundary, let date = boundary.date(in: record.timeZone) else { return nil }
+                if case .known(.time) = boundary {
+                    formatter.timeStyle = .short
+                } else {
+                    formatter.timeStyle = .none
+                }
+                return formatter.string(from: date)
+            }
+            return [text(record.start), text(record.end)].compactMap { $0 }.joined(separator: " – ")
         }
 
         public var errorMessage: String?
@@ -1251,6 +1279,8 @@ public struct EventBrowseDetail {
 
     public enum Action {
         case enterEventButtonTapped
+        case editButtonTapped
+        case eventInfoForm(EditEventInfo.Action)
         case organizationDetail(OrganizationDetail.Action)
         case organizerButtonTapped
         case rsvpButtonTapped(OME.RSVP.Status)
@@ -1266,6 +1296,13 @@ public struct EventBrowseDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .editButtonTapped:
+                guard let record = state.record else { return }
+                state.eventInfoForm = EditEventInfo.State(event: record)
+
+            case .eventInfoForm:
+                break
+
             case .enterEventButtonTapped:
                 let eventURI = state.event.uri
                 state.errorMessage = nil
@@ -1355,6 +1392,9 @@ public struct EventBrowseDetail {
                 }
             }
         }
+        .ifLet(\.eventInfoForm) {
+            EditEventInfo()
+        }
         .ifLet(\.organizationDetail) {
             OrganizationDetail()
         }
@@ -1370,10 +1410,10 @@ public struct EventBrowseDetailView: View {
 
     public var body: some View {
         HeroImageList(
-            title: Text(store.event.name)
+            title: Text(store.title)
         ) {
             HeroImage(
-                title: Text(store.event.name),
+                title: Text(store.title),
                 sources: store.event.artworkSources,
                 titleSources: [.title]
             ) {
@@ -1408,12 +1448,12 @@ public struct EventBrowseDetailView: View {
                 }
                 .navigationLinkListRowStyle()
 
-                if let dateText = store.event.detailDateText {
+                if let dateText = store.dateText, !dateText.isEmpty {
                     LabeledContent("Date") {
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(dateText)
 
-                            if let timeText = store.event.detailTimeText {
+                            if store.record == nil, let timeText = store.event.detailTimeText {
                                 Text(timeText)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -1483,7 +1523,7 @@ public struct EventBrowseDetailView: View {
                 }
             }
 
-            if let description = store.event.description, !description.isEmpty {
+            if let description = store.eventDescription, !description.isEmpty {
                 Section("About") {
                     Text(description)
                 }
@@ -1495,6 +1535,23 @@ public struct EventBrowseDetailView: View {
                         Link(link.name ?? link.uri.host() ?? "Event link", destination: link.uri)
                     }
                 }
+            }
+        }
+        .toolbar {
+            if store.record != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.editButtonTapped)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("button.edit-event")
+                }
+            }
+        }
+        .sheet(item: $store.scope(\.eventInfoForm)) { formStore in
+            NavigationStack {
+                EditEventInfoView(store: formStore)
             }
         }
         .navigationDestination(

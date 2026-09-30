@@ -41,7 +41,6 @@ public struct EventInfoViewer {
     public enum Action {
         case aboutOpenMusicEventButtonTapped
         case destination(Destination.Action)
-        case editButtonTapped
     }
 
     @Feature
@@ -63,15 +62,7 @@ public struct EventInfoViewer {
             case .destination:
                 break
 
-            case .editButtonTapped:
-                let eventID = state.eventID
-                store.addTask {
-                    let task = try store.post(
-                        key: EventEditingRequested.self,
-                        value: .editEventInfo(eventID)
-                    )
-                    await task?.value
-                }
+
             }
         }
         .ifLet(\.destination) {
@@ -82,14 +73,9 @@ public struct EventInfoViewer {
 
 public struct EventInfoViewerView: View {
     @Bindable var store: StoreOf<EventInfoViewer>
-    let showsAuthoringControls: Bool
 
-    public init(
-        store: StoreOf<EventInfoViewer>,
-        showsAuthoringControls: Bool = true
-    ) {
+    public init(store: StoreOf<EventInfoViewer>) {
         self.store = store
-        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -153,18 +139,6 @@ public struct EventInfoViewerView: View {
                             store.send(.aboutOpenMusicEventButtonTapped)
                         }
                         .navigationLinkListRowStyle()
-                    }
-                }
-                .toolbar {
-                    if showsAuthoringControls {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                store.send(.editButtonTapped)
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                                    .labelStyle(.iconOnly)
-                            }
-                        }
                     }
                 }
                 .navigationDestination(
