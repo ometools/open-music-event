@@ -3,6 +3,7 @@ import ATProtoTypes
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import CustomDump
+import ConcurrencyExtras
 import Dependencies
 import DebugSnapshots
 import Foundation
@@ -23,27 +24,38 @@ struct CanonicalEventEditingTests {
         let database = try database()
         let event = try event()
         try await database.write { db in
-            try Event.insert { event }.execute(db)
             try #sql("""
                 CREATE TABLE notes (
                     event TEXT REFERENCES "events.openmusic.event"(id) ON DELETE CASCADE,
                     note TEXT NOT NULL
                 )
                 """).execute(db)
-            try #sql("INSERT INTO notes VALUES (\(event.id), 'Meet at the gate')").execute(db)
         }
 
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.getSelectedOAuthSessionID = { nil }
+            $0.eventRecords = .init { id in
+                expectNoDifference(id, event.id)
+                return EventRecordGraph(event: event)
+            }
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: listing(event))) {
                 EventBrowseDetail()
             }
         }
 
-        // A browse result resolves its canonical record using the protocol ID.
+        // Opening the browse result loads the canonical record without a source checkout.
+        #expect(store.record == nil)
+        await store.send(.task)?.value
+        store.expect {
+            $0.record = event
+        }
         expectNoDifference(store.record, event)
+        try await database.write { db in
+            try #sql("INSERT INTO notes VALUES (\(event.id), 'Meet at the gate')").execute(db)
+        }
         store.send(.editButtonTapped) {
             $0.eventInfoForm = .init(draft: event, isSaving: false, errorMessage: nil)
         }
@@ -76,6 +88,103 @@ struct CanonicalEventEditingTests {
         expectNoDifference(store.record, expected)
         expectNoDifference(store.title, "Wicked Woods 2026")
         expectNoDifference(store.eventDescription, "Updated locally")
+        // Reopening keeps the local edit even though the publisher still has the original.
+        await store.send(.task)?.value
+        expectNoDifference(store.record, expected)
+        await store.dismount()
+    }
+
+    @Test(arguments: ["offline", "wrong-record", "incomplete-graph"])
+    func failedDownloadsLeaveNoPartialRecordsAndCanBeRetried(scenario: String) async throws {
+        let database = try database()
+        let original = try event()
+        let attempts = LockIsolated(0)
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.getSelectedOAuthSessionID = { nil }
+            $0.eventRecords = .init { id in
+                expectNoDifference(id, original.id)
+                let attempt = attempts.withValue { $0 += 1; return $0 }
+                if attempt == 1 {
+                    switch scenario {
+                    case "offline":
+                        throw URLError(.notConnectedToInternet)
+                    case "wrong-record":
+                        return EventRecordGraph(event: try Event(
+                            id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai")),
+                            name: "Another event",
+                            createdAt: original.createdAt,
+                            timeZone: original.timeZone
+                        ))
+                    default:
+                        var incomplete = original
+                        incomplete.programs = [
+                            try #require(ATProto.URI("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcai"))
+                        ]
+                        return EventRecordGraph(event: incomplete)
+                    }
+                }
+                return EventRecordGraph(event: original)
+            }
+        } operation: {
+            TestStore(initialState: EventBrowseDetail.State(event: listing(original))) {
+                EventBrowseDetail()
+            }
+        }
+
+        // An unavailable or invalid download must not create an editable partial event.
+        await store.send(.task)?.value
+        store.expect {
+            $0.errorMessage = "Unable to load all event details."
+        }
+        #expect(store.record == nil)
+        let afterFailure = try await database.read { try Event.all.fetchAll($0) }
+        expectNoDifference(afterFailure, [])
+
+        // Opening the detail again retries, clears the error, and makes the record editable.
+        await store.send(.task) {
+            $0.errorMessage = nil
+        }?.value
+        store.expect {
+            $0.record = original
+        }
+        store.send(.editButtonTapped) {
+            $0.eventInfoForm = .init(draft: original, isSaving: false, errorMessage: nil)
+        }
+        expectNoDifference(attempts.value, 2)
+        await store.dismount()
+    }
+
+    @Test
+    func aRecordSavedWhileDownloadingIsNotOverwritten() async throws {
+        let database = try database()
+        let original = try event()
+        let local: Event = {
+            var event = original
+            event.name = "A local edit made while loading"
+            return event
+        }()
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.getSelectedOAuthSessionID = { nil }
+            $0.eventRecords = .init { _ in
+                // Another opening of this event finishes and saves before this response arrives.
+                try await database.write { try Event.insert { local }.execute($0) }
+                return EventRecordGraph(event: original)
+            }
+        } operation: {
+            TestStore(initialState: EventBrowseDetail.State(event: listing(original))) {
+                EventBrowseDetail()
+            }
+        }
+        await store.send(.task)?.value
+        store.expect {
+            $0.record = local
+        }
+        let saved = try await database.read { try Event.find(original.id).fetchOne($0) }
+        expectNoDifference(saved, local)
         await store.dismount()
     }
 
@@ -168,7 +277,7 @@ struct CanonicalEventEditingTests {
     private func database() throws -> DatabaseQueue {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()
-        EventRecordMigrations.register(into: &migrator)
+        OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
         return database
     }

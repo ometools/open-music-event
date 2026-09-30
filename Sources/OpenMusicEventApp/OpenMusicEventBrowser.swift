@@ -1292,6 +1292,7 @@ public struct EventBrowseDetail {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.getSelectedOAuthSessionID) var selectedAccountID
     @Dependency(\.omeEventInstallation) var eventInstallation
+    @Dependency(\.eventRecords) var eventRecords
 
     public var body: some Feature {
         Update { state, action in
@@ -1368,18 +1369,36 @@ public struct EventBrowseDetail {
                 }
 
             case .task:
+                state.errorMessage = nil
                 let eventURI = state.event.uri
                 let consumer = EventRSVP.Consumer(
                     accountDID: selectedAccountID()?.rawValue
                 )
                 store.addTask {
                     do {
-                        let event = try await calendarEvents.event(eventURI)
+                        if eventURI.collection == ATProto.NSID(Event.lexiconID.rawValue) {
+                            let exists = try await database.read { db in
+                                try Event.find(eventURI).fetchOne(db) != nil
+                            }
+                            if !exists {
+                                let graph = try await eventRecords.load(eventURI)
+                                guard graph.event.id == eventURI else {
+                                    throw ValidationError("The downloaded event has a different record ID")
+                                }
+                                try Task.checkCancellation()
+                                try await database.write { db in
+                                    guard try Event.find(eventURI).fetchOne(db) == nil else { return }
+                                    try graph.upsert(in: db)
+                                }
+                            }
+                        } else {
+                            let event = try await calendarEvents.event(eventURI)
+                            try store.modify { $0.event = event }
+                        }
                         let record = try await database.read { db in
                             try EventRSVP.forEvent(eventURI, consumer: consumer).fetchOne(db)
                         }
                         try store.modify {
-                            $0.event = event
                             $0.rsvpStatus = record?.status
                         }
                     } catch is CancellationError {
