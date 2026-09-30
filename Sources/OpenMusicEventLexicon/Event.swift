@@ -8,6 +8,8 @@ import SQLiteData
 @Table("events.openmusic.event")
 @Lexicon("events.openmusic.event", type: .record(key: .tid), description: "An organizer-owned music event, including its public boundaries, locations, programs, festival-day schedules, links, and media.")
 public struct Event: RecordCodable, Equatable {
+    public typealias ID = ATProto.URI
+
     @LexiconIgnored
     @Column(primaryKey: true)
     public let id: ATProto.URI

@@ -15,7 +15,7 @@ public struct Program: RecordCodable, Equatable {
     public var cid: ATProto.CID? = nil
 
     @LexiconField(description: "The DID-based record URI of the events.openmusic.event containing this program.")
-    public var event: ATProto.URI
+    public var event: Event.ID
 
     @LexiconField(description: "The attendee-facing title used for this program's tab or section.", minLength: 1, maxLength: 5_000, maxGraphemes: 500)
     public var title: String

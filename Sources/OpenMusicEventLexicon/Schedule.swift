@@ -15,7 +15,7 @@ public struct Schedule: RecordCodable, Equatable {
     public var cid: ATProto.CID? = nil
 
     @LexiconField(description: "The DID-based record URI of the events.openmusic.event containing this festival day.")
-    public var event: ATProto.URI
+    public var event: Event.ID
 
     @LexiconField(encoding: Event.LocalDayString.self, description: "The organizer-defined event-local date attendees use to name this festival day. Assigned items may begin after midnight on the following calendar date.", minLength: 10, maxLength: 10)
     public var date: LocalDate

@@ -2,6 +2,7 @@ import ATProtoAppView
 import ComposableNotificationsServer
 import Foundation
 import GRDB
+import OpenMusicEventDatabase
 
 public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     public let readiness: OpenMusicEventAppViewReadiness
@@ -46,6 +47,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     private static func migrate(_ database: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
+        EventRecordMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
         NotificationDatabase.registerMigrations(into: &migrator)
         TangledSourceProjectionSchema.registerMigration(into: &migrator)

@@ -81,6 +81,7 @@ extension OpenMusicEventAppViewStore {
         tangledWebhookConfiguration: TangledWebhookConfiguration?
     ) -> AppViewRecordIndexer {
         AppViewRecordIndexer {
+            eventRecordIndex()
             AppViewRecordIndex<Community.CalendarEvent>(
                 collection: Community.CalendarEvent.nsid
             )

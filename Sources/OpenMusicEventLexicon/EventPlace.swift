@@ -15,7 +15,7 @@ public struct EventPlace: RecordCodable, Equatable {
     public var cid: ATProto.CID? = nil
 
     @LexiconField(description: "The DID-based record URI of the events.openmusic.event edition containing this place. A different edition requires a new place identity.")
-    public var event: ATProto.URI
+    public var event: Event.ID
 
     @LexiconField(description: "The organizer's name for this place, independent of any persistent stage profile.", minLength: 1, maxLength: 5_000, maxGraphemes: 500)
     public var name: String

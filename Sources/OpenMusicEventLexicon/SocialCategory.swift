@@ -16,7 +16,7 @@ extension Social {
         public var cid: ATProto.CID? = nil
 
         @LexiconField(description: "The DID-based events.openmusic.event record that owns this category.")
-        public var event: ATProto.URI
+        public var event: Event.ID
 
         @LexiconField(description: "The attendee-facing category name.", minLength: 1, maxLength: 5_000, maxGraphemes: 500)
         public var name: String

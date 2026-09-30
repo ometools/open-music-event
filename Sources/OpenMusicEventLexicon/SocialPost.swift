@@ -32,7 +32,7 @@ extension Social {
         public var embed: Embed? = nil
 
         @LexiconField(description: "The optional DID-based events.openmusic.event record this post concerns.")
-        public var event: ATProto.URI? = nil
+        public var event: Event.ID? = nil
 
         @LexiconField(description: "An optional DID-based social.ome.category record that directs this post within its event.")
         public var category: ATProto.URI? = nil
