@@ -6,7 +6,6 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-LANE = Path.home() / '.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh'
 
 
 def main():
@@ -18,13 +17,14 @@ def main():
         credential = Path(directory) / 'netrc'
         credential.touch(mode=0o600)
         credential.write_text(f'machine github.com\nlogin x-access-token\npassword {token}\n')
-        subprocess.run([
-            str(LANE), '--repo', str(ROOT), '--wait', '--priority', 'interactive',
-            'exec', 'docker', 'build',
+        command = ['docker', 'build',
             '--secret', f'id=github_netrc,src={credential}',
             '-f', 'Scripts/auth-e2e/appview/Dockerfile',
             '-t', 'ome-auth-e2e-appview:local', '.',
-        ], cwd=ROOT, check=True)
+        ]
+        if lane := os.environ.get('OME_COMPILER_LANE'):
+            command = [lane, '--repo', str(ROOT), '--wait', '--priority', 'interactive', 'exec', *command]
+        subprocess.run(command, cwd=ROOT, check=True)
 
 
 if __name__ == '__main__':

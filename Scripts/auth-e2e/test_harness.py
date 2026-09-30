@@ -23,6 +23,8 @@ hosts = module('hosts', 'host-routing.py')
 provision = module('provision', 'prepare-run.py')
 recovery = module('recovery', 'recovery.py')
 android = module('android', 'configure-android.py')
+device = module('device', 'android-device.py')
+appview = module('appview', 'build-appview.py')
 
 
 class HarnessTests(unittest.TestCase):
@@ -282,6 +284,58 @@ class HarnessTests(unittest.TestCase):
     def test_partial_block_is_not_overwritten(self):
         with self.assertRaises(ValueError):
             hosts.updated(hosts.BEGIN + '\n127.0.0.1 example.test\n', True)
+
+
+class PortableHarnessTests(unittest.TestCase):
+    def test_physical_device_is_rejected_before_adb(self):
+        with patch.object(device.subprocess, "check_output") as inspect:
+            with self.assertRaisesRegex(ValueError, "emulator serial"):
+                device.device_name("physical-device")
+        inspect.assert_not_called()
+
+    def test_stop_rejects_a_non_auth_emulator(self):
+        with patch.object(device.subprocess, "check_output", return_value="Personal_AVD\n"), \
+             patch.object(device.subprocess, "run") as stop, \
+             patch("sys.argv", ["android-device.py", "--device", "emulator-5580",
+                                "stop", "--app", "fm.woody.openmusicevent"]):
+            with self.assertRaisesRegex(ValueError, "dedicated AVD"):
+                device.main()
+        stop.assert_not_called()
+
+    def test_stop_targets_only_the_named_auth_emulator_and_app(self):
+        with patch.object(device.subprocess, "check_output", return_value="OME_Auth_E2E_API36\n"), \
+             patch.object(device.subprocess, "run") as stop, \
+             patch("sys.argv", ["android-device.py", "--device", "emulator-5580",
+                                "stop", "--app", "fm.woody.openmusicevent"]):
+            device.main()
+        stop.assert_called_once_with(
+            ["adb", "-s", "emulator-5580", "shell", "am", "force-stop",
+             "fm.woody.openmusicevent"], check=True)
+
+    def test_appview_build_needs_no_codex_install_and_removes_credential_file(self):
+        for lane in (None, "/fixture/compiler-lane.sh"):
+            with self.subTest(lane=lane):
+                credentials = []
+                def build(command, **kwargs):
+                    secret = command[command.index("--secret") + 1]
+                    credential = Path(secret.split("src=", 1)[1])
+                    credentials.append(credential)
+                    self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
+                    self.assertNotIn("fixture-build-token", " ".join(command))
+                    if lane is None:
+                        self.assertEqual(command[:2], ["docker", "build"])
+                    else:
+                        self.assertEqual(command[0], lane)
+                        self.assertIn("exec", command)
+                    return subprocess.CompletedProcess(command, 0)
+                environment = {"GITHUB_TOKEN": "fixture-build-token"}
+                if lane:
+                    environment["OME_COMPILER_LANE"] = lane
+                with patch.dict(os.environ, environment, clear=True), \
+                     patch.object(appview.subprocess, "run", side_effect=build):
+                    appview.main()
+                self.assertTrue(credentials)
+                self.assertFalse(any(path.exists() for path in credentials))
 
 
 if __name__ == '__main__':

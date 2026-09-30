@@ -10,10 +10,11 @@ import re
 import secrets
 import socket
 import subprocess
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-WRAPPERS = Path.home() / '.codex/skills/woodys-swift-workflow/scripts'
+ANDROID_DEVICE = Path(__file__).with_name('android-device.py')
 EVENT = re.compile(r'OME_AUTH_E2E (getSession|refresh|exchange) status=(\d{3})')
 
 
@@ -29,8 +30,7 @@ def dedicated_ios(device):
 
 
 def dedicated_android(device):
-    name = output(str(WRAPPERS / 'android-inspect.sh'), '--device', device,
-                  'getprop', 'ro.boot.qemu.avd_name').strip().splitlines()[-1]
+    name = output(sys.executable, str(ANDROID_DEVICE), '--device', device, 'name').strip().splitlines()[-1]
     if not name.startswith('OME_Auth_E2E'):
         raise ValueError('Android target must be a dedicated AVD named OME_Auth_E2E…')
 
@@ -128,8 +128,7 @@ def main():
                          '--style', 'compact', '--start', started,
                          '--predicate', 'category == "auth-e2e"')
         else:
-            log = output(str(WRAPPERS / 'android-inspect.sh'), '--device', target['device'],
-                         'logcat', '--lines', '100000')
+            log = output(sys.executable, str(ANDROID_DEVICE), '--device', target['device'], 'logs')
         # Keep timestamps/process IDs until after subtraction: logcat can rotate old entries.
         return [line for line in log.splitlines() if EVENT.search(line)]
 
@@ -181,8 +180,8 @@ def main():
             if target['platform'] == 'ios':
                 subprocess.run(['xcrun', 'simctl', 'terminate', target['device'], target['app']], check=True)
             else:
-                subprocess.run([str(WRAPPERS / 'android-drive.sh'), '--device', target['device'],
-                                'stop', target['app']], check=True)
+                subprocess.run([sys.executable, str(ANDROID_DEVICE), '--device', target['device'],
+                                'stop', '--app', target['app']], check=True)
         print('Waiting 70 real seconds for the PDS access-token lifetime.', flush=True)
         time.sleep(70)
 

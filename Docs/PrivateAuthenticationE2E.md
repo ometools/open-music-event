@@ -32,6 +32,23 @@ diagnosed using the accounts it actually created without resetting the PDS.
 
 Requirements: Python 3.12+, Deno, Docker Desktop, Docker Compose 2.33.1+.
 
+The runner also requires Android platform-tools (adb), Xcode command-line tools,
+Maestro, and an installed app on each dedicated device. Building AppView requires
+a GitHub token with access to the private TCA dependency, supplied through
+`GITHUB_TOKEN` or `gh auth token`; Docker receives it only as a temporary build
+secret. Neither the AppView builder nor the device runner requires a Codex
+installation. `Scripts/auth-e2e/android-device.py` owns only dedicated-emulator
+name inspection, timestamped logs, and stopping the selected test app.
+
+On a workstation using a compiler coordinator, set `OME_COMPILER_LANE` to that
+executable before `sandbox.py up`. CI can leave it unset and schedule the Docker
+build through its own job runner. Historical diagnostic commands below include
+the coordinator used during investigation; those paths are not prerequisites.
+
+The currently passing mobile build still depends on unpublished companion
+changes. See [the portability audit](AuthSlicePortability.md) before attempting
+a clean-machine build.
+
 ```sh
 python3 Scripts/auth-e2e/sandbox.py prepare
 python3 Scripts/auth-e2e/sandbox.py up

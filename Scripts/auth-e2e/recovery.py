@@ -106,8 +106,8 @@ class Story:
             output = auth.output('xcrun', 'simctl', 'spawn', self.target['device'], 'log', 'show',
                 '--style', 'compact', '--start', self.started, '--predicate', 'category == "auth-e2e"')
         else:
-            output = auth.output(str(auth.WRAPPERS / 'android-inspect.sh'), '--device',
-                self.target['device'], 'logcat', '--lines', '100000')
+            output = auth.output(auth.sys.executable, str(auth.ANDROID_DEVICE), '--device',
+                self.target['device'], 'logs')
         return [line for line in output.splitlines() if auth.EVENT.search(line)]
 
     @contextmanager
