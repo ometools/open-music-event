@@ -177,10 +177,10 @@ public struct EventWorkspace {
                     break
                 }
             }
-            Scope(\.changes, action: \.changes) { WorkspaceChanges() }
-            Scope(\.reviews, action: \.reviews) { WorkspaceReviews() }
+            Scope(\.changes) { WorkspaceChanges() }
+            Scope(\.reviews) { WorkspaceReviews() }
         }
-        .ifLet(\.collaborators, action: \.collaborators) {
+        .ifLet(\.collaborators) {
             WorkspaceCollaborators()
         }
         .onChange(of: store.authoringGrant, initial: true) { _, grant, state in
@@ -204,7 +204,7 @@ public struct EventWorkspaceView: View {
     }
 
     public var body: some View {
-        @Bindable var changesStore = store.scope(\.changes, action: \.changes)
+        @Bindable var changesStore = store.scope(\.changes)
 
         List {
             WorkspaceBaselineSection(
@@ -241,7 +241,7 @@ public struct EventWorkspaceView: View {
                 .navigationLinkListRowStyle()
                 .accessibilityIdentifier("workspace.proposals")
 
-                if let collaborators = store.scope(\.collaborators, action: \.collaborators) {
+                if let collaborators = store.scope(\.collaborators) {
                     NavigationLink {
                         WorkspaceCollaboratorsView(store: collaborators)
                     } label: {
@@ -272,10 +272,10 @@ public struct EventWorkspaceView: View {
         .navigationDestination(item: $store.navigationDestination) { destination in
             switch destination {
             case .proposals:
-                WorkspaceReviewsView(store: store.scope(\.reviews, action: \.reviews))
+                WorkspaceReviewsView(store: store.scope(\.reviews))
             }
         }
-        .sheet(item: $changesStore.scope(\.proposalDraft, action: \.proposalDraft)) { draftStore in
+        .sheet(item: $changesStore.scope(\.proposalDraft)) { draftStore in
             WorkspaceProposalDraftView(store: draftStore)
         }
         .alert("Switch branch", isPresented: $isBranchPromptPresented) {

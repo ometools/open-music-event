@@ -1,5 +1,5 @@
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventLexicon
 import OrderedCollections
 

@@ -6,7 +6,7 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @Suite(.dependencies {

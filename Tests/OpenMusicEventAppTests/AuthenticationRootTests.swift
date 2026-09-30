@@ -8,7 +8,7 @@ import IssueReporting
 import Observation
 import Sharing
 import SQLiteData
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @testable import OpenMusicEventApp

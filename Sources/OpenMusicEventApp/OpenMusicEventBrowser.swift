@@ -1,6 +1,6 @@
 import HeroImageList
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import ComposableWorkspace
@@ -83,7 +83,7 @@ public struct OpenMusicEventBrowser {
                     break
                 }
             }
-            Scope(\.settings, action: \.settings) {
+            Scope(\.settings) {
                 Settings()
             }
         }
@@ -192,7 +192,7 @@ public struct OpenMusicEventBrowserView: View {
                 navigation: .stack
             ) {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings),
+                    store: store.scope(\.settings),
                     serviceEnvironment: serviceEnvironment,
                     isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
                     isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
@@ -238,7 +238,7 @@ public struct OpenMusicEventBrowserView: View {
 
             NavigationStack {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings),
+                    store: store.scope(\.settings),
                     serviceEnvironment: serviceEnvironment,
                     isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
                     isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
@@ -290,7 +290,7 @@ public struct OpenMusicEventBrowserView: View {
 
             NavigationStack {
                 SettingsFeatureView(
-                    store: store.scope(\.settings, action: \.settings),
+                    store: store.scope(\.settings),
                     serviceEnvironment: serviceEnvironment,
                     isServiceEnvironmentSelectionEnabled: isServiceEnvironmentSelectionEnabled,
                     isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
@@ -488,7 +488,7 @@ public struct Browse {
                 try await store.send(.didPullToRefresh)?.value
             }
         }
-        .ifLet(\.eventDetail, action: \.eventDetail) {
+        .ifLet(\.eventDetail) {
             EventBrowseDetail()
         }
     }
@@ -585,7 +585,7 @@ public struct BrowseView: View {
         }
         .navigationTitle("Browse")
         .navigationDestination(
-            item: $store.scope(\.eventDetail, action: \.eventDetail)
+            item: $store.scope(\.eventDetail)
         ) { detailStore in
             EventBrowseDetailView(store: detailStore)
         }
@@ -1355,7 +1355,7 @@ public struct EventBrowseDetail {
                 }
             }
         }
-        .ifLet(\.organizationDetail, action: \.organizationDetail) {
+        .ifLet(\.organizationDetail) {
             OrganizationDetail()
         }
     }
@@ -1498,7 +1498,7 @@ public struct EventBrowseDetailView: View {
             }
         }
         .navigationDestination(
-            item: $store.scope(\.organizationDetail, action: \.organizationDetail)
+            item: $store.scope(\.organizationDetail)
         ) { organizationStore in
             OrganizationDetailView(store: organizationStore)
         }
@@ -1718,7 +1718,7 @@ public struct Following {
                 break
             }
         }
-        .ifLet(\.organizerDetail, action: \.organizerDetail) {
+        .ifLet(\.organizerDetail) {
             OrganizerDetail()
         }
     }
@@ -1740,7 +1740,7 @@ public struct FollowingView: View {
             )
         }
         .navigationTitle("Following")
-        .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
+        .navigationDestination(item: $store.scope(\.organizerDetail)) { detailStore in
             OrganizerDetailView(store: detailStore)
         }
     }
@@ -2059,7 +2059,7 @@ public struct OrganizerDetail {
                 break
             }
         }
-        .ifLet(\.calendarDetail, action: \.calendarDetail) {
+        .ifLet(\.calendarDetail) {
             CalendarDetail()
         }
     }
@@ -2134,7 +2134,7 @@ public struct OrganizerDetailView: View {
                 )
             }
         }
-        .navigationDestination(item: $store.scope(\.calendarDetail, action: \.calendarDetail)) { detailStore in
+        .navigationDestination(item: $store.scope(\.calendarDetail)) { detailStore in
             CalendarDetailView(store: detailStore)
         }
     }

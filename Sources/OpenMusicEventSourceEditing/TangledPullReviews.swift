@@ -5,12 +5,11 @@ import Dependencies
 import Foundation
 import Gzip
 import HTTPClient
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import TangledLexicon
 import TangledXRPC
-import XRPCClient
 
 public struct OpenMusicEventSourceTarget: Equatable, Sendable {
     public var workspace: SourceWorkspace

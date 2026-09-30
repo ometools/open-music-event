@@ -352,7 +352,7 @@ public struct UserSchedulesList {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onChange(of: store.persistedEventViewerState) {
@@ -474,7 +474,7 @@ public struct UserSchedulesListView: View {
         }
         .confirmationDialog(
             "Delete Schedule?",
-            isPresented: $store.scope(\.destination, action: \.destination).deleteConfirmation.isPresented,
+            isPresented: $store.scope(\.destination).deleteConfirmation.isPresented,
             titleVisibility: .visible
         ) {
             Button("Delete Schedule", role: .destructive) {
@@ -494,10 +494,7 @@ public struct UserSchedulesListView: View {
         }
         .confirmationDialog(
             "Remove Unavailable Performances?",
-            isPresented: $store.scope(
-                \.destination,
-                action: \.destination
-            ).removeUnavailableConfirmation.isPresented,
+            isPresented: $store.scope(\.destination).removeUnavailableConfirmation.isPresented,
             titleVisibility: .visible
         ) {
             Button("Remove Unavailable Performances", role: .destructive) {
@@ -515,7 +512,7 @@ public struct UserSchedulesListView: View {
         } message: {
             Text("This removes saved performances that are no longer in the published event.")
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).form) { formStore in
+        .navigationDestination(item: $store.scope(\.destination).form) { formStore in
             UserScheduleFormView(store: formStore)
         }
     }

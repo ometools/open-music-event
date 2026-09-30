@@ -2,7 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import OpenMusicEventAuthentication
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import ComposableNotifications
 
 public protocol ErrorNotificationRootState {

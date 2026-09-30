@@ -1,7 +1,7 @@
 #if canImport(SwiftUI) || os(Android)
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableForms
 import Dependencies
@@ -15,8 +15,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 import Tagged
-import TCATProtoAuthentication
-import XRPCClient
+import ComposableAtmosphere
 
 #if SKIP_BRIDGE
 private typealias _AuthenticationAnimation = SkipSwiftUI.Animation
@@ -74,15 +73,6 @@ extension View {
         self
         #else
         self.geometryGroup()
-        #endif
-    }
-
-    @ViewBuilder
-    func accountExtraLargeControlSize() -> some View {
-        #if SKIP_BRIDGE
-        self
-        #else
-        self.controlSize(.extraLarge)
         #endif
     }
 
@@ -343,7 +333,7 @@ public struct Account {
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
-            authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
+            authFailureMessage: Shared<ComposableAtmosphere.ErrorMessage?>,
             sessionStore: Shared<OAuth.SessionStore>,
             selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil),
             recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
@@ -568,13 +558,13 @@ public struct Account {
 
     public var body: some Feature {
         Features {
-            Scope(\.signInForm, action: \.signInForm) {
+            Scope(\.signInForm) {
                 SignInFormFeature()
                     .onSubmit { value in
                         try store.send(.signInFormSubmitted(value))
                     }
             }
-            Scope(\.signUpForm, action: \.signUpForm) {
+            Scope(\.signUpForm) {
                 SignUpFormFeature()
                     .onSubmit { value in
                         try store.send(.signUpFormSubmitted(value))
@@ -1785,26 +1775,6 @@ struct SafeEdgeExpansionModifier<ExpansionContent: View>: ViewModifier {
 }
 
 extension View {
-    func safeEdgeExpansion<ExpansionContent: View>(
-        edge: VerticalEdge,
-        spacing: CGFloat? = 0,
-        horizontalPadding: CGFloat = 24,
-        verticalPadding: CGFloat = 12,
-        @ViewBuilder content: @escaping () -> ExpansionContent
-    ) -> some View {
-        modifier(
-            SafeEdgeExpansionModifier(
-                edge: edge,
-                spacing: spacing,
-                horizontalPadding: horizontalPadding,
-                verticalPadding: verticalPadding,
-                expansionContent: content
-            )
-        )
-    }
-}
-
-extension View {
     @ViewBuilder
     func safeEdgeExpansionScrollEdgeEffect(_ edge: VerticalEdge) -> some View {
         #if (os(iOS) || os(macOS)) && !SKIP_BRIDGE
@@ -2134,7 +2104,7 @@ public extension OAuthAccount.State {
     }
 
     init(
-        authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
+        authFailureMessage: Shared<ComposableAtmosphere.ErrorMessage?>,
         sessionStore: Shared<OAuth.SessionStore>,
         selectedSessionID: Shared<Atmosphere.Account.ID?> = OpenMusicEventOAuth.selectedSessionID
     ) {

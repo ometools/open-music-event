@@ -9,7 +9,7 @@ import HTTPClient
 import HTTPTypes
 import Sharing
 import Synchronization
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 import WebMetadataClient
 

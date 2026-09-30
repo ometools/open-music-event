@@ -7,7 +7,6 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import SQLiteData
-import XRPCClient
 
 extension CalendarEventsClient {
     static func uiAutomation(database: any DatabaseWriter) -> Self {

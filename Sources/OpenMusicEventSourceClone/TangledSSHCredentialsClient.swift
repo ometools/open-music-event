@@ -17,7 +17,7 @@ import SkipSharing
 import Sharing
 #endif
 import SourceControlClient
-import XRPCClient
+import ATProto
 
 #if os(Linux)
 private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(value: nil)

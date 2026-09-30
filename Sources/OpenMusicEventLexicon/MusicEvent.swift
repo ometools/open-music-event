@@ -1,7 +1,7 @@
 import ATProto
 import Foundation
-import Lexicon
-import LexiconSQLiteData
+import ATProtoTypes
+import ATProtoSQLite
 import OpenMusicEventTimeZones
 import SQLiteData
 import Tagged

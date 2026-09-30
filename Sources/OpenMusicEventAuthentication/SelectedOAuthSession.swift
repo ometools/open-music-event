@@ -3,7 +3,7 @@ import ATProtoOAuth
 import Dependencies
 import Foundation
 import Sharing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 private enum SelectedOAuthSessionIDKey: DependencyKey {
     static let liveValue: @Sendable () -> Atmosphere.Account.ID? = { nil }
@@ -24,19 +24,6 @@ public extension DependencyValues {
     }
 
 
-}
-
-public extension OAuth.SessionStore {
-    subscript(_ accountID: Atmosphere.Account.ID?) -> OAuth.Session? {
-        get {
-            guard let accountID else { return nil }
-            return sessions[accountID.rawValue]
-        }
-        set {
-            guard let accountID else { return }
-            sessions[accountID.rawValue] = newValue
-        }
-    }
 }
 
 public extension OAuthSessionStorage {

@@ -1,6 +1,6 @@
 import ATProto
 import Foundation
-import Lexicon
+import ATProtoTypes
 import SQLiteData
 
 extension OpenMusicEvent {

@@ -1,4 +1,4 @@
-import BlueskyActorCache
+import Bluesky
 import ComposableCalendarEvents
 import CustomDump
 import Dependencies
@@ -12,7 +12,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SQLiteData
 import Testing
-import XRPCClient
+import ATProto
 
 @Suite(.serialized)
 @MainActor

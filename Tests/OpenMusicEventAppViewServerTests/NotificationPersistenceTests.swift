@@ -437,22 +437,22 @@ struct NotificationPersistenceTests {
         #expect(deliveryAfterSuccess == nil)
 
         let rawDatabase = try DatabasePool(path: databaseURL.path(percentEncoded: false))
-        let ledger = try rawDatabase.read { database in
-            try Row.fetchOne(
+        try await rawDatabase.read { database in
+            let ledger = try Row.fetchOne(
                 database,
                 sql: """
                     SELECT failedAttempts, lastAttemptAt, deliveredAt
                     FROM pushOutbox
                     """
             )
+            let ledgerRow = try #require(ledger)
+            let failedAttempts: Int = ledgerRow["failedAttempts"]
+            let lastAttemptAt: Date = ledgerRow["lastAttemptAt"]
+            let deliveredAt: Date = ledgerRow["deliveredAt"]
+            expectNoDifference(failedAttempts, 1)
+            expectNoDifference(lastAttemptAt, retryAt)
+            expectNoDifference(deliveredAt, retryAt)
         }
-        let ledgerRow = try #require(ledger)
-        let failedAttempts: Int = ledgerRow["failedAttempts"]
-        let lastAttemptAt: Date = ledgerRow["lastAttemptAt"]
-        let deliveredAt: Date = ledgerRow["deliveredAt"]
-        expectNoDifference(failedAttempts, 1)
-        expectNoDifference(lastAttemptAt, retryAt)
-        expectNoDifference(deliveredAt, retryAt)
     }
 
     @Test

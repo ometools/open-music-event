@@ -157,7 +157,7 @@ public struct WorkspaceChanges {
                 break
             }
         }
-        .ifLet(\.proposalDraft, action: \.proposalDraft) {
+        .ifLet(\.proposalDraft) {
             WorkspaceProposalDraft()
         }
         .onEvent(WorkspaceProposalDraftDismissed.self) { _, state in

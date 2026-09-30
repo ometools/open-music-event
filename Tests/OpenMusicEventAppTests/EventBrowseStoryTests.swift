@@ -1,7 +1,7 @@
 #if os(macOS)
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
 import ComposableNotifications
@@ -30,9 +30,8 @@ import Sharing
 import SourceControlClient
 import SQLiteData
 import Synchronization
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
-import XRPCClient
 
 @Suite(.serialized)
 struct EventBrowseStoryTests {
@@ -92,7 +91,7 @@ struct EventBrowseStoryTests {
                     }
                 }
                 let browse = await MainActor.run {
-                    store.scope(\.browser, action: \.browser).spawn(\.browse)
+                    store.scope(\.browser).spawn(\.browse)
                 }
 
                 let browseTask = await MainActor.run {
@@ -316,7 +315,7 @@ struct EventBrowseStoryTests {
 
             let subscriptions = await replacementIterator.next()
             expectNoDifference(subscriptions, Optional(Set([expectedSubscription])))
-            await store.dismount(timeout: .seconds(1))
+            await store.dismount()
         }
     }
 
@@ -731,8 +730,8 @@ struct EventBrowseStoryTests {
                 }
             }
             let store = appStore
-                .scope(\.content, action: \.content)
-                .scope(\.content, action: \.content)
+                .scope(\.content)
+                .scope(\.content)
             let mountTask = appStore.send(.content(.content(.task)))
             await mountTask?.value
             let mountedWorkspaceID = store.destination?.eventViewer?.authoring.context.id
@@ -1255,7 +1254,7 @@ struct EventBrowseStoryTests {
         expectNoDifference(eventDetail.event, selectedEvent)
         #expect(installations.withLock { $0 }.isEmpty)
         #expect(store.lastRequest == nil)
-        await store.dismount(timeout: .seconds(1))
+        await store.dismount()
     }
 
     @Test @MainActor
@@ -1595,6 +1594,21 @@ struct EventBrowseStoryTests {
         try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
+                #expect(handle.rawValue == "wickedwoods.ca")
+                let document = try JSONDecoder().decode(
+                    DID.Document.self,
+                    from: Data("""
+                    {
+                      "id": "\(organizerID)",
+                      "alsoKnownAs": ["at://wickedwoods.ca"],
+                      "verificationMethod": [],
+                      "service": []
+                    }
+                    """.utf8)
+                )
+                return (Atmosphere.Account(id: .init(organizerID), handle: handle), document)
+            }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { _, _ in
                 Data(Self.wickedWoodsRevisionRefreshResponse.utf8)
@@ -1881,7 +1895,7 @@ struct EnterEventStory {
     }
 
     var body: some Feature {
-        Scope(\.detail, action: \.detail) {
+        Scope(\.detail) {
             EventBrowseDetail()
         }
         .onEvent(ErrorReported.self) { error, state in
@@ -1909,7 +1923,7 @@ struct OrganizationDetailStory {
     }
 
     var body: some Feature {
-        Scope(\.detail, action: \.detail) {
+        Scope(\.detail) {
             OrganizationDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in

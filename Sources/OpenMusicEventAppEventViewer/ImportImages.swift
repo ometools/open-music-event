@@ -179,7 +179,7 @@ public struct ImportImages {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -505,7 +505,7 @@ public struct ImportImagesView: View {
             onCompletion: fileImportCompleted
         )
         #endif
-        .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }

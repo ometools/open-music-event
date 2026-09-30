@@ -1,5 +1,5 @@
 import ATProto
-import AppViewIndex
+import ATProtoAppView
 import CustomDump
 import Dependencies
 import Foundation
@@ -8,7 +8,7 @@ import HTTPClient
 import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import SQLiteData

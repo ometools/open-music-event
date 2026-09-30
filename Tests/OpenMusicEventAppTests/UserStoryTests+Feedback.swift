@@ -8,7 +8,7 @@ import Foundation
 import OpenMusicEventAuthentication
 import SQLiteData
 import SwiftUI
-import TCATProtoAuthentication
+import ComposableAtmosphere
 import Testing
 
 @testable import OpenMusicEventApp
@@ -134,12 +134,12 @@ extension UserStoryTests {
                 OpenMusicEventBrowser()
             }
         }
-        let settingsStore = browserStore.scope(\.settings, action: \.settings)
+        let settingsStore = browserStore.scope(\.settings)
 
         await settingsStore.send(.feedbackButtonTapped)?.value
 
         let settingsDestinationStore = try #require(
-            settingsStore.scope(\.destination, action: \.destination)
+            settingsStore.scope(\.destination)
         )
         let boardStore: StoreOf<UserInputFeedbackBoard>
         switch Settings.Destination.switch(store: settingsDestinationStore) {
@@ -152,7 +152,7 @@ extension UserStoryTests {
 
         boardStore.send(.addDiscussionButtonTapped)
         let boardDestinationStore = try #require(
-            boardStore.scope(\.destination, action: \.destination)
+            boardStore.scope(\.destination)
         )
         let composerStore: StoreOf<UserInputDiscussionComposer>
         switch UserInputFeedbackBoard.Destination.switch(store: boardDestinationStore) {

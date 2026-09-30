@@ -237,7 +237,7 @@ public struct EventSearch {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -275,13 +275,13 @@ public struct EventSearchView: View {
                 }
             }
             .navigationTitle("Search")
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination).contributorDetail) { detailStore in
                 ContributorDetailView(store: detailStore)
             }
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
                 PerformanceDetailView(store: detailStore)
             }
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination).stageDetail) { detailStore in
                 StageDetailView(store: detailStore)
             }
         }

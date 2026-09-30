@@ -2,8 +2,7 @@ import ComposableNotifications
 import ComposableNotificationsServer
 import Dependencies
 import Hummingbird
-import HydrantClient
-import HydrantClientHummingbird
+import ATProtoStreams
 import OpenMusicEventRouting
 import ServiceLifecycle
 

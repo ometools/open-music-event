@@ -133,19 +133,7 @@ public struct TangledRepositoryRecordReference: Equatable, Sendable {
     }
 
     public func resolvedOwnerDID() async throws -> String {
-        switch uri.authority {
-        case let .did(did):
-            return did.description
-
-        case let .handle(handle):
-            do {
-                @Dependency(Atmosphere.Account.Client.self) var accountClient
-                let (account, _) = try await accountClient.resolveHandle(handle)
-                return account.id.rawValue.description
-            } catch {
-                throw ValidationError("Could not resolve repository owner \(handle.rawValue) to a DID: \(error)")
-            }
-        }
+        try await repositoryReference.resolvedOwnerDID()
     }
 }
 
@@ -271,16 +259,21 @@ public struct TangledRepositoryReference: Equatable, Sendable {
             return did.description
         }
 
-        let handle = owner.hasPrefix("@") ? String(owner.dropFirst()) : owner
+        let handle = (owner.hasPrefix("@") ? String(owner.dropFirst()) : owner).lowercased()
         guard !handle.isEmpty else {
             throw ValidationError("Repository owner is not a valid handle.")
         }
 
         do {
             @Dependency(Atmosphere.Account.Client.self) var accountClient
-            let (account, _) = try await accountClient.resolveHandle(
-                Atmosphere.Account.Handle(handle)
-            )
+            let requestedHandle = Atmosphere.Account.Handle(rawValue: handle)
+            let (account, document) = try await accountClient.resolveHandle(requestedHandle)
+            // A handle can claim any DID; only a reciprocal DID document proves ownership.
+            guard document.id == account.id.rawValue,
+                  document.alsoKnownAs.contains(ATProto.URI(authority: .handle(requestedHandle)))
+            else {
+                throw ValidationError("Repository owner \(handle) is not verified by its DID document.")
+            }
             return account.id.rawValue.description
         } catch {
             throw ValidationError("Could not resolve repository owner \(owner) to a DID: \(error)")

@@ -1,5 +1,5 @@
 import ATProto
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import ComposableAtmosphereUserInput
 import ComposableAtmosphereUserInputUI
@@ -79,7 +79,7 @@ public struct Settings {
         .spawn(\.account) {
             Account()
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
                 .transformDependency(\.userInputFeedbackBoardConfiguration) {
                     $0 = configuration.productFeedbackBoard?.userInputConfiguration
@@ -190,12 +190,12 @@ public struct SettingsFeatureView: View {
             AccountPresentationView(store: accountStore)
         }
         .navigationDestination(
-            item: $store.scope(\.destination, action: \.destination).aboutOpenMusicEvent
+            item: $store.scope(\.destination).aboutOpenMusicEvent
         ) { aboutStore in
             AboutOpenMusicEventView(store: aboutStore)
         }
         .navigationDestination(
-            item: $store.scope(\.destination, action: \.destination).feedbackBoard
+            item: $store.scope(\.destination).feedbackBoard
         ) { feedbackBoardStore in
             UserInputFeedbackBoardView(store: feedbackBoardStore)
         }

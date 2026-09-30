@@ -278,7 +278,7 @@ public struct ScheduleViewerView: View {
             #endif
             .confirmationDialog(
                 "Delete Performance?",
-                isPresented: $store.scope(\.destination, action: \.destination).deletePerformanceConfirmation.isPresented,
+                isPresented: $store.scope(\.destination).deletePerformanceConfirmation.isPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete Performance", role: .destructive) {
@@ -296,19 +296,19 @@ public struct ScheduleViewerView: View {
             } message: {
                 Text("This removes the performance from this schedule.")
             }
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
                 PerformanceDetailView(
                     store: detailStore,
                     showsAuthoringControls: showsAuthoringControls
                 )
             }
-            .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
+            .sheet(item: $store.scope(\.destination).reactionEntry) { entryStore in
                 PerformanceReactionEntryView(store: entryStore)
             }
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).userSchedulesList) { schedulesStore in
+            .navigationDestination(item: $store.scope(\.destination).userSchedulesList) { schedulesStore in
                 UserSchedulesListView(store: schedulesStore)
             }
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).userScheduleForm) { formStore in
+            .navigationDestination(item: $store.scope(\.destination).userScheduleForm) { formStore in
                 UserScheduleFormView(store: formStore)
             }
             .environment(\.showStageNameLabels, store.showStageNameLabels)

@@ -1,8 +1,8 @@
 import ComposableCalendarEvents
 import Hummingbird
 import OpenMusicEventLexicon
-import XRPCClient
-import XRPCHummingbird
+import ATProto
+import ATProtoHTTP
 
 extension OpenMusicEventAppViewServer {
     static func installCalendarEventRoutes<Context: RequestContext>(

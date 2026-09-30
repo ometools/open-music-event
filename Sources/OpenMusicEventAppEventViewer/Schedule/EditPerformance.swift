@@ -253,15 +253,19 @@ public struct EditPerformance {
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
 
+        @DebugSnapshotTracked
         var contributorRelationshipPicker: ContributorRelationshipPicker.State
         public var contributions: [Contribution] = []
         public var description = ""
         public var errorMessage: String?
+        @DebugSnapshotTracked
         var generatedTitle = ""
         public var isSaving = false
+        @DebugSnapshotTracked
         var nextContributionID = 0
         public var performanceID: OMERecord.ID<OMERecord.Performance>?
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+        @DebugSnapshotTracked
         var titleIsGenerated = true
         public var timeRangeSelection: DateTimeRangeSelection
         public var title = ""
@@ -498,7 +502,7 @@ public struct EditPerformance {
     }
 
     public var body: some Feature {
-        Scope(\.contributorRelationshipPicker, action: \.contributorRelationshipPicker) {
+        Scope(\.contributorRelationshipPicker) {
             ContributorRelationshipPicker()
         }
         Update { state, action in
@@ -1119,10 +1123,7 @@ public struct EditPerformanceView: View {
 
             contributionRows(store.primaryContributions + store.supportingContributions)
             ContributorRelationshipPickerRows(
-                store: store.scope(
-                    \.contributorRelationshipPicker,
-                    action: \.contributorRelationshipPicker
-                )
+                store: store.scope(\.contributorRelationshipPicker)
             )
         }
     }

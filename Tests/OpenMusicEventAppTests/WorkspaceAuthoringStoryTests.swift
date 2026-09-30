@@ -29,7 +29,7 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 import Testing
-import XRPCClient
+import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -809,7 +809,7 @@ struct WorkspaceAuthoringStoryTests {
                 },
                 Optional(git.mainRevision)
             )
-            await store.dismount(timeout: .seconds(1))
+            await store.dismount()
         }
     }
     #endif
@@ -918,6 +918,9 @@ struct WorkspaceAuthoringStoryTests {
 
             // The user opens Settings after relaunching with saved authoring access.
             let opening = store.send(.content(.openURL(routeURL)))
+            try await workspaceStoryWaitUntil {
+                store.content.destination?.eventViewer?.authoring.content.preparation.isRunning == true
+            }
             await preparation.waitUntilStarted()
 
             // The restored grant drives Settings immediately; source preparation has its own phase.
@@ -931,13 +934,14 @@ struct WorkspaceAuthoringStoryTests {
             // Source preparation can finish without changing or replacing the restored grant.
             await preparation.continuePreparation()
             await opening?.value
-            try await workspaceStoryWaitUntil {
-                guard case .ready = store.content.destination?.eventViewer?.authoring.content.availability
-                else { return false }
-                return true
-            }
+            // Ready content is exposed before automatic reconciliation finishes. Await the
+            // owning task so both immutable checkouts have completed before inspecting Git work.
+            try await authoring.content.preparation()
+            #expect(!authoring.content.preparation.isRunning)
+            #expect(store.content.destination?.eventViewer?.authoring.content.session != nil)
+            #expect(store.content.destination?.eventViewer?.authoring.content.reconciliation == .current)
             expectNoDifference(store.content.destination?.eventViewer?.authoring.grant, grant)
-            expectNoDifference(operations.count(of: "initialize"), 1)
+            expectNoDifference(operations.count(of: "initialize"), 2)
             expectNoDifference(operations.count(of: "clone"), 0)
             expectNoDifference(operations.count(of: "fetch"), 0)
         }
@@ -1177,7 +1181,7 @@ struct WorkspaceAuthoringStoryTests {
             }
             expectNoDifference(retainedSelection?.branch, selectedBranch.branch.rawValue)
             expectNoDifference(retainedSelection?.revision, selectedBranch.revision.rawValue)
-            await opened.dismount(timeout: .seconds(1))
+            await opened.dismount()
         }
     }
     #endif
@@ -1567,7 +1571,7 @@ struct WorkspaceAuthoringStoryTests {
                 opened.state.content.destination?.eventViewer?.authoring.content.availability
             ))
             #expect(operations.snapshot.isEmpty)
-            await opened.dismount(timeout: .seconds(1))
+            await opened.dismount()
         }
     }
     #endif
@@ -2172,7 +2176,7 @@ private struct WorkspaceStoryLiveApplicationHarness {
                 state.application = nil
             }
         }
-        .ifLet(\.application, action: \.application) {
+        .ifLet(\.application) {
             OpenMusicEventApplication(
                 storage: storage,
                 requestCenter: requestCenter
@@ -2245,8 +2249,7 @@ private final class WorkspaceStoryLiveStore {
         $applicationStore[dynamicMember: \.self].wrappedValue = state
     }
 
-    func dismount(timeout: Duration) async {
-        _ = timeout
+    func dismount() async {
         await store.send(.dismount)?.value
     }
 
@@ -2254,7 +2257,7 @@ private final class WorkspaceStoryLiveStore {
         OpenMusicEventApplication.State,
         OpenMusicEventApplication.Action
     > {
-        guard let applicationStore = store.scope(\.application, action: \.application) else {
+        guard let applicationStore = store.scope(\.application) else {
             preconditionFailure("The workspace story application is not mounted.")
         }
         return applicationStore
@@ -2376,7 +2379,7 @@ private struct WorkspaceStoryDependencyPropagationProbe {
                 }
             }
         }
-        .ifLet(\.child, action: \.child) {
+        .ifLet(\.child) {
             Child(recorder: recorder)
         }
     }
@@ -2748,8 +2751,8 @@ private func workspaceStoryAccountClient(
         handle: Atmosphere.Account.Handle("woody.fm")
     )
     return Atmosphere.Account.Client(
-        resolveHandle: { _ in
-            (account, try workspaceStoryDIDDocument(did: actorID))
+        resolveHandle: { handle in
+            return (account, try workspaceStoryDIDDocument(did: actorID, handle: handle.rawValue))
         },
         resolveDID: { _ in
             (account, try workspaceStoryDIDDocument(did: actorID))
@@ -2782,14 +2785,14 @@ private func workspaceStoryTangledRecordsHTTPClient() -> HTTPClient {
     }
 }
 
-private func workspaceStoryDIDDocument(did: DID) throws -> DID.Document {
+private func workspaceStoryDIDDocument(did: DID, handle: String = "woody.fm") throws -> DID.Document {
     try JSONDecoder().decode(
         DID.Document.self,
         from: Data(
             """
             {
               "id": "\(did.description)",
-              "alsoKnownAs": ["at://woody.fm"],
+              "alsoKnownAs": ["at://\(handle)"],
               "verificationMethod": [],
               "service": [
                 {

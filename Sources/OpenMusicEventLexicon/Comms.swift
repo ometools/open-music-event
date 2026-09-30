@@ -1,5 +1,4 @@
 import ATProto
-import XRPCClient
 
 public extension OpenMusicEvent {
     enum Comms {}

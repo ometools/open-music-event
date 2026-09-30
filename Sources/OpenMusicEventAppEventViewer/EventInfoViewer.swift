@@ -2,7 +2,7 @@ import HeroImageList
 import ComposableArchitecture2
 import Dependencies
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventEditors
 import OpenMusicEventImages
@@ -74,7 +74,7 @@ public struct EventInfoViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -168,7 +168,7 @@ public struct EventInfoViewerView: View {
                     }
                 }
                 .navigationDestination(
-                    item: $store.scope(\.destination, action: \.destination).aboutOpenMusicEvent
+                    item: $store.scope(\.destination).aboutOpenMusicEvent
                 ) { aboutStore in
                     AboutOpenMusicEventView(store: aboutStore)
                 }

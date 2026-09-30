@@ -1506,7 +1506,7 @@ struct SourceDatabaseInsertionTests {
         try await insertion.migrateAndInsert(into: baselineDatabase.database)
         try await insertion.insert(into: database)
 
-        let appProvenanceRow = try database.read { db in
+        try await database.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: """
@@ -1515,10 +1515,10 @@ struct SourceDatabaseInsertionTests {
                 LIMIT 1
                 """
             )
-            return try #require(row)
+            let appProvenanceRow = try #require(row)
+            #expect(appProvenanceRow["sourceKind"] as String == "tangled")
+            #expect(appProvenanceRow["eventIDOrigin"] as String == "inferred")
         }
-        #expect(appProvenanceRow["sourceKind"] as String == "tangled")
-        #expect(appProvenanceRow["eventIDOrigin"] as String == "inferred")
 
         let referenceProvenanceRow = try baselineDatabase.read { db in
             let row = try Row.fetchOne(
@@ -3027,8 +3027,14 @@ struct SourceDatabaseInsertionTests {
         #expect(relationships.allSatisfy { $0.createdAt != pendingRelationshipCreatedAt })
     }
 
-    @Test
-    func `published event replacement cannot cross a repository boundary`() async throws {
+    @Test(arguments: [
+        "tangled.org/example/foreign-source",
+        "at://did:plc:published-replacement/sh.tangled.repo/foreign-source",
+        "at://did:plc:another-organizer/sh.tangled.repo/installed-source",
+    ])
+    func `published event replacement cannot cross a repository boundary`(
+        foreignReference: String
+    ) async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
         let installedEventID = eventID("attendee-event", organizerID: organizerID)
         let installedSource = tangledSourceProvenance("installed-source", ref: "old-revision")
@@ -3048,7 +3054,11 @@ struct SourceDatabaseInsertionTests {
                 sourceProvenance: installedSource
             )
         )
-        let foreignSource = tangledSourceProvenance("foreign-source", ref: "new-revision")
+        let foreignSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: foreignReference,
+            ref: "new-revision"
+        )
         let foreignWorkspace = SourceWorkspace(
             organizerID: organizerID,
             repository: foreignSource.reference,
@@ -3097,8 +3107,214 @@ struct SourceDatabaseInsertionTests {
         }
     }
 
+    @Test(arguments: ["did:plc:foreign", "unresolvable.example", "spoofed.example"], [false, true])
+    func `same repository name cannot hide a foreign or unverified owner`(
+        legacyOwner: String,
+        installedUsesLegacy: Bool
+    ) async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
+        let installedEventID = eventID("attendee-event", organizerID: organizerID)
+        let legacyReference = "tangled.org/\(legacyOwner)/installed-source"
+        let canonicalReference = "at://did:plc:published-replacement/sh.tangled.repo/installed-source"
+        let installedReference = installedUsesLegacy ? legacyReference : canonicalReference
+        let foreignReference = installedUsesLegacy ? canonicalReference : legacyReference
+        let installedSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled, reference: installedReference, ref: "old-revision"
+        )
+        let installedWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: installedSource.reference,
+            branch: "main"
+        )
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Installed content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: installedSource
+            )
+        )
+        let foreignSource = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: foreignReference,
+            ref: "new-revision"
+        )
+        let foreignWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: foreignSource.reference,
+            branch: "main"
+        )
+        let foreignInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Foreign content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: foreignSource
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await installedInsertion.installPublishedEvent(
+            installedEventID,
+            from: installedWorkspace,
+            in: database
+        )
+
+        struct OwnerUnavailable: Error {}
+        // Failed lookups and one-way aliases must reject replacement just as foreign DIDs do.
+        await withDependencies {
+            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
+                guard handle.rawValue == "spoofed.example" else { throw OwnerUnavailable() }
+                // The handle claims our DID, but that DID claims a different handle.
+                let document = try JSONDecoder().decode(DID.Document.self, from: Data("""
+                    {"id":"did:plc:published-replacement","alsoKnownAs":["at://organizer.example"],"verificationMethod":[],"service":[]}
+                    """.utf8))
+                return (Atmosphere.Account(id: .init(document.id), handle: handle), document)
+            }
+        } operation: {
+            await #expect(throws: (any Error).self) {
+                try await foreignInsertion.replacePublishedEvent(
+                    installedEventID,
+                    from: foreignWorkspace,
+                    in: database
+                )
+            }
+        }
+
+        try await database.read { db in
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                installedReference
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                installedReference
+            )
+            expectNoDifference(try SourceWorkspaceInstallationRecord.fetchCount(db), 0)
+            expectNoDifference(
+                try OME.Event.find(installedEventID).fetchOne(db)?.name,
+                "Installed content"
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db)?.ref,
+                "main"
+            )
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func `canonical source refresh cannot overwrite authoring under either source identity`(
+        authoringUsesCanonicalSource: Bool
+    ) async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:published-replacement"))
+        let installedEventID = eventID("attendee-event", organizerID: organizerID)
+        let legacyWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "tangled.org/did:plc:published-replacement/installed-source",
+            branch: "main"
+        )
+        let canonicalWorkspace = SourceWorkspace(
+            organizerID: organizerID,
+            repository: "at://did:plc:published-replacement/sh.tangled.repo/installed-source",
+            branch: "main"
+        )
+        let installedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "Local authoring content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: .init(
+                    kind: .tangled,
+                    reference: legacyWorkspace.repository,
+                    ref: "old-revision"
+                )
+            )
+        )
+        let publishedInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "attendee-event",
+                    eventName: "New published content",
+                    explicitLocalEventID: id("attendee-event")
+                ),
+                organizerID: organizerID,
+                sourceProvenance: .init(
+                    kind: .tangled,
+                    reference: canonicalWorkspace.repository,
+                    ref: "new-revision"
+                )
+            )
+        )
+        let database = try makeCoreDatabase()
+        try await installedInsertion.installPublishedEvent(
+            installedEventID,
+            from: legacyWorkspace,
+            in: database
+        )
+        let authoringWorkspace = authoringUsesCanonicalSource
+            ? canonicalWorkspace : legacyWorkspace
+        let authoringInstallation = SourceWorkspaceInstallationRecord(
+            id: authoringWorkspace.id,
+            revision: "authoring-revision"
+        )
+        try await database.write { db in
+            try SourceWorkspaceInstallationRecord.insert { authoringInstallation }.execute(db)
+        }
+
+        // Ownership succeeds in both directions; the authoring guard must reject this update.
+        #expect(try await legacyWorkspace.referencesSameRepository(as: canonicalWorkspace))
+        #expect(try await canonicalWorkspace.referencesSameRepository(as: legacyWorkspace))
+
+        // Canonicalizing an attendee source must not bypass an existing authoring workspace.
+        await #expect(throws: (any Error).self) {
+            try await publishedInsertion.replacePublishedEvent(
+                installedEventID,
+                from: canonicalWorkspace,
+                in: database
+            )
+        }
+        try await database.read { db in
+            expectNoDifference(
+                try OME.Event.find(installedEventID).fetchOne(db)?.name,
+                "Local authoring content"
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.sourceReference,
+                legacyWorkspace.repository
+            )
+            expectNoDifference(
+                try EventSourceProvenanceRecord.find(installedEventID).fetchOne(db)?.ref,
+                "old-revision"
+            )
+            expectNoDifference(
+                try InstalledEventRecord.find(installedEventID).fetchOne(db),
+                InstalledEventRecord(
+                    id: installedEventID,
+                    sourceProvenance: legacyWorkspace.sourceProvenance
+                )
+            )
+            expectNoDifference(
+                try SourceWorkspaceInstallationRecord.find(authoringWorkspace.id).fetchOne(db),
+                authoringInstallation
+            )
+        }
+    }
+
     @Test
-    func `confirmed authoring exit restores a deleted attendee event and discards workspace state atomically`() async throws {
+    func `confirmed authoring exit restores a deleted attendee event and clears transient workspace state atomically`() async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:authoring-exit"))
         let attendeeEventID = eventID("attendee-event", organizerID: organizerID)
         let authoringOnlyEventID = eventID("authoring-only", organizerID: organizerID)
@@ -3218,6 +3434,8 @@ struct SourceDatabaseInsertionTests {
                 try EventSourceProvenanceRecord.find(attendeeEventID).fetchOne(db)?.ref,
                 publishedRevision
             )
+            // Restored content records its published revision; installation intent keeps
+            // following the branch the attendee originally installed.
             expectNoDifference(
                 try InstalledEventRecord.find(attendeeEventID).fetchOne(db)?.ref,
                 workspace.defaultBranch
@@ -3233,13 +3451,14 @@ struct SourceDatabaseInsertionTests {
                     .where { $0.id.workspaceID.eq(workspace.id) }
                     .fetchCount(db) == 0
             )
-            // Publication receipts remain durable after the editing session closes.
-            #expect(
+            // Delivery receipts outlive the authoring session.
+            expectNoDifference(
                 try Int.fetchOne(
                     db,
                     sql: #"SELECT COUNT(*) FROM "sourceWorkspacePublications" WHERE "id" = ?"#,
                     arguments: [workspace.id.rawValue]
-                ) == 1
+                ),
+                1
             )
             expectNoDifference(
                 try SourceWorkspaceSelectionRecord.find(workspace.id).fetchOne(db),
@@ -5039,7 +5258,7 @@ struct SourceDatabaseInsertionTests {
             $0[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] =
                 SourcePatchGenerator { _ in SourcePatch() }
             $0[SourceWorkspaceCheckoutClient.self] = SourceWorkspaceCheckoutClient {
-                _, branch, outputURL in
+                _, requestedBranch, outputURL in
                 checkoutCount.withLock { $0 += 1 }
                 try FileManager.default.createDirectory(
                     at: outputURL.appending(path: ".git"),
@@ -5052,7 +5271,7 @@ struct SourceDatabaseInsertionTests {
                 return SourceWorkspaceCheckout(
                     repository: Repository(url: outputURL),
                     reference: WorkspaceBranchReference(
-                        branch: branch ?? reference.branch,
+                        branch: requestedBranch ?? reference.branch,
                         revision: reference.revision
                     )
                 )
@@ -5075,6 +5294,11 @@ struct SourceDatabaseInsertionTests {
                     revision: WorkspaceRevision(rawValue: "upstream-revision")
                 )
             )
+            expectNoDifference(
+                try SourceWorkspaceBaselineStore(database: database).load(workspace.id),
+                selected
+            )
+            // Preparation and branch selection each resolve one immutable checkout.
             expectNoDifference(checkoutCount.withLock { $0 }, 2)
         }
     }

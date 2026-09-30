@@ -216,7 +216,7 @@ public struct EventSettings {
                 break
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -480,10 +480,7 @@ public struct EventSettingsView: View {
         .navigationTitle("Event Settings")
         .alert(
             "Delete unpublished changes?",
-            isPresented: $store.scope(
-                \.destination,
-                action: \.destination
-            ).exitAuthoringConfirmation.isPresented
+            isPresented: $store.scope(\.destination).exitAuthoringConfirmation.isPresented
         ) {
             Button(role: .destructive) {
                 store.send(

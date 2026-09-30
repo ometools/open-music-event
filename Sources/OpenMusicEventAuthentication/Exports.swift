@@ -1,2 +1,2 @@
 @_exported import ATProtoOAuth
-@_exported import TCATProtoAuthentication
+@_exported import ComposableAtmosphere

@@ -10,7 +10,6 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import TangledLexicon
 import TangledXRPC
-import XRPCClient
 
 /// The live network boundary that answers whether an actor can write to a Tangled repository.
 /// No cloned source data or application database state participates in authoring admission.

@@ -1,6 +1,6 @@
 import HeroImageList
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages

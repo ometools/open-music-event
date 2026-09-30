@@ -1,4 +1,4 @@
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -846,7 +846,7 @@ public struct ScheduleViewer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .spawn(\.singleStageAtOnce) {

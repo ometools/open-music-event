@@ -1,6 +1,6 @@
 import ATProtoOAuth
 import Dependencies
-import TCATProtoAuthentication
+import ComposableAtmosphere
 
 public typealias OpenMusicEventAuthorizationRequests = OAuthAuthorizationRequests
 

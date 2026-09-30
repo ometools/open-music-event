@@ -1,4 +1,4 @@
-import AppViewIndex
+import ATProtoAppView
 import ATProto
 import ComposableCalendarEvents
 import Foundation

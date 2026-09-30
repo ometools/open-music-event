@@ -1,5 +1,5 @@
 {
-  "originHash" : "823e99b8463d3536bcd5838129b937303c0527c09a901bf662bddf73eda83e3b",
+  "originHash" : "143356828a519798147003067aa3f4ed863ef45ea3d4cf19f5c56bd9a2b11125",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,42 +17,6 @@
       "state" : {
         "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
         "version" : "1.2.0"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-constellation",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-constellation",
-      "state" : {
-        "branch" : "main",
-        "revision" : "b2befbbe0cb04a62e0bb1036c6f6d147627a3981"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-tangled",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-tangled",
-      "state" : {
-        "branch" : "main",
-        "revision" : "ef7a8aa023ea930ddec07222317ac599ee9fec3f"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-userinput",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-userinput",
-      "state" : {
-        "branch" : "main",
-        "revision" : "90c324cce37ce65b379756119651245af64297ed"
-      }
-    },
-    {
-      "identity" : "composable-calendar-events",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-calendar-events",
-      "state" : {
-        "branch" : "main",
-        "revision" : "16f68e728095e5cb781392494bbe788af114ada5"
       }
     },
     {
@@ -116,6 +80,15 @@
       "state" : {
         "revision" : "d66f3ef5eb338313c340b0bf3ea2a76724488f28",
         "version" : "2.1.0"
+      }
+    },
+    {
+      "identity" : "jmespath.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jmespath/jmespath.swift.git",
+      "state" : {
+        "revision" : "3877a5060e85ae33e3b9fe51ab581784f65ec80e",
+        "version" : "1.0.3"
       }
     },
     {
@@ -272,6 +245,15 @@
       }
     },
     {
+      "identity" : "soto-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/soto-project/soto-core.git",
+      "state" : {
+        "revision" : "47454bf79649691da406978ae803b51b54246d6e",
+        "version" : "7.14.0"
+      }
+    },
+    {
       "identity" : "sqlite-data",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/sqlite-data",
@@ -384,8 +366,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-case-paths",
       "state" : {
-        "branch" : "26",
-        "revision" : "737206680390b389077afadff7bc8e54d08ca0c9"
+        "branch" : "protocol-case-paths",
+        "revision" : "f59f046b554f5346255d74dd8a2fe1959e9f3264"
       }
     },
     {
@@ -403,52 +385,16 @@
       "location" : "https://github.com/pointfreeco/swift-clocks",
       "state" : {
         "branch" : "clocks-2",
-        "revision" : "94bd2487d25e0e0da24e3c2f551190b45b4ff9d2"
+        "revision" : "77abbdd51dc05c719d5a758572e18f3643f546b7"
       }
     },
     {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-collections",
+      "location" : "https://github.com/apple/swift-collections.git",
       "state" : {
         "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
         "version" : "1.6.0"
-      }
-    },
-    {
-      "identity" : "swift-composable-atmosphere",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-atmosphere",
-      "state" : {
-        "branch" : "main",
-        "revision" : "36967dfb9788859473c435a062b5b0b1f98af47d"
-      }
-    },
-    {
-      "identity" : "swift-composable-forms",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-forms",
-      "state" : {
-        "branch" : "main",
-        "revision" : "95e90ea2c14cbc0cabb992eaa9df9f5431907da2"
-      }
-    },
-    {
-      "identity" : "swift-composable-notifications",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-notifications",
-      "state" : {
-        "branch" : "main",
-        "revision" : "22b65fa096f0acacfbf61a7d9c428c6b93730b4a"
-      }
-    },
-    {
-      "identity" : "swift-composable-workspace",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-workspace",
-      "state" : {
-        "branch" : "main",
-        "revision" : "962e4ba0109fd48cc6d5123d9c69e932d2f528a8"
       }
     },
     {
@@ -483,8 +429,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-custom-dump",
       "state" : {
-        "revision" : "e9c34fd54ece006b491a0e6d23fe9a6024b9a828",
-        "version" : "1.7.0"
+        "revision" : "4fb9e7cbb4b8f5a7354005db39447f570d6b3e19",
+        "version" : "1.7.3"
       }
     },
     {
@@ -492,8 +438,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-debug-snapshots",
       "state" : {
-        "revision" : "cecb81333f525cb30ead172e3fd18eb20d25b6aa",
-        "version" : "0.4.2"
+        "revision" : "083c2aa4d1edf6e98bb20670cfddc04ac45ad8a4",
+        "version" : "0.5.1"
       }
     },
     {
@@ -508,10 +454,10 @@
     {
       "identity" : "swift-dependencies-http-client",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-dependencies-http-client",
+      "location" : "https://tangled.org/woody.fm/swift-dependencies-http-client",
       "state" : {
-        "branch" : "main",
-        "revision" : "ee8d199837ba0528b44a0ba0e7246335aa438c29"
+        "revision" : "35fca654cd980164f42d4bcecb1e52bf0d1a902e",
+        "version" : "0.3.0"
       }
     },
     {
@@ -587,6 +533,15 @@
       }
     },
     {
+      "identity" : "swift-issue-reporting",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-issue-reporting",
+      "state" : {
+        "revision" : "75b000cea2ca6d7527a57e1b9cc0bdf21a9abe9f",
+        "version" : "2.1.1"
+      }
+    },
+    {
       "identity" : "swift-jni",
       "kind" : "remoteSourceControl",
       "location" : "https://source.skip.tools/swift-jni.git",
@@ -636,8 +591,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-navigation",
       "state" : {
-        "branch" : "relax-sendable",
-        "revision" : "47933497ee1ca26fd3904fc9927ccce2b98c0dae"
+        "branch" : "case-paths-2",
+        "revision" : "c4344194c0f9abace6782c349bab48f513ade8e4"
       }
     },
     {
@@ -699,8 +654,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-perception",
       "state" : {
-        "revision" : "de219a1cf34e958134e75a9ebb134cf09bf52fc6",
-        "version" : "2.0.11"
+        "revision" : "597afd46249f4a71885b95d26b26cc5b893daf32",
+        "version" : "2.0.12"
       }
     },
     {
@@ -726,8 +681,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-sharing",
       "state" : {
-        "revision" : "8244fe63bf43e58188ab13851ad693eecf6a9e90",
-        "version" : "2.9.1"
+        "revision" : "3552faf8a6c18ce896ec5a72bd8c34755f0f03e0",
+        "version" : "2.10.1"
       }
     },
     {
@@ -778,10 +733,10 @@
     {
       "identity" : "swift-tagged-types-macro",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-tagged-types-macro",
+      "location" : "https://tangled.org/woody.fm/swift-tagged-types-macro",
       "state" : {
-        "branch" : "main",
-        "revision" : "0a15ce1210dd528f63c012de1454e4411bed8567"
+        "revision" : "fc60387db0644d24150712e4d7049af1a99cd9c4",
+        "version" : "0.1.0"
       }
     },
     {
@@ -796,10 +751,10 @@
     {
       "identity" : "swift-urlqueryitem-coder",
       "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-urlqueryitem-coder",
+      "location" : "https://tangled.org/woody.fm/swift-urlqueryitem-coder",
       "state" : {
-        "branch" : "main",
-        "revision" : "d925953531ba5aa134d8f832ee47e70715bcf983"
+        "revision" : "528449dc027feb22cdba65ae2830a2cbf3996e7d",
+        "version" : "1.1.0"
       }
     },
     {
@@ -834,7 +789,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/TCA26",
       "state" : {
-        "revision" : "cf2f6b58c7be7736a9705dc194c7ff81513bd28d"
+        "branch" : "main",
+        "revision" : "a20aed5e914baeb839da7367718efccf059fd10e"
       }
     },
     {
@@ -842,8 +798,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
       "state" : {
-        "revision" : "8f6abcf4c8950e2679d5b2fee4ca284fd7c34886",
-        "version" : "1.11.0"
+        "revision" : "d9308ad679143c26a30dec52daefe82f54af2b82",
+        "version" : "1.13.1"
       }
     },
     {

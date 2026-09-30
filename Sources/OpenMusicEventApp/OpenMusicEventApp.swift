@@ -3,7 +3,7 @@ import SkipFuse
 import SwiftUI
 import ATProto
 import ATProtoOAuth
-import BlueskyActorCache
+import Bluesky
 import ComposableCalendarEvents
 import ComposableNotifications
 import ComposableNotificationsHTTP
@@ -25,7 +25,7 @@ import SourceControlClient
 import SourceControlClientGit
 #endif
 import SourceEditing
-import TCATProtoAuthentication
+import ComposableAtmosphere
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -425,7 +425,7 @@ public struct OpenMusicEventApp {
                     }
                 }
             }
-            Scope(\.content, action: \.content) {
+            Scope(\.content) {
                 makeContent()
             }
         }
@@ -488,16 +488,10 @@ struct OpenMusicEventApplicationRuntime {
     }
 
     public var body: some View {
-        let applicationStore = store.scope(\.content, action: \.content)
+        let applicationStore = store.scope(\.content)
 #if os(Android)
-        let authenticationStore = applicationStore.scope(
-            \.authentication,
-            action: \.authentication
-        )
-        let applicationContentStore = applicationStore.scope(
-            \.content,
-            action: \.content
-        )
+        let authenticationStore = applicationStore.scope(\.authentication)
+        let applicationContentStore = applicationStore.scope(\.content)
 
         OpenMusicEventAppRootView(
             store: applicationContentStore,
@@ -509,8 +503,7 @@ struct OpenMusicEventApplicationRuntime {
             .background {
                 if let presentationStore: StoreOf<OAuthAuthenticationPresentation> =
                     authenticationStore.scope(
-                        \.authorization,
-                        action: \.authorization
+                        \.authorization
                     ),
                     case let .direct(authorizationStore) = presentationStore.enumeration
                 {
@@ -599,8 +592,7 @@ struct OpenMusicEventApplicationRuntime {
         Binding {
             guard let presentationStore: StoreOf<OAuthAuthenticationPresentation> =
                 authenticationStore.scope(
-                    \.authorization,
-                    action: \.authorization
+                    \.authorization
                 ),
                 case let .sheet(authorizationStore) = presentationStore.enumeration
             else { return nil }

@@ -5,7 +5,6 @@ import Foundation
 import HTTPClient
 import OpenMusicEventLexicon
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceEditing
 

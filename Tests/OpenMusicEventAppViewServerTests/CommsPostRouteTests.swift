@@ -7,8 +7,7 @@ import HummingbirdTesting
 import OpenMusicEventAppViewServer
 import OpenMusicEventLexicon
 import Testing
-import XRPCClient
-import XRPCHummingbird
+import ATProtoHTTP
 
 struct CommsPostRouteTests {
     @Test

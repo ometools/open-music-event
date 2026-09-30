@@ -1,9 +1,7 @@
-import AppViewHydrant
-import AppViewIndex
+import ATProtoAppView
 import Dependencies
 import Hummingbird
-import HydrantClient
-import HydrantClientHummingbird
+import ATProtoStreams
 import ServiceLifecycle
 
 public struct OpenMusicEventAppViewIngestion: Service {

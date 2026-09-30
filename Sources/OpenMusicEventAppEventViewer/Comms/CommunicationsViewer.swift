@@ -307,7 +307,7 @@ public struct CommunicationsViewer {
                 break
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
     }
@@ -424,10 +424,10 @@ public struct CommunicationsViewerView: View {
             }
         }
         .navigationTitle("Comms")
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).channelDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).channelDetail) { detailStore in
             CommunicationChannelDetailView(store: detailStore)
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).channelForm) { formStore in
+        .sheet(item: $store.scope(\.destination).channelForm) { formStore in
             NavigationStack {
                 ChannelFormView(store: formStore)
             }
@@ -445,10 +445,7 @@ public struct CommunicationsViewerView: View {
         }
         .confirmationDialog(
             "Delete Channel?",
-            isPresented: $store.scope(
-                \.destination,
-                action: \.destination
-            ).deleteChannelConfirmation.isPresented,
+            isPresented: $store.scope(\.destination).deleteChannelConfirmation.isPresented,
             titleVisibility: .visible
         ) {
             Button("Delete Channel", role: .destructive) {

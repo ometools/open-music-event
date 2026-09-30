@@ -1,7 +1,7 @@
 import ATProto
 import CasePaths
 import Foundation
-import Lexicon
+import ATProtoTypes
 import SQLiteData
 
 extension OpenMusicEvent {

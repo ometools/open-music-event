@@ -1,5 +1,5 @@
 import ATProto
-import AppViewIndex
+import ATProtoAppView
 import CustomDump
 import Dependencies
 import Foundation
@@ -11,7 +11,6 @@ import OpenMusicEventSourceClone
 import SQLiteData
 import TangledLexicon
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventAppViewServer
 

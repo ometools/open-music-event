@@ -4,7 +4,6 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventLexicon
-import XRPCClient
 
 public struct OpenMusicEventWorkspaceProposalListRequest: Equatable, Sendable {
     public var source: ATProto.URI
@@ -44,26 +43,26 @@ public enum WorkspaceProposalClientError: Equatable, Error, Sendable {
 }
 
 public struct WorkspaceProposalClient: Sendable {
-    public var list: @Sendable (
+    public var list: nonisolated(nonsending) @Sendable (
         OpenMusicEventWorkspaceProposalListRequest
     ) async throws -> [OME.WorkspaceProposal.ListItem]
-    public var detail: @Sendable (
+    public var detail: nonisolated(nonsending) @Sendable (
         ATProto.URI
     ) async throws -> OME.WorkspaceProposal.Detail
-    public var close: @Sendable (ATProto.URI) async throws -> Void
-    public var merge: @Sendable (
+    public var close: nonisolated(nonsending) @Sendable (ATProto.URI) async throws -> Void
+    public var merge: nonisolated(nonsending) @Sendable (
         OpenMusicEventWorkspaceProposalMergeRequest
     ) async throws -> Void
 
     public init(
-        list: @escaping @Sendable (
+        list: nonisolated(nonsending) @escaping @Sendable (
             OpenMusicEventWorkspaceProposalListRequest
         ) async throws -> [OME.WorkspaceProposal.ListItem],
-        detail: @escaping @Sendable (
+        detail: nonisolated(nonsending) @escaping @Sendable (
             ATProto.URI
         ) async throws -> OME.WorkspaceProposal.Detail,
-        close: @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
-        merge: @escaping @Sendable (
+        close: nonisolated(nonsending) @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
+        merge: nonisolated(nonsending) @escaping @Sendable (
             OpenMusicEventWorkspaceProposalMergeRequest
         ) async throws -> Void = { _ in }
     ) {

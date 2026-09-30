@@ -9,7 +9,6 @@ import HTTPTypes
 import SourceControlClient
 import Synchronization
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceClone
 
@@ -689,6 +688,38 @@ struct TangledSourceCloneTests {
         }
 
         expectNoDifference(did, "did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+    }
+
+    @Test(arguments: [
+        "https://tangled.org/woody.fm/core",
+        "at://woody.fm/sh.tangled.repo/core",
+    ], [false, true])
+    func rejectsUnverifiedRepositoryOwner(
+        reference: String,
+        mismatchedDocumentID: Bool
+    ) async throws {
+        let expectedDID = try #require(DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
+        let otherDID = try #require(DID("did:plc:wshs7t2adsemcrrd4snkeqli"))
+        try await withDependencies {
+            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
+                (
+                    Atmosphere.Account(id: .init(expectedDID), handle: handle),
+                    try didDocument(
+                        did: mismatchedDocumentID ? otherDID : expectedDID,
+                        handle: mismatchedDocumentID ? handle : "foreign.example"
+                    )
+                )
+            }
+        } operation: {
+            // Neither a different DID document nor a one-way alias proves ownership.
+            await #expect(throws: ValidationError.self) {
+                if reference.hasPrefix("at://") {
+                    _ = try await TangledRepositoryRecordReference(parsing: reference).resolvedOwnerDID()
+                } else {
+                    _ = try await TangledRepositoryReference(parsing: reference).resolvedOwnerDID()
+                }
+            }
+        }
     }
 
     @Test

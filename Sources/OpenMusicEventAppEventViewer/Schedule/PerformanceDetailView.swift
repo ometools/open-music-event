@@ -1,5 +1,5 @@
 import HeroImageList
-import BlueskyActorCache
+import Bluesky
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -358,7 +358,7 @@ public struct PerformanceDetail {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             Destination.body
         }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
@@ -507,16 +507,16 @@ public struct PerformanceDetailView: View {
         .accessibilityIdentifier(
             "view.performance-detail.\(store.performanceID.rawValue.rawValue)"
         )
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination).contributorDetail) { detailStore in
             ContributorDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls
             )
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
+        .sheet(item: $store.scope(\.destination).reactionEntry) { entryStore in
             PerformanceReactionEntryView(store: entryStore)
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).userScheduleForm) { formStore in
+        .navigationDestination(item: $store.scope(\.destination).userScheduleForm) { formStore in
             UserScheduleFormView(store: formStore)
         }
     }

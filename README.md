@@ -47,8 +47,9 @@ persisted locally, and can be imported from organizer-owned source repositories.
 - `Sources/OpenMusicEventCLI` exposes the `ome` command-line tools.
 
 Smaller modules such as `ScheduleComponents`, `OpenMusicEventImages`,
-`OpenMusicEventTimeZones`, `SwiftUITabFeatures`, and `BlueskyActorCache` keep
-shared UI and infrastructure code out of the main app target.
+`OpenMusicEventTimeZones`, and `SwiftUITabFeatures` keep shared UI and
+infrastructure code out of the main app target. Actor profile caching comes
+from the package family's `Bluesky` product.
 
 ## Authoring and Workspace Contract
 
@@ -116,13 +117,33 @@ workspace branch or its already-advanced reference database for either side.
 
 ## Running
 
-Open the workspace:
+From this checkout, open the OME workspace:
 
 ```sh
-open /Users/woody/Developer/ometools/new/open-music-event/Project.xcworkspace
+open Project.xcworkspace
 ```
 
 Run the `OpenMusicEvent App` target from Xcode.
+
+For this package-family migration, `Package.swift` resolves the split ATProto,
+OAuth, SQLite, server, Bluesky, and Composable Atmosphere packages from the
+local `swift-composable-atmosphere-reorg` checkout. It also resolves the isolated
+Tangled, Constellation, UserInput, and Calendar Events companion checkouts. Open
+`Atmosphere.xcworkspace` at the package-family root to work with these packages,
+the demo app, and OME together. If a checkout moves, set
+`OME_COMPOSABLE_ATMOSPHERE_PATH` for the family root or the corresponding
+`OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH`,
+`OME_COMPOSABLE_ATMOSPHERE_CONSTELLATION_PATH`,
+`OME_COMPOSABLE_ATMOSPHERE_USERINPUT_PATH`, or
+`OME_COMPOSABLE_CALENDAR_EVENTS_PATH` override before resolving dependencies.
+The companion manifests also contain local paths to the family packages, so
+update those paths if the family checkout moves.
+These local dependencies are for migration validation; the split packages are
+not published releases yet.
+
+The former OME `BlueskyActorCache` product is now the family's `Bluesky`
+product (`import Bluesky`). The cache models, dependency client, and migration
+names are unchanged, so existing profile rows remain in the same tables.
 
 For Android, have Android Studio installed and an emulator or device running.
 The Skip build phases translate and deploy the Android app from the shared Swift

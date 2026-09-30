@@ -105,26 +105,29 @@ public extension OME.SourceDatabaseInsertion {
         replacing installedWorkspace: SourceWorkspace,
         in database: any DatabaseWriter
     ) async throws {
-        guard publishedWorkspace.referencesSameRepository(as: installedWorkspace) else {
+        guard try await publishedWorkspace.referencesSameRepository(as: installedWorkspace) else {
             throw SourceWorkspaceInstallationError.mismatchedSource(installedWorkspace.id)
         }
         try validatePublishedEvent(eventID, from: publishedWorkspace)
+
+        // Resolve ownership before opening the write transaction.
+        let installedProvenance = try await database.read { db in
+            try EventSourceProvenanceRecord.find(eventID).fetchOne(db)
+        }
+        guard let installedProvenance,
+              let persistedWorkspace = installedProvenance.workspace,
+              persistedWorkspace.id == installedWorkspace.id
+        else {
+            throw SourceWorkspaceInstallationError.mismatchedEvent(eventID, publishedWorkspace.id)
+        }
 
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
             importedAt: Date()
         )
         try await database.write { db in
-            guard try SourceWorkspaceInstallationRecord
-                .find(installedWorkspace.id)
-                .fetchOne(db) == nil
-            else {
-                throw SourceWorkspaceInstallationError.preparedWorkspace(installedWorkspace.id)
-            }
-            guard let installedProvenance = try EventSourceProvenanceRecord
-                .find(eventID)
-                .fetchOne(db),
-                  installedProvenance.workspace?.id == installedWorkspace.id
+            // Another writer must not change the source while ownership is being resolved.
+            guard try EventSourceProvenanceRecord.find(eventID).fetchOne(db) == installedProvenance
             else {
                 throw SourceWorkspaceInstallationError.mismatchedEvent(
                     eventID,
@@ -132,15 +135,27 @@ public extension OME.SourceDatabaseInsertion {
                 )
             }
 
+            // A legacy locator and its canonical URI can identify the same source, but
+            // either identity may already own writable authoring state.
+            for workspaceID in Set([installedWorkspace.id, publishedWorkspace.id]) {
+                guard try SourceWorkspaceInstallationRecord
+                    .find(workspaceID)
+                    .fetchOne(db) == nil
+                else {
+                    throw SourceWorkspaceInstallationError.preparedWorkspace(workspaceID)
+                }
+            }
+
             try OME.Event.find(eventID).delete().execute(db)
             try prepared.insert(into: db)
-            try InstalledEventRecord.upsert {
-                InstalledEventRecord(
-                    id: eventID,
-                    sourceProvenance: publishedWorkspace.sourceProvenance
-                )
-            }
-            .execute(db)
+            // Migrate the source identity without changing which branch the attendee follows.
+            try InstalledEventRecord.find(eventID)
+                .where {
+                    $0.sourceKind.eq(OME.SourceDatabaseInsertion.SourceKind.tangled)
+                        && $0.sourceReference.eq(installedWorkspace.repository)
+                }
+                .update { $0.sourceReference = #bind(publishedWorkspace.repository) }
+                .execute(db)
         }
     }
 
@@ -179,7 +194,7 @@ public extension OME.SourceDatabaseInsertion {
                   let publishedWorkspace = insertion.eventSourceProvenances
                     .first(where: { $0.eventID == eventID })
                     .flatMap({ EventSourceProvenanceRecord($0).workspace }),
-                  publishedWorkspace.referencesSameRepository(as: installedWorkspace)
+                  try await publishedWorkspace.referencesSameRepository(as: installedWorkspace)
             else {
                 throw SourceWorkspaceInstallationError.mismatchedSource(installedWorkspace.id)
             }
@@ -198,12 +213,37 @@ public extension OME.SourceDatabaseInsertion {
         let publishedEventIDs = Set(preparedEvents.map(\.eventID))
         let replacements = preparedEvents
 
+        // Resolve aliases outside the write transaction; the transaction rechecks the
+        // same provenance before applying the prepared replacement.
+        let provenance = try await database.read { db in
+            (
+                try InstalledEventRecord.all.fetchAll(db),
+                try EventSourceProvenanceRecord
+                    .where { $0.id.organizerID.eq(installedWorkspace.organizerID) }
+                    .fetchAll(db)
+            )
+        }
+        var matchingWorkspaceIDs = Set<SourceWorkspace.ID>()
+        for candidate in provenance.0.compactMap(\.workspace) + provenance.1.compactMap(\.workspace) {
+            if try await candidate.referencesSameRepository(as: installedWorkspace) {
+                matchingWorkspaceIDs.insert(candidate.id)
+            }
+        }
+        let verifiedWorkspaceIDs = matchingWorkspaceIDs
+
         try await database.write { db in
+            guard try InstalledEventRecord.all.fetchAll(db) == provenance.0,
+                  try EventSourceProvenanceRecord
+                    .where({ $0.id.organizerID.eq(installedWorkspace.organizerID) })
+                    .fetchAll(db) == provenance.1
+            else {
+                throw SourceWorkspaceInstallationError.installedEventSetChanged(installedWorkspace.id)
+            }
             let installedEventIDs = Set(
                 try InstalledEventRecord.all
                     .fetchAll(db)
                     .filter {
-                        $0.workspace?.referencesSameRepository(as: installedWorkspace) == true
+                        $0.workspace.map { verifiedWorkspaceIDs.contains($0.id) } == true
                     }
                     .map(\.id)
             )
@@ -217,7 +257,7 @@ public extension OME.SourceDatabaseInsertion {
                 .where { $0.id.organizerID.eq(installedWorkspace.organizerID) }
                 .fetchAll(db)
                 .filter {
-                    $0.workspace?.referencesSameRepository(as: installedWorkspace) == true
+                    $0.workspace.map { verifiedWorkspaceIDs.contains($0.id) } == true
                 }
                 .map(\.id)
             for eventID in workspaceEventIDs {

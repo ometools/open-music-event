@@ -5,7 +5,6 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import Testing
-import XRPCClient
 
 @testable import OpenMusicEventSourceClone
 

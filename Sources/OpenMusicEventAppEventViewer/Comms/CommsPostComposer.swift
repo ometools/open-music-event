@@ -79,7 +79,7 @@ public struct CommsPostComposer {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.imagePicker, action: \.imagePicker) {
+        Scope(\.imagePicker) {
             ImageAssetPicker()
         }
         Update { state, action in
@@ -152,7 +152,7 @@ public struct CommsPostComposer {
                 }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
+        .ifLet(\.destination) {
             EmptyFeature()
                 .ifCaseLet(\.importImages) {
                     ImportImages()
@@ -266,7 +266,7 @@ public struct CommsPostComposerView: View {
             }
 
             ImageAssetPickerSection(
-                store: store.scope(\.imagePicker, action: \.imagePicker)
+                store: store.scope(\.imagePicker)
             )
         }
         .navigationTitle("New Post")
@@ -279,12 +279,12 @@ public struct CommsPostComposerView: View {
                     .disabled(!store.canSubmit)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).importImages) { importStore in
+        .sheet(item: $store.scope(\.destination).importImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }

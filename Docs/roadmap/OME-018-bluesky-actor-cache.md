@@ -21,7 +21,8 @@ Actor display data is useful in the app, but it should not become part of the co
 
 - Cache actor data behind a dedicated package.
 - Keep actor lookup separate from OpenMusicEvent record modeling.
-- Code pointers: `Sources/BlueskyActorCache`, `Tests/BlueskyActorCacheTests`.
+- Code pointers: `Packages/swift-bluesky/Sources/Bluesky` in the local Atmosphere
+  family checkout, and `Tests/BlueskyActorCacheTests` in OME.
 
 ## Open Questions
 

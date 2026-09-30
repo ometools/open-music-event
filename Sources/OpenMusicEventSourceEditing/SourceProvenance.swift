@@ -106,16 +106,17 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
     ///
     /// Published attendee content may advance independently of the editable branch, but it must
     /// never cross either the organizer or repository boundary. A legacy Tangled locator may
-    /// migrate to the organizer's canonical repository-record URI when both name the same record
-    /// key.
-    public func referencesSameRepository(as other: Self) -> Bool {
+    /// migrate to the organizer's canonical repository-record URI when the legacy owner resolves
+    /// to that organizer and both name the same record key.
+    public func referencesSameRepository(as other: Self) async throws -> Bool {
         guard organizerID == other.organizerID else { return false }
         guard repository != other.repository else { return true }
 
         switch (tangledRepositoryIdentity, other.tangledRepositoryIdentity) {
         case let (.legacy(legacy), .canonical(canonical)),
              let (.canonical(canonical), .legacy(legacy)):
-            return legacy == canonical
+            guard legacy.repository == canonical else { return false }
+            return try await legacy.resolvedOwnerDID() == organizerID.description
 
         default:
             return false
@@ -124,7 +125,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
 
     private enum TangledRepositoryIdentity {
         case canonical(String)
-        case legacy(String)
+        case legacy(TangledRepositoryReference)
     }
 
     private var tangledRepositoryIdentity: TangledRepositoryIdentity? {
@@ -134,7 +135,7 @@ public struct SourceWorkspace: Codable, Equatable, Hashable, Identifiable, Senda
             return .canonical(record.rkey.rawValue)
         }
         if let legacy = try? TangledRepositoryReference(parsing: repository) {
-            return .legacy(legacy.repository)
+            return .legacy(legacy)
         }
         return nil
     }

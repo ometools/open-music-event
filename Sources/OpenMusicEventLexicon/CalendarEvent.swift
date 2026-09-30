@@ -1,6 +1,5 @@
 import ATProto
 import Foundation
-import XRPCClient
 
 extension OpenMusicEvent {
     public struct CalendarEvent: Codable, Equatable, Identifiable, Sendable {

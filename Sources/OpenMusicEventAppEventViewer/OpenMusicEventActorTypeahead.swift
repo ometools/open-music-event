@@ -1,7 +1,7 @@
 import ATProto
+import Bluesky
 import Dependencies
 import Foundation
-import XRPCClient
 
 public enum OpenMusicEventActorTypeahead {
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {

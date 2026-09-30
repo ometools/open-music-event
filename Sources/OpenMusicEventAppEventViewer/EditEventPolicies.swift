@@ -2,7 +2,7 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import Foundation
-import Lexicon
+import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData
@@ -197,7 +197,7 @@ public struct EditEventPolicies {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
-        Scope(\.form, action: \.form) {
+        Scope(\.form) {
             FormFeature()
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))

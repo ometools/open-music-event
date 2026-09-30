@@ -7,7 +7,7 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import OpenMusicEventAuthentication
-import TCATProtoAuthentication
+import ComposableAtmosphere
 #if canImport(OSLog)
 import OSLog
 #endif
