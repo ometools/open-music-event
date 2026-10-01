@@ -6,14 +6,14 @@ public struct SchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
     let timeRangeText: String
-    let daySegmentText: String
+    let daySegmentText: String?
     let userScheduleOverlay: UserScheduleOverlay
     var now: Date?
 
     public init(
         row: PerformanceRow,
         timeRangeText: String,
-        daySegmentText: String,
+        daySegmentText: String?,
         userScheduleOverlay: UserScheduleOverlay = UserScheduleOverlay(
             schedules: [],
             memberships: [],
@@ -32,7 +32,7 @@ public struct SchedulePerformanceRow: View {
         HStack(spacing: 10) {
             if needsStageDisambiguation {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                    .fill(row.stage?.stageUIColor ?? .secondary.opacity(0.35))
                     .frame(width: 5)
 
                 stageIcon
@@ -49,8 +49,10 @@ public struct SchedulePerformanceRow: View {
                         .lineLimit(1)
                         .portableLayoutPriority(1)
 
-                    Text(daySegmentText)
-                        .lineLimit(1)
+                    if let daySegmentText {
+                        Text(daySegmentText)
+                            .lineLimit(1)
+                    }
 
                     if let timingStatus {
                         PerformanceTimingChip(status: timingStatus)
@@ -97,24 +99,27 @@ public struct SchedulePerformanceRow: View {
     }
 
     var timingStatus: PerformanceTimingStatus? {
-        guard let now else { return nil }
+        guard let now,
+              let start = row.performance.startDate,
+              let end = row.performance.endDate else { return nil }
         return PerformanceTimingStatus(
-            startTime: row.performance.startTime,
-            endTime: row.performance.endTime,
+            startTime: start,
+            endTime: end,
             now: now
         )
     }
 
     var accessibilityLabel: String {
+        let daySegment = daySegmentText.map { ", \($0)" } ?? ""
         guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
             let membership = userScheduleOverlay.showsMembershipIndicator(
                 performanceID: row.performanceID
             ) ? ", In a personal schedule" : ""
-            return "\(row.title)\(membership), \(timeRangeText), \(daySegmentText)"
+            return "\(row.title)\(membership), \(timeRangeText)\(daySegment)"
         }
         let membership = userScheduleOverlay.isMember(performanceID: row.performanceID)
             ? "In"
             : "Not in"
-        return "\(row.title), \(membership) \(selectedSchedule.title), \(timeRangeText), \(daySegmentText)"
+        return "\(row.title), \(membership) \(selectedSchedule.title), \(timeRangeText)\(daySegment)"
     }
 }

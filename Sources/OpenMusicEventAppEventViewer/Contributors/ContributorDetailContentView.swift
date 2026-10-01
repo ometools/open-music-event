@@ -3,6 +3,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import ScheduleComponents
 import SwiftUITabFeatures
 #if os(Android)
@@ -22,7 +23,7 @@ struct ContributorDetailContentView: View {
     let performanceRows: [PerformanceRow]
     let eventTimePresentation: EventTimePresentation
     let showsAuthoringControls: Bool
-    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let performanceButtonTapped: (ProgramItem.ID) -> Void
     let editButtonTapped: () -> Void
 
     var body: some View {
@@ -35,7 +36,7 @@ struct ContributorDetailContentView: View {
                 title: Text(profile.name),
                 sources: heroImageSources,
                 titleSources: heroImageTitleSources,
-                tint: stageContext.primaryStage?.color.swiftUIColor ?? .accentColor
+                tint: stageContext.primaryStage?.stageUIColor ?? .accentColor
             ) {
                 MappedSystemImage(systemName: "person.crop.square")
                     .frame(width: 82, height: 82)
@@ -50,21 +51,23 @@ struct ContributorDetailContentView: View {
                             PeriodicTimelineView(every: 1) { currentDate in
                                 ContributorSchedulePerformanceRow(
                                     row: row,
-                                    timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                                    timeRangeText: eventTimePresentation.programItemRowTimeRange(
                                         for: row.performance,
                                         disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                                     ),
-                                    daySegmentText: eventTimePresentation.daySegment(
-                                        for: row.performance.startTime,
-                                        policy: dateTimeRangeResolutionPolicy
-                                    ),
+                                    daySegmentText: row.performance.startDate.map {
+                                        eventTimePresentation.daySegment(
+                                            for: $0,
+                                            policy: dateTimeRangeResolutionPolicy
+                                        )
+                                    } ?? "Unscheduled",
                                     now: currentDate
                                 )
                             }
                         }
                         .navigationLinkListRowStyle()
                         .accessibilityIdentifier(
-                            "button.performance.\(row.performanceID.rawValue.rawValue)"
+                            "button.performance.\(row.performanceID.description)"
                         )
                         .contextMenu {
                             PerformanceReactionMenuContent(
@@ -79,7 +82,7 @@ struct ContributorDetailContentView: View {
             if needsStageDisambiguation, !stageContext.lineupOnlyStages.isEmpty {
                 Section("Stage Lineups") {
                     ForEach(stageContext.lineupOnlyStages) { stage in
-                        StageRowView(stage: stage)
+                        EventPlaceStageRowView(place: stage)
                     }
                 }
             }
@@ -122,7 +125,7 @@ struct ContributorSchedulePerformanceRow: View {
         HStack(spacing: 10) {
             if needsStageDisambiguation {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                    .fill(row.stage?.stageUIColor ?? .secondary.opacity(0.35))
                     .frame(width: 5, height: 44)
 
                 stageIcon
@@ -164,7 +167,7 @@ struct ContributorSchedulePerformanceRow: View {
     @ViewBuilder
     private var stageIcon: some View {
         if let stage = row.stage {
-            ScheduleStageIcon(stage: stage)
+            EventPlaceStageArtworkView(place: stage, size: 44, fallbackTextScale: 0.5)
         } else {
             MappedSystemImage(systemName: "music.note")
                 .padding(10)
@@ -174,10 +177,95 @@ struct ContributorSchedulePerformanceRow: View {
 
     var timingStatus: PerformanceTimingStatus? {
         guard let now else { return nil }
+        guard let start = row.performance.startDate,
+              let end = row.performance.endDate
+        else { return nil }
         return PerformanceTimingStatus(
-            startTime: row.performance.startTime,
-            endTime: row.performance.endTime,
+            startTime: start,
+            endTime: end,
             now: now
         )
+    }
+}
+
+struct EventPlaceStageRowView: View {
+    let place: EventPlace
+
+    var body: some View {
+        HStack(spacing: 12) {
+            EventPlaceStageArtworkView(place: place, size: 60)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(place.name)
+                    .lineLimit(1)
+                if let category = place.stageUse?.category, !category.isEmpty {
+                    Text(category.replacingOccurrences(of: "-", with: " ")
+                        .replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .foregroundStyle(.primary)
+    }
+}
+
+struct EventPlaceStageArtworkView: View {
+    let place: EventPlace
+    let size: CGFloat
+    var fallbackTextScale: CGFloat = 0.36
+
+    var body: some View {
+        Group {
+            if let logo = place.stageLogoDisplayImage {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(place.stageUIColor.opacity(0.18))
+                    ImageAssetAsyncImage(
+                        image: logo,
+                        contentMode: .fit,
+                        renderedImageSize: CGSize(width: size, height: size)
+                    ) {
+                        EventPlaceStageIconFallback(
+                            place: place, size: size, textScale: fallbackTextScale
+                        )
+                    }
+                    .foregroundStyle(place.stageUIColor)
+                    .padding(10)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                EventPlaceStageIconFallback(
+                    place: place, size: size, textScale: fallbackTextScale
+                )
+                    .foregroundStyle(.primary)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+struct EventPlaceStageIconFallback: View {
+    let place: EventPlace
+    let size: CGFloat
+    var textScale: CGFloat = 0.36
+
+    var body: some View {
+        if let icon = place.stageUse?.icon {
+            MappedSystemImage(systemName: icon.rawValue)
+                .frame(width: size * 0.42, height: size * 0.42)
+        } else if let shortLabel = place.stageUse?.shortLabel, !shortLabel.isEmpty {
+            Text(shortLabel)
+                .font(.system(size: size * textScale, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.2)
+        } else {
+            Text(place.stageFallbackInitials)
+                .font(.system(size: size * textScale, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.2)
+        }
     }
 }

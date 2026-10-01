@@ -1,3 +1,5 @@
+import ATProtoSQLite
+import OpenMusicEventLexicon
 import ATProto
 import Foundation
 import SQLiteData
@@ -8,7 +10,7 @@ let userScheduleSystemImage = "calendar.and.person"
 public struct UserSchedule: Equatable, Sendable, Identifiable {
     public init(
         id: UUID,
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         title: String,
         userDID: DID? = nil
     ) {
@@ -19,12 +21,12 @@ public struct UserSchedule: Equatable, Sendable, Identifiable {
     }
 
     @Column(primaryKey: true) public var id: UUID
-    public var eventID: OMERecord.Event.ID
+    public var eventID: Event.ID
     public var title: String
     public var userDID: DID?
 
     public static func all(
-        eventID: OMERecord.Event.ID
+        eventID: Event.ID
     ) -> some SelectStatementOf<UserSchedule> {
         Self
             .where { $0.eventID.eq(eventID) }
@@ -49,7 +51,7 @@ extension UserSchedule {
     public struct Performance: Equatable, Sendable, Identifiable {
         public init(
             scheduleID: UserSchedule.ID,
-            performanceID: OMERecord.ID<OMERecord.Performance>
+            performanceID: ProgramItem.ID
         ) {
             self.id = ID(
                 scheduleID: scheduleID,
@@ -61,14 +63,14 @@ extension UserSchedule {
         public struct ID: Hashable, Sendable {
             public init(
                 scheduleID: UserSchedule.ID,
-                performanceID: OMERecord.ID<OMERecord.Performance>
+                performanceID: ProgramItem.ID
             ) {
                 self.scheduleID = scheduleID
                 self.performanceID = performanceID
             }
 
             public var scheduleID: UserSchedule.ID
-            public var performanceID: OMERecord.ID<OMERecord.Performance>
+            public var performanceID: ProgramItem.ID
         }
 
         public var id: ID
@@ -100,7 +102,7 @@ public struct UserScheduleOverlay: Equatable, Sendable {
     }
 
     public func contains(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
+        performanceID: ProgramItem.ID,
         in scheduleID: UserSchedule.ID
     ) -> Bool {
         memberships.contains {
@@ -110,14 +112,14 @@ public struct UserScheduleOverlay: Equatable, Sendable {
     }
 
     public func isMember(
-        performanceID: OMERecord.ID<OMERecord.Performance>
+        performanceID: ProgramItem.ID
     ) -> Bool {
         guard let selectedScheduleID = selectedSchedule?.id else { return false }
         return contains(performanceID: performanceID, in: selectedScheduleID)
     }
 
     public func showsMembershipIndicator(
-        performanceID: OMERecord.ID<OMERecord.Performance>
+        performanceID: ProgramItem.ID
     ) -> Bool {
         selectedSchedule == nil && memberships.contains {
             $0.id.performanceID == performanceID
@@ -125,7 +127,7 @@ public struct UserScheduleOverlay: Equatable, Sendable {
     }
 
     public func isDimmed(
-        performanceID: OMERecord.ID<OMERecord.Performance>
+        performanceID: ProgramItem.ID
     ) -> Bool {
         selectedSchedule != nil && !isMember(performanceID: performanceID)
     }

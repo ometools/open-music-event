@@ -10,8 +10,8 @@ extension ApplicationNotificationIndicatorSourceID {
 }
 
 extension ApplicationNotificationIndicatorSummary {
-    public func count(for eventID: OMERecord.Event.ID) -> Int {
-        count(for: OMERecord.Event.reference(id: eventID).uri.description)
+    public func count(for eventID: Event.ID) -> Int {
+        count(for: eventID.description)
     }
 }
 
@@ -22,7 +22,7 @@ extension ApplicationNotificationIndicatorSummary {
 struct ApplicationNotificationIndicatorAdapter: Sendable {
     let sourceID: ApplicationNotificationIndicatorSourceID
     let fetchContributions: @Sendable (
-        _ installedEventIDs: Set<OMERecord.Event.ID>,
+        _ installedEventIDs: Set<Event.ID>,
         _ database: Database
     ) throws -> [ApplicationNotificationIndicatorContribution]
 
@@ -34,10 +34,10 @@ struct ApplicationNotificationIndicatorAdapter: Sendable {
                 in: database
             )
             return installedEventIDs.compactMap { eventID in
-                let count = commsCounts.count(for: eventID)
+                let count = commsCounts.count(forEvent: eventID)
                 guard count > 0 else { return nil }
                 let eventSourceID = NotificationSource.ID(
-                    rawValue: OMERecord.Event.reference(id: eventID).uri.description
+                    rawValue: eventID.description
                 )
                 return ApplicationNotificationIndicatorContribution(
                     id: .init(
@@ -57,7 +57,7 @@ struct ApplicationNotificationIndicatorAdapter: Sendable {
 struct ApplicationNotificationIndicatorSummaryRequest: FetchKeyRequest {
     func fetch(_ database: Database) throws -> ApplicationNotificationIndicatorSummary {
         let installedEventIDs = Set(
-            try InstalledEventRecord.all.fetchAll(database).map(\.id)
+            try InstalledEvent.all.fetchAll(database).map(\.id)
         )
         let contributions = try ApplicationNotificationIndicatorAdapter.liveValues.flatMap {
             adapter in
@@ -79,7 +79,7 @@ struct ApplicationNotificationIndicatorSummaryRequest: FetchKeyRequest {
 struct ApplicationNotificationSubscriptionsRequest: FetchKeyRequest {
     func fetch(_ database: Database) throws -> Set<NotificationSubscription> {
         let installedEventIDs = Set(
-            try InstalledEventRecord.all.fetchAll(database).map(\.id)
+            try InstalledEvent.all.fetchAll(database).map(\.id)
         )
         let preferencesByChannelID = Dictionary(
             uniqueKeysWithValues: try ChannelPreferences.all
@@ -90,18 +90,15 @@ struct ApplicationNotificationSubscriptionsRequest: FetchKeyRequest {
             installedEventIDs.map { eventID in
                 NotificationSubscription(
                     sourceID: NotificationSource.ID(
-                        rawValue: OMERecord.Event.reference(id: eventID).uri.description
+                        rawValue: eventID.description
                     )
                 )
             }
         )
-        let channelSubscriptions = try OMERecord.Channel.all
+        let channelSubscriptions = try Social.Category.all
             .fetchAll(database)
             .compactMap { channel -> NotificationSubscription? in
-                let eventID = OMERecord.Event.ID(
-                    organizerID: channel.id.organizerID,
-                    eventID: channel.id.eventID
-                )
+                let eventID = channel.event
                 guard installedEventIDs.contains(eventID),
                       channel.notificationsAreEnabled(
                           preference: preferencesByChannelID[channel.id]
@@ -111,7 +108,7 @@ struct ApplicationNotificationSubscriptionsRequest: FetchKeyRequest {
                     sourceID: NotificationSource.ID(
                         rawValue: AppRoute.event(
                             eventID,
-                            .channel(channel.id.channelID)
+                            .channel(channel.id)
                         )
                         .notificationRoute
                     )

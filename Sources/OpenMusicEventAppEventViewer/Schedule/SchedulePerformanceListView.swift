@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -13,12 +14,12 @@ public struct SchedulePerformanceList {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             scheduleDivision: ScheduleViewer.ScheduleDivision
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: eventID)
+                Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
             _performanceRows = FetchAll(
@@ -32,7 +33,7 @@ public struct SchedulePerformanceList {
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
@@ -40,20 +41,20 @@ public struct SchedulePerformanceList {
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
 
         @FetchAll public var performanceRows: [PerformanceRow]
-        @FetchAll public var schedules: [OMERecord.Schedule]
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var schedules: [Schedule]
+        @FetchAll public var stages: [EventPlace]
 
         public func selectedSchedule(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> OMERecord.Schedule? {
+            selectedScheduleID: Schedule.ID?
+        ) -> Schedule? {
             guard let selectedScheduleID = resolvedSelectedScheduleID(selectedScheduleID) else {
                 return nil
             }
-            return schedules.first { $0.id.scheduleID == selectedScheduleID }
+            return schedules.first { $0.id == selectedScheduleID }
         }
 
         public func selectedScheduleTitle(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+            selectedScheduleID: Schedule.ID?
         ) -> String {
             guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
                   let timeZone
@@ -62,7 +63,7 @@ public struct SchedulePerformanceList {
         }
 
         public func visiblePerformanceRows(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+            selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
             ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
@@ -72,15 +73,15 @@ public struct SchedulePerformanceList {
         }
 
         public func resolvedSelectedScheduleID(
-            _ selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> OMERecord.ID<OMERecord.Schedule>? {
+            _ selectedScheduleID: Schedule.ID?
+        ) -> Schedule.ID? {
             ScheduleViewer.resolvedSelectedScheduleID(
                 selectedScheduleID,
                 schedules: schedules
             )
         }
 
-        public var visibleStages: [OMERecord.Stage] {
+        public var visibleStages: [EventPlace] {
             ScheduleViewer.visibleStages(
                 stages: stages,
                 division: scheduleDivision
@@ -89,10 +90,10 @@ public struct SchedulePerformanceList {
     }
 
     public enum Action {
-        case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case newUserScheduleButtonTapped(ProgramItem.ID)
         case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
-            OMERecord.ID<OMERecord.Performance>,
+            ProgramItem.ID,
             UserSchedule.ID
         )
     }
@@ -140,17 +141,17 @@ public struct SchedulePerformanceListView: View {
     @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     @Bindable var store: StoreOf<SchedulePerformanceList>
-    let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let selectedScheduleID: Schedule.ID?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
-    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let performanceButtonTapped: (ProgramItem.ID) -> Void
 
     public init(
         store: StoreOf<SchedulePerformanceList>,
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        selectedScheduleID: Schedule.ID?,
         userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool,
-        performanceButtonTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void
+        performanceButtonTapped: @escaping (ProgramItem.ID) -> Void
     ) {
         self.store = store
         self.selectedScheduleID = selectedScheduleID
@@ -188,20 +189,22 @@ public struct SchedulePerformanceListView: View {
                         } label: {
                             SchedulePerformanceRow(
                                 row: row,
-                                timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                                timeRangeText: eventTimePresentation.programItemRowTimeRange(
                                     for: row.performance
                                 ),
-                                daySegmentText: eventTimePresentation.daySegment(
-                                    for: row.performance.startTime,
-                                    policy: dateTimeRangeResolutionPolicy
-                                ),
+                                daySegmentText: row.performance.startDate.map {
+                                    eventTimePresentation.daySegment(
+                                        for: $0,
+                                        policy: dateTimeRangeResolutionPolicy
+                                    )
+                                },
                                 userScheduleOverlay: userScheduleOverlay,
                                 now: currentDate
                             )
                         }
                         .id(row.performanceID)
                         .accessibilityIdentifier(
-                            "button.performance.\(row.performanceID.rawValue.rawValue)"
+                            "button.performance.\(row.performanceID.description)"
                         )
                         .navigationLinkListRowStyle()
                         .contextMenu {

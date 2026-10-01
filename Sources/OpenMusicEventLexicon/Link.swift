@@ -68,3 +68,19 @@ extension OME.Link {
         return ExternalPlatform.detectPlatform(from: url)
     }
 }
+
+public extension Event {
+    var contactLinks: [OME.Link] {
+        (links ?? []).filter {
+            if case .known(.contact) = $0.role { return true }
+            return false
+        }
+    }
+
+    var reportingLinks: [OME.Link] {
+        (links ?? []).filter {
+            if case .known(.reporting) = $0.role { return true }
+            return false
+        }
+    }
+}

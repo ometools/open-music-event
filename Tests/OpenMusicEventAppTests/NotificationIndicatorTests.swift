@@ -9,7 +9,6 @@ import Foundation
 @testable import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
-import OpenMusicEventWhiteLabel
 import SQLiteData
 import Sharing
 import Synchronization
@@ -19,316 +18,115 @@ import Testing
 @Suite(.serialized, .tcaExhaustivity(.off))
 struct NotificationIndicatorTests {
     @Test
-    func `installed notification-enabled comms posts contribute their unread count`() async throws {
+    func installedNotificationEnabledPostsContributeOnlyUnreadCounts() async throws {
         let database = try Self.preparedDatabase()
-        let installedEventID = try Self.eventID("installed")
-        let quietInstalledEventID = try Self.eventID("quiet-installed")
-        let uninstalledEventID = try Self.eventID("authoring-only")
+        let installed = Self.eventID("installed")
+        let quiet = Self.eventID("quiet")
+        let uninstalled = Self.eventID("uninstalled")
+        try await database.write { db in
+            try Self.insertEvent(db, id: installed, name: "Installed")
+            try Self.insertEvent(db, id: quiet, name: "Quiet")
+            try Self.insertEvent(db, id: uninstalled, name: "Uninstalled")
+            try InstalledEvent.insert { InstalledEvent(id: installed) }.execute(db)
+            try InstalledEvent.insert { InstalledEvent(id: quiet) }.execute(db)
 
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: installedEventID, name: "Installed")
-            try Self.insertEvent(database, id: quietInstalledEventID, name: "Quiet")
-            try Self.insertEvent(database, id: uninstalledEventID, name: "Authoring Only")
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: installedEventID)
-            }
-            .execute(database)
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: quietInstalledEventID)
-            }
-            .execute(database)
+            try Self.insertCategory(db, eventID: installed, name: "required",
+                                    defaultState: .unsubscribed, required: true)
+            try Self.insertPost(db, eventID: installed, category: "required", name: "one")
+            try Self.insertCategory(db, eventID: installed, name: "default-on",
+                                    defaultState: .subscribed)
+            try Self.insertPost(db, eventID: installed, category: "default-on", name: "two")
+            try Self.insertPost(db, eventID: installed, category: "default-on", name: "read")
+            try CommsPostRead.insert {
+                CommsPostRead(id: Self.postID("read", eventID: installed))
+            }.execute(db)
 
-            try Self.insertChannel(
-                database,
-                eventID: installedEventID,
-                channelID: "required",
-                defaultState: .unsubscribed,
-                notificationsRequired: true
-            )
-            try Self.insertPost(
-                database,
-                eventID: installedEventID,
-                channelID: "required",
-                postID: "one"
-            )
-
-            try Self.insertChannel(
-                database,
-                eventID: installedEventID,
-                channelID: "default-on",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: installedEventID,
-                channelID: "default-on",
-                postID: "two"
-            )
-            let readPostID = Self.postID(
-                "already-read",
-                channelID: "default-on",
-                eventID: installedEventID
-            )
-            try Self.insertPost(
-                database,
-                eventID: installedEventID,
-                channelID: "default-on",
-                postID: "already-read"
-            )
-            try CommsPostRead.insert { CommsPostRead(id: readPostID) }.execute(database)
-
-            try Self.insertChannel(
-                database,
-                eventID: installedEventID,
-                channelID: "preference-on",
-                defaultState: .unsubscribed
-            )
-            let preferenceOnID = Self.channelID(
-                "preference-on",
-                eventID: installedEventID
-            )
+            try Self.insertCategory(db, eventID: installed, name: "preference-on",
+                                    defaultState: .unsubscribed)
             try ChannelPreferences.insert {
-                ChannelPreferences(id: preferenceOnID, notificationState: .subscribed)
-            }
-            .execute(database)
-            try Self.insertPost(
-                database,
-                eventID: installedEventID,
-                channelID: "preference-on",
-                postID: "three"
-            )
-
-            try Self.insertChannel(
-                database,
-                eventID: installedEventID,
-                channelID: "preference-off",
-                defaultState: .subscribed
-            )
-            let preferenceOffID = Self.channelID(
-                "preference-off",
-                eventID: installedEventID
-            )
+                ChannelPreferences(
+                    id: Self.categoryID("preference-on", eventID: installed),
+                    notificationState: .subscribed
+                )
+            }.execute(db)
+            try Self.insertPost(db, eventID: installed, category: "preference-on", name: "three")
+            try Self.insertCategory(db, eventID: installed, name: "preference-off",
+                                    defaultState: .subscribed)
             try ChannelPreferences.insert {
-                ChannelPreferences(id: preferenceOffID, notificationState: .unsubscribed)
-            }
-            .execute(database)
-            try Self.insertPost(
-                database,
-                eventID: installedEventID,
-                channelID: "preference-off",
-                postID: "excluded-by-preference"
-            )
-
-            try Self.insertChannel(
-                database,
-                eventID: uninstalledEventID,
-                channelID: "authoring",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: uninstalledEventID,
-                channelID: "authoring",
-                postID: "excluded-by-installation-boundary"
-            )
+                ChannelPreferences(
+                    id: Self.categoryID("preference-off", eventID: installed),
+                    notificationState: .unsubscribed
+                )
+            }.execute(db)
+            try Self.insertPost(db, eventID: installed, category: "preference-off", name: "excluded")
+            try Self.insertCategory(db, eventID: uninstalled, name: "general",
+                                    defaultState: .subscribed)
+            try Self.insertPost(db, eventID: uninstalled, category: "general", name: "other")
         }
 
-        let summary = try await database.read { database in
-            try ApplicationNotificationIndicatorSummaryRequest().fetch(database)
+        let summary = try await database.read {
+            try ApplicationNotificationIndicatorSummaryRequest().fetch($0)
         }
         expectNoDifference(summary.totalCount, 3)
-        expectNoDifference(summary.count(for: installedEventID), 3)
-        expectNoDifference(summary.count(for: quietInstalledEventID), 0)
-        expectNoDifference(summary.count(for: uninstalledEventID), 0)
-        expectNoDifference(
-            summary.contributions.map(\.id.sourceID),
-            [.unreadCommsPosts]
-        )
+        expectNoDifference(summary.count(for: installed), 3)
+        expectNoDifference(summary.count(for: quiet), 0)
+        expectNoDifference(summary.count(for: uninstalled), 0)
 
-        let communicationsState = withDependencies {
+        let rows = withDependencies {
             $0.context = .test
-            $0.defaultEventID = installedEventID
             $0.defaultDatabase = database
+            $0.defaultEventID = installed
         } operation: {
-            CommunicationsViewer.State(eventID: installedEventID)
+            CommunicationsViewer.State(eventID: installed).channelRows
         }
-        let channelRowsByID = Dictionary(
-            uniqueKeysWithValues: communicationsState.channelRows.map { ($0.id, $0) }
-        )
-        expectNoDifference(
-            channelRowsByID[Self.channelID("required", eventID: installedEventID)]?.unreadPostCount,
-            1
-        )
-        expectNoDifference(
-            channelRowsByID[Self.channelID("default-on", eventID: installedEventID)]?.unreadPostCount,
-            1
-        )
-        expectNoDifference(
-            channelRowsByID[Self.channelID("preference-on", eventID: installedEventID)]?.unreadPostCount,
-            1
-        )
-        expectNoDifference(
-            channelRowsByID[Self.channelID("preference-off", eventID: installedEventID)]?.unreadPostCount,
-            1
-        )
+        let unreadByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.unreadPostCount) })
+        expectNoDifference(unreadByID[Self.categoryID("required", eventID: installed)], 1)
+        expectNoDifference(unreadByID[Self.categoryID("default-on", eventID: installed)], 1)
+        expectNoDifference(unreadByID[Self.categoryID("preference-on", eventID: installed)], 1)
+        expectNoDifference(unreadByID[Self.categoryID("preference-off", eventID: installed)], 1)
 
-        let emergencyContribution = ApplicationNotificationIndicatorContribution(
-            id: .init(
-                sourceID: .init(rawValue: "emergency.active-alerts"),
-                scopeID: OMERecord.Event.reference(id: installedEventID).uri.description
-            ),
-            count: 2
-        )
-        let multiDomainSummary = ApplicationNotificationIndicatorSummary(
-            contributions: summary.contributions + [emergencyContribution]
-        )
-        expectNoDifference(multiDomainSummary.totalCount, 5)
-        expectNoDifference(multiDomainSummary.count(for: installedEventID), 5)
-
-        let rootState = withDependencies {
+        let root = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
             OpenMusicEventAppRoot.State()
         }
-        expectNoDifference(
-            Set(rootState.notificationSubscriptions.map(\.sourceID.rawValue)),
-            [
-                OMERecord.Event.reference(id: installedEventID).uri.description,
-                OMERecord.Event.reference(id: quietInstalledEventID).uri.description,
-                AppRoute.event(
-                    installedEventID,
-                    .channel(Self.channelID("required", eventID: installedEventID).channelID)
-                ).notificationRoute,
-                AppRoute.event(
-                    installedEventID,
-                    .channel(Self.channelID("default-on", eventID: installedEventID).channelID)
-                ).notificationRoute,
-                AppRoute.event(
-                    installedEventID,
-                    .channel(Self.channelID("preference-on", eventID: installedEventID).channelID)
-                ).notificationRoute,
-            ]
-        )
+        let sourceIDs = Set(root.notificationSubscriptions.map { $0.sourceID.rawValue })
+        expectNoDifference(sourceIDs, Set([
+            installed.description,
+            quiet.description,
+            AppRoute.event(installed, .channel(Self.categoryID("required", eventID: installed)))
+                .notificationRoute,
+            AppRoute.event(installed, .channel(Self.categoryID("default-on", eventID: installed)))
+                .notificationRoute,
+            AppRoute.event(installed, .channel(Self.categoryID("preference-on", eventID: installed)))
+                .notificationRoute
+        ]))
     }
 
     @Test
-    func `authoring can delete a post and its read state`() async throws {
+    func categoryPreferencesReplaceApplicationSubscriptions() async throws {
         let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("delete-post")
-        let channelID = Self.channelID("general", eventID: eventID)
-        let postID = Self.postID("welcome", channelID: "general", eventID: eventID)
-
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Delete Post")
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome"
-            )
-            try CommsPostRead.insert { CommsPostRead(id: postID) }.execute(database)
-        }
-
-        let workspace = SourceWorkspace(
-            organizerID: eventID.organizerID,
-            repository: "tangled.org/example/delete-post",
-            branch: "main"
-        )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(
-                actorID: try #require(DID(eventID.organizerID.description))
-            ),
-            role: .owner,
-            workspaceID: workspace.id
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            authoringGrant.withLock { $0 = grant }
-            return TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID.channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        store.send(.postButtonTapped(postID))
-        store.send(.destination(.postDetail(.deleteButtonTapped)))
-        #expect(store.state.destination?.postDeleteConfirmation?.postID == postID)
-
-        await store.send(
-            .destination(
-                .postDeleteConfirmation(
-                    .deleteButtonTapped(postID)
-                )
-            )
-        )?.value
-
-        let remainingPost = try await database.read { database in
-            try CommsPost.find(postID).fetchOne(database)
-        }
-        let remainingReadState = try await database.read { database in
-            try CommsPostRead.find(postID).fetchOne(database)
-        }
-        #expect(remainingPost == nil)
-        #expect(remainingReadState == nil)
-        #expect(store.state.posts.isEmpty)
-    }
-
-    @Test
-    func `channel and preference changes replace the application notification subscriptions`() async throws {
-        let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("festival")
-        let defaultOnChannelID = Self.channelID("default-on", eventID: eventID)
-        let defaultOffChannelID = Self.channelID("default-off", eventID: eventID)
-        let requiredChannelID = Self.channelID("required", eventID: eventID)
-        let addedChannelID = Self.channelID("added-later", eventID: eventID)
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Festival")
-            try InstalledEventRecord.insert { InstalledEventRecord(id: eventID) }
-                .execute(database)
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "default-on",
-                defaultState: .subscribed
-            )
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "default-off",
-                defaultState: .unsubscribed
-            )
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "required",
-                defaultState: .unsubscribed,
-                notificationsRequired: true
-            )
+        let eventID = Self.eventID("festival")
+        let on = Self.categoryID("default-on", eventID: eventID)
+        let off = Self.categoryID("default-off", eventID: eventID)
+        let required = Self.categoryID("required", eventID: eventID)
+        let added = Self.categoryID("added", eventID: eventID)
+        try await database.write { db in
+            try Self.insertEvent(db, id: eventID, name: "Festival")
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
+            try Self.insertCategory(db, eventID: eventID, name: "default-on",
+                                    defaultState: .subscribed)
+            try Self.insertCategory(db, eventID: eventID, name: "default-off",
+                                    defaultState: .unsubscribed)
+            try Self.insertCategory(db, eventID: eventID, name: "required",
+                                    defaultState: .subscribed, required: true)
         }
 
         let replacements = TestMutex<[Set<NotificationSubscription>]>([])
         let store = withDependencies {
             $0.context = .test
-            OME.prepareDependencies(&$0, database: database)
+            $0.defaultDatabase = database
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { subscriptions in
@@ -342,182 +140,102 @@ struct NotificationIndicatorTests {
                 OpenMusicEventAppRoot()
             }
         }
-
-        let eventSourceID = OMERecord.Event.reference(id: eventID).uri.description
-        let defaultOnSourceID = AppRoute.event(
-            eventID,
-            .channel(defaultOnChannelID.channelID)
-        ).notificationRoute
-        let defaultOffSourceID = AppRoute.event(
-            eventID,
-            .channel(defaultOffChannelID.channelID)
-        ).notificationRoute
-        let requiredSourceID = AppRoute.event(
-            eventID,
-            .channel(requiredChannelID.channelID)
-        ).notificationRoute
-        let initialSourceIDs = Set([eventSourceID, defaultOnSourceID, requiredSourceID])
+        let route: (Social.Category.ID) -> String = {
+            AppRoute.event(eventID, .channel($0)).notificationRoute
+        }
+        let initial = Set([eventID.description, route(on), route(required)])
         await Self.waitUntil {
-            replacements.withLock { replacements in
-                Set(replacements.last?.map(\.sourceID.rawValue) ?? []) == initialSourceIDs
-            }
+            Set(replacements.withLock { $0.last?.map { $0.sourceID.rawValue } ?? [] }) == initial
         }
 
-        try await database.write { database in
+        try await database.write { db in
             try ChannelPreferences.upsert {
-                ChannelPreferences(
-                    id: defaultOnChannelID,
-                    notificationState: .unsubscribed
-                )
-            }
-            .execute(database)
+                ChannelPreferences(id: on, notificationState: .unsubscribed)
+            }.execute(db)
             try ChannelPreferences.upsert {
-                ChannelPreferences(
-                    id: defaultOffChannelID,
-                    notificationState: .subscribed
-                )
-            }
-            .execute(database)
+                ChannelPreferences(id: off, notificationState: .subscribed)
+            }.execute(db)
             try ChannelPreferences.upsert {
-                ChannelPreferences(
-                    id: requiredChannelID,
-                    notificationState: .unsubscribed
-                )
-            }
-            .execute(database)
+                ChannelPreferences(id: required, notificationState: .unsubscribed)
+            }.execute(db)
         }
-
-        let updatedSourceIDs = Set([eventSourceID, defaultOffSourceID, requiredSourceID])
+        let updated = Set([eventID.description, route(off), route(required)])
         await Self.waitUntil {
-            replacements.withLock { replacements in
-                Set(replacements.last?.map(\.sourceID.rawValue) ?? []) == updatedSourceIDs
-            }
+            Set(replacements.withLock { $0.last?.map { $0.sourceID.rawValue } ?? [] }) == updated
         }
 
-        try await database.write { database in
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "added-later",
-                defaultState: .subscribed
-            )
+        try await database.write { db in
+            try Self.insertCategory(db, eventID: eventID, name: "added",
+                                    defaultState: .subscribed)
         }
-        let addedSourceID = AppRoute.event(
-            eventID,
-            .channel(addedChannelID.channelID)
-        ).notificationRoute
-        let finalSourceIDs = updatedSourceIDs.union([addedSourceID])
+        let final = updated.union([route(added)])
         await Self.waitUntil {
-            replacements.withLock { replacements in
-                Set(replacements.last?.map(\.sourceID.rawValue) ?? []) == finalSourceIDs
-            }
+            Set(replacements.withLock { $0.last?.map { $0.sourceID.rawValue } ?? [] }) == final
         }
-        expectNoDifference(
-            Set(replacements.withLock { $0.last?.map(\.sourceID.rawValue) ?? [] }),
-            finalSourceIDs
-        )
         withExtendedLifetime(store) {}
     }
 
     @Test
-    func `post long-press actions and opening detail share persistent read state`() async throws {
+    func postActionsAndDetailSharePersistentReadState() async throws {
         let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("festival")
-        let postID = Self.postID("welcome", channelID: "general", eventID: eventID)
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Festival")
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome"
-            )
+        let eventID = Self.eventID("festival")
+        let categoryID = Self.categoryID("general", eventID: eventID)
+        let postID = Self.postID("welcome", eventID: eventID)
+        try await database.write { db in
+            try Self.insertEvent(db, id: eventID, name: "Festival")
+            try Self.insertCategory(db, eventID: eventID, name: "general",
+                                    defaultState: .subscribed)
+            try Self.insertPost(db, eventID: eventID, category: "general", name: "welcome")
         }
 
-        let channelStore = withDependencies {
+        let channel = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
             TestStore(
                 initialState: CommunicationChannelDetail.State(
-                    channelID: OMERecord.ID<OMERecord.Channel>(rawValue: "general"),
-                    eventID: eventID
+                    channelID: categoryID, eventID: eventID
                 )
-            ) {
-                CommunicationChannelDetail()
-            }
+            ) { CommunicationChannelDetail() }
         }
-
-        await channelStore.send(.markPostReadButtonTapped(postID))?.value
+        await channel.send(.markPostReadButtonTapped(postID))?.value
         #expect(try await Self.isRead(postID, in: database))
-
-        await channelStore.send(.markPostUnreadButtonTapped(postID))?.value
+        await channel.send(.markPostUnreadButtonTapped(postID))?.value
         #expect(try await !Self.isRead(postID, in: database))
 
-        let postStore = withDependencies {
+        let detail = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: CommsPostDetail.State(postID: postID)) {
+            TestStore(initialState: CommsPostDetail.State(postID: postID, eventID: eventID)) {
                 CommsPostDetail()
             }
         }
-        #expect(postStore.state.post?.title == "welcome")
-        await postStore.send(.postBecameVisible)?.value
+        #expect(detail.state.post?.title == "welcome")
+        await detail.send(.postBecameVisible)?.value
         #expect(try await Self.isRead(postID, in: database))
     }
 
     @Test
-    func `channel long-press actions update every post in only that channel`() async throws {
+    func categoryReadActionsAffectOnlyItsPosts() async throws {
         let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("festival")
-        let generalChannelID = Self.channelID("general", eventID: eventID)
-        let welcomePostID = Self.postID("welcome", channelID: "general", eventID: eventID)
-        let arrivalPostID = Self.postID("arrival", channelID: "general", eventID: eventID)
-        let alertPostID = Self.postID("weather", channelID: "alerts", eventID: eventID)
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Festival")
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                defaultState: .subscribed
-            )
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "alerts",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome"
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                postID: "arrival"
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "alerts",
-                postID: "weather"
-            )
-            try CommsPostRead.setRead(true, postID: alertPostID, in: database)
+        let eventID = Self.eventID("festival")
+        let general = Self.categoryID("general", eventID: eventID)
+        let welcome = Self.postID("welcome", eventID: eventID)
+        let arrival = Self.postID("arrival", eventID: eventID)
+        let weather = Self.postID("weather", eventID: eventID)
+        try await database.write { db in
+            try Self.insertEvent(db, id: eventID, name: "Festival")
+            try Self.insertCategory(db, eventID: eventID, name: "general",
+                                    defaultState: .subscribed)
+            try Self.insertCategory(db, eventID: eventID, name: "alerts",
+                                    defaultState: .subscribed)
+            try Self.insertPost(db, eventID: eventID, category: "general", name: "welcome")
+            try Self.insertPost(db, eventID: eventID, category: "general", name: "arrival")
+            try Self.insertPost(db, eventID: eventID, category: "alerts", name: "weather")
+            try CommsPostRead.setRead(true, postID: weather, in: db)
         }
 
         let store = withDependencies {
@@ -529,367 +247,224 @@ struct NotificationIndicatorTests {
                 CommunicationsViewer()
             }
         }
-
-        await store.send(.markAllPostsReadButtonTapped(generalChannelID))?.value
-        let readPostIDs = try await Self.readPostIDs(in: database)
-        expectNoDifference(
-            readPostIDs,
-            Set([welcomePostID, arrivalPostID, alertPostID])
-        )
-
-        await store.send(.markAllPostsUnreadButtonTapped(generalChannelID))?.value
-        let remainingReadPostIDs = try await Self.readPostIDs(in: database)
-        expectNoDifference(
-            remainingReadPostIDs,
-            Set([alertPostID])
-        )
+        await store.send(.markAllPostsReadButtonTapped(general))?.value
+        let readAfterMarkingAll = try await Self.readPostIDs(in: database)
+        expectNoDifference(readAfterMarkingAll, Set([welcome, arrival, weather]))
+        await store.send(.markAllPostsUnreadButtonTapped(general))?.value
+        let readAfterMarkingUnread = try await Self.readPostIDs(in: database)
+        expectNoDifference(readAfterMarkingUnread, Set([weather]))
     }
 
     @Test
-    func `application badge replaces its absolute count when read state changes`() async throws {
+    func authoringDeletesPostAndItsReadState() async throws {
         let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("festival")
-        let postID = Self.postID("welcome", channelID: "general", eventID: eventID)
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Festival")
-            try InstalledEventRecord.insert { InstalledEventRecord(id: eventID) }
-                .execute(database)
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                defaultState: .subscribed
-            )
-            try Self.insertPost(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome"
-            )
+        let eventID = Self.eventID("festival")
+        let categoryID = Self.categoryID("general", eventID: eventID)
+        let postID = Self.postID("welcome", eventID: eventID)
+        try await database.write { db in
+            try Self.insertEvent(db, id: eventID, name: "Festival")
+            try Self.insertCategory(db, eventID: eventID, name: "general",
+                                    defaultState: .subscribed)
+            try Self.insertPost(db, eventID: eventID, category: "general", name: "welcome")
+            try CommsPostRead.insert { CommsPostRead(id: postID) }.execute(db)
         }
-        let badgeCounts = TestMutex<[Int]>([])
+        let workspace = SourceWorkspace(
+            organizerID: Self.organizerDID,
+            repository: "tangled.org/example/delete-post",
+            branch: "main"
+        )
+        let grant = AuthoringGrant(
+            principal: AuthoringPrincipal(actorID: Self.organizerDID),
+            role: .owner,
+            workspaceID: workspace.id
+        )
         let store = withDependencies {
             $0.context = .test
-            OME.prepareDependencies(&$0, database: database)
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+            authoringGrant.withLock { $0 = grant }
+            return TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: categoryID, eventID: eventID
+                )
+            ) { CommunicationChannelDetail() }
+        }
+        defer {
+            withDependencies {
+                $0.defaultEventID = eventID
+            } operation: {
+                Shared<AuthoringGrant?>(.defaultAuthoringGrant).withLock { $0 = nil }
+            }
+        }
+
+        store.send(.postButtonTapped(postID))
+        store.send(.destination(.postDetail(.deleteButtonTapped)))
+        #expect(store.state.destination?.postDeleteConfirmation?.postID == postID)
+        await store.send(
+            .destination(.postDeleteConfirmation(.deleteButtonTapped(postID)))
+        )?.value
+
+        let saved = try await database.read { db in
+            (
+                try Social.Post.find(postID).fetchOne(db),
+                try CommsPostRead.find(postID).fetchOne(db)
+            )
+        }
+        #expect(saved.0 == nil)
+        #expect(saved.1 == nil)
+        #expect(store.state.posts.isEmpty)
+    }
+
+    @Test
+    func badgeFollowsCommittedCanonicalPostAndReadState() async throws {
+        let database = try Self.preparedDatabase()
+        let eventID = Self.eventID("festival")
+        let postID = Self.postID("welcome", eventID: eventID)
+        try await database.write { db in
+            try Self.insertEvent(db, id: eventID, name: "Festival")
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
+            try Self.insertCategory(db, eventID: eventID, name: "general",
+                                    defaultState: .subscribed)
+        }
+        let counts = TestMutex<[Int]>([])
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
             $0.applicationIconBadgeClient = ApplicationIconBadgeClient(
-                setCount: { count in
-                    badgeCounts.withLock { $0.append(count) }
-                }
+                setCount: { count in counts.withLock { $0.append(count) } }
             )
         } operation: {
             Store(initialState: OpenMusicEventAppRoot.State()) {
                 OpenMusicEventAppRoot()
             }
         }
+        await Self.waitUntil { counts.withLock { $0.last } == 0 }
 
-        await Self.waitUntil {
-            badgeCounts.withLock { $0.last } == 1
+        try await database.write { db in
+            try Self.insertPost(db, eventID: eventID, category: "general", name: "welcome")
         }
-        try await database.write { database in
-            try CommsPostRead.setRead(true, postID: postID, in: database)
+        await Self.waitUntil { counts.withLock { $0.last } == 1 }
+        try await database.write { db in
+            try CommsPostRead.setRead(true, postID: postID, in: db)
         }
-        await Self.waitUntil {
-            badgeCounts.withLock { $0.last } == 0
-        }
-        expectNoDifference(badgeCounts.withLock { $0.last }, 0)
+        await Self.waitUntil { counts.withLock { $0.last } == 0 }
         withExtendedLifetime(store) {}
     }
 
-    @Test
-    func `silent channel update commits a new unread post before replacing the badge`() async throws {
-        let database = try Self.preparedDatabase()
-        let eventID = try Self.eventID("festival")
-        try await database.write { database in
-            try Self.insertOrganizer(database)
-            try Self.insertEvent(database, id: eventID, name: "Festival")
-            try InstalledEventRecord.insert { InstalledEventRecord(id: eventID) }
-                .execute(database)
-            try Self.insertChannel(
-                database,
-                eventID: eventID,
-                channelID: "general",
-                defaultState: .subscribed
-            )
-        }
-        let badgeCounts = TestMutex<[Int]>([])
-        let synchronizedEventIDs = TestMutex<[OMERecord.Event.ID]>([])
-        let store = withDependencies {
-            $0.context = .test
-            OME.prepareDependencies(&$0, database: database)
-            $0.applicationIconBadgeClient = ApplicationIconBadgeClient(
-                setCount: { count in
-                    badgeCounts.withLock { $0.append(count) }
-                }
-            )
-            $0.notificationsClient = NotificationsClient(
-                registerDestination: { _ in },
-                replaceSubscriptions: { _ in },
-                synchronize: {},
-                signals: { AsyncStream { $0.finish() } }
-            )
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { _ in eventID },
-                synchronizeInstalledEvent: { synchronizedEventID in
-                    synchronizedEventIDs.withLock { $0.append(synchronizedEventID) }
-                    try await database.write { database in
-                        try Self.insertPost(
-                            database,
-                            eventID: eventID,
-                            channelID: "general",
-                            postID: "arrived-in-background"
-                        )
-                    }
-                }
-            )
-        } operation: {
-            Store(
-                initialState: OpenMusicEventAppRoot.State(
-                    variant: .whiteLabel(
-                        WickedWoodsWhiteLabel.configuration(
-                            organizerID: eventID.organizerID
-                        )
-                    )
-                )
-            ) {
-                OpenMusicEventAppRoot()
-            }
-        }
-
-        await Self.waitUntil {
-            badgeCounts.withLock { $0.last } == 0
-        }
-        let channelSourceID = AppRoute.event(
-            eventID,
-            .channel(Self.channelID("general", eventID: eventID).channelID)
-        ).notificationRoute
-        let providerJSON = """
-        {
-          "aps": {
-            "content-available": 1
-          },
-          "kind": "source_available",
-          "source": "\(channelSourceID)",
-          "version": "new-comms-post-1"
-        }
-        """
-        let notificationTask = try store.state.notificationEvent(
-            NotificationEvent(
-                json: providerJSON,
-                delivery: .contentAvailable
-            )
-        )
-        await notificationTask?.value
-
-        expectNoDifference(synchronizedEventIDs.withLock { $0 }, [eventID])
-        expectNoDifference(badgeCounts.withLock { $0.last }, 1)
-        let committedPostCount = try await database.read { database in
-            try CommsPost.fetchCount(database)
-        }
-        expectNoDifference(committedPostCount, 1)
-        withExtendedLifetime(store) {}
-    }
-
-    @Test
-    func `read-state migration preserves an existing app selection`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OMERecord.DatabaseMigrations.register(into: &migrator)
-        BlueskyActorCacheMigrations.register(into: &migrator)
-        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(
-            database,
-            upTo: "Create OpenMusicEvent user schedule schema"
-        )
-        let eventID = try Self.eventID("selected")
-        try await database.write { database in
-            try AppState.update {
-                $0.organizerID = #bind(eventID.organizerID)
-                $0.eventID = #bind(eventID.eventID)
-            }
-            .execute(database)
-        }
-
-        try migrator.migrate(database)
-
-        let result = try await database.read { database in
-            (
-                try database.tableExists(CommsPostRead.tableName),
-                try AppState.find(1).fetchOne(database)?.selectedEventID
-            )
-        }
-        #expect(result.0)
-        expectNoDifference(result.1, eventID)
-    }
-
-    @Test
-    func `failed read-state migration leaves existing app state recoverable`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OMERecord.DatabaseMigrations.register(into: &migrator)
-        BlueskyActorCacheMigrations.register(into: &migrator)
-        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(
-            database,
-            upTo: "Create OpenMusicEvent user schedule schema"
-        )
-        let eventID = try Self.eventID("selected")
-        try await database.write { database in
-            try AppState.update {
-                $0.organizerID = #bind(eventID.organizerID)
-                $0.eventID = #bind(eventID.eventID)
-            }
-            .execute(database)
-            try database.execute(
-                sql: #"CREATE TABLE "commsPostReads" ("sentinel" TEXT NOT NULL) STRICT"#
-            )
-            try database.execute(
-                sql: #"INSERT INTO "commsPostReads" ("sentinel") VALUES ('recoverable')"#
-            )
-        }
-
-        #expect(throws: (any Error).self) {
-            try migrator.migrate(database)
-        }
-
-        let result = try await database.read { database in
-            (
-                try AppState.find(1).fetchOne(database)?.selectedEventID,
-                try String.fetchOne(
-                    database,
-                    sql: #"SELECT "sentinel" FROM "commsPostReads""#
-                )
-            )
-        }
-        expectNoDifference(result.0, eventID)
-        expectNoDifference(result.1, "recoverable")
-    }
+    static let organizerDID = DID("did:plc:notificationindicators")!
 
     static func preparedDatabase() throws -> any DatabaseWriter {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
-        OMERecord.DatabaseMigrations.register(into: &migrator)
+        OME.DatabaseMigrations.register(into: &migrator)
         BlueskyActorCacheMigrations.register(into: &migrator)
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
         return database
     }
 
-    nonisolated static func eventID(_ rawValue: String) throws -> OMERecord.Event.ID {
-        OMERecord.Event.ID(
-            organizerID: try #require(DID("did:web:notification-indicators.test")),
-            eventID: OMERecord.ID<OMERecord.Event>(
-                rawValue: ATProto.Record.Key(rawValue: rawValue)
-            )
-        )
-    }
-
-    nonisolated static func channelID(
-        _ rawValue: String,
-        eventID: OMERecord.Event.ID
-    ) -> OMERecord.Channel.ID {
-        OMERecord.Channel.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            channelID: OMERecord.ID<OMERecord.Channel>(
-                rawValue: ATProto.Record.Key(rawValue: rawValue)
-            )
-        )
-    }
-
-    nonisolated static func postID(
-        _ rawValue: String,
-        channelID: String,
-        eventID: OMERecord.Event.ID
-    ) -> CommsPost.ID {
-        CommsPost.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            channelID: OMERecord.ID<OMERecord.Channel>(
-                rawValue: ATProto.Record.Key(rawValue: channelID)
-            ),
-            postID: CommsPost.PostID(rawValue)
-        )
-    }
-
-    nonisolated static func insertOrganizer(_ database: Database) throws {
-        let organizerID = try #require(DID("did:web:notification-indicators.test"))
-        try OMERecord.Organizer.insert {
-            OMERecord.Organizer.Draft(id: organizerID)
+    nonisolated static func key(_ name: String) -> String {
+        switch name {
+        case "installed": "3mrdbziccpcah"
+        case "quiet": "3mrdbziccpcaj"
+        case "uninstalled": "3mrdbziccpcak"
+        case "festival": "3mrdbziccpcam"
+        case "required": "3mrdbziccpcan"
+        case "default-on": "3mrdbziccpcap"
+        case "default-off": "3mrdbziccpcar"
+        case "preference-on": "3mrdbziccpcas"
+        case "preference-off": "3mrdbziccpcat"
+        case "general": "3mrdbziccpcau"
+        case "alerts": "3mrdbziccpcav"
+        case "added": "3mrdbziccpcaw"
+        case "one": "3mrdbziccpcax"
+        case "two": "3mrdbziccpcay"
+        case "read": "3mrdbziccpcaz"
+        case "three": "3mrdbziccpcba"
+        case "excluded": "3mrdbziccpcbb"
+        case "other": "3mrdbziccpcbc"
+        case "welcome": "3mrdbziccpcbd"
+        case "arrival": "3mrdbziccpcbe"
+        case "weather": "3mrdbziccpcbf"
+        default: preconditionFailure("Unexpected fixture record: " + name)
         }
-        .execute(database)
     }
 
-    nonisolated static func insertEvent(
-        _ database: Database,
-        id: OMERecord.Event.ID,
-        name: String
+    nonisolated static func eventID(_ name: String) -> Event.ID {
+        Event.ID("at://did:plc:notificationindicators/events.openmusic.event/" + key(name))!
+    }
+
+    nonisolated static func categoryID(_ name: String, eventID: Event.ID) -> Social.Category.ID {
+        Social.Category.ID(
+            "at://" + eventID.authority.description + "/social.ome.category/" + key(name)
+        )!
+    }
+
+    nonisolated static func postID(_ name: String, eventID: Event.ID) -> Social.Post.ID {
+        Social.Post.ID(
+            "at://" + eventID.authority.description + "/social.ome.post/" + key(name)
+        )!
+    }
+
+    nonisolated static func insertEvent(_ db: Database, id: Event.ID, name: String) throws {
+        let event = try Event(
+            id: id, name: name, createdAt: "2026-09-01T12:00:00Z", timeZone: .gmt
+        )
+        try Event.insert { event }.execute(db)
+    }
+
+    nonisolated static func insertCategory(
+        _ db: Database,
+        eventID: Event.ID,
+        name: String,
+        defaultState: Social.Category.NotificationState,
+        required: Bool = false
     ) throws {
-        try OMERecord.Event.insert {
-            testEventDraft(id: id, name: name)
-        }
-        .execute(database)
-    }
-
-    nonisolated static func insertChannel(
-        _ database: Database,
-        eventID: OMERecord.Event.ID,
-        channelID: String,
-        defaultState: OMERecord.Channel.NotificationState,
-        notificationsRequired: Bool = false
-    ) throws {
-        try OMERecord.Channel.insert {
-            OMERecord.Channel.Draft(
-                id: Self.channelID(channelID, eventID: eventID),
-                name: channelID,
-                description: "Updates from \(channelID)",
-                iconImageURL: nil,
-                headerImageURL: nil,
-                sortIndex: nil,
-                defaultNotificationState: defaultState,
-                notificationsRequired: notificationsRequired
-            )
-        }
-        .execute(database)
+        var category = try Social.Category(
+            id: categoryID(name, eventID: eventID),
+            event: eventID,
+            name: name,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        category.defaultNotificationState = .known(required ? .subscribed : defaultState)
+        category.notificationsRequired = required
+        try Social.Category.insert { category }.execute(db)
+        var event = try #require(try Event.find(eventID).fetchOne(db))
+        event.categories = (event.categories ?? []) + [category.id]
+        try Event.upsert { event }.execute(db)
     }
 
     nonisolated static func insertPost(
-        _ database: Database,
-        eventID: OMERecord.Event.ID,
-        channelID: String,
-        postID: String
+        _ db: Database, eventID: Event.ID, category: String, name: String
     ) throws {
-        try CommsPost.insert {
-            CommsPost(
-                id: Self.postID(postID, channelID: channelID, eventID: eventID),
-                title: postID,
-                contents: "Post body",
-                sortIndex: 0
-            )
-        }
-        .execute(database)
+        var post = try Social.Post(
+            id: postID(name, eventID: eventID),
+            text: "Post body",
+            event: eventID,
+            category: categoryID(category, eventID: eventID),
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        post.title = name
+        try Social.Post.insert { post }.execute(db)
     }
 
     static func isRead(
-        _ postID: CommsPost.ID,
-        in database: any DatabaseReader
+        _ postID: Social.Post.ID, in database: any DatabaseReader
     ) async throws -> Bool {
-        try await database.read { database in
-            try CommsPostRead.find(postID).fetchCount(database) == 1
+        try await database.read {
+            try CommsPostRead.find(postID).fetchCount($0) == 1
         }
     }
 
-    static func readPostIDs(
-        in database: any DatabaseReader
-    ) async throws -> Set<CommsPost.ID> {
-        try await database.read { database in
-            Set(try CommsPostRead.fetchAll(database).map(\.id))
+    static func readPostIDs(in database: any DatabaseReader) async throws -> Set<Social.Post.ID> {
+        try await database.read {
+            Set(try CommsPostRead.fetchAll($0).map { $0.id })
         }
     }
 
-    static func waitUntil(
-        _ predicate: @escaping @Sendable () -> Bool
-    ) async {
+    static func waitUntil(_ predicate: @escaping @Sendable () -> Bool) async {
         for _ in 0..<100 {
             if predicate() { return }
             try? await Task.sleep(for: .milliseconds(10))

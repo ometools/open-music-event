@@ -1,3 +1,5 @@
+import ATProtoTypes
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
@@ -10,13 +12,45 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
+public struct EventPoster: Equatable, Identifiable, Sendable {
+    public struct ID: Equatable, Hashable, Sendable {
+        public let eventID: Event.ID
+        public let mediaIndex: Int
+
+        public init(eventID: Event.ID, mediaIndex: Int) {
+            self.eventID = eventID
+            self.mediaIndex = mediaIndex
+        }
+    }
+
+    public let id: ID
+    public let image: OME.Image
+
+    public var displayTitle: String? {
+        let title = image.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title?.isEmpty == false ? title : nil
+    }
+
+    public var displayImage: DisplayImageAsset? {
+        image.displayImageAsset(recordID: id.eventID)
+    }
+
+    public static func all(in event: Event) -> [Self] {
+        (event.media ?? []).enumerated().compactMap { index, medium in
+            guard case let .known(.image(image)) = medium,
+                  image.role == .known(.poster) else { return nil }
+            return Self(id: ID(eventID: event.id, mediaIndex: index), image: image)
+        }
+    }
+}
+
 @Feature
 public struct PostersViewer {
     public init() {}
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID? = nil,
+            eventID: Event.ID? = nil,
             destination: Destination.State? = nil,
             importImages: Spawn<ImportImages>? = nil
         ) {
@@ -25,20 +59,22 @@ public struct PostersViewer {
             self.eventID = eventID
             self.destination = destination
             self.importImages = importImages
-            _posters = FetchAll(
-                PostersViewer.postersQuery(eventID: eventID)
-            )
+            _event = FetchOne(Event.find(eventID))
         }
 
-        let eventID: OMERecord.Event.ID
+        let eventID: Event.ID
         var destination: Destination.State?
         var importImages: Spawn<ImportImages>?
-        @FetchAll public var posters: [OMERecord.Poster]
+        @FetchOne public var event: Event?
 
-        var sortedPosters: [OMERecord.Poster] {
+        public var posters: [EventPoster] {
+            event.map(EventPoster.all(in:)) ?? []
+        }
+
+        var sortedPosters: [EventPoster] {
             posters.sorted { lhs, rhs in
-                let lhsTitle = lhs.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let rhsTitle = rhs.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let lhsTitle = lhs.displayTitle
+                let rhsTitle = rhs.displayTitle
 
                 switch (lhsTitle?.isEmpty == false ? lhsTitle : nil, rhsTitle?.isEmpty == false ? rhsTitle : nil) {
                 case let (.some(lhsTitle), .some(rhsTitle)):
@@ -57,9 +93,7 @@ public struct PostersViewer {
                     break
                 }
 
-                return lhs.id.posterID.rawValue.rawValue.localizedStandardCompare(
-                    rhs.id.posterID.rawValue.rawValue
-                ) == .orderedAscending
+                return lhs.id.mediaIndex < rhs.id.mediaIndex
             }
         }
     }
@@ -67,7 +101,7 @@ public struct PostersViewer {
     public enum Action {
         case addButtonTapped
         case destination(Destination.Action)
-        case posterButtonTapped(OMERecord.Poster.ID)
+        case posterButtonTapped(EventPoster.ID)
     }
 
     @Feature
@@ -77,24 +111,8 @@ public struct PostersViewer {
 
     @Dependency(\.defaultDatabase) var database
 
-    static func postersQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Poster> {
-        OMERecord.Poster
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-    }
-
-    static func posterQuery(
-        posterID: OMERecord.Poster.ID
-    ) -> some SelectStatementOf<OMERecord.Poster> {
-        OMERecord.Poster
-            .where { $0.id.organizerID.eq(posterID.organizerID) }
-            .where { $0.id.eventID.eq(posterID.eventID) }
-            .where { $0.id.posterID.eq(posterID.posterID) }
-    }
-
     public var body: some Feature {
+        @Dependency(\.localImageFileStore) var localImageFileStore
         Update { state, action in
             switch action {
             case .addButtonTapped:
@@ -122,11 +140,13 @@ public struct PostersViewer {
         .ifLet(\.importImages) {
             let database = database
             let eventID = store.eventID
+            let localImageFileStore = localImageFileStore
             ImportImages { images in
                 try await Self.savePosters(
                     images,
                     eventID: eventID,
-                    database: database
+                    database: database,
+                    localImageFileStore: localImageFileStore
                 )
             }
         }
@@ -134,74 +154,34 @@ public struct PostersViewer {
 
     private static func savePosters(
         _ images: [ImportImages.ImportedImage],
-        eventID: OMERecord.Event.ID,
-        database: any DatabaseWriter
+        eventID: Event.ID,
+        database: any DatabaseWriter,
+        localImageFileStore: LocalImageFileStoreClient
     ) async throws {
         let images = images.normalizingIncompleteAppearancePairs()
         try await database.write { db in
-            var usedPosterIDs = Set(
-                try Self.postersQuery(eventID: eventID)
-                    .fetchAll(db)
-                    .map { $0.id.posterID.rawValue.rawValue }
-            )
-            var blobs: [LocalImageBlob] = []
+            guard var event = try Event.find(eventID).fetchOne(db) else {
+                throw EditPosterSaveError()
+            }
+            var media = event.media ?? []
 
             for image in images {
-                let localPosterID = Self.uniquePosterID(
-                    for: image,
-                    usedPosterIDs: &usedPosterIDs
+                let blob = try stageLocalImageBlob(
+                    image.data,
+                    mimeType: ATProto.MIMEType(rawValue: image.mimeType),
+                    using: localImageFileStore
                 )
-                let posterID = OMERecord.Poster.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    posterID: localPosterID
-                )
-                let materializedImage = try materializeImportedLocalImage(
-                    image.localImageImportRequest,
-                    context: .init(posterID: posterID)
-                )
-                let poster = OMERecord.Poster.Draft(
-                    id: posterID,
-                    title: image.trimmedTitle.nilIfEmpty,
-                    image: materializedImage.image
-                )
-
-                try OMERecord.Poster.upsert { poster }.execute(db)
-                blobs.append(materializedImage.blob)
+                var poster = image.image
+                poster.source = .known(.blob(blob))
+                poster.title = image.trimmedTitle.nilIfEmpty
+                poster.role = .known(.poster)
+                media.append(.known(.image(poster)))
             }
 
-            if !blobs.isEmpty {
-                try LocalImageBlob.upsert { blobs }.execute(db)
-            }
+            event.media = media
+            try event.validateReferences()
+            try Event.upsert { event }.execute(db)
         }
-    }
-
-    private static func uniquePosterID(
-        for image: ImportImages.ImportedImage,
-        usedPosterIDs: inout Set<String>
-    ) -> OMERecord.ID<OMERecord.Poster> {
-        let base = posterIDBase(for: image.suggestedIDSource)
-        var candidate = base
-        var suffix = 2
-
-        while usedPosterIDs.contains(candidate) {
-            candidate = "\(base)-\(suffix)"
-            suffix += 1
-        }
-
-        usedPosterIDs.insert(candidate)
-        return OMERecord.ID<OMERecord.Poster>(.init(candidate))
-    }
-
-    private static func posterIDBase(for string: String) -> String {
-        let normalized = string
-            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-            .lowercased()
-        let words = normalized
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-
-        return words.isEmpty ? "poster" : words.joined(separator: "-")
     }
 }
 
@@ -211,21 +191,25 @@ public struct PosterDetail {
 
     public struct State: Identifiable {
         public init(
-            posterID: OMERecord.Poster.ID,
+            posterID: EventPoster.ID,
             destination: Destination.State? = nil
         ) {
             self.posterID = posterID
             self.destination = destination
-            _poster = FetchOne(
-                PostersViewer.posterQuery(posterID: posterID)
-            )
+            _event = FetchOne(Event.find(posterID.eventID))
         }
 
-        public let posterID: OMERecord.Poster.ID
+        public let posterID: EventPoster.ID
         public var destination: Destination.State?
-        @FetchOne public var poster: OMERecord.Poster?
+        @FetchOne public var event: Event?
 
-        public var id: OMERecord.Poster.ID { posterID }
+        public var poster: EventPoster? {
+            event.flatMap { event in
+                EventPoster.all(in: event).first { $0.id == posterID }
+            }
+        }
+
+        public var id: EventPoster.ID { posterID }
 
         var navigationTitle: String {
             poster?.displayTitle ?? "Poster"
@@ -286,8 +270,7 @@ public struct PosterDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ImageAssetAsyncImage(
-                            asset: poster.image,
-                            cacheContext: .init(posterID: poster.id),
+                            image: poster.displayImage,
                             contentMode: .fit
                         ) {
                             PosterPlaceholderView()
@@ -340,7 +323,7 @@ public struct EditPoster {
 
     public struct State {
         public init(
-            posterID: OMERecord.Poster.ID,
+            posterID: EventPoster.ID,
             destination: Destination.State? = nil,
             imageInfo: Spawn<ImageInfo>? = nil
         ) {
@@ -350,13 +333,13 @@ public struct EditPoster {
         }
 
         public var destination: Destination.State?
-        public let posterID: OMERecord.Poster.ID
+        public let posterID: EventPoster.ID
         public var imageInfo: Spawn<ImageInfo>?
+        var originalImage: OME.Image?
         var errorMessage: String?
         var hasLoadedDraft = false
         var isDeleting = false
         var isSaving = false
-        var title = ""
 
         var canDelete: Bool {
             hasLoadedDraft && !isWorking
@@ -374,17 +357,10 @@ public struct EditPoster {
             "Edit Poster"
         }
 
-        var trimmedTitle: String {
-            title.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        func preparedDraft() throws -> OMERecord.Poster.Draft {
-            guard let image = imageInfo?.asset else { throw EditPosterSaveError() }
-            return OMERecord.Poster.Draft(
-                id: posterID,
-                title: trimmedTitle.nilIfEmpty,
-                image: [image].normalizingIncompleteAppearancePairs()[0]
-            )
+        func preparedImage() throws -> OME.Image {
+            guard var image = imageInfo?.image else { throw EditPosterSaveError() }
+            image.role = .known(.poster)
+            return image
         }
     }
 
@@ -424,6 +400,7 @@ public struct EditPoster {
             case .destination(.deleteConfirmation(.deleteButtonTapped)):
                 guard !state.isWorking else { return }
                 let posterID = state.posterID
+                guard let originalImage = state.originalImage else { return }
                 state.errorMessage = nil
                 state.isDeleting = true
 
@@ -431,6 +408,7 @@ public struct EditPoster {
                     do {
                         try await Self.deletePoster(
                             posterID: posterID,
+                            originalImage: originalImage,
                             database: database
                         )
                         try store.post(key: PosterDeleted.self, value: posterID)
@@ -455,7 +433,10 @@ public struct EditPoster {
                 }
 
                 do {
-                    let draft = try state.preparedDraft()
+                    let image = try state.preparedImage()
+                    guard let originalImage = state.originalImage else {
+                        throw EditPosterSaveError()
+                    }
                     let posterID = state.posterID
                     state.errorMessage = nil
                     state.isSaving = true
@@ -463,11 +444,17 @@ public struct EditPoster {
                     store.addTask {
                         do {
                             try database.write { db in
-                                guard try PostersViewer.posterQuery(posterID: posterID)
-                                    .fetchOne(db) != nil else {
+                                guard var event = try Event.find(posterID.eventID).fetchOne(db),
+                                      var media = event.media,
+                                      media.indices.contains(posterID.mediaIndex),
+                                      case let .known(.image(current)) = media[posterID.mediaIndex],
+                                      current == originalImage else {
                                     throw EditPosterSaveError()
                                 }
-                                try OMERecord.Poster.upsert { draft }.execute(db)
+                                media[posterID.mediaIndex] = .known(.image(image))
+                                event.media = media
+                                try event.validateReferences()
+                                try Event.upsert { event }.execute(db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
@@ -497,16 +484,19 @@ public struct EditPoster {
 
             do {
                 if let poster = try database.read({ db in
-                    try PostersViewer.posterQuery(posterID: state.posterID)
-                        .fetchOne(db)
+                    try Event.find(state.posterID.eventID).fetchOne(db)
+                        .flatMap { EventPoster.all(in: $0).first { $0.id == state.posterID } }
                 }) {
-                    state.title = poster.title ?? ""
+                    guard poster.displayImage != nil else {
+                        throw EditPosterSaveError()
+                    }
+                    state.originalImage = poster.image
                     state.imageInfo = Spawn(
                         ImageInfo.State(
-                            asset: poster.image,
+                            image: poster.image,
                             configuration: .posters,
-                            sourceLabel: poster.displayTitle ?? poster.image.url?.lastPathComponent,
-                            cacheContext: LocalImageCacheContext(posterID: poster.id)
+                            sourceLabel: poster.displayTitle,
+                            recordID: state.posterID.eventID
                         )
                     )
                     state.hasLoadedDraft = true
@@ -521,35 +511,28 @@ public struct EditPoster {
     }
 
     private static func deletePoster(
-        posterID: OMERecord.Poster.ID,
+        posterID: EventPoster.ID,
+        originalImage: OME.Image,
         database: any DatabaseWriter
     ) async throws {
         try await database.write { db in
-            guard try PostersViewer.posterQuery(posterID: posterID)
-                .fetchOne(db) != nil else {
+            guard var event = try Event.find(posterID.eventID).fetchOne(db),
+                  var media = event.media,
+                  media.indices.contains(posterID.mediaIndex),
+                  case .known(.image(let image)) = media[posterID.mediaIndex],
+                  image == originalImage else {
                 throw EditPosterDeleteError()
             }
-
-            try OMERecord.Poster
-                .where { $0.id.organizerID.eq(posterID.organizerID) }
-                .where { $0.id.eventID.eq(posterID.eventID) }
-                .where { $0.id.posterID.eq(posterID.posterID) }
-                .delete()
-                .execute(db)
-
-            try LocalImageBlob
-                .where { $0.organizerID.eq(posterID.organizerID) }
-                .where { $0.eventID.eq(posterID.eventID) }
-                .where { $0.parentKind.eq(LocalImageBlob.ParentKind.poster) }
-                .where { $0.parentLocalID.eq(posterID.posterID.rawValue.rawValue) }
-                .delete()
-                .execute(db)
+            media.remove(at: posterID.mediaIndex)
+            event.media = media
+            try event.validateReferences()
+            try Event.upsert { event }.execute(db)
         }
     }
 }
 
 private enum PosterDeleted: FeatureEventKey {
-    typealias Value = OMERecord.Poster.ID
+    typealias Value = EventPoster.ID
 }
 
 private struct EditPosterDeleteError: LocalizedError {
@@ -623,10 +606,6 @@ public struct EditPosterView: View {
 
     private var editForm: some View {
         Form {
-            Section("Poster") {
-                TextField("Title", text: $store.title)
-            }
-
             if let imageInfoStore = store.spawn(\.imageInfo) {
                 ImageInfoEditorSection(store: imageInfoStore)
             }
@@ -744,7 +723,7 @@ public struct PostersViewerView: View {
 }
 
 struct PosterCardView: View {
-    let poster: OMERecord.Poster
+    let poster: EventPoster
     let onTap: () -> Void
 
     var body: some View {
@@ -753,8 +732,7 @@ struct PosterCardView: View {
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 ImageAssetAsyncImage(
-                    asset: poster.image,
-                    cacheContext: .init(posterID: poster.id),
+                    image: poster.displayImage,
                     contentMode: .fit
                 ) {
                     PosterPlaceholderView()
@@ -803,12 +781,5 @@ extension Optional {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
-    }
-}
-
-private extension OMERecord.Poster {
-    var displayTitle: String? {
-        let title = self.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title?.isEmpty == false ? title : nil
     }
 }

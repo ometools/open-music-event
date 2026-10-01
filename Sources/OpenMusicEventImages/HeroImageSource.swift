@@ -85,7 +85,8 @@ private extension Event {
     var displayImages: [(priority: Int, asset: DisplayImageAsset)] {
         (media ?? []).compactMap { medium in
             guard case let .known(.image(image)) = medium,
-                  let asset = image.displayImageAsset else { return nil }
+                  image.role != .known(.siteMap),
+                  let asset = image.displayImageAsset(recordID: id) else { return nil }
             let priority: Int = switch asset.asset.role {
             case .poster: 0
             case .hero: 1
@@ -94,13 +95,94 @@ private extension Event {
             case .logo: 5
             case .siteMap: 6
             }
-            return (priority, DisplayImageAsset(asset: asset.asset, recordID: id))
+            return (priority, asset)
         }
     }
 }
 
-private extension OME.Image {
-    var displayImageAsset: DisplayImageAsset? {
+public extension Contributor {
+    var artworkDisplayImage: DisplayImageAsset? {
+        displayImages.first { $0.asset.role == .photo }
+            ?? displayImages.first { $0.asset.role == .logo }
+    }
+
+    var logoDisplayImage: DisplayImageAsset? {
+        displayImages.first { $0.asset.role == .logo }
+    }
+
+    var heroImageSources: [HeroImageSource] {
+        [
+            artworkDisplayImage.map(HeroImageSource.primaryImage),
+            logoDisplayImage.map(HeroImageSource.logo),
+        ].compactMap { $0 }
+    }
+
+    var heroImageTitleSources: [HeroImageTitleSource] {
+        [
+            logoDisplayImage.map(HeroImageTitleSource.logo),
+            .title,
+        ].compactMap { $0 }
+    }
+}
+
+private extension Contributor {
+    var displayImages: [DisplayImageAsset] {
+        (media ?? []).compactMap { medium in
+            guard case let .known(.image(image)) = medium,
+                  image.role == nil || image.role == .known(.photo) || image.role == .known(.logo)
+            else { return nil }
+            return image.displayImageAsset(recordID: event)
+        }
+    }
+}
+
+public extension EventPlace {
+    var heroImageSources: [HeroImageSource] {
+        (media ?? []).compactMap { medium in
+            guard case let .known(.image(image)) = medium,
+                  image.role != .known(.siteMap),
+                  let asset = image.displayImageAsset(recordID: event)
+            else { return nil }
+            let kind: HeroImageSource.Kind = asset.asset.role == .logo || asset.asset.role == .icon
+                ? .logo : .primaryImage
+            return HeroImageSource(kind, image: asset)
+        }
+    }
+
+    var heroImageTitleSources: [HeroImageTitleSource] {
+        [
+            stageLogoDisplayImage.map(HeroImageTitleSource.logo),
+            .title,
+        ].compactMap { $0 }
+    }
+
+    var stageLogoDisplayImage: DisplayImageAsset? {
+        (media ?? []).compactMap { medium -> DisplayImageAsset? in
+            guard case let .known(.image(image)) = medium,
+                  image.role == .known(.logo) || image.role == .known(.icon(.init()))
+            else { return nil }
+            return image.displayImageAsset(recordID: event)
+        }
+        .first
+    }
+}
+
+public extension ProgramItem {
+    var heroImageSources: [HeroImageSource] {
+        (media ?? []).compactMap { medium in
+            guard case let .known(.image(image)) = medium,
+                  image.role != .known(.siteMap),
+                  let asset = image.displayImageAsset(recordID: event)
+            else { return nil }
+            let kind: HeroImageSource.Kind = asset.asset.role == .logo || asset.asset.role == .icon
+                ? .logo : .primaryImage
+            return HeroImageSource(kind, image: asset)
+        }
+    }
+}
+
+public extension OME.Image {
+    func displayImageAsset(recordID: Event.ID) -> DisplayImageAsset? {
         let source: OME.ImageAsset.Source
         switch self.source {
         case let .known(.blob(blob)):
@@ -118,7 +200,7 @@ private extension OME.Image {
         case .known(.photo), .none, .unknown: role = .photo
         case .known(.icon): role = .icon
         case .known(.poster): role = .poster
-        case .known(.siteMap): return nil
+        case .known(.siteMap): role = .siteMap
         }
 
         let appearance: OME.ImageAsset.Appearance?
@@ -138,7 +220,8 @@ private extension OME.Image {
                 focalPoint: focalPoint.map {
                     OME.ImageAsset.FocalPoint(x: $0.x, y: $0.y)
                 }
-            )
+            ),
+            recordID: recordID
         )
     }
 }
@@ -217,26 +300,6 @@ public extension OME.Event {
                 .logo(DisplayImageAsset(asset: $0, cacheContext: context))
             },
         ].compactMap { $0 }
-    }
-
-    func heroImageSources(posters: [OME.Poster]) -> [HeroImageSource] {
-        let context = LocalImageCacheContext(eventID: id)
-        var sources = [HeroImageSource]()
-        if let hero = images?.imageAsset(role: .hero) {
-            sources.append(.primaryImage(DisplayImageAsset(asset: hero, cacheContext: context)))
-        }
-        sources.append(contentsOf: posters.map { poster in
-            .primaryImage(
-                DisplayImageAsset(
-                    asset: poster.image,
-                    cacheContext: .init(posterID: poster.id)
-                )
-            )
-        })
-        if let icon = images?.imageAsset(role: .icon) {
-            sources.append(.logo(DisplayImageAsset(asset: icon, cacheContext: context)))
-        }
-        return sources
     }
 
     var heroImageTitleSources: [HeroImageTitleSource] {

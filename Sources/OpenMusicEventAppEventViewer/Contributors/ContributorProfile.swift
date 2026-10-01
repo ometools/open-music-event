@@ -1,28 +1,28 @@
+import ATProto
+import ATProtoTypes
 import Bluesky
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import SQLiteData
 
 @Selection
 public struct ContributorProfile: Identifiable, Sendable {
-    let contributor: OMERecord.Contributor
-    let contributorActor: OMERecord.Contributor.Actor?
+    let contributor: Contributor
     let actorProfileHandle: String?
     let actorProfileDisplayName: String?
     let actorProfileDescription: String?
     let actorProfileAvatar: URL?
 
     init(
-        contributor: OMERecord.Contributor,
-        contributorActor: OMERecord.Contributor.Actor? = nil,
+        contributor: Contributor,
         actorProfileHandle: String? = nil,
         actorProfileDisplayName: String? = nil,
         actorProfileDescription: String? = nil,
         actorProfileAvatar: URL? = nil
     ) {
         self.contributor = contributor
-        self.contributorActor = contributorActor
         self.actorProfileHandle = actorProfileHandle
         self.actorProfileDisplayName = actorProfileDisplayName
         self.actorProfileDescription = actorProfileDescription
@@ -34,79 +34,34 @@ public struct ContributorProfile: Identifiable, Sendable {
         case bskyActorProfile
     }
 
-    public var id: OMERecord.Contributor.ID {
-        contributor.id
-    }
+    public var id: Contributor.ID { contributor.id }
+    var contributorID: Contributor.ID { contributor.id }
+    var contributorActor: DID? { contributor.subject }
 
-    var contributorID: OMERecord.ID<OMERecord.Contributor> {
-        contributor.id.contributorID
-    }
-
-    var name: String {
-        guard usesActorProfileAsPrimary else {
-            return contributor.name
-        }
-
-        return actorProfileDisplayName?.nilIfEmpty
-            ?? actorProfileHandle?.nilIfEmpty
-            ?? contributor.name
-    }
+    // The organizer-authored snapshot is primary. A subject DID is an assertion,
+    // not permission for the subject's current profile to overwrite this record.
+    var name: String { contributor.name }
+    var bio: String? { contributor.description?.nilIfEmpty }
 
     var handle: String? {
         guard let handle = actorProfileHandle?.nilIfEmpty,
               handle != name
         else { return nil }
-
         return handle
     }
 
-    var subtitle: String? {
-        handle.map { "@\($0)" }
-    }
-
-    var bio: String? {
-        guard usesActorProfileAsPrimary else {
-            return contributor.displayBio
-        }
-
-        return actorProfileDescription?.nilIfEmpty ?? contributor.displayBio
-    }
-
-    var artworkAsset: OMERecord.ImageAsset? {
-        if usesActorProfileAsPrimary {
-            return actorAvatarAsset ?? contributor.preferredArtworkAsset
-        }
-
-        return contributor.preferredArtworkAsset ?? actorAvatarAsset
-    }
-
-    var artworkCacheContext: LocalImageCacheContext? {
-        usesContributorArtwork ? .init(contributorID: contributor.id) : nil
-    }
+    var subtitle: String? { handle.map { "@\($0)" } }
 
     var artworkDisplayImage: DisplayImageAsset? {
-        artworkAsset.map {
-            DisplayImageAsset(asset: $0, cacheContext: artworkCacheContext)
-        }
+        contributor.artworkDisplayImage ?? actorAvatarDisplayImage
     }
 
-    var links: [ExternalPlatform.Link]? {
-        contributor.links
-    }
-
-    var logoAsset: OMERecord.ImageAsset? {
-        contributor.images?.imageAsset(role: .logo)
-    }
-
-    var logoCacheContext: LocalImageCacheContext? {
-        logoAsset == nil ? nil : .init(contributorID: contributor.id)
-    }
-
-    var logoDisplayImage: DisplayImageAsset? {
-        logoAsset.map {
-            DisplayImageAsset(asset: $0, cacheContext: logoCacheContext)
-        }
-    }
+    var artworkAsset: OME.ImageAsset? { artworkDisplayImage?.asset }
+    var artworkCacheContext: LocalImageCacheContext? { artworkDisplayImage?.cacheContext }
+    var logoDisplayImage: DisplayImageAsset? { contributor.logoDisplayImage }
+    var logoAsset: OME.ImageAsset? { logoDisplayImage?.asset }
+    var logoCacheContext: LocalImageCacheContext? { logoDisplayImage?.cacheContext }
+    var links: [OME.Link]? { contributor.links }
 
     var heroImageSources: [HeroImageSource] {
         [
@@ -122,19 +77,10 @@ public struct ContributorProfile: Identifiable, Sendable {
         ].compactMap { $0 }
     }
 
-    var usesActorProfileAsPrimary: Bool {
-        guard let contributorActor else {
-            return false
-        }
-
-        return contributor.isGeneratedScheduleActorContributor(
-            actor: contributorActor,
-            actorProfileHandle: actorProfileHandle
-        )
-    }
+    var usesActorProfileAsPrimary: Bool { false }
 
     var actorProfileLoadRequest: ActorProfileLoadRequest? {
-        contributorActor.map(ActorProfileLoadRequest.init)
+        contributor.subject.map { ActorProfileLoadRequest(actor: $0) }
     }
 
     func matchesSearch(_ query: String) -> Bool {
@@ -143,367 +89,115 @@ public struct ContributorProfile: Identifiable, Sendable {
             || bio?.localizedStandardContains(query) == true
     }
 
-    private var actorAvatarAsset: OMERecord.ImageAsset? {
-        guard let actorProfileAvatar else {
-            return nil
-        }
-
-        return OMERecord.ImageAsset(
-            source: .url(actorProfileAvatar),
-            role: .photo,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy
+    private var actorAvatarDisplayImage: DisplayImageAsset? {
+        guard let actorProfileAvatar else { return nil }
+        return DisplayImageAsset(
+            asset: OME.ImageAsset(
+                source: .url(actorProfileAvatar),
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
         )
     }
 
-    private var usesContributorArtwork: Bool {
-        guard contributor.preferredArtworkAsset != nil else {
-            return false
-        }
-
-        return !usesActorProfileAsPrimary || actorAvatarAsset == nil
-    }
-
     struct ActorProfileLoadRequest: Equatable, Sendable {
-        var actor: OMERecord.Contributor.Actor
+        var actor: DID
     }
 }
 
 extension ContributorProfile {
     static func all(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         hydration: Hydration
     ) -> some Statement<ContributorProfile> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
+        Contributor
+            .where { $0.event.eq(eventID) }
             .order { $0.name.collate(.nocase) }
             .select { contributor -> ContributorProfile.Columns in
-                Self.eventColumns(
-                    contributor: contributor,
-                    eventID: eventID,
-                    hydration: hydration
-                )
+                columns(contributor: contributor, hydration: hydration)
             }
     }
 
     static func one(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        eventID: OMERecord.Event.ID,
+        contributorID: Contributor.ID,
+        eventID: Event.ID,
         hydration: Hydration
     ) -> some Statement<ContributorProfile> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.contributorID.eq(contributorID) }
+        Contributor
+            .where { $0.id.eq(contributorID) }
+            .where { $0.event.eq(eventID) }
             .select { contributor -> ContributorProfile.Columns in
-                Self.eventColumns(
-                    contributor: contributor,
-                    eventID: eventID,
-                    hydration: hydration
-                )
+                columns(contributor: contributor, hydration: hydration)
             }
     }
 
-    static func forPerformance(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
+    static func forProgramItem(
+        programItemID: ProgramItem.ID,
+        eventID: Event.ID,
         hydration: Hydration
     ) -> some Statement<ContributorProfile> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { contributor in
-                OMERecord.Performance.Contributors
-                    .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-                    .where { $0.performanceID.eventID.eq(eventID.eventID) }
-                    .where { $0.performanceID.performanceID.eq(performanceID) }
-                    .where { $0.contributorID.eq(contributor.id.contributorID) }
-                    .exists()
+        let contributorTable = Contributor.tableName
+        let itemTable = ProgramItem.tableName
+        return Contributor
+            .where { $0.event.eq(eventID) }
+            .where { _ in
+                #sql(
+                    """
+                    EXISTS (
+                      SELECT 1
+                      FROM \(quote: itemTable) AS "item"
+                      JOIN json_each("item"."credits") AS "credit"
+                      WHERE "item"."id" = \(programItemID)
+                        AND "item"."event" = \(eventID)
+                        AND json_extract("credit"."value", '$.contributor') = \(quote: contributorTable)."id"
+                    )
+                    """,
+                    as: Bool.self
+                )
             }
             .order { $0.name.collate(.nocase) }
             .select { contributor -> ContributorProfile.Columns in
-                Self.performanceColumns(
-                    contributor: contributor,
-                    performanceID: performanceID,
-                    eventID: eventID,
-                    hydration: hydration
-                )
+                columns(contributor: contributor, hydration: hydration)
             }
     }
 
-    fileprivate static func eventColumns(
-        contributor: OMERecord.Contributor.TableColumns,
-        eventID: OMERecord.Event.ID,
+    fileprivate static func columns(
+        contributor: Contributor.TableColumns,
         hydration: Hydration
     ) -> ContributorProfile.Columns {
         switch hydration {
         case .none:
             ContributorProfile.Columns(
                 contributor: contributor,
-                contributorActor: eventContributorActorExpression(eventID: eventID),
-                actorProfileHandle: nullStringExpression(),
-                actorProfileDisplayName: nullStringExpression(),
-                actorProfileDescription: nullStringExpression(),
-                actorProfileAvatar: nullURLExpression()
+                actorProfileHandle: #sql("NULL", as: String?.self),
+                actorProfileDisplayName: #sql("NULL", as: String?.self),
+                actorProfileDescription: #sql("NULL", as: String?.self),
+                actorProfileAvatar: #sql("NULL", as: URL?.self)
             )
-
         case .bskyActorProfile:
             ContributorProfile.Columns(
                 contributor: contributor,
-                contributorActor: eventContributorActorExpression(eventID: eventID),
-                actorProfileHandle: eventActorProfileHandleExpression(eventID: eventID),
-                actorProfileDisplayName: eventActorProfileDisplayNameExpression(eventID: eventID),
-                actorProfileDescription: eventActorProfileDescriptionExpression(eventID: eventID),
-                actorProfileAvatar: eventActorProfileAvatarExpression(eventID: eventID)
+                actorProfileHandle: actorProfileExpression("handle", as: String?.self),
+                actorProfileDisplayName: actorProfileExpression("displayName", as: String?.self),
+                actorProfileDescription: actorProfileExpression("description", as: String?.self),
+                actorProfileAvatar: actorProfileExpression("avatar", as: URL?.self)
             )
         }
     }
 
-    private static func performanceColumns(
-        contributor: OMERecord.Contributor.TableColumns,
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
-        hydration: Hydration
-    ) -> ContributorProfile.Columns {
-        switch hydration {
-        case .none:
-            ContributorProfile.Columns(
-                contributor: contributor,
-                contributorActor: performanceContributorActorExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                ),
-                actorProfileHandle: nullStringExpression(),
-                actorProfileDisplayName: nullStringExpression(),
-                actorProfileDescription: nullStringExpression(),
-                actorProfileAvatar: nullURLExpression()
-            )
-
-        case .bskyActorProfile:
-            ContributorProfile.Columns(
-                contributor: contributor,
-                contributorActor: performanceContributorActorExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                ),
-                actorProfileHandle: performanceActorProfileHandleExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                ),
-                actorProfileDisplayName: performanceActorProfileDisplayNameExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                ),
-                actorProfileDescription: performanceActorProfileDescriptionExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                ),
-                actorProfileAvatar: performanceActorProfileAvatarExpression(
-                    performanceID: performanceID,
-                    eventID: eventID
-                )
-            )
-        }
-    }
-
-    private static func nullStringExpression() -> some QueryExpression<String?> {
-        #sql("NULL", as: String?.self)
-    }
-
-    private static func nullURLExpression() -> some QueryExpression<URL?> {
-        #sql("NULL", as: URL?.self)
-    }
-
-    private static func eventContributorActorExpression(
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
-        let contributorTableName = OMERecord.Contributor.tableName
-        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
-        return #sql(
-            """
-            COALESCE(
-              \(quote: contributorTableName)."did",
-              (
-              SELECT \(quote: performanceContributorsTableName)."contributorActor"
-              FROM \(quote: performanceContributorsTableName)
-              WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
-                AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
-                AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
-                AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
-              ORDER BY \(quote: performanceContributorsTableName)."performanceID"
-              LIMIT 1
-              )
-            )
-            """,
-            as: OMERecord.Contributor.Actor?.self
-        )
-    }
-
-    private static func performanceContributorActorExpression(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
-        let contributorTableName = OMERecord.Contributor.tableName
-        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
-        return #sql(
-            """
-            COALESCE(
-              \(quote: contributorTableName)."did",
-              (
-              SELECT \(quote: performanceContributorsTableName)."contributorActor"
-              FROM \(quote: performanceContributorsTableName)
-              WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
-                AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
-                AND \(quote: performanceContributorsTableName)."performanceID" = \(performanceID)
-                AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
-                AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
-              LIMIT 1
-              )
-            )
-            """,
-            as: OMERecord.Contributor.Actor?.self
-        )
-    }
-
-    private static func eventActorProfileHandleExpression(
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        eventActorProfileExpression("handle", eventID: eventID, as: String?.self)
-    }
-
-    private static func eventActorProfileDisplayNameExpression(
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        eventActorProfileExpression("displayName", eventID: eventID, as: String?.self)
-    }
-
-    private static func eventActorProfileDescriptionExpression(
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        eventActorProfileExpression("description", eventID: eventID, as: String?.self)
-    }
-
-    private static func eventActorProfileAvatarExpression(
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<URL?> {
-        eventActorProfileExpression("avatar", eventID: eventID, as: URL?.self)
-    }
-
-    private static func performanceActorProfileHandleExpression(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        performanceActorProfileExpression(
-            "handle",
-            performanceID: performanceID,
-            eventID: eventID,
-            as: String?.self
-        )
-    }
-
-    private static func performanceActorProfileDisplayNameExpression(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        performanceActorProfileExpression(
-            "displayName",
-            performanceID: performanceID,
-            eventID: eventID,
-            as: String?.self
-        )
-    }
-
-    private static func performanceActorProfileDescriptionExpression(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<String?> {
-        performanceActorProfileExpression(
-            "description",
-            performanceID: performanceID,
-            eventID: eventID,
-            as: String?.self
-        )
-    }
-
-    private static func performanceActorProfileAvatarExpression(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some QueryExpression<URL?> {
-        performanceActorProfileExpression(
-            "avatar",
-            performanceID: performanceID,
-            eventID: eventID,
-            as: URL?.self
-        )
-    }
-
-    private static func eventActorProfileExpression<Value>(
-        _ columnName: String,
-        eventID: OMERecord.Event.ID,
+    private static func actorProfileExpression<Value>(
+        _ column: String,
         as type: Value.Type
     ) -> some QueryExpression<Value> {
-        let actorProfileCacheEntriesTableName = BlueskyActorProfileCacheEntry.tableName
-        let actorProfilesTableName = BlueskyActorProfile.tableName
-        let contributorTableName = OMERecord.Contributor.tableName
-        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
+        let profileTable = BlueskyActorProfile.tableName
+        let contributorTable = Contributor.tableName
         return #sql(
             """
             (
-              SELECT \(quote: actorProfilesTableName).\(raw: columnName)
-              FROM \(quote: actorProfileCacheEntriesTableName)
-              JOIN \(quote: actorProfilesTableName)
-                ON \(quote: actorProfilesTableName)."did" = \(quote: actorProfileCacheEntriesTableName)."did"
-              WHERE \(quote: actorProfileCacheEntriesTableName)."actor" = COALESCE(
-                \(quote: contributorTableName)."did",
-                (
-                SELECT \(quote: performanceContributorsTableName)."contributorActor"
-                FROM \(quote: performanceContributorsTableName)
-                WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
-                  AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
-                  AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
-                  AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
-                ORDER BY \(quote: performanceContributorsTableName)."performanceID"
-                LIMIT 1
-                )
-              )
-              LIMIT 1
-            )
-            """,
-            as: type
-        )
-    }
-
-    private static func performanceActorProfileExpression<Value>(
-        _ columnName: String,
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
-        as type: Value.Type
-    ) -> some QueryExpression<Value> {
-        let actorProfileCacheEntriesTableName = BlueskyActorProfileCacheEntry.tableName
-        let actorProfilesTableName = BlueskyActorProfile.tableName
-        let contributorTableName = OMERecord.Contributor.tableName
-        let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
-        return #sql(
-            """
-            (
-              SELECT \(quote: actorProfilesTableName).\(raw: columnName)
-              FROM \(quote: actorProfileCacheEntriesTableName)
-              JOIN \(quote: actorProfilesTableName)
-                ON \(quote: actorProfilesTableName)."did" = \(quote: actorProfileCacheEntriesTableName)."did"
-              WHERE \(quote: actorProfileCacheEntriesTableName)."actor" = COALESCE(
-                \(quote: contributorTableName)."did",
-                (
-                SELECT \(quote: performanceContributorsTableName)."contributorActor"
-                FROM \(quote: performanceContributorsTableName)
-                WHERE \(quote: performanceContributorsTableName)."organizerID" = \(eventID.organizerID)
-                  AND \(quote: performanceContributorsTableName)."eventID" = \(eventID.eventID)
-                  AND \(quote: performanceContributorsTableName)."performanceID" = \(performanceID)
-                  AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
-                  AND \(quote: performanceContributorsTableName)."contributorActor" IS NOT NULL
-                LIMIT 1
-                )
-              )
+              SELECT \(quote: profileTable).\(raw: column)
+              FROM \(quote: profileTable)
+              WHERE \(quote: profileTable)."did" = \(quote: contributorTable)."subject"
               LIMIT 1
             )
             """,
@@ -515,30 +209,10 @@ extension ContributorProfile {
 @Selection
 struct ContributorListRow: Identifiable, Sendable {
     let profile: ContributorProfile
-    @Column(as: [OMERecord.Stage].JSONRepresentation.self)
-    let scheduledStages: [OMERecord.Stage]
-    @Column(as: [OMERecord.Stage].JSONRepresentation.self)
-    let eventStages: [OMERecord.Stage]
 
-    var id: OMERecord.Contributor.ID {
-        profile.id
-    }
-
-    var contributorID: OMERecord.ID<OMERecord.Contributor> {
-        profile.contributorID
-    }
-
-    var contributor: OMERecord.Contributor {
-        profile.contributor
-    }
-
-    var stageContext: ContributorStageContext {
-        ContributorStageContext(
-            contributorID: contributorID,
-            scheduledStages: scheduledStages,
-            stages: eventStages
-        )
-    }
+    var id: Contributor.ID { profile.id }
+    var contributorID: Contributor.ID { profile.contributorID }
+    var contributor: Contributor { profile.contributor }
 
     func matchesSearch(_ query: String) -> Bool {
         profile.matchesSearch(query)
@@ -547,54 +221,18 @@ struct ContributorListRow: Identifiable, Sendable {
 
 extension ContributorListRow {
     static func all(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         hydration: ContributorProfile.Hydration
     ) -> some Statement<ContributorListRow> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
+        Contributor
+            .where { $0.event.eq(eventID) }
             .order { $0.name.collate(.nocase) }
-            .leftJoin(OMERecord.Stage.all) { contributor, stage in
-                stage.id.organizerID.eq(eventID.organizerID)
-                    .and(stage.id.eventID.eq(eventID.eventID))
-            }
-            .group(by: { contributor, _ in
-                contributor.id
-            })
-            .select { contributor, stage -> ContributorListRow.Columns in
-                let contributorTableName = OMERecord.Contributor.tableName
-                let performanceContributorsTableName = OMERecord.Performance.Contributors.tableName
-                let performanceTableName = OMERecord.Performance.tableName
-                let stageTableName = OMERecord.Stage.tableName
-                let isScheduledStage = #sql(
-                    """
-                    EXISTS (
-                      SELECT 1
-                      FROM \(quote: performanceTableName) AS "performances"
-                      JOIN \(quote: performanceContributorsTableName)
-                        ON \(quote: performanceContributorsTableName)."organizerID" = "performances"."organizerID"
-                        AND \(quote: performanceContributorsTableName)."eventID" = "performances"."eventID"
-                        AND \(quote: performanceContributorsTableName)."performanceID" = "performances"."performanceID"
-                      WHERE "performances"."organizerID" = \(eventID.organizerID)
-                        AND "performances"."eventID" = \(eventID.eventID)
-                        AND "performances"."stageID" = \(quote: stageTableName)."stageID"
-                        AND \(quote: performanceContributorsTableName)."contributorID" = \(quote: contributorTableName)."contributorID"
-                    )
-                    """,
-                    as: Bool.self
-                )
-
-                return ContributorListRow.Columns(
-                    profile: ContributorProfile.eventColumns(
+            .select { contributor -> ContributorListRow.Columns in
+                ContributorListRow.Columns(
+                    profile: ContributorProfile.columns(
                         contributor: contributor,
-                        eventID: eventID,
                         hydration: hydration
-                    ),
-                    scheduledStages: stage.jsonGroupArray(
-                        distinct: true,
-                        filter: isScheduledStage
-                    ),
-                    eventStages: stage.jsonGroupArray(distinct: true)
+                    )
                 )
             }
     }
@@ -602,13 +240,12 @@ extension ContributorListRow {
 
 extension Collection where Element == ContributorProfile {
     var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
-        var actors: Set<OMERecord.Contributor.Actor> = []
+        var actors: Set<DID> = []
         var requests: [ContributorProfile.ActorProfileLoadRequest] = []
         for profile in self {
             guard let request = profile.actorProfileLoadRequest,
                   actors.insert(request.actor).inserted
             else { continue }
-
             requests.append(request)
         }
         return requests

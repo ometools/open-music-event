@@ -149,20 +149,13 @@ public enum OpenMusicEventAppViewServer {
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<Context> {
         let router = Router(context: context, options: [.autoGenerateHeadEndpoints])
-        let openMusicEventCatalog = OpenMusicEventCalendarCatalog(
-            appViewHost: configuration.publicAppViewHost,
-            tangledWebhook: configuration.tangledWebhook,
-            store: store
-        )
-
         installCommsPostRoutes(
             on: router,
             submission: commsPostSubmission
         )
         installCalendarEventRoutes(
             on: router,
-            store: store,
-            openMusicEventCatalog: openMusicEventCatalog
+            store: store
         )
         installWorkspaceProposalRoutes(
             on: router,
@@ -189,7 +182,6 @@ public enum OpenMusicEventAppViewServer {
             ),
             staticSiteFiles: StaticSiteFiles(rootDirectory: configuration.siteRoot),
             wellKnownFiles: WellKnownFiles(rootDirectory: configuration.wellKnownRoot),
-            openMusicEventCatalog: openMusicEventCatalog,
             store: store
         )
 

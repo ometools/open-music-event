@@ -1,8 +1,10 @@
+import ATProtoTypes
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import SwiftUI
 
 #if !SKIP && canImport(AppKit)
@@ -16,7 +18,7 @@ import UIKit
 @Feature
 public struct ImageInfo {
     public init(
-        onSave: @escaping (State.ID, OMERecord.ImageAsset) throws -> Void = { _, _ in }
+        onSave: @escaping (State.ID, OME.Image) throws -> Void = { _, _ in }
     ) {
         self.onSave = onSave
     }
@@ -24,22 +26,22 @@ public struct ImageInfo {
     public struct State: Equatable, Identifiable, Sendable {
         public init(
             id: UUID = UUID(),
-            asset: OMERecord.ImageAsset,
-            configuration: Configuration = .allImageAssets,
+            image: OME.Image,
+            configuration: Configuration = .allImages,
             sourceLabel: String? = nil,
-            cacheContext: LocalImageCacheContext? = nil,
+            recordID: Event.ID? = nil,
             previewData: Data? = nil
         ) {
             self.id = id
-            self.asset = asset
+            self.image = image
             self.configuration = configuration
             self.sourceLabel = sourceLabel
-            self.cacheContext = cacheContext
+            self.recordID = recordID
             self.previewData = previewData
         }
 
-        public var asset: OMERecord.ImageAsset
-        public var cacheContext: LocalImageCacheContext?
+        public var image: OME.Image
+        public var recordID: Event.ID?
         public var configuration: Configuration
         public var errorMessage: String?
         public var id: UUID
@@ -47,8 +49,8 @@ public struct ImageInfo {
         public var previewData: Data?
         public var sourceLabel: String?
 
-        var appearanceOptions: [OMERecord.ImageAsset.Appearance] {
-            OMERecord.ImageAsset.Appearance.allCases
+        var appearanceOptions: [OME.Image.Appearance] {
+            OME.Image.Appearance.allCases
         }
 
         var canSave: Bool {
@@ -56,24 +58,67 @@ public struct ImageInfo {
         }
 
         var canEditFocusPoint: Bool {
-            asset.renderKind == .fullImage
+            image.renderingMode != .known(.template)
         }
 
-        var materializationPolicyOptions: [OMERecord.ImageAsset.MaterializationPolicy] {
-            configuration.materializationPolicyOptions(including: asset.materializationPolicy)
+        var renderingModeOptions: [OME.Image.RenderingMode] {
+            configuration.renderingModeOptions(including: image.renderingMode)
         }
 
-        var renderKindOptions: [OMERecord.ImageAsset.RenderKind] {
-            configuration.renderKindOptions(including: asset.renderKind)
+        var roleOptions: [OME.Image.Role] {
+            configuration.roleOptions(including: image.role)
         }
 
-        var roleOptions: [OMERecord.ImageAsset.Role] {
-            configuration.roleOptions(including: asset.role)
+        var roleRawValue: String {
+            get {
+                guard case let .known(role) = image.role else { return "" }
+                return role.rawValue
+            }
+            set { image.role = OME.Image.Role(rawValue: newValue).map(Open.known) }
+        }
+
+        var renderingModeRawValue: String {
+            get {
+                guard case let .known(mode) = image.renderingMode else { return "" }
+                return mode.rawValue
+            }
+            set {
+                guard let mode = OME.Image.RenderingMode(rawValue: newValue) else { return }
+                image.renderingMode = .known(mode)
+            }
+        }
+
+        var appearanceRawValue: String? {
+            get {
+                guard case let .known(appearance) = image.appearance else { return nil }
+                return appearance.rawValue
+            }
+            set { image.appearance = newValue.flatMap(OME.Image.Appearance.init(rawValue:)).map(Open.known) }
+        }
+
+        var title: String {
+            get { image.title ?? "" }
+            set {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                image.title = trimmed.isEmpty ? nil : trimmed
+            }
+        }
+
+        var alt: String {
+            get { image.alt?.rawValue ?? "" }
+            set {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                image.alt = trimmed.isEmpty ? nil : OME.AltText(rawValue: trimmed)
+            }
         }
 
         var sourceDescription: String? {
-            sourceLabel
-                ?? asset.url?.absoluteString
+            if let sourceLabel { return sourceLabel }
+            guard case let .known(source) = image.source else { return nil }
+            switch source {
+            case let .url(url): return url.absoluteString
+            case let .blob(blob): return blob.ref.rawValue
+            }
         }
     }
 
@@ -82,7 +127,7 @@ public struct ImageInfo {
         case saveButtonTapped
     }
 
-    let onSave: (State.ID, OMERecord.ImageAsset) throws -> Void
+    let onSave: (State.ID, OME.Image) throws -> Void
 
     public var body: some Feature {
         Update { state, action in
@@ -95,14 +140,14 @@ public struct ImageInfo {
             case .saveButtonTapped:
                 guard state.canSave else { return }
 
-                let asset = state.asset
+                let image = state.image
                 let id = state.id
                 state.errorMessage = nil
                 state.isSaving = true
 
                 store.addTask {
                     do {
-                        try onSave(id, asset)
+                        try onSave(id, image)
                         try store.dismiss()
                     } catch {
                         try store.modify {
@@ -119,125 +164,80 @@ public struct ImageInfo {
 public extension ImageInfo {
     struct Configuration: Equatable, Sendable {
         public init(
-            allowedRoles: [OMERecord.ImageAsset.Role] = OMERecord.ImageAsset.Role.allCases,
-            allowedRenderKinds: [OMERecord.ImageAsset.RenderKind] = OMERecord.ImageAsset.RenderKind.allCases,
+            allowedRoles: [OME.Image.Role] = OME.Image.Role.allCases,
+            allowedRenderingModes: [OME.Image.RenderingMode] = [.original, .template],
             allowsAppearance: Bool = true,
-            allowsMaterializationPolicy: Bool = true,
-            allowedMaterializationPolicies: [OMERecord.ImageAsset.MaterializationPolicy] = OMERecord.ImageAsset.MaterializationPolicy.allCases
+            showsTitle: Bool = true
         ) {
             self.allowedRoles = allowedRoles
-            self.allowedRenderKinds = allowedRenderKinds
+            self.allowedRenderingModes = allowedRenderingModes
             self.allowsAppearance = allowsAppearance
-            self.allowsMaterializationPolicy = allowsMaterializationPolicy
-            self.allowedMaterializationPolicies = allowedMaterializationPolicies
+            self.showsTitle = showsTitle
         }
 
-        public var allowedMaterializationPolicies: [OMERecord.ImageAsset.MaterializationPolicy]
-        public var allowedRenderKinds: [OMERecord.ImageAsset.RenderKind]
-        public var allowedRoles: [OMERecord.ImageAsset.Role]
+        public var allowedRenderingModes: [OME.Image.RenderingMode]
+        public var allowedRoles: [OME.Image.Role]
         public var allowsAppearance: Bool
-        public var allowsMaterializationPolicy: Bool
+        public var showsTitle: Bool
 
-        public static var allImageAssets: Self {
+        public static var allImages: Self {
             Self()
-        }
-
-        public static var calendarHero: Self {
-            Self(
-                allowedRoles: [.hero],
-                allowedRenderKinds: [.fullImage],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
-            )
-        }
-
-        public static var calendarLogo: Self {
-            Self(
-                allowedRoles: [.logo],
-                allowedRenderKinds: [.transparent],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
-            )
         }
 
         public static var posters: Self {
             Self(
                 allowedRoles: [.poster],
-                allowedRenderKinds: [.fullImage],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
+                allowedRenderingModes: [.original]
             )
         }
 
         public static var contributorLogo: Self {
             Self(
                 allowedRoles: [.logo],
-                allowedRenderKinds: [.transparent],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
+                allowedRenderingModes: [.template]
             )
         }
 
         public static var contributorPhoto: Self {
             Self(
                 allowedRoles: [.photo],
-                allowedRenderKinds: [.fullImage],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
+                allowedRenderingModes: [.original]
             )
         }
 
         public static var stageHero: Self {
             Self(
                 allowedRoles: [.hero],
-                allowedRenderKinds: [.fullImage],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.prefetchOnOpen]
+                allowedRenderingModes: [.original]
             )
         }
 
         public static var stageLogo: Self {
             Self(
                 allowedRoles: [.logo],
-                allowedRenderKinds: [.transparent],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.prefetchOnOpen]
+                allowedRenderingModes: [.template]
             )
         }
 
         public static var stagePoster: Self {
             Self(
                 allowedRoles: [.poster],
-                allowedRenderKinds: [.fullImage],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: false,
-                allowedMaterializationPolicies: [.lazy]
+                allowedRenderingModes: [.original]
             )
         }
 
-        func materializationPolicyOptions(
-            including policy: OMERecord.ImageAsset.MaterializationPolicy
-        ) -> [OMERecord.ImageAsset.MaterializationPolicy] {
-            allowedMaterializationPolicies.including(policy)
-        }
-
-        func renderKindOptions(
-            including renderKind: OMERecord.ImageAsset.RenderKind
-        ) -> [OMERecord.ImageAsset.RenderKind] {
-            allowedRenderKinds.including(renderKind)
+        func renderingModeOptions(
+            including mode: Open<OME.Image.RenderingMode>
+        ) -> [OME.Image.RenderingMode] {
+            guard case let .known(mode) = mode else { return allowedRenderingModes }
+            return allowedRenderingModes.including(mode)
         }
 
         func roleOptions(
-            including role: OMERecord.ImageAsset.Role
-        ) -> [OMERecord.ImageAsset.Role] {
-            allowedRoles.including(role)
+            including role: Open<OME.Image.Role>?
+        ) -> [OME.Image.Role] {
+            guard case let .known(role) = role else { return allowedRoles }
+            return allowedRoles.including(role)
         }
     }
 }
@@ -291,49 +291,42 @@ public struct ImageInfoEditorSection: View {
                 LabeledContent("Source", value: sourceDescription)
             }
 
-            if store.roleOptions.count > 1 {
-                Picker("Type", selection: $store.asset.role) {
-                    ForEach(store.roleOptions, id: \.self) { role in
-                        Text(role.imageInfoTitle)
-                            .tag(role)
-                    }
-                }
-            } else {
-                LabeledContent("Type", value: store.asset.role.imageInfoTitle)
+            if store.configuration.showsTitle {
+                TextField("Title", text: $store.title)
             }
 
-            if store.renderKindOptions.count > 1 {
-                Picker("Render", selection: $store.asset.renderKind) {
-                    ForEach(store.renderKindOptions, id: \.self) { renderKind in
-                        Text(renderKind.imageInfoTitle)
-                            .tag(renderKind)
+            TextField("Alt Text", text: $store.alt, axis: .vertical)
+
+            if store.roleOptions.count > 1 {
+                Picker("Type", selection: $store.roleRawValue) {
+                    ForEach(store.roleOptions, id: \.rawValue) { role in
+                        Text(role.imageInfoTitle)
+                            .tag(role.rawValue)
                     }
                 }
             } else {
-                LabeledContent("Render", value: store.asset.renderKind.imageInfoTitle)
+                LabeledContent("Type", value: store.roleOptions.first?.imageInfoTitle ?? "Other")
+            }
+
+            if store.renderingModeOptions.count > 1 {
+                Picker("Render", selection: $store.renderingModeRawValue) {
+                    ForEach(store.renderingModeOptions, id: \.rawValue) { mode in
+                        Text(mode.imageInfoTitle)
+                            .tag(mode.rawValue)
+                    }
+                }
+            } else {
+                LabeledContent("Render", value: store.renderingModeOptions.first?.imageInfoTitle ?? "Other")
             }
 
             if store.configuration.allowsAppearance {
-                Picker("Appearance", selection: $store.asset.appearance) {
+                Picker("Appearance", selection: $store.appearanceRawValue) {
                     Text("Any")
-                        .tag(nil as OMERecord.ImageAsset.Appearance?)
-                    ForEach(store.appearanceOptions, id: \.self) { appearance in
+                        .tag(nil as String?)
+                    ForEach(store.appearanceOptions, id: \.rawValue) { appearance in
                         Text(appearance.imageInfoTitle)
-                            .tag(appearance as OMERecord.ImageAsset.Appearance?)
+                            .tag(appearance.rawValue as String?)
                     }
-                }
-            }
-
-            if store.configuration.allowsMaterializationPolicy {
-                if store.materializationPolicyOptions.count > 1 {
-                    Picker("Import", selection: $store.asset.materializationPolicy) {
-                        ForEach(store.materializationPolicyOptions, id: \.self) { policy in
-                            Text(policy.imageInfoTitle)
-                                .tag(policy)
-                        }
-                    }
-                } else {
-                    LabeledContent("Import", value: store.asset.materializationPolicy.imageInfoTitle)
                 }
             }
         }
@@ -341,8 +334,8 @@ public struct ImageInfoEditorSection: View {
         if store.canEditFocusPoint {
             Section("Focus") {
                 ImageFocusPointEditor(
-                    asset: $store.asset,
-                    cacheContext: store.cacheContext,
+                    image: $store.image,
+                    recordID: store.recordID,
                     previewData: store.previewData
                 )
             }
@@ -359,15 +352,15 @@ public struct ImageInfoEditorSection: View {
 }
 
 struct ImageFocusPointEditor: View {
-    @Binding var asset: OMERecord.ImageAsset
-    let cacheContext: LocalImageCacheContext?
+    @Binding var image: OME.Image
+    let recordID: Event.ID?
     let previewData: Data?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ImageFocusPointPreview(
-                asset: $asset,
-                cacheContext: cacheContext,
+                image: $image,
+                recordID: recordID,
                 previewData: previewData
             )
             .frame(height: 220)
@@ -379,26 +372,26 @@ struct ImageFocusPointEditor: View {
                 Spacer()
 
                 Button {
-                    asset.focalPoint = nil
+                    image.focalPoint = nil
                 } label: {
                     Label("Clear Focus", systemImage: "xmark.circle")
                 }
                 .buttonStyle(.borderless)
-                .disabled(asset.focalPoint == nil)
+                .disabled(image.focalPoint == nil)
             }
         }
         .padding(.vertical, 4)
     }
 
     var focusPointDescription: String {
-        guard let focalPoint = asset.focalPoint else { return "Center" }
+        guard let focalPoint = image.focalPoint else { return "Center" }
         return "\(Int((focalPoint.x * 100).rounded()))%, \(Int((focalPoint.y * 100).rounded()))%"
     }
 }
 
 struct ImageFocusPointPreview: View {
-    @Binding var asset: OMERecord.ImageAsset
-    let cacheContext: LocalImageCacheContext?
+    @Binding var image: OME.Image
+    let recordID: Event.ID?
     let previewData: Data?
     @State var intrinsicSize: CGSize?
 
@@ -411,8 +404,8 @@ struct ImageFocusPointPreview: View {
                     .fill(.secondary.opacity(0.12))
 
                 ImageFocusPreviewImage(
-                    asset: asset,
-                    cacheContext: cacheContext,
+                    image: image,
+                    recordID: recordID,
                     previewData: previewData,
                     intrinsicSize: $intrinsicSize
                 )
@@ -451,7 +444,7 @@ struct ImageFocusPointPreview: View {
 
     func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
         guard imageRect.width > 0, imageRect.height > 0 else { return }
-        asset.focalPoint = OMERecord.ImageAsset.FocalPoint(
+        image.focalPoint = OME.Image.FocalPoint(
             x: Double(((location.x - imageRect.minX) / imageRect.width).clamped(to: 0...1)),
             y: Double(((location.y - imageRect.minY) / imageRect.height).clamped(to: 0...1))
         )
@@ -459,7 +452,7 @@ struct ImageFocusPointPreview: View {
 
     @ViewBuilder
     func focusMarker(in imageRect: CGRect) -> some View {
-        let focalPoint = asset.focalPoint ?? OMERecord.ImageAsset.FocalPoint(x: 0.5, y: 0.5)
+        let focalPoint = image.focalPoint ?? OME.Image.FocalPoint(x: 0.5, y: 0.5)
         let position = CGPoint(
             x: imageRect.minX + CGFloat(focalPoint.x) * imageRect.width,
             y: imageRect.minY + CGFloat(focalPoint.y) * imageRect.height
@@ -485,8 +478,8 @@ struct ImageFocusPointPreview: View {
 }
 
 struct ImageFocusPreviewImage: View {
-    let asset: OMERecord.ImageAsset
-    let cacheContext: LocalImageCacheContext?
+    let image: OME.Image
+    let recordID: Event.ID?
     let previewData: Data?
     @Binding var intrinsicSize: CGSize?
 
@@ -536,8 +529,7 @@ struct ImageFocusPreviewImage: View {
 
     var storedImage: some View {
         ImageAssetAsyncImage(
-            asset: asset,
-            cacheContext: cacheContext,
+            image: recordID.flatMap { image.displayImageAsset(recordID: $0) },
             contentMode: .fit,
             onIntrinsicSizeLoaded: { intrinsicSize in
                 self.intrinsicSize = intrinsicSize
@@ -562,7 +554,7 @@ private extension Comparable {
     }
 }
 
-private extension OMERecord.ImageAsset.Appearance {
+private extension OME.Image.Appearance {
     var imageInfoTitle: String {
         switch self {
         case .dark:
@@ -573,29 +565,18 @@ private extension OMERecord.ImageAsset.Appearance {
     }
 }
 
-private extension OMERecord.ImageAsset.MaterializationPolicy {
+private extension OME.Image.RenderingMode {
     var imageInfoTitle: String {
         switch self {
-        case .lazy:
-            return "Lazy"
-        case .prefetchOnOpen:
-            return "Prefetch"
+        case .original:
+            return "Original"
+        case .template:
+            return "Template"
         }
     }
 }
 
-private extension OMERecord.ImageAsset.RenderKind {
-    var imageInfoTitle: String {
-        switch self {
-        case .fullImage:
-            return "Full Image"
-        case .transparent:
-            return "Transparent"
-        }
-    }
-}
-
-private extension OMERecord.ImageAsset.Role {
+private extension OME.Image.Role {
     var imageInfoTitle: String {
         switch self {
         case .hero:

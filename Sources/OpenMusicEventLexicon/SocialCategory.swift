@@ -31,6 +31,10 @@ extension Social {
         @Column(as: [Open<OME.Media>].JSONRepresentation?.self)
         public var media: [Open<OME.Media>]? = nil
 
+        @LexiconField(description: "Posts the organizer has pinned in this category, in display order.", minLength: 1)
+        @Column(as: [ATProto.URI].JSONRepresentation?.self)
+        public var pinnedPosts: [Social.Post.ID]? = nil
+
         @LexiconField(description: "The organizer's default subscription choice for attendees who have not made a choice. Omitted means unspecified.")
         public var defaultNotificationState: Open<NotificationState>? = nil
 
@@ -48,6 +52,13 @@ extension Social {
             }
             if notificationsRequired == true, defaultNotificationState == .known(.unsubscribed) {
                 throw ValidationError("Required notifications cannot have an unsubscribed default", path: ["defaultNotificationState"])
+            }
+            var seenPinnedPosts: Set<Social.Post.ID> = []
+            for (index, postID) in (pinnedPosts ?? []).enumerated() {
+                try LexiconCoding.validateRecordURI(postID, type: Social.Post.self)
+                guard seenPinnedPosts.insert(postID).inserted else {
+                    throw ValidationError("A pinned post cannot be repeated", path: ["pinnedPosts", String(index)])
+                }
             }
             for (index, item) in (media ?? []).enumerated() {
                 if case .known(.image(let image)) = item {
@@ -75,7 +86,7 @@ extension Social {
 
 extension Social.Category {
     @Lexicon("social.ome.defs#notificationState", type: .string, description: "A known default category subscription state. Other states may be introduced by extensions.")
-    public enum NotificationState: String, Equatable, Sendable {
+    public enum NotificationState: String, Equatable, Sendable, SQLiteType {
         case subscribed
         case unsubscribed
     }

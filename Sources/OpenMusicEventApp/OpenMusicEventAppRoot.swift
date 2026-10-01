@@ -32,10 +32,10 @@ public struct OpenMusicEventAppRoot {
         public init(
             variant: OpenMusicEventAppVariant = .generic,
             serviceEnvironment: OpenMusicEventServiceEnvironment = .production,
-            selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
+            selectedEventIDAtLaunch: Event.ID? = nil,
             workspaceRestorationErrorAtLaunch: (any Error)? = nil
         ) {
-            _installedEvents = FetchAll(InstalledEventRecord.all)
+            _installedEvents = FetchAll(InstalledEvent.all)
             _notificationIndicatorSummary = Fetch(
                 wrappedValue: ApplicationNotificationIndicatorSummary(),
                 ApplicationNotificationIndicatorSummaryRequest()
@@ -49,21 +49,13 @@ public struct OpenMusicEventAppRoot {
             if workspaceRestorationErrorAtLaunch == nil,
                variant.persistsSelectedEvent,
                let selectedEventIDAtLaunch {
-                do {
-                    let workspace = try OpenMusicEventAppRoot.workspace(
-                        for: selectedEventIDAtLaunch
+                self.destination = .eventViewer(
+                    OpenMusicEventAppRoot.makeEventViewerState(
+                        eventID: selectedEventIDAtLaunch,
+                        target: nil,
+                        pendingScheduleLaunchAction: .jumpToCurrentTime
                     )
-                    self.destination = .eventViewer(
-                        OpenMusicEventAppRoot.makeWorkspaceEventViewerState(
-                            workspace: workspace,
-                            eventID: selectedEventIDAtLaunch,
-                            target: nil,
-                            pendingScheduleLaunchAction: .jumpToCurrentTime
-                        )
-                    )
-                } catch {
-                    self.workspaceRestorationError = error
-                }
+                )
             }
             if let configuration = variant
                 .whiteLabelConfiguration(for: serviceEnvironment) {
@@ -92,11 +84,11 @@ public struct OpenMusicEventAppRoot {
         @FetchOne(AppState.find(1))
         public var appState: AppState?
 
-        @FetchAll public var installedEvents: [InstalledEventRecord]
+        @FetchAll public var installedEvents: [InstalledEvent]
         @Fetch public var notificationIndicatorSummary: ApplicationNotificationIndicatorSummary
         @Fetch public var notificationSubscriptions: Set<NotificationSubscription>
 
-        public var selectedEventID: OMERecord.Event.ID? {
+        public var selectedEventID: Event.ID? {
             appState?.selectedEventID
         }
     }
@@ -114,15 +106,14 @@ public struct OpenMusicEventAppRoot {
 
     @Feature
     public enum Destination {
-        case eventViewer(OpenMusicEventWorkspace)
+        case eventViewer(EventViewer)
     }
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.applicationIconBadgeClient) var applicationIconBadgeClient
     @Dependency(\.brandedEventRouteClaims) var brandedEventRouteClaims
-    @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.notificationsClient) var notificationsClient
-    @Dependency(\.omeEventInstallation) var eventInstallation
+    @Dependency(\.eventRecords) var eventRecords
     @Dependency(\.uuid) var uuid
     public var body: some Feature {
 //        let _ = Self._logChanges()
@@ -137,24 +128,12 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
-        let prefetchAssetsOnOpen: (OMERecord.Event.ID) -> Void = { eventID in
-            store.addTask {
-                do {
-                    try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
-                } catch {
-                }
-            }
-        }
-
-        let persistSelectedEvent: (OMERecord.Event.ID?, State) -> Void = { eventID, state in
+        let persistSelectedEvent: (Event.ID?, State) -> Void = { eventID, state in
             guard state.persistsSelectedEvent else { return }
-            let organizerID = eventID?.organizerID
-            let eventID = eventID?.eventID
             do {
                 try database.write { db in
                     try AppState.update {
-                        $0.organizerID = #bind(organizerID)
-                        $0.eventID = #bind(eventID)
+                        $0.selectedEventURI = #bind(eventID)
                     }
                     .execute(db)
                 }
@@ -193,7 +172,6 @@ public struct OpenMusicEventAppRoot {
                 case let .openRoute(route):
                     switch route.navigationRequest {
                     case let .event(eventID, target):
-                        let eventURI = OMERecord.Event.reference(id: eventID).uri
                         let persistsSelectedEvent = state.persistsSelectedEvent
                         let routeRequestID = uuid()
                         state.activeRouteRequestID = routeRequestID
@@ -203,76 +181,27 @@ public struct OpenMusicEventAppRoot {
                         )
                         store.addTask {
                             do {
-                                for try await progress in eventInstallation.install(eventURI) {
-                                    var routeIsActive = false
-                                    let activeRouteCheck = try store.modify {
-                                        routeIsActive = $0.activeRouteRequestID == routeRequestID
-                                    }
-                                    await activeRouteCheck?.value
-                                    guard routeIsActive else {
-                                        return
-                                    }
-                                    switch progress {
-                                    case let .preview(preview):
-                                        try store.modify {
-                                            guard $0.eventEntry?.id == routeRequestID else { return }
-                                            $0.eventEntry?.title = preview.title
-                                            $0.eventEntry?.logoURL = preview.logoURL
-                                        }
-                                    case let .installed(installedEventID):
-                                        let eventViewer: OpenMusicEventWorkspace.State
-                                        do {
-                                            eventViewer = try Self.eventViewerState(
-                                            eventID: installedEventID,
-                                            target: target
-                                        )
-                                        } catch {
-                                            var routeIsActive = false
-                                            let activeRouteCheck = try store.modify {
-                                                routeIsActive =
-                                                    $0.activeRouteRequestID == routeRequestID
-                                            }
-                                            await activeRouteCheck?.value
-                                            guard routeIsActive else {
-                                                return
-                                            }
-                                            await store.reportError(
-                                                error,
-                                                fallbackMessage: .eventWorkspaceRestoreFailed,
-                                                operation: .eventWorkspaceRestore
-                                            )
-                                            try store.modify {
-                                                guard $0.eventEntry?.id == routeRequestID else { return }
-                                                $0.eventEntry?.phase = .failed(
-                                                    "This event could not be opened."
-                                                )
-                                            }
-                                            return
-                                        }
-                                        let mount = try store.modify {
-                                            guard $0.eventEntry?.id == routeRequestID else { return }
-                                            $0.destination = .eventViewer(eventViewer)
-                                            $0.eventEntry = nil
-                                        }
-                                        await mount?.value
-                                        var routeIsActive = false
-                                        let activeRouteCheck = try store.modify { state in
-                                            routeIsActive =
-                                                state.activeRouteRequestID == routeRequestID
-                                            if routeIsActive, persistsSelectedEvent {
-                                                persistSelectedEvent(installedEventID, state)
-                                            }
-                                        }
-                                        await activeRouteCheck?.value
-                                        guard routeIsActive else {
-                                            return
-                                        }
-                                        do {
-                                            try await eventImagePrefetch.prefetchAssetsOnOpen(installedEventID)
-                                        } catch {
-                                        }
+                                let installedEventID = try await eventRecords.install(eventID)
+                                var routeIsActive = false
+                                let activeRouteCheck = try store.modify {
+                                    routeIsActive = $0.activeRouteRequestID == routeRequestID
+                                }
+                                await activeRouteCheck?.value
+                                guard routeIsActive else { return }
+
+                                let eventViewer = Self.makeEventViewerState(
+                                    eventID: installedEventID,
+                                    target: target
+                                )
+                                let mount = try store.modify { state in
+                                    guard state.eventEntry?.id == routeRequestID else { return }
+                                    state.destination = .eventViewer(eventViewer)
+                                    state.eventEntry = nil
+                                    if persistsSelectedEvent {
+                                        persistSelectedEvent(installedEventID, state)
                                     }
                                 }
+                                await mount?.value
                             } catch {
                                 var routeIsActive = false
                                 let activeRouteCheck = try store.modify {
@@ -326,13 +255,7 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .task:
-                    if let eventID = state.destination?.eventViewer?
-                        .authoring
-                        .content
-                        .content
-                        .id {
-                        prefetchAssetsOnOpen(eventID)
-                    }
+                    break
                 }
             }
             Scope(\.browser) {
@@ -370,7 +293,7 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onEvent(EventViewerDismissalRequested.self) { eventID, state in
-            guard state.destination?.eventViewer?.authoring.content.content.id == eventID else {
+            guard state.destination?.eventViewer?.id == eventID else {
                 return
             }
             persistSelectedEvent(nil, state)
@@ -382,141 +305,12 @@ public struct OpenMusicEventAppRoot {
                 await routeTask?.value
             }
         }
-        .onTrigger(store.notificationSignal) {
-            (signal: NotificationSignal, state: inout State) in
-            guard case let .sourceAvailable(source) = signal else { return }
-            let installedEventIDs = Set(state.installedEvents.map(\.id))
-            let routedEventID: OMERecord.Event.ID?
-            if let route = AppRoute(notificationRoute: source.id.rawValue),
-               case let .event(eventID, _) = route,
-               installedEventIDs.contains(eventID) {
-                routedEventID = eventID
-            } else {
-                routedEventID = nil
-            }
-            let refreshesInstalledEvents = routedEventID.map { [$0] }
-                ?? state.installedEvents.compactMap { installedEvent in
-                    source.id.rawValue == OMERecord.Event.reference(id: installedEvent.id)
-                        .uri
-                        .description
-                        ? installedEvent.id
-                        : nil
-                }
-            let refreshesBrowse = state.variant == .generic
-            let authoring = state.destination?.eventViewer?.authoring
-            let activeWorkspaceID = authoring?.grant?.workspaceID
-            guard refreshesBrowse || !refreshesInstalledEvents.isEmpty else {
-                NotificationRefreshDiagnostics.debug("""
-                Ignoring source-available notification with no relevant installed content
-                source: \(source.id.rawValue)
-                version: \(source.version.rawValue)
-                """)
-                return
-            }
-            store.addTask {
-                NotificationRefreshDiagnostics.notice("""
-                Source-available notification refresh started
-                source: \(source.id.rawValue)
-                version: \(source.version.rawValue)
-                events: \(refreshesInstalledEvents.map { OMERecord.Event.reference(id: $0).uri.description }.joined(separator: ", "))
-                browse: \(refreshesBrowse)
-                """)
-                do {
-                    let refreshPartition = try await database.read { database in
-                        try workspaceRefreshPartition(
-                            refreshesInstalledEvents,
-                            activeWorkspaceID: activeWorkspaceID,
-                            in: database
-                        )
-                    }
-                    if !refreshPartition.authoring.isEmpty {
-                        NotificationRefreshDiagnostics.notice("""
-                        Source-available notification reconciling authoring workspace
-                        source: \(source.id.rawValue)
-                        version: \(source.version.rawValue)
-                        """)
-                        let reconciliation = try store.send(
-                            .destination(
-                                .eventViewer(
-                                    .authoring(
-                                        .content(.contextRefreshRequested)
-                                    )
-                                )
-                            )
-                        )
-                        await reconciliation?.value
-                    }
-                    for eventID in refreshPartition.attendee {
-                        try await eventInstallation.synchronizeInstalledEvent(eventID)
-                    }
-                    if refreshesBrowse {
-                        try await store.browser.browse.refresh()?.value
-                    }
-                    let summary = try await database.read { database in
-                        try ApplicationNotificationIndicatorSummaryRequest().fetch(database)
-                    }
-                    try await applicationIconBadgeClient.setCount(summary.totalCount)
-                    NotificationRefreshDiagnostics.notice("""
-                    Source-available notification refresh completed
-                    source: \(source.id.rawValue)
-                    version: \(source.version.rawValue)
-                    """)
-                } catch {
-                    NotificationRefreshDiagnostics.failure("""
-                    Source-available notification refresh failed
-                    source: \(source.id.rawValue)
-                    version: \(source.version.rawValue)
-                    error: \(String(describing: error))
-                    """)
-                    throw error
-                }
-            }
-        }
         .onTrigger(store.appDelegateEvent) { event, state in
             switch event {
             case .launched, .resumed:
                 let permissions = state.$permissions
                 store.addTask {
                     try await permissions.load()
-                }
-                guard event == .resumed else { return }
-                let activeWorkspaceID = state.destination?.eventViewer?.authoring.grant?.workspaceID
-                store.addTask {
-                    do {
-                        let refreshPartition = try await database.read { database in
-                            let installedEventIDs = try InstalledEventRecord.all
-                                .fetchAll(database)
-                                .map(\.id)
-                            return try workspaceRefreshPartition(
-                                installedEventIDs,
-                                activeWorkspaceID: activeWorkspaceID,
-                                in: database
-                            )
-                        }
-                        NotificationRefreshDiagnostics.notice(
-                            "Application resume is refreshing \(refreshPartition.attendee.count) attendee event(s)"
-                        )
-                        if activeWorkspaceID != nil {
-                            let reconciliation = try store.send(
-                                .destination(
-                                    .eventViewer(
-                                        .authoring(
-                                            .content(.contextRefreshRequested)
-                                        )
-                                    )
-                                )
-                            )
-                            await reconciliation?.value
-                        }
-                        for eventID in refreshPartition.attendee {
-                            try await eventInstallation.synchronizeInstalledEvent(eventID)
-                        }
-                    } catch {
-                        NotificationRefreshDiagnostics.failure(
-                            "Application resume source refresh failed: \(String(describing: error))"
-                        )
-                        throw error
-                    }
                 }
             default:
                 break
@@ -540,32 +334,6 @@ public struct OpenMusicEventAppRoot {
             signalTrigger: \.notificationSignal
         )
     }
-}
-
-private struct WorkspaceRefreshPartition: Sendable {
-    var attendee: [OMERecord.Event.ID]
-    var authoring: [OMERecord.Event.ID]
-}
-
-private func workspaceRefreshPartition(
-    _ eventIDs: [OMERecord.Event.ID],
-    activeWorkspaceID: SourceWorkspace.ID?,
-    in database: Database
-) throws -> WorkspaceRefreshPartition {
-    guard let activeWorkspaceID else {
-        return WorkspaceRefreshPartition(attendee: eventIDs, authoring: [])
-    }
-    let authoringEventIDs = Set(
-        try EventSourceProvenanceRecord.all
-            .fetchAll(database)
-            .compactMap { provenance in
-                provenance.workspace?.id == activeWorkspaceID ? provenance.id : nil
-            }
-    )
-    return WorkspaceRefreshPartition(
-        attendee: eventIDs.filter { !authoringEventIDs.contains($0) },
-        authoring: eventIDs.filter(authoringEventIDs.contains)
-    )
 }
 
 extension OpenMusicEventAppRoot.State: ErrorNotificationRootState {}
@@ -613,13 +381,8 @@ public struct OpenMusicEventAppRootView: View {
             item: $store
                 .scope(\.destination)
                 .eventViewer
-        ) { authoringWorkspaceStore in
-            let authoringStore = authoringWorkspaceStore
-                .scope(\.authoring)
-            let workspaceStore = authoringStore.scope(\.content)
-            let eventViewerStore = workspaceStore.scope(\.content)
+        ) { eventViewerStore in
             EventViewerView(store: eventViewerStore)
-            .openMusicEventAuthoringPhase(authoringStore.phase)
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in
                 InAppSafariView(url: presentation.url)
@@ -699,57 +462,21 @@ struct OpenMusicEventAppSurfaceView: View {
 }
 
 private extension OpenMusicEventAppRoot {
-    static func eventViewerState(
-        eventID: OMERecord.Event.ID,
-        target: EventTarget?
-    ) throws -> OpenMusicEventWorkspace.State {
-        try makeWorkspaceEventViewerState(
-            workspace: workspace(for: eventID),
-            eventID: eventID,
-            target: target
-        )
-    }
-
-    static func makeWorkspaceEventViewerState(
-        workspace: SourceWorkspace,
-        eventID: OMERecord.Event.ID,
+    static func makeEventViewerState(
+        eventID: Event.ID,
         target: EventTarget?,
         pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
-    ) -> OpenMusicEventWorkspace.State {
+    ) -> EventViewer.State {
         withDependencies {
             $0.defaultEventID = eventID
         } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            return OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-                workspace: workspace,
-                grant: authoringGrant
-            ) {
-                EventViewer.State.route(
-                    eventID: eventID,
-                    target: target,
-                    pendingScheduleLaunchAction: pendingScheduleLaunchAction
-                )
-            }
+            EventViewer.State.route(
+                eventID: eventID,
+                target: target,
+                pendingScheduleLaunchAction: pendingScheduleLaunchAction
+            )
         }
     }
-
-    static func workspace(
-        for eventID: OMERecord.Event.ID
-    ) throws -> SourceWorkspace {
-        @Dependency(\.defaultDatabase) var database
-        return try database.read { db in
-            guard let workspace = try (EventSourceProvenanceRecord
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db)?
-                .workspace)
-            else { throw OpenMusicEventAppRootError.eventHasNoSource(eventID) }
-            return workspace
-        }
-    }
-}
-
-private enum OpenMusicEventAppRootError: Error {
-    case eventHasNoSource(OMERecord.Event.ID)
 }
 
 private extension OpenMusicEventAppRoot.State {

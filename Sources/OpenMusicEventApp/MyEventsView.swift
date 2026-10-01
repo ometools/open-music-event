@@ -17,7 +17,7 @@ struct MyEventsView: View {
                     .foregroundStyle(.red)
             }
 
-            ForEach(store.events) { event in
+            ForEach(store.sortedEvents) { event in
                 Button {
                     store.send(.eventButtonTapped(event.id))
                 } label: {
@@ -35,30 +35,15 @@ struct MyEventsView: View {
 }
 
 struct EventRowView: View {
-    let event: OMERecord.Event
+    let event: Event
     let notificationIndicatorCount: Int
 
     init(
-        event: OMERecord.Event,
+        event: Event,
         notificationIndicatorCount: Int = 0
     ) {
         self.event = event
         self.notificationIndicatorCount = notificationIndicatorCount
-    }
-
-    nonisolated static func imageAssets(
-        icon: OME.ImageAsset?,
-        poster: OME.ImageAsset?
-    ) -> [OME.ImageAsset] {
-        [poster, icon].compactMap { $0 }
-    }
-
-    static func posterQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Poster> {
-        OMERecord.Poster
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
     }
 
     var body: some View {
@@ -67,7 +52,7 @@ struct EventRowView: View {
                 .frame(width: 60, height: 60)
             VStack(alignment: .leading) {
                 Text(event.name)
-                if let date = event.eventDateText(dateStyle: .long) {
+                if let date = eventDateText {
                     Text(date)
                         .lineLimit(1)
                         .font(.caption2)
@@ -93,14 +78,29 @@ struct EventRowView: View {
         .foregroundStyle(.primary)
     }
 
-    struct EventIconImageView: View {
-        let event: OMERecord.Event
-        @FetchOne var poster: OMERecord.Poster?
-
-        init(event: OMERecord.Event) {
-            self.event = event
-            _poster = FetchOne(EventRowView.posterQuery(eventID: event.id))
+    private var eventDateText: String? {
+        let start = event.start?.date(in: event.timeZone)
+        let end = event.end?.date(in: event.timeZone)
+        switch (start, end) {
+        case let (.some(start), .some(end)):
+            let formatter = DateIntervalFormatter()
+            formatter.timeZone = event.timeZone
+            formatter.dateStyle = .long
+            formatter.timeStyle = .none
+            return formatter.string(from: start, to: end)
+        case let (.some(date), .none), let (.none, .some(date)):
+            let formatter = DateFormatter()
+            formatter.timeZone = event.timeZone
+            formatter.dateStyle = .long
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
+        case (.none, .none):
+            return nil
         }
+    }
+
+    struct EventIconImageView: View {
+        let event: Event
 
         var body: some View {
             ZStack {
@@ -117,17 +117,7 @@ struct EventRowView: View {
         }
 
         private var imageSources: [DisplayImageAsset] {
-            EventRowView.imageAssets(
-                icon: event.images?.imageAsset(role: .icon),
-                poster: poster?.image
-            ).map { asset in
-                DisplayImageAsset(
-                    asset: asset,
-                    cacheContext: asset.role == .poster
-                        ? poster.map { .init(posterID: $0.id) }
-                        : .init(eventID: event.id)
-                )
-            }
+            event.heroImageSources.map(\.image)
         }
     }
 }
@@ -157,37 +147,5 @@ struct EventImageSourceChain<Placeholder: View>: View {
         } else {
             placeholder()
         }
-    }
-}
-
-private extension OMERecord.Event {
-    func eventDateText(dateStyle: DateFormatter.Style) -> String? {
-        switch (startDate, endDate) {
-        case let (.some(startDate), .some(endDate)):
-            let formatter = DateIntervalFormatter()
-            formatter.timeZone = timeZone
-            formatter.dateStyle = .long
-            formatter.timeStyle = .none
-            return formatter.string(
-                from: startDate.atStartOfDay(in: timeZone),
-                to: endDate.atStartOfDay(in: timeZone)
-            )
-        case let (.some(startDate), .none):
-            return startDate.formatted(dateStyle: dateStyle, in: timeZone)
-        case let (.none, .some(endDate)):
-            return endDate.formatted(dateStyle: dateStyle, in: timeZone)
-        case (.none, .none):
-            return nil
-        }
-    }
-}
-
-private extension LocalDate {
-    func formatted(dateStyle: DateFormatter.Style, in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = timeZone
-        formatter.dateStyle = dateStyle
-        formatter.timeStyle = .none
-        return formatter.string(from: atStartOfDay(in: timeZone))
     }
 }

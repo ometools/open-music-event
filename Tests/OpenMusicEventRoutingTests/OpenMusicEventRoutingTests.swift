@@ -140,19 +140,20 @@ struct OpenMusicEventRoutingTests {
         )
     }
 
-    @Test func `prints the canonical channel notification path`() {
-        let eventID = OME.Event.ID(
-            organizerID: OME.Organizer.ID("did:plc:example")!,
-            eventID: OME.ID<OME.Event>(.init("summer event"))
-        )
-        let channelID = OME.ID<OME.Channel>(.init("announcements/general"))
+    @Test func `prints the canonical channel notification path`() throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:example/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let channelID = try #require(Social.Category.ID(
+            "at://did:plc:example/social.ome.category/3mrdbziccpcaj"
+        ))
 
         expectNoDifference(
             openMusicEventEventPathRouter.communicationChannelPath(
                 eventID: eventID,
                 channelID: channelID
             ),
-            "/orgs/did%3Aplc%3Aexample/events/summer%20event/communications/announcements%2Fgeneral"
+            "/records/did%3Aplc%3Aexample/3mrdbziccpcah/communications/at%3A%2F%2Fdid%3Aplc%3Aexample%2Fsocial.ome.category%2F3mrdbziccpcaj"
         )
     }
 
@@ -210,7 +211,6 @@ struct OpenMusicEventRoutingTests {
     }
 }
 
-private let wickedWoodsEventID = OME.Event.ID(
-    organizerID: OME.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")!,
-    eventID: OME.ID<OME.Event>(.init("ome-workspace-2026"))
-)
+private let wickedWoodsEventID = Event.ID(
+    "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+)!

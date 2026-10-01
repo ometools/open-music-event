@@ -12,6 +12,24 @@ import Testing
 
 struct EventRecordInstallationTests {
     @Test
+    func installedCanonicalEventAppearsInMyEvents() async throws {
+        let database = try database()
+        let graph = try graph()
+        let client = EventRecordClient { _ in graph }
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            _ = try await client.install(graph.event.id)
+        }
+
+        let events = try await database.read { db in
+            try MyEvents.query.fetchAll(db)
+        }
+        expectNoDifference(events, [graph.event])
+    }
+
+    @Test
     func installationSurvivesReopeningAndKeepsLocalEdits() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

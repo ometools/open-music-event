@@ -1,4 +1,5 @@
 import Bluesky
+import ATProtoSQLite
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication
@@ -129,9 +130,6 @@ private func prepareOpenMusicEventDatabase(
 
     try migrator.migrate(database)
     try database.write { db in
-        try EventSearchTextTriggers.install(in: db)
-        try EventSearchSources.installTriggers(in: db)
-        try EventSearchSources.rebuild(in: db)
     }
 }
 
@@ -186,11 +184,8 @@ public enum OpenMusicEventAppDatabaseMigrations {
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "channelPreferences" (
-              "organizerID" TEXT NOT NULL,
-              "eventID" TEXT NOT NULL,
-              "channelID" TEXT NOT NULL,
-              "notificationState" TEXT NOT NULL,
-              PRIMARY KEY ("organizerID", "eventID", "channelID") ON CONFLICT REPLACE
+              "id" TEXT NOT NULL PRIMARY KEY ON CONFLICT REPLACE,
+              "notificationState" TEXT NOT NULL
             ) STRICT
             """)
             .execute(db)
@@ -286,31 +281,22 @@ public enum OpenMusicEventAppDatabaseMigrations {
             .execute(db)
     }
     migrator.registerMigration("Add local performance reactions") { db in
-        // Reactions intentionally have no foreign key to performances. Source imports replace
-        // performance rows, while this device-local state is keyed by their stable identity.
+        // Device-local reactions follow the stable program item record URI.
         try #sql("""
             CREATE TABLE "performanceReactions" (
               "id" TEXT PRIMARY KEY NOT NULL,
-              "organizerID" TEXT NOT NULL,
-              "eventID" TEXT NOT NULL,
               "performanceID" TEXT NOT NULL,
               "emoji" TEXT NOT NULL,
               "reactedAt" TEXT NOT NULL,
               "userDID" TEXT,
-              UNIQUE ("organizerID", "eventID", "performanceID", "emoji")
+              UNIQUE ("performanceID", "emoji")
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
-            CREATE INDEX "performanceReactionsByEvent"
-            ON "performanceReactions" ("organizerID", "eventID")
-            """)
-            .execute(db)
-
-        try #sql("""
             CREATE INDEX "performanceReactionsByPerformance"
-            ON "performanceReactions" ("organizerID", "eventID", "performanceID")
+            ON "performanceReactions" ("performanceID")
             """)
             .execute(db)
 
@@ -382,11 +368,7 @@ public enum OpenMusicEventAppDatabaseMigrations {
         try #sql(
             """
             CREATE TABLE \(quote: tableName) (
-              "organizerID" TEXT NOT NULL,
-              "eventID" TEXT NOT NULL,
-              "channelID" TEXT NOT NULL,
-              "postID" TEXT NOT NULL,
-              PRIMARY KEY ("organizerID", "eventID", "channelID", "postID")
+              "id" TEXT NOT NULL PRIMARY KEY
             ) STRICT
             """
         )
@@ -398,46 +380,69 @@ public enum OpenMusicEventAppDatabaseMigrations {
             ALTER TABLE "scheduleViewerState" DROP COLUMN "showStageNameLabels"
             """).execute(db)
     }
+
+    migrator.registerMigration("Store selected canonical event URI") { db in
+        try #sql("""
+            ALTER TABLE "appState" ADD COLUMN "selectedEventURI" TEXT
+            """).execute(db)
+    }
+
+    migrator.registerMigration("Use canonical Event IDs for viewer state") { db in
+        try #sql("DROP TABLE \"eventViewerState\"").execute(db)
+        try #sql("""
+            CREATE TABLE "eventViewerState" (
+              "id" TEXT NOT NULL PRIMARY KEY,
+              "selectedScheduleID" TEXT,
+              "selectedUserScheduleID" TEXT,
+              "didInitializeUserSchedules" INTEGER NOT NULL DEFAULT 0
+            ) STRICT
+            """).execute(db)
+
+        try #sql("DROP TABLE \"scheduleViewerState\"").execute(db)
+        try #sql("""
+            CREATE TABLE "scheduleViewerState" (
+              "eventID" TEXT NOT NULL,
+              "category" TEXT NOT NULL,
+              "selectedStageID" TEXT,
+              "filteringFavorites" INTEGER NOT NULL DEFAULT 0,
+              "scheduleKind" TEXT NOT NULL DEFAULT 'singleStageAtOnce',
+              "manyStagesOrientation" TEXT NOT NULL DEFAULT 'vertical',
+              PRIMARY KEY ("eventID", "category")
+            ) STRICT
+            """).execute(db)
+    }
+
+    migrator.registerMigration("Use canonical Event IDs for user schedules") { db in
+        try #sql("DROP INDEX \"userSchedules_event_title\"").execute(db)
+        // Keep the full identity of schedules written with the old split key.
+        // Their legacy record URIs can be remapped during the one-time import.
+        try #sql("""
+            UPDATE "userSchedules"
+            SET "eventID" = 'at://' || "organizerID" || '/app.openmusicevent.event/' || "eventID"
+            WHERE "eventID" NOT LIKE 'at://%'
+            """).execute(db)
+        try #sql("ALTER TABLE \"userSchedules\" DROP COLUMN \"organizerID\"").execute(db)
+        try #sql("""
+            CREATE UNIQUE INDEX "userSchedules_event_title"
+            ON "userSchedules" ("eventID", "title" COLLATE NOCASE)
+            """).execute(db)
+    }
     }
 }
 
 @Table("appState")
 public struct AppState: Equatable, Sendable, Identifiable {
     public let id: Int
-    public var organizerID: OMERecord.Organizer.ID?
-    public var eventID: OMERecord.ID<OMERecord.Event>?
+    public var selectedEventURI: Event.ID?
 
-    public init(id: Int = 1, selectedEventID: OMERecord.Event.ID? = nil) {
+    public init(id: Int = 1, selectedEventID: Event.ID? = nil) {
         self.id = id
-        self.organizerID = selectedEventID?.organizerID
-        self.eventID = selectedEventID?.eventID
+        self.selectedEventURI = selectedEventID
     }
 
-    public var selectedEventID: OMERecord.Event.ID? {
-        guard let organizerID, let eventID else { return nil }
-        return OMERecord.Event.ID(organizerID: organizerID, eventID: eventID)
+    public var selectedEventID: Event.ID? {
+        selectedEventURI
     }
-}
-
-@Table("organizerPreferences")
-public struct OrganizerPreferences: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) public var organizerID: OMERecord.Organizer.ID
-    public var isFollowing = false
-
-    public var id: OMERecord.Organizer.ID { organizerID }
-}
-
-@Table("contributorPreferences")
-struct ContributorPreferences: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Contributor.ID
-    var isFavorite = false
-}
-
-@Table("posterPreferences")
-struct PosterPreferences: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Poster.ID
-    var isRead = false
-    var isFavorite = false
 }
 
 @Table("externalAssetPreferences")

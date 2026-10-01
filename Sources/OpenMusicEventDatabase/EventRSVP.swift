@@ -1,18 +1,23 @@
 import ATProto
 import ATProtoSQLite
 import Foundation
-import OpenMusicEventLexicon
 import SQLiteData
 
 /// A device-local RSVP. Its identity is the event's durable AT URI plus the
 /// currently selected account, or the one stable logged-out consumer.
 @Table("app.openmusicevent.rsvp")
 public struct EventRSVP: Equatable, Identifiable, Sendable {
+    public enum Status: String, Codable, Equatable, Sendable, SQLiteType {
+        case interested = "app.openmusicevent.rsvp#interested"
+        case going = "app.openmusicevent.rsvp#going"
+        case notGoing = "app.openmusicevent.rsvp#notgoing"
+    }
+
     public init(
         eventURI: ATProto.URI,
         eventCID: ATProto.CID? = nil,
         consumer: Consumer,
-        status: OME.RSVP.Status,
+        status: Status,
         createdAt: Date
     ) {
         self.id = ID(eventURI: eventURI, consumer: consumer)
@@ -34,15 +39,8 @@ public struct EventRSVP: Equatable, Identifiable, Sendable {
 
     public var id: ID
     public var eventCID: ATProto.CID?
-    public var status: OME.RSVP.Status
+    public var status: Status
     public var createdAt: Date
-
-    public var record: OME.RSVP {
-        OME.RSVP(
-            subject: OME.Event.Reference(uri: id.eventURI, cid: eventCID),
-            status: status
-        )
-    }
 
     public struct Consumer: Codable, Equatable, Hashable, RawRepresentable, Sendable, SQLiteType {
         public static let loggedOut = Self(rawValue: "")!
@@ -79,7 +77,7 @@ public struct EventRSVP: Equatable, Identifiable, Sendable {
         eventURI: ATProto.URI,
         eventCID: ATProto.CID?,
         consumer: Consumer,
-        status: OME.RSVP.Status,
+        status: Status,
         createdAt: Date,
         in database: Database
     ) throws {

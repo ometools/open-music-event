@@ -43,9 +43,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         case let value where value.hasPrefix("schedule:"):
             let rawCategory = String(value.dropFirst("schedule:".count))
             guard !rawCategory.isEmpty else { return nil }
-            self = .schedule(
-                ScheduleDivision(category: OMERecord.Stage.Category(rawCategory))
-            )
+            self = .schedule(ScheduleDivision(category: rawCategory))
         case "contributors":
             self = .contributors
         case "stages":
@@ -81,7 +79,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         switch self {
         case let .schedule(division):
             if let category = division.category {
-                return "schedule:\(category.rawValue)"
+                return "schedule:\(category)"
             }
             return "schedule"
         case .contributors:

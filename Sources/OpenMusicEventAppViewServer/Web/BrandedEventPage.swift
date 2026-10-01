@@ -4,12 +4,17 @@ import OpenMusicEventLexicon
 
 enum BrandedEventPage {
     static func response(
-        event: OME.CalendarEvent,
+        event: Event,
         canonicalURL: URL
     ) -> Response {
-        let hero = event.media.first { $0.role == OME.ImageAsset.Role.hero.rawValue }
-            ?? event.media.first
-        let organizerName = event.organizer.displayName ?? "OpenMusicEvent"
+        let images = (event.media ?? []).compactMap { medium -> (url: URL, alt: String?, isHero: Bool)? in
+            guard case let .known(.image(image)) = medium,
+                  case let .known(.url(url)) = image.source
+            else { return nil }
+            return (url, image.alt?.rawValue, image.role == .known(.hero))
+        }
+        let hero = images.first { $0.isHero } ?? images.first
+        let organizerName = "OpenMusicEvent"
         let heroMarkup = hero.map {
             "<img class=\"hero-mark\" src=\"\($0.url.absoluteString.htmlEscaped)\" alt=\"\(($0.alt ?? event.name).htmlEscaped)\">"
         } ?? ""

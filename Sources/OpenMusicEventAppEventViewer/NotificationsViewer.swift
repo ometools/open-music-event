@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 #if os(Android)
 import SkipSwiftUI
@@ -10,11 +11,11 @@ public struct NotificationsViewer {
     public init() {}
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
         }
 
-        let eventID: OMERecord.Event.ID
+        let eventID: Event.ID
     }
 
     public enum Action {}

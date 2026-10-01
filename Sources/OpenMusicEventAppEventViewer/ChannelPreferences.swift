@@ -1,26 +1,29 @@
+import OpenMusicEventLexicon
+import ATProtoSQLite
 import SQLiteData
 
 @Table("channelPreferences")
 public struct ChannelPreferences: Equatable, Sendable, Identifiable {
     public init(
-        id: OMERecord.Channel.ID,
-        notificationState: OMERecord.Channel.NotificationState
+        id: Social.Category.ID,
+        notificationState: Social.Category.NotificationState
     ) {
         self.id = id
         self.notificationState = notificationState
     }
 
-    public var id: OMERecord.Channel.ID
-    public var notificationState: OMERecord.Channel.NotificationState
+    public var id: Social.Category.ID
+    public var notificationState: Social.Category.NotificationState
 }
 
-extension OMERecord.Channel {
+extension Social.Category {
     public func effectiveNotificationState(
         preference: ChannelPreferences?
-    ) -> OMERecord.Channel.NotificationState {
-        notificationsRequired
+    ) -> Social.Category.NotificationState {
+        notificationsRequired == true
             ? .subscribed
-            : preference?.notificationState ?? defaultNotificationState
+            : preference?.notificationState
+                ?? (defaultNotificationState == .known(.unsubscribed) ? .unsubscribed : .subscribed)
     }
 
     public func notificationsAreEnabled(
@@ -32,15 +35,15 @@ extension OMERecord.Channel {
 
 @Table("commsPostReads")
 public struct CommsPostRead: Equatable, Sendable, Identifiable {
-    public init(id: CommsPost.ID) {
+    public init(id: Social.Post.ID) {
         self.id = id
     }
 
-    public let id: CommsPost.ID
+    public let id: Social.Post.ID
 
     public static func setRead(
         _ isRead: Bool,
-        postID: CommsPost.ID,
+        postID: Social.Post.ID,
         in database: Database
     ) throws {
         if isRead {
@@ -52,47 +55,45 @@ public struct CommsPostRead: Equatable, Sendable, Identifiable {
 
     public static func setRead(
         _ isRead: Bool,
-        channelID: OMERecord.Channel.ID,
+        channelID: Social.Category.ID,
         in database: Database
     ) throws {
         if isRead {
-            let posts = try CommsPost
-                .where { $0.id.organizerID.eq(channelID.organizerID) }
-                .where { $0.id.eventID.eq(channelID.eventID) }
-                .where { $0.id.channelID.eq(channelID.channelID) }
+            let posts = try Social.Post
+                .where { $0.category.eq(channelID) }
                 .fetchAll(database)
             for post in posts {
                 try Self.upsert { Self(id: post.id) }.execute(database)
             }
         } else {
-            try Self
-                .where { $0.id.organizerID.eq(channelID.organizerID) }
-                .where { $0.id.eventID.eq(channelID.eventID) }
-                .where { $0.id.channelID.eq(channelID.channelID) }
-                .delete()
-                .execute(database)
+            let posts = try Social.Post
+                .where { $0.category.eq(channelID) }
+                .fetchAll(database)
+            for post in posts {
+                try Self.find(post.id).delete().execute(database)
+            }
         }
     }
 
     public static func setRead(
         _ isRead: Bool,
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         in database: Database
     ) throws {
         if isRead {
-            let posts = try CommsPost
-                .where { $0.id.organizerID.eq(eventID.organizerID) }
-                .where { $0.id.eventID.eq(eventID.eventID) }
+            let posts = try Social.Post
+                .where { $0.event.eq(eventID) }
                 .fetchAll(database)
             for post in posts {
                 try Self.upsert { Self(id: post.id) }.execute(database)
             }
         } else {
-            try Self
-                .where { $0.id.organizerID.eq(eventID.organizerID) }
-                .where { $0.id.eventID.eq(eventID.eventID) }
-                .delete()
-                .execute(database)
+            let posts = try Social.Post
+                .where { $0.event.eq(eventID) }
+                .fetchAll(database)
+            for post in posts {
+                try Self.find(post.id).delete().execute(database)
+            }
         }
     }
 }

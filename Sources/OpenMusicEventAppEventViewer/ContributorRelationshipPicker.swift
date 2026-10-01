@@ -2,6 +2,7 @@ import ATProto
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventLexicon
 import SwiftUI
 
 @Feature
@@ -17,10 +18,10 @@ public struct ContributorRelationshipPicker {
             self.subtitle = profile.subtitle
         }
 
-        var id: OMERecord.ID<OMERecord.Contributor>
+        var id: Contributor.ID
         var name: String
         var subtitle: String?
-        var rawID: String { id.rawValue.rawValue }
+        var rawID: String { id.description }
 
         func matches(_ query: String) -> Bool {
             guard !query.isEmpty else { return true }
@@ -43,10 +44,6 @@ public struct ContributorRelationshipPicker {
         public var displayName: String?
         public var handle: String?
 
-        public var actor: OMERecord.Contributor.Actor? {
-            OMERecord.Contributor.Actor(did.description)
-        }
-
         public var contributorName: String {
             displayName?.nilIfEmpty
                 ?? handle?.nilIfEmpty
@@ -60,8 +57,8 @@ public struct ContributorRelationshipPicker {
 
     public enum Selection: Equatable, Sendable {
         case none
-        case existingContributor(OMERecord.ID<OMERecord.Contributor>)
-        case identityOnly(actor: OMERecord.Contributor.Actor, displayTitle: String?)
+        case existingContributor(Contributor.ID)
+        case identityOnly(actor: DID, displayTitle: String?)
         case newContributor(name: String)
         case newContributorFromIdentity(SelectedActorIdentity)
         case performanceDisplayName(name: String)
@@ -103,7 +100,7 @@ public struct ContributorRelationshipPicker {
         }
 
         func selectedContributorOption(
-            id: OMERecord.ID<OMERecord.Contributor>
+            id: Contributor.ID
         ) -> ContributorOption? {
             contributors.first { $0.id == id }
         }
@@ -125,7 +122,7 @@ public struct ContributorRelationshipPicker {
                     return (contributor.name, contributor.subtitle)
                 }
                 return (
-                    showsTechnicalDetails ? id.rawValue.rawValue : "Contributor",
+                    showsTechnicalDetails ? id.description : "Contributor",
                     showsTechnicalDetails ? "Contributor ID" : nil
                 )
 
@@ -162,7 +159,7 @@ public struct ContributorRelationshipPicker {
         case actorSearchSubmitted
         case clearSelectionButtonTapped
         case createContributorButtonTapped
-        case existingContributorTapped(OMERecord.ID<OMERecord.Contributor>)
+        case existingContributorTapped(Contributor.ID)
         case identityCreateContributorButtonTapped(ActorIdentity)
         case identityLinkOnlyButtonTapped(ActorIdentity)
         case performanceDisplayNameButtonTapped
@@ -204,12 +201,8 @@ public struct ContributorRelationshipPicker {
                 state.actorSearchErrorMessage = nil
 
             case let .identityLinkOnlyButtonTapped(identity):
-                guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorSearchErrorMessage = "The selected account is not a valid contributor identity."
-                    return
-                }
                 state.selection = .identityOnly(
-                    actor: actor,
+                    actor: identity.did,
                     displayTitle: identity.displayTitle
                 )
                 state.actorSearchErrorMessage = nil
@@ -389,7 +382,7 @@ struct ContributorRelationshipPickerRows: View {
     }
 
     private func isSelectedContributor(
-        _ contributorID: OMERecord.ID<OMERecord.Contributor>
+        _ contributorID: Contributor.ID
     ) -> Bool {
         guard case let .existingContributor(selectedID) = store.selection else {
             return false

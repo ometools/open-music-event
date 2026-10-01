@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import HeroImageList
 import ComposableArchitecture2
 import Dependencies
@@ -18,22 +19,14 @@ public struct EventInfoViewer {
     public init() {}
 
     public struct State {
-        public let eventID: OMERecord.Event.ID
-        @FetchOne public var event: OMERecord.Event?
-        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
-        @FetchAll public var posters: [OMERecord.Poster]
+        public let eventID: Event.ID
+        @FetchOne public var event: Event?
         public var destination: Destination.State?
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
             _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
-            )
-            _sourceProvenance = FetchOne(
-                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
-            )
-            _posters = FetchAll(
-                PostersViewer.postersQuery(eventID: eventID)
+                Event.where { $0.id.eq(eventID) }
             )
         }
     }
@@ -53,10 +46,7 @@ public struct EventInfoViewer {
             switch action {
             case .aboutOpenMusicEventButtonTapped:
                 state.destination = .aboutOpenMusicEvent(
-                    AboutOpenMusicEvent.State(
-                        eventID: state.eventID,
-                        sourceProvenance: state.sourceProvenance
-                    )
+                    AboutOpenMusicEvent.State(eventID: state.eventID)
                 )
 
             case .destination:
@@ -81,7 +71,7 @@ public struct EventInfoViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event {
-                let heroImageSources = event.heroImageSources(posters: store.posters)
+                let heroImageSources = event.heroImageSources
                 let heroImageTitleSources = event.heroImageTitleSources
                 HeroImageList(
                     title: Text(event.name),
@@ -172,7 +162,7 @@ struct EventInfoRow: View {
     }
 }
 
-private extension OMERecord.Event {
+private extension Event {
     var eventInfoDescription: String? {
         let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
         return description?.isEmpty == false ? description : nil
@@ -183,7 +173,7 @@ private extension OMERecord.Event {
     }
 
     var hasEventInfoDates: Bool {
-        startDate != nil || endDate != nil
+        start?.date(in: timeZone) != nil || end?.date(in: timeZone) != nil
     }
 
     var hasEventInfoDetails: Bool {
@@ -191,38 +181,44 @@ private extension OMERecord.Event {
     }
 
     var dateIntervalText: String? {
-        guard let startDate, let endDate else { return nil }
+        guard let start, let end,
+              case let .known(.day(startDay)) = start,
+              case let .known(.day(endDay)) = end
+        else { return nil }
 
         let formatter = DateIntervalFormatter()
         formatter.timeZone = timeZone
         formatter.dateStyle = .long
         formatter.timeStyle = .none
         return formatter.string(
-            from: startDate.atStartOfDay(in: timeZone),
-            to: endDate.atStartOfDay(in: timeZone)
+            from: startDay.value.atStartOfDay(in: timeZone),
+            to: endDay.value.atStartOfDay(in: timeZone)
         )
     }
 
     var startDateText: String? {
-        startDate?.formatted(dateStyle: .medium, in: timeZone)
+        boundaryText(start)
     }
 
     var endDateText: String? {
-        endDate?.formatted(dateStyle: .medium, in: timeZone)
+        boundaryText(end)
     }
-}
 
-private extension LocalDate {
-    func formatted(dateStyle: DateFormatter.Style, in timeZone: TimeZone) -> String {
+    func boundaryText(_ boundary: Open<Time>?) -> String? {
+        guard let boundary, let date = boundary.date(in: timeZone) else { return nil }
         let formatter = DateFormatter()
         formatter.timeZone = timeZone
-        formatter.dateStyle = dateStyle
-        formatter.timeStyle = .none
-        return formatter.string(from: atStartOfDay(in: timeZone))
+        formatter.dateStyle = .medium
+        if case .known(.time) = boundary {
+            formatter.timeStyle = .short
+        } else {
+            formatter.timeStyle = .none
+        }
+        return formatter.string(from: date)
     }
 }
 
-private extension OMERecord.Event.Status {
+private extension Event.Status {
     var eventInfoText: String {
         switch self {
         case .planned:
@@ -239,7 +235,7 @@ private extension OMERecord.Event.Status {
     }
 }
 
-private extension OMERecord.Event.Mode {
+private extension Event.Mode {
     var eventInfoText: String {
         switch self {
         case .inPerson:
@@ -252,7 +248,7 @@ private extension OMERecord.Event.Mode {
     }
 }
 
-private extension Open where Known == OMERecord.Event.Status {
+private extension Open where Known == Event.Status {
     var eventInfoText: String {
         switch self {
         case .known(let status):
@@ -268,7 +264,7 @@ private extension Open where Known == OMERecord.Event.Status {
     }
 }
 
-private extension Open where Known == OMERecord.Event.Mode {
+private extension Open where Known == Event.Mode {
     var eventInfoText: String {
         switch self {
         case .known(let mode):

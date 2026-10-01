@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
@@ -14,26 +15,24 @@ public struct SiteMapViewer {
     public init() {}
 
     public struct State {
-        public let eventID: OMERecord.Event.ID
-        @FetchOne public var event: OMERecord.Event?
-        @FetchOne public var siteMap: OMERecord.Event.SiteMap?
-        public var selectedStyleID: OMERecord.Event.SiteMap.Style.ID?
+        public let eventID: Event.ID
+        @FetchOne public var event: Event?
+        public var selectedStyleID: String?
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
-            _event = FetchOne(OMERecord.Event.where { $0.id.eq(eventID) })
-            _siteMap = FetchOne(
-                OMERecord.Event.SiteMap.where {
-                    $0.id.eq(OMERecord.Event.SiteMap.ID(eventID: eventID))
-                }
-            )
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
         }
 
-        public var selectedAsset: OMERecord.ImageAsset? {
-            selectedStyle?.image ?? event?.images?.imageAsset(role: .siteMap)
+        public var siteMap: Event.SiteMap? {
+            event?.siteMap
         }
 
-        public var selectedStyle: OMERecord.Event.SiteMap.Style? {
+        public var selectedAsset: DisplayImageAsset? {
+            selectedStyle?.image.displayImageAsset(recordID: eventID)
+        }
+
+        public var selectedStyle: Event.SiteMap.Style? {
             if let selectedStyleID,
                let style = siteMap?.styles.first(where: { $0.id == selectedStyleID }) {
                 return style
@@ -42,7 +41,7 @@ public struct SiteMapViewer {
         }
 
         public var selectedStyleIdentity: String {
-            selectedStyle?.id.rawValue.rawValue ?? "legacy-site-map"
+            selectedStyle?.id ?? "no-site-map"
         }
 
         public var showsStyleSwitcher: Bool {
@@ -55,7 +54,7 @@ public struct SiteMapViewer {
     }
 
     public enum Action {
-        case styleButtonTapped(OMERecord.Event.SiteMap.Style.ID)
+        case styleButtonTapped(String)
     }
 
     public var body: some Feature {
@@ -80,17 +79,15 @@ public struct SiteMapViewerView: View {
 
     public var body: some View {
         Group {
-            if let event = store.event, let asset = store.selectedAsset {
+            if store.event != nil, let asset = store.selectedAsset {
                 #if os(Android)
                 AndroidSiteMapZoomView(
                     asset: asset,
-                    eventID: event.id,
                     styleIdentity: store.selectedStyleIdentity
                 )
                 #else
                 SwiftUISiteMapZoomView(
                     asset: asset,
-                    eventID: event.id,
                     styleIdentity: store.selectedStyleIdentity
                 )
                     .id(store.selectedStyleIdentity)
@@ -121,7 +118,7 @@ public struct SiteMapViewerView: View {
                                 }
                             }
                             .accessibilityIdentifier(
-                                "button.site-map-style.\(style.id.rawValue.rawValue)"
+                                "button.site-map-style.\(style.id)"
                             )
                         }
                     } label: {
@@ -140,22 +137,20 @@ public struct SiteMapViewerView: View {
             }
         }
         .accessibilityIdentifier(
-            "view.site-map.\(store.eventID.eventID.rawValue.rawValue)"
+            "view.site-map.\(store.eventID)"
         )
     }
 }
 
 #if os(Android)
 struct AndroidSiteMapZoomView: View {
-    let asset: OME.ImageAsset
-    let eventID: OMERecord.Event.ID
+    let asset: DisplayImageAsset
     let styleIdentity: String
     @State var loadedStyleIdentity: String?
 
     var body: some View {
         ImageAssetAsyncImage(
-            asset: asset,
-            cacheContext: .init(eventID: eventID),
+            image: asset,
             contentMode: .fit,
             onIntrinsicSizeLoaded: { _ in
                 loadedStyleIdentity = styleIdentity
@@ -176,8 +171,7 @@ struct AndroidSiteMapZoomView: View {
 }
 #else
 struct SwiftUISiteMapZoomView: View {
-    let asset: OME.ImageAsset
-    let eventID: OMERecord.Event.ID
+    let asset: DisplayImageAsset
     let styleIdentity: String
     @State var intrinsicImageSize: CGSize?
     @State var loadedStyleIdentity: String?
@@ -210,8 +204,7 @@ struct SwiftUISiteMapZoomView: View {
             )
 
             ImageAssetAsyncImage(
-                asset: asset,
-                cacheContext: .init(eventID: eventID),
+                image: asset,
                 contentMode: .fit,
                 onIntrinsicSizeLoaded: { size in
                     intrinsicImageSize = size

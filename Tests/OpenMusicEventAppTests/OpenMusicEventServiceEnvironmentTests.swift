@@ -71,39 +71,50 @@ struct OpenMusicEventServiceEnvironmentTests {
     }
 
     @Test
-    func `installation client retains the database from its runtime`() async throws {
+    func `canonical event installation uses the active runtime database`() async throws {
         let productionDatabase = try makeServiceEnvironmentDatabase()
         let stagingDatabase = try makeServiceEnvironmentDatabase()
-        let organizerID = try #require(
-            OME.Organizer.ID("did:plc:stagingfestival")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:stagingfestival/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let programID = try #require(Program.ID(
+            "at://did:plc:stagingfestival/events.openmusic.program/3mrdbziccpcah"
+        ))
+        let graph = try EventRecordGraph(
+            event: Event(
+                id: eventID,
+                name: "Staging Festival 2026",
+                createdAt: "2026-09-01T12:00:00Z",
+                timeZone: .gmt,
+                programs: [programID]
+            ),
+            programs: [
+                Program(
+                    id: programID,
+                    event: eventID,
+                    title: "Music",
+                    createdAt: "2026-09-01T12:00:00Z",
+                    eventPlaces: []
+                )
+            ]
         )
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "staging-festival-2026")
-        )
-        try await insertServiceEnvironmentEvent(eventID, into: stagingDatabase)
-
-        let client = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = stagingDatabase
-        } operation: {
-            OMEEventInstallationClient.liveValue
+        try await stagingDatabase.write { db in
+            try graph.upsert(in: db)
         }
 
         let installedEventID = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = productionDatabase
+            $0.defaultDatabase = stagingDatabase
         } operation: {
-            try await client.ensureInstalled(OME.Event.reference(id: eventID).uri)
+            try await EventRecordClient.testValue.install(eventID)
         }
 
         expectNoDifference(installedEventID, eventID)
         let stagingInstallation = try await stagingDatabase.read {
-            try InstalledEventRecord.find(eventID).fetchOne($0)?.id
+            try InstalledEvent.find(eventID).fetchOne($0)?.id
         }
         let productionInstallation = try await productionDatabase.read {
-            try InstalledEventRecord.find(eventID).fetchOne($0)
+            try InstalledEvent.find(eventID).fetchOne($0)
         }
 
         expectNoDifference(stagingInstallation, eventID)
@@ -239,56 +250,43 @@ struct OpenMusicEventServiceEnvironmentTests {
     }
 
     @Test
-    func `direct event installation requests use the selected staging AppView`() async throws {
-        let organizerID = try #require(
-            OME.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+    func `canonical event requests use the selected staging AppView`() async throws {
+        let eventURI = try #require(Event.ID(
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let record = try Event(
+            id: eventURI,
+            name: "Wicked Woods 2026",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
-        )
-        let eventURI = OME.Event.reference(id: eventID).uri
+        let response = try JSONEncoder().encode(Event.IndexedRecord(
+            uri: eventURI,
+            cid: nil,
+            value: record.encodeLexicon()
+        ))
 
         let event = try await withDependencies {
-            $0.openMusicEventServiceEnvironment = .staging
             $0.httpClient = HTTPClient { request, body in
                 #expect(body == nil)
                 let url = try #require(request.url)
                 expectNoDifference(url.host(), "stg.openmusicevent.app")
-                return Data(
-                    """
-                    {
-                      "uri": "\(eventURI)",
-                      "name": "Wicked Woods 2026",
-                      "locations": [],
-                      "links": [],
-                      "media": [],
-                      "organizer": {
-                        "id": "\(organizerID)"
-                      },
-                      "attendance": {
-                        "going": 0,
-                        "interested": 0,
-                        "notGoing": 0
-                      },
-                      "source": {
-                        "collection": "app.openmusicevent.event",
-                        "appViewHost": "stg.openmusicevent.app"
-                      }
-                    }
-                    """.utf8
-                )
+                expectNoDifference(url.path(), "/xrpc/events.openmusic.getEvent")
+                return response
             }
             $0[XRPC.Client.self] = .liveValue
             $0.requestInterceptors = []
         } operation: {
-            try await CalendarEventsClient.openMusicEvent(eventURI)
+            try await CalendarEventsClient
+                .openMusicEventAndAtmo(
+                    appViewHost: OpenMusicEventServiceEnvironment.staging.appViewHost
+                )
+                .event(eventURI)
         }
 
         expectNoDifference(event.uri, eventURI)
-        expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
+        expectNoDifference(event.source.collection, ATProto.NSID(Event.lexiconID.rawValue))
     }
-
     @Test @MainActor
     func `switching clears old subscriptions and replays the notification destination`() async throws {
         var dependencies = DependencyValues()
@@ -370,46 +368,6 @@ private func makeServiceEnvironmentDatabase() throws -> any DatabaseWriter {
     OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
     try migrator.migrate(database)
     return database
-}
-
-private func insertServiceEnvironmentEvent(
-    _ eventID: OME.Event.ID,
-    into database: any DatabaseWriter
-) async throws {
-    try await database.write { db in
-        try OME.Organizer.insert {
-            OME.Organizer.Draft(id: eventID.organizerID)
-        }
-        .execute(db)
-        try OME.Event.insert {
-            OME.Event.Draft(
-                id: eventID,
-                name: "Staging Festival 2026",
-                description: nil,
-                startDate: nil,
-                endDate: nil,
-                status: nil,
-                mode: nil,
-                locations: nil,
-                uris: nil,
-                timeZone: .gmt,
-                images: nil,
-                contactNumbers: nil
-            )
-        }
-        .execute(db)
-        try EventSourceProvenanceRecord.insert {
-            EventSourceProvenanceRecord(
-                id: eventID,
-                sourceKind: .tangled,
-                sourceReference: "at://did:plc:stagingfestival/sh.tangled.repo/staging-festival",
-                ref: "main",
-                eventIDOrigin: .explicit,
-                sourceEventDirectory: "staging-festival-2026"
-            )
-        }
-        .execute(db)
-    }
 }
 
 @MainActor

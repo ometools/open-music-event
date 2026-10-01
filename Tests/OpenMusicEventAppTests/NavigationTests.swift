@@ -13,6 +13,7 @@ import Observation
 import OpenMusicEventDatabase
 import OpenMusicEventAuthentication
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
@@ -31,28 +32,28 @@ import ATProto
 @testable import OpenMusicEventAppEventViewer
 @testable import OpenMusicEventEditors
 
-private let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!
+let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!
 
-private func eventID(_ string: String) -> OMERecord.Event.ID {
+func eventID(_ string: String) -> OMERecord.Event.ID {
     OMERecord.Event.ID(
         organizerID: testOrganizerID,
-        eventID: eventLocalID(string)
+        eventID: navigationEventLocalID(string)
     )
 }
 
-private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
+func navigationEventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
     OMERecord.ID<OMERecord.Event>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func calendarLocalID(_ string: String) -> OMERecord.ID<OMERecord.Calendar> {
+func calendarLocalID(_ string: String) -> OMERecord.ID<OMERecord.Calendar> {
     OMERecord.ID<OMERecord.Calendar>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func calendarEntryLocalID(_ string: String) -> OMERecord.ID<OMERecord.CalendarEntry> {
+func calendarEntryLocalID(_ string: String) -> OMERecord.ID<OMERecord.CalendarEntry> {
     OMERecord.ID<OMERecord.CalendarEntry>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func sourceProvenance(
+func sourceProvenance(
     _ source: String,
     ref: String? = "HEAD"
 ) -> OMERecord.SourceDatabaseInsertion.SourceProvenance {
@@ -63,33 +64,33 @@ private func sourceProvenance(
     )
 }
 
-private func contributorLocalID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
+func navigationContributorLocalID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
     OMERecord.ID<OMERecord.Contributor>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func performanceLocalID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
+func navigationPerformanceLocalID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
     OMERecord.ID<OMERecord.Performance>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
+func navigationScheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
     OMERecord.ID<OMERecord.Schedule>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
+func navigationStageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private extension EventViewer.State {
+extension EventViewer.State {
     var stageDetailSpawn: Spawn<StageDetail>? {
         stagesViewer?.state.destination?.stageDetail
     }
 }
 
-private func channelLocalID(_ string: String) -> OMERecord.ID<OMERecord.Channel> {
+func channelLocalID(_ string: String) -> OMERecord.ID<OMERecord.Channel> {
     OMERecord.ID<OMERecord.Channel>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-private func channelRecordID(
+func channelRecordID(
     _ string: String,
     eventID: OMERecord.Event.ID
 ) -> OMERecord.Channel.ID {
@@ -100,7 +101,7 @@ private func channelRecordID(
     )
 }
 
-private func commsPostID(
+func commsPostID(
     _ string: String,
     channelID: String,
     eventID: OMERecord.Event.ID
@@ -113,7 +114,7 @@ private func commsPostID(
     )
 }
 
-private actor ObservationRecorder<Value: Sendable> {
+actor ObservationRecorder<Value: Sendable> {
     private var recordedValues: [Value] = []
 
     var values: [Value] {
@@ -125,7 +126,7 @@ private actor ObservationRecorder<Value: Sendable> {
     }
 }
 
-private actor BlueskyProfileRequestRecorder {
+actor BlueskyProfileRequestRecorder {
     private var recordedActors: [String] = []
 
     var actors: [String] {
@@ -137,7 +138,7 @@ private actor BlueskyProfileRequestRecorder {
     }
 }
 
-private func observeAuthorizationRequest(
+func observeAuthorizationRequest(
     from center: AuthorizationRequestCenter
 ) async -> Task<AuthorizationRequestCenter.Request?, Never> {
     let stream = await center.requests()
@@ -153,7 +154,7 @@ private func observeAuthorizationRequest(
 }
 
 
-private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
+final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
     private let lock = NSLock()
     private var recordedMessages: [String] = []
 
@@ -191,6 +192,14 @@ private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
     }
 }
 
+let canonicalRouteEventID = Event.ID(
+    "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+)!
+
+func canonicalRouteRecordID(_ collection: String, _ recordKey: String) -> ATProto.URI {
+    ATProto.URI("at://did:plc:organizer/\(collection)/\(recordKey)")!
+}
+
 @MainActor
 @Suite(
     .dependencies {
@@ -200,62 +209,28 @@ private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
     .tcaExhaustivity(.off)
 )
 struct NavigationTests {
-    @Test(
-        arguments: [
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1",
-                AppRoute.event(eventID("event-1"), nil)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/schedule",
-                AppRoute.event(eventID("event-1"), .schedule)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors",
-                AppRoute.event(eventID("event-1"), .contributors)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors/artist-1",
-                AppRoute.event(eventID("event-1"), .contributor(contributorLocalID("artist-1")))
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages",
-                AppRoute.event(eventID("event-1"), .stages)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
-                AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/performance-1",
-                AppRoute.event(eventID("event-1"), .performance(performanceLocalID("performance-1")))
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/workspace",
-                AppRoute.event(eventID("event-1"), .workspace)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/settings",
-                AppRoute.event(eventID("event-1"), .settings)
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general",
-                AppRoute.event(eventID("event-1"), .channel(channelLocalID("general")))
-            ),
-            (
-                "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/gates-are-open",
-                AppRoute.event(
-                    eventID("event-1"),
-                    .post(
-                        channelID: channelLocalID("general"),
-                        postID: CommsPost.PostID("gates-are-open")
-                    )
-                )
-            ),
-        ]
-    )
-    func appRouteRoundTrips(urlString: String, expected: AppRoute) throws {
-        let url = try #require(URL(string: urlString))
+    @Test(arguments: [
+        AppRoute.event(canonicalRouteEventID, nil),
+        AppRoute.event(canonicalRouteEventID, .schedule),
+        AppRoute.event(canonicalRouteEventID, .contributors),
+        AppRoute.event(canonicalRouteEventID, .contributor(canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj"))),
+        AppRoute.event(canonicalRouteEventID, .stages),
+        AppRoute.event(canonicalRouteEventID, .stage(canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak"))),
+        AppRoute.event(canonicalRouteEventID, .performance(canonicalRouteRecordID("events.openmusic.programItem", "3mrdbziccpcam"))),
+        AppRoute.event(canonicalRouteEventID, .workspace),
+        AppRoute.event(canonicalRouteEventID, .settings),
+        AppRoute.event(canonicalRouteEventID, .channel(canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan"))),
+        AppRoute.event(
+            canonicalRouteEventID,
+            .post(
+                channelID: canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan"),
+                postID: canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
+            )
+        ),
+    ])
+    func appRouteRoundTrips(expected: AppRoute) throws {
+        let path = expected.path
+        let url = try #require(URL(string: "https://openmusicevent.app\(path)"))
         let route = try #require(AppRoute(url: url))
 
         #expect(route == expected)
@@ -264,22 +239,19 @@ struct NavigationTests {
         #expect(AppRoute(notificationRoute: route.notificationRoute) == expected)
     }
 
-    @Test(
-        arguments: [
-            (
-                "https://festival.example/events/2026",
-                AppRoute.event(eventID("ome-workspace-2026"), nil)
-            ),
-            (
-                "https://festival.example/events/2026/schedule",
-                AppRoute.event(eventID("ome-workspace-2026"), .schedule)
-            ),
-            (
-                "https://festival.example:443/events/2026",
-                AppRoute.event(eventID("ome-workspace-2026"), nil)
-            ),
-        ]
-    )
+    @Test
+    func canonicalEventRouteHasAnExplicitRecordPath() {
+        #expect(
+            AppRoute.event(canonicalRouteEventID, nil).path
+                == "/records/did%3Aplc%3Aorganizer/3mrdbziccpcah"
+        )
+    }
+
+    @Test(arguments: [
+        ("https://festival.example/events/2026", AppRoute.event(canonicalRouteEventID, nil)),
+        ("https://festival.example/events/2026/schedule", AppRoute.event(canonicalRouteEventID, .schedule)),
+        ("https://festival.example:443/events/2026", AppRoute.event(canonicalRouteEventID, nil)),
+    ])
     func brandedEventRouteClaimsResolveIntoDurableRoutes(
         urlString: String,
         expected: AppRoute
@@ -287,88 +259,74 @@ struct NavigationTests {
         let claim = BrandedEventRouteClaim(
             host: "festival.example",
             eventClaim: "2026",
-            eventID: eventID("ome-workspace-2026")
+            eventID: canonicalRouteEventID
         )
         let url = try #require(URL(string: urlString))
         let route = try #require(AppRoute(url: url, brandedClaims: [claim]))
 
         expectNoDifference(route, expected)
-        expectNoDifference(
-            route.path,
-            "/orgs/did%3Aweb%3Aexample.com/events/ome-workspace-2026"
-                + (url.path.hasSuffix("/schedule") ? "/schedule" : "")
-        )
+        #expect(route.path == expected.path)
         #expect(AppRoute(url: url) == nil)
     }
 
-    @Test(
-        arguments: [
-            "https://somewhere-else.example/events/2026",
-            "https://festival.example/events/2025",
-            "http://festival.example/events/2026",
-            "https://festival.example:8443/events/2026",
-        ]
-    )
+    @Test(arguments: [
+        "https://somewhere-else.example/events/2026",
+        "https://festival.example/events/2025",
+        "http://festival.example/events/2026",
+        "https://festival.example:8443/events/2026",
+    ])
     func brandedEventRouteClaimsRequireTheExactSecureOrigin(urlString: String) throws {
         let claim = BrandedEventRouteClaim(
             host: "festival.example",
             eventClaim: "2026",
-            eventID: eventID("ome-workspace-2026")
+            eventID: canonicalRouteEventID
         )
         let url = try #require(URL(string: urlString))
 
         #expect(AppRoute(url: url, brandedClaims: [claim]) == nil)
     }
 
-    @Test(
-        arguments: [
-            "https://example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
-            "orgs/did%3Aweb%3Aexample.com/events/event-1",
-            "//example.com/orgs/did%3Aweb%3Aexample.com/events/event-1",
-        ]
-    )
+    @Test(arguments: [
+        "https://example.com/records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+        "records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+        "//example.com/records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+    ])
     func appRouteRejectsNotificationValuesThatAreNotAppPaths(value: String) {
         #expect(AppRoute(notificationRoute: value) == nil)
     }
 
     @Test
-    func appRouteAcceptsLegacyEditEventPathAsWorkspace() throws {
+    func appRouteAcceptsEditEventPathAsWorkspace() throws {
         let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/edit"
+            string: "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/edit"
         ))
-        #expect(AppRoute(url: url) == AppRoute.event(eventID("event-1"), .workspace))
+        #expect(AppRoute(url: url) == AppRoute.event(canonicalRouteEventID, .workspace))
     }
 
-    @Test(
-        arguments: [
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/people",
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
-        ]
-    )
+    @Test(arguments: [
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/people",
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/participants/3mrdbziccpcaj",
+    ])
     func appRouteRejectsOldContributorURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
         #expect(AppRoute(url: url) == nil)
     }
 
-    @Test(
-        arguments: [
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances",
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/opening/extra",
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performance/opening",
-        ]
-    )
+    @Test(arguments: [
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances",
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances/3mrdbziccpcam/extra",
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performance/3mrdbziccpcam",
+    ])
     func appRouteRejectsIncompleteOrUnsupportedPerformanceURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
         #expect(AppRoute(url: url) == nil)
     }
 
-    @Test(
-        arguments: [
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts",
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/post/welcome",
-            "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/welcome/extra",
-        ]
-    )
+    @Test(arguments: [
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts",
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/post/welcome",
+        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts/welcome/extra",
+    ])
     func appRouteRejectsIncompleteOrUnsupportedCommunicationURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
         #expect(AppRoute(url: url) == nil)
@@ -377,19 +335,21 @@ struct NavigationTests {
     @Test
     func siteMapMetadataIsAvailableWhenViewerStateIsCreated() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
         let siteMapURL = URL(string: "https://example.com/site-map.png")!
         try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try OMERecord.Event.insert {
-                OMERecord.Event.Draft(
-                    id: eventID,
-                    name: "Event 1",
-                    timeZone: TimeZone(secondsFromGMT: 0)!,
-                    siteMapImageURL: siteMapURL
-                )
-            }
-            .execute(db)
+            let event = try Event(
+                id: eventID, name: "Event 1", createdAt: "2026-09-01T12:00:00Z",
+                timeZone: .gmt,
+                siteMap: .init(title: "Site Map", styles: [
+                    .init(id: "public", title: "Public", image: .init(
+                        source: .known(.url(siteMapURL)), role: .known(.siteMap)
+                    ))
+                ])
+            )
+            try Event.insert { event }.execute(db)
         }
 
         // The installed event already tells the viewer that a site map exists.
@@ -400,60 +360,41 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            state.event?.images?.imageAsset(role: .siteMap)?.url,
+            state.selectedAsset?.asset.url,
             siteMapURL
         )
+        expectNoDifference(state.selectedAsset?.recordID, eventID)
         #expect(state.featureTitle == "Site Map")
     }
 
     @Test
     func siteMapViewerStartsWithTheSourceDefaultAndSwitchesStyles() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let festivalStyleID = OMERecord.ID<OMERecord.Event.SiteMap.Style>(.init("festival"))
-        let campingStyleID = OMERecord.ID<OMERecord.Event.SiteMap.Style>(.init("camping"))
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let festivalStyleID = "festival"
+        let campingStyleID = "camping"
         let festivalURL = URL(string: "https://example.com/maps/festival.png")!
         let campingURL = URL(string: "https://example.com/maps/camping.png")!
         try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try OMERecord.Event.insert {
-                OMERecord.Event.Draft(
-                    id: eventID,
-                    name: "Event 1",
-                    timeZone: TimeZone(secondsFromGMT: 0)!
-                )
-            }
-            .execute(db)
-            try OMERecord.Event.SiteMap.insert {
-                OMERecord.Event.SiteMap(
-                    id: OMERecord.Event.SiteMap.ID(eventID: eventID),
+            let event = try Event(
+                id: eventID, name: "Event 1", createdAt: "2026-09-01T12:00:00Z",
+                timeZone: .gmt,
+                siteMap: .init(
                     title: "Festival Map",
-                    defaultStyleID: festivalStyleID,
                     styles: [
-                        OMERecord.Event.SiteMap.Style(
-                            id: festivalStyleID,
-                            title: "Festival",
-                            image: OMERecord.ImageAsset(
-                                source: .url(festivalURL),
-                                role: .siteMap,
-                                renderKind: .fullImage,
-                                materializationPolicy: .lazy
-                            )
-                        ),
-                        OMERecord.Event.SiteMap.Style(
-                            id: campingStyleID,
-                            title: "Camping",
-                            image: OMERecord.ImageAsset(
-                                source: .url(campingURL),
-                                role: .siteMap,
-                                renderKind: .fullImage,
-                                materializationPolicy: .lazy
-                            )
-                        ),
-                    ]
+                        .init(id: festivalStyleID, title: "Festival", image: .init(
+                            source: .known(.url(festivalURL)), role: .known(.siteMap)
+                        )),
+                        .init(id: campingStyleID, title: "Camping", image: .init(
+                            source: .known(.url(campingURL)), role: .known(.siteMap)
+                        )),
+                    ],
+                    defaultStyleID: festivalStyleID
                 )
-            }
-            .execute(db)
+            )
+            try Event.insert { event }.execute(db)
         }
         let store = withDependencies {
             $0.defaultDatabase = database
@@ -465,7 +406,7 @@ struct NavigationTests {
 
         // The map opens on its source-defined style and exposes the layer switcher.
         #expect(store.state.selectedStyle?.title == "Festival")
-        #expect(store.state.selectedAsset?.url == festivalURL)
+        #expect(store.state.selectedAsset?.asset.url == festivalURL)
         #expect(store.state.showsStyleSwitcher)
         #expect(store.state.featureTitle == "Site Maps")
 
@@ -474,516 +415,242 @@ struct NavigationTests {
             $0.selectedStyleID = campingStyleID
         }
         #expect(store.state.selectedStyle?.title == "Camping")
-        #expect(store.state.selectedAsset?.url == campingURL)
+        #expect(store.state.selectedAsset?.asset.url == campingURL)
     }
 
     @Test
-    func navigationRequestInstallsEventAndMountsViewer() async throws {
+    func navigationRequestInstallsCanonicalEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let installations = TestMutex<[ATProto.URI]>([])
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-
-        let navigationTask = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { uri in
-                    installations.withLock { $0.append(uri) }
-                    try await database.write { db in
-                        try Self.insertOrganizer(db, id: eventID.organizerID)
-                        try Self.insertEvent(db, id: eventID, name: "Event 1")
-                        try EventSourceProvenanceRecord.insert {
-                            EventSourceProvenanceRecord(
-                                id: eventID,
-                                sourceKind: .tangled,
-                                sourceReference: "tangled.org/example/event-1",
-                                ref: "main",
-                                eventIDOrigin: .explicit,
-                                sourceEventDirectory: "event-1"
-                            )
-                        }
-                        .execute(db)
-                    }
-                    return eventID
-                },
-                synchronizeInstalledEvent: { _ in
-                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
-                }
-            )
-        } operation: {
-            store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        let eventID = canonicalRouteEventID
+        let graph = try canonicalNavigationGraph(id: eventID)
+        let downloads = TestMutex<[Event.ID]>([])
+        let client = EventRecordClient { requestedID in
+            downloads.withLock { $0.append(requestedID) }
+            return graph
         }
+        let store = makeCanonicalRootHarnessStore(database: database, client: client)
+
+        let navigationTask = store.send(
+            .root(.handleNavigationRequest(.event(eventID, nil)))
+        )
         await navigationTask?.value
-        try await waitForSelectedEventID(eventID, in: database)
         await waitUntil {
-            store.state.root.destination?.eventViewer?.authoring.content.content.eventID
-                == eventID
+            store.state.root.destination?.eventViewer?.eventID == eventID
         }
 
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
+        #expect(downloads.withLock { $0 } == [eventID])
+        #expect(store.state.root.destination?.eventViewer?.pendingScheduleLaunchAction == nil)
+        let saved = try await database.read { db in
+            (
+                selection: try AppState.find(1).fetchOne(db)?.selectedEventID,
+                installations: try InstalledEvent.all.fetchAll(db)
+            )
         }
-        expectNoDifference(
-            installations.withLock { $0 },
-            [OMERecord.Event.reference(id: eventID).uri]
-        )
-        #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == eventID)
-        #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.pendingScheduleLaunchAction == nil
-        )
+        #expect(saved.selection == eventID)
+        #expect(saved.installations == [InstalledEvent(id: eventID)])
     }
 
     @Test
-    func unloadedDeepLinkShowsEventLogoUntilInstallationFinishes() async throws {
+    func deepLinkKeepsLoadingUntilCanonicalRecordsAreInstalled() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let logoURL = try #require(URL(string: "https://openmusicevent.app/event-logo.png"))
-        try await database.write { db in
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-        }
-
-        typealias Continuation = AsyncThrowingStream<
-            OMEEventInstallationProgress,
-            any Error
-        >.Continuation
-        let installationContinuation = TestMutex<Continuation?>(nil)
-        let client = OMEEventInstallationClient(
-            ensureInstalled: { uri in
-                throw OMEEventInstallationError.eventIsNotInstalled(uri)
-            },
-            synchronizeInstalledEvent: { eventID in
-                throw OMEEventInstallationError.eventIsNotInstalled(
-                    OME.Event.reference(id: eventID).uri
-                )
-            },
-            install: { _ in
-                AsyncThrowingStream { continuation in
-                    installationContinuation.withLock { $0 = continuation }
-                    continuation.yield(
-                        .preview(
-                            EventEntryPreview(
-                                title: "Wicked Woods",
-                                logoURL: logoURL
-                            )
-                        )
-                    )
-                }
-            }
-        )
-        let store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.omeEventInstallation = client
-        } operation: {
-            var state = RootHarness.State()
-            state.root = OpenMusicEventAppRoot.State()
-            return Store(initialState: state) {
-                RootHarness()
+        let eventID = canonicalRouteEventID
+        let graph = try canonicalNavigationGraph(id: eventID)
+        let continuation = TestMutex<CheckedContinuation<EventRecordGraph, Never>?>(nil)
+        let client = EventRecordClient { _ in
+            await withCheckedContinuation { pending in
+                continuation.withLock { $0 = pending }
             }
         }
+        let store = makeCanonicalRootHarnessStore(database: database, client: client)
         let route = AppRoute.event(eventID, .communications)
 
         let navigationTask = store.send(.root(.openRoute(route)))
-        await waitForObservation { store.root.eventEntry?.title == "Wicked Woods" }
-
-        #expect(store.root.eventEntry?.logoURL == logoURL)
-        #expect(store.root.eventEntry?.phase == .loading)
-        #expect(store.root.destination?.eventViewer.map { _ in true } == nil)
-
-        let continuation = try #require(
-            installationContinuation.withLock { $0 }
-        )
-        continuation.yield(.installed(eventID))
-        continuation.finish()
-        await navigationTask?.value
-
-        #expect(store.root.eventEntry == nil)
-        #expect(
-            store.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .communications
-        )
-    }
-
-    @Test
-    func supersededDeepLinkCannotReplaceTheNewerEvent() async throws {
-        let database = try makePreparedDatabase()
-        let firstEventID = eventID("event-1")
-        let secondEventID = eventID("event-2")
-        try await database.write { db in
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: firstEventID)
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: secondEventID)
-        }
-
-        typealias Continuation = AsyncThrowingStream<
-            OMEEventInstallationProgress,
-            any Error
-        >.Continuation
-        let installationContinuations = TestMutex<[String: Continuation]>([:])
-        let client = OMEEventInstallationClient(
-            ensureInstalled: { uri in
-                throw OMEEventInstallationError.eventIsNotInstalled(uri)
-            },
-            synchronizeInstalledEvent: { eventID in
-                throw OMEEventInstallationError.eventIsNotInstalled(
-                    OME.Event.reference(id: eventID).uri
-                )
-            },
-            install: { uri in
-                AsyncThrowingStream { continuation in
-                    installationContinuations.withLock {
-                        $0[uri.description] = continuation
-                    }
-                }
-            }
-        )
-        let store = makeRootHarnessStore(
-            database: database,
-            eventID: firstEventID,
-            installationClient: client
-        )
-        let firstRoute = AppRoute.event(firstEventID, .schedule)
-        let secondRoute = AppRoute.event(secondEventID, .communications)
-
-        let firstTask = store.send(.root(.openRoute(firstRoute)))
-        let firstURI = OMERecord.Event.reference(id: firstEventID).uri.description
-        await waitUntil {
-            installationContinuations.withLock { $0[firstURI] != nil }
-        }
-
-        let secondTask = store.send(.root(.openRoute(secondRoute)))
-        let secondURI = OMERecord.Event.reference(id: secondEventID).uri.description
-        await waitUntil {
-            installationContinuations.withLock { $0[secondURI] != nil }
-        }
-
-        let secondContinuation = try #require(
-            installationContinuations.withLock { $0[secondURI] }
-        )
-        secondContinuation.yield(.installed(secondEventID))
-        secondContinuation.finish()
-        await secondTask?.value
-
-        let firstContinuation = try #require(
-            installationContinuations.withLock { $0[firstURI] }
-        )
-        firstContinuation.yield(.installed(firstEventID))
-        firstContinuation.finish()
-        await firstTask?.value
-
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.id == secondEventID
-        )
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .communications
-        )
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
-        }
-        #expect(appState?.selectedEventID == secondEventID)
-    }
-
-    @Test
-    func failedDeepLinkRetainsItsPreviewAndCanRetry() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let eventURI = OMERecord.Event.reference(id: eventID).uri
-        let logoURL = try #require(URL(string: "https://openmusicevent.app/event-logo.png"))
-        try await database.write { db in
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-        }
-
-        typealias Continuation = AsyncThrowingStream<
-            OMEEventInstallationProgress,
-            any Error
-        >.Continuation
-        let installationContinuations = TestMutex<[Continuation]>([])
-        let client = OMEEventInstallationClient(
-            ensureInstalled: { uri in
-                throw OMEEventInstallationError.eventIsNotInstalled(uri)
-            },
-            synchronizeInstalledEvent: { eventID in
-                throw OMEEventInstallationError.eventIsNotInstalled(
-                    OME.Event.reference(id: eventID).uri
-                )
-            },
-            install: { _ in
-                AsyncThrowingStream { continuation in
-                    installationContinuations.withLock { $0.append(continuation) }
-                }
-            }
-        )
-        let store = withDependencies {
-            $0.continuousClock = ImmediateClock()
-        } operation: {
-            makeRootHarnessStore(
-                database: database,
-                eventID: eventID,
-                installationClient: client
-            )
-        }
-        let route = AppRoute.event(eventID, .communications)
-
-        try await expectReportedIssue(containing: "installationSourceUnavailable") {
-            let firstTask = store.send(.root(.openRoute(route)))
-            await waitUntil { installationContinuations.withLock { $0.count == 1 } }
-            let firstContinuation = try #require(
-                installationContinuations.withLock { $0.first }
-            )
-            firstContinuation.yield(
-                .preview(EventEntryPreview(title: "Wicked Woods", logoURL: logoURL))
-            )
-            firstContinuation.finish(
-                throwing: OMEEventInstallationError.installationSourceUnavailable(eventURI)
-            )
-            await firstTask?.value
-        }
-
+        await waitUntil { continuation.withLock { $0 != nil } }
         #expect(store.state.root.eventEntry?.route == route)
-        #expect(store.state.root.eventEntry?.title == "Wicked Woods")
-        #expect(store.state.root.eventEntry?.logoURL == logoURL)
-        #expect(
-            store.state.root.eventEntry?.phase
-                == .failed("This event could not be loaded.")
-        )
-
-        store.send(.root(.eventEntryRetryTapped))
-        await waitUntil { installationContinuations.withLock { $0.count == 2 } }
         #expect(store.state.root.eventEntry?.phase == .loading)
-        let retryContinuation = try #require(
-            installationContinuations.withLock { $0.last }
-        )
-        retryContinuation.yield(.installed(eventID))
-        retryContinuation.finish()
-        await waitUntil { store.state.root.eventEntry == nil }
+        #expect(store.state.root.destination?.eventViewer == nil)
 
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .communications
-        )
+        continuation.withLock { $0 }?.resume(returning: graph)
+        await navigationTask?.value
+        await waitUntil { store.state.root.destination?.eventViewer?.eventID == eventID }
+        #expect(store.state.root.eventEntry == nil)
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .communications)
+    }
+
+    @Test
+    func supersededDeepLinkCannotReplaceTheNewerCanonicalEvent() async throws {
+        let database = try makePreparedDatabase()
+        let firstEventID = canonicalRouteEventID
+        let secondEventID = canonicalRouteRecordID("events.openmusic.event", "3mrdbziccpcai")
+        let firstGraph = try canonicalNavigationGraph(id: firstEventID)
+        let secondGraph = try canonicalNavigationGraph(id: secondEventID)
+        let continuations = TestMutex<
+            [Event.ID: CheckedContinuation<EventRecordGraph, Never>]
+        >([:])
+        let client = EventRecordClient { eventID in
+            await withCheckedContinuation { pending in
+                continuations.withLock { $0[eventID] = pending }
+            }
+        }
+        let store = makeCanonicalRootHarnessStore(database: database, client: client)
+
+        let firstTask = store.send(.root(.openRoute(.event(firstEventID, .schedule))))
+        await waitUntil { continuations.withLock { $0[firstEventID] != nil } }
+        let secondTask = store.send(.root(.openRoute(.event(secondEventID, .communications))))
+        await waitUntil { continuations.withLock { $0[secondEventID] != nil } }
+
+        continuations.withLock { $0[secondEventID] }?.resume(returning: secondGraph)
+        await secondTask?.value
+        await waitUntil { store.state.root.destination?.eventViewer?.eventID == secondEventID }
+
+        continuations.withLock { $0[firstEventID] }?.resume(returning: firstGraph)
+        await firstTask?.value
+        #expect(store.state.root.destination?.eventViewer?.eventID == secondEventID)
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .communications)
+        let selection = try await database.read { db in
+            try AppState.find(1).fetchOne(db)?.selectedEventID
+        }
+        #expect(selection == secondEventID)
     }
 
     #if !os(Android)
     @Test
     func contentNotificationOpensItsTypedApplicationRoute() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-        let json = #"""
+        let eventID = canonicalRouteEventID
+        let graph = try canonicalNavigationGraph(id: eventID)
+        let store = makeCanonicalRootHarnessStore(
+            database: database,
+            client: EventRecordClient { _ in graph }
+        )
+        let route = AppRoute.event(eventID, .communications)
+        let json = """
         {
-          "aps": {
-            "alert": {
-              "title": "Event One",
-              "body": "A new announcement is available"
-            },
-            "sound": "default"
-          },
+          "aps": {"alert": {"title": "Event One", "body": "A new announcement is available"}},
           "kind": "content",
-          "source": "at://did:web:example.com/app.openmusicevent.event/event-1",
+          "source": "\(eventID)",
           "version": "a1b2c3d4",
-          "route": "/orgs/did%3Aweb%3Aexample.com/events/event-1/communications"
+          "route": "\(route.notificationRoute)"
         }
-        """#
+        """
 
-        let notificationTask = store.send(
+        await store.send(
             .notification(
                 NotificationEvent(
                     json: json,
                     delivery: .userInteraction(actionIdentifier: "open")
                 )
             )
-        )
-        await notificationTask?.value
+        )?.value
 
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .communications
-        )
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.eventID == eventID
-        )
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .communications)
+        #expect(store.state.root.destination?.eventViewer?.eventID == eventID)
     }
 
     @Test
-    func `tapping a notification loads its post while the source refreshes`() async throws {
+    func `tapping a notification loads its post while the record arrives`() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let postID = commsPostID("gates-open", channelID: "general", eventID: eventID)
-        let (refreshStarted, refreshStartedContinuation) = AsyncStream<Void>.makeStream()
-        var refreshStartedIterator = refreshStarted.makeAsyncIterator()
-        let (refreshGate, refreshGateContinuation) = AsyncStream<Void>.makeStream()
-
+        let eventID = canonicalRouteEventID
+        let channelID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcae")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcae")
+        let graph = try canonicalNavigationGraph(id: eventID)
         try await database.write { db in
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(
-                    id: eventID,
-                    sourceProvenance: EventSourceProvenanceRecord(
-                        id: eventID,
-                        sourceKind: .tangled,
-                        sourceReference: "tangled.org/example/event-1",
-                        ref: "main",
-                        eventIDOrigin: .explicit,
-                        sourceEventDirectory: "event-1"
-                    ).sourceProvenance
-                )
-            }
-            .execute(db)
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General"
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(
+                db, id: channelID, eventID: eventID, name: "General"
             )
         }
-
-        let store = makeRootHarnessStore(
+        let store = makeCanonicalRootHarnessStore(
             database: database,
-            eventID: eventID,
-            variant: .whiteLabel(
-                WickedWoodsWhiteLabel.configuration(organizerID: eventID.organizerID)
-            ),
-            installationClient: OMEEventInstallationClient(
-                ensureInstalled: { _ in eventID },
-                synchronizeInstalledEvent: { synchronizedEventID in
-                    expectNoDifference(synchronizedEventID, eventID)
-                    refreshStartedContinuation.yield()
-                    refreshStartedContinuation.finish()
-                    for await _ in refreshGate {
-                        break
-                    }
-                    try await database.write { db in
-                        try Self.insertCommsPost(
-                            db,
-                            eventID: eventID,
-                            channelID: "general",
-                            postID: "gates-open",
-                            title: "Gates are open",
-                            contents: "Welcome to Wicked Woods.",
-                            sortIndex: 0
-                        )
-                    }
-                }
-            )
+            client: EventRecordClient { _ in graph }
         )
-        let json = #"""
+        let route = AppRoute.event(
+            eventID, .post(channelID: channelID, postID: postID)
+        )
+        let json = """
         {
-          "aps": {
-            "alert": {
-              "title": "Gates are open",
-              "body": "Welcome to Wicked Woods."
-            },
-            "sound": "default"
-          },
+          "aps": {"alert": {"title": "Gates are open", "body": "Welcome to Wicked Woods."}},
           "kind": "content",
-          "source": "at://did:web:example.com/app.openmusicevent.event/event-1",
+          "source": "\(eventID)",
           "version": "notification-post-1",
-          "route": "/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/gates-open"
+          "route": "\(route.notificationRoute)"
         }
-        """#
+        """
 
-        // The attendee taps a notification before its source revision is in the local database.
-        let notificationTask = store.send(
+        await store.send(
             .notification(
                 NotificationEvent(
                     json: json,
                     delivery: .userInteraction(actionIdentifier: "open")
                 )
             )
-        )
-        _ = await refreshStartedIterator.next()
+        )?.value
         await waitUntil {
             store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.destination?
-                .postDetail?.postID == postID
+                .communicationsViewer?.destination?.channelDetail?
+                .destination?.postDetail?.postID == postID
         }
-
-        // The post detail remains mounted in its loading state while synchronization is pending.
         expectNoDifference(
             store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.destination?
-                .postDetail?.loadState,
+                .communicationsViewer?.destination?.channelDetail?
+                .destination?.postDetail?.loadState,
             .loading
         )
 
-        // Synchronization inserts the post, and the mounted query replaces loading with content.
-        refreshGateContinuation.yield()
-        refreshGateContinuation.finish()
-        await notificationTask?.value
+        try await database.write { db in
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: channelID,
+                title: "Gates are open", text: "Welcome to Wicked Woods."
+            )
+        }
         await waitUntil {
             store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.destination?
-                .postDetail?.post?.title == "Gates are open"
+                .communicationsViewer?.destination?.channelDetail?
+                .destination?.postDetail?.post?.title == "Gates are open"
         }
         let loadedPost = try #require(
             store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.destination?
-                .postDetail?.post
+                .communicationsViewer?.destination?.channelDetail?
+                .destination?.postDetail?.post
         )
         expectNoDifference(loadedPost.id, postID)
-        expectNoDifference(loadedPost.contents, "Welcome to Wicked Woods.")
+        expectNoDifference(loadedPost.text, "Welcome to Wicked Woods.")
     }
 
     @Test
     func contentNotificationSelectsCommunicationsFromAnOpenSchedule() async throws {
         let database = try makePreparedDatabase()
-        let organizerID = OMERecord.Organizer.ID(
-            "did:plc:5df2u7ief6m6tn77jznicxob"
-        )!
-        let eventID = OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: eventLocalID("ome-workspace-2026")
-        )
+        let eventID = canonicalRouteEventID
+        let graph = try canonicalNavigationGraph(id: eventID)
         try await database.write { db in
-            try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-            // This story starts after the already-open event has completed its one-time setup.
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Wicked Woods")
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
             try EventViewerState.insert {
-                EventViewerState(
-                    id: eventID,
-                    didInitializeUserSchedules: true
-                )
-            }
-            .execute(db)
+                EventViewerState(id: eventID, didInitializeUserSchedules: true)
+            }.execute(db)
         }
-        let store = makeRootHarnessStore(
+        let store = makeCanonicalRootHarnessStore(
             database: database,
-            eventID: eventID,
+            client: EventRecordClient { _ in graph },
             selectedEventIDAtLaunch: eventID
         )
-        let json = #"""
+        let route = AppRoute.event(eventID, .communications)
+        let json = """
         {
-          "aps": {
-            "alert": {
-              "title": "Wicked Woods 2026",
-              "body": "A new announcement is available"
-            },
-            "sound": "default"
-          },
+          "aps": {"alert": {"title": "Wicked Woods", "body": "A new announcement is available"}},
           "kind": "content",
-          "source": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
+          "source": "\(eventID)",
           "version": "manual-content-1",
-          "route": "/orgs/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/events/ome-workspace-2026/communications"
+          "route": "\(route.notificationRoute)"
         }
-        """#
+        """
 
         #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .schedule(.schedule)
+            store.state.root.destination?.eventViewer?.selectedFeature
+                == .schedule(.schedule)
         )
 
-        let notificationTask = store.send(
+        await store.send(
             .notification(
                 NotificationEvent(
                     json: json,
@@ -992,63 +659,42 @@ struct NavigationTests {
                     )
                 )
             )
-        )
-        await notificationTask?.value
+        )?.value
 
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.selectedFeature == .communications
-        )
-        #expect(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.eventID == eventID
-        )
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .communications)
+        #expect(store.state.root.destination?.eventViewer?.eventID == eventID)
     }
 
     @Test
     func secondDeepLinkReplacesMountedEventViewer() async throws {
         let database = try makePreparedDatabase()
-        let firstEventID = eventID("event-1")
-        let secondEventID = eventID("event-2")
-        let store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = firstEventID
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { uri in
-                    guard let eventID = OME.Event.ID(uri) else {
-                        throw OMEEventInstallationError.invalidEventURI(uri)
-                    }
-                    try await database.write { db in
-                        try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-                    }
-                    return eventID
-                },
-                synchronizeInstalledEvent: { _ in
-                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
-                }
-            )
-        } operation: {
-            Store(initialState: OpenMusicEventAppRoot.State()) {
-                OpenMusicEventAppRoot()
+        let firstEventID = canonicalRouteEventID
+        let secondEventID = canonicalRouteRecordID(
+            "events.openmusic.event", "3mrdbziccpcai"
+        )
+        let firstGraph = try canonicalNavigationGraph(id: firstEventID)
+        let secondGraph = try canonicalNavigationGraph(id: secondEventID)
+        let store = makeCanonicalRootHarnessStore(
+            database: database,
+            client: EventRecordClient { eventID in
+                eventID == firstEventID ? firstGraph : secondGraph
             }
-        }
+        )
         let firstURL = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1"
+            string: "https://openmusicevent.app" + AppRoute.event(firstEventID, nil).path
         ))
         let secondURL = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-2"
+            string: "https://openmusicevent.app" + AppRoute.event(secondEventID, nil).path
         ))
 
-        await store.send(.openURL(firstURL))?.value
-        await waitForObservation {
-            store.destination?.eventViewer?.authoring.content.content.eventID == firstEventID
+        await store.send(.root(.openURL(firstURL)))?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?.eventID == firstEventID
         }
 
-        await store.send(.openURL(secondURL))?.value
-        await waitForObservation {
-            store.destination?.eventViewer?.authoring.content.content.eventID == secondEventID
+        await store.send(.root(.openURL(secondURL)))?.value
+        await waitUntil {
+            store.state.root.destination?.eventViewer?.eventID == secondEventID
         }
 
         try await waitForSelectedEventID(secondEventID, in: database)
@@ -1057,21 +703,16 @@ struct NavigationTests {
     @Test
     func brandedEventURLInstallsAndMountsTheDurableEvent() async throws {
         let database = try makePreparedDatabase()
-        let organizerID = try #require(OMERecord.Organizer.ID(
-            "did:plc:5df2u7ief6m6tn77jznicxob"
-        ))
-        let eventID = OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: eventLocalID("ome-workspace-2026")
-        )
+        let eventID = canonicalRouteEventID
+        let graph = try canonicalNavigationGraph(id: eventID)
         let claim = BrandedEventRouteClaim(
             host: "wickedwoods.openmusicevent.app",
             eventClaim: "2026",
             eventID: eventID
         )
-        let store = makeRootHarnessStore(
+        let store = makeCanonicalRootHarnessStore(
             database: database,
-            eventID: eventID,
+            client: EventRecordClient { _ in graph },
             brandedEventRouteClaims: [claim]
         )
         let url = try #require(URL(
@@ -1080,15 +721,10 @@ struct NavigationTests {
 
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.eventID == eventID
+            store.state.root.destination?.eventViewer?.eventID == eventID
         }
 
-        expectNoDifference(
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.eventID,
-            eventID
-        )
+        #expect(store.state.root.destination?.eventViewer?.eventID == eventID)
         try await waitForSelectedEventID(eventID, in: database)
     }
     #endif
@@ -1096,97 +732,115 @@ struct NavigationTests {
     @Test
     func contributorDeepLinkSelectsContributorDestination() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("contributor-1")
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/contributors/contributor-1"
-        ))
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID(
+            "events.openmusic.contributor", "3mrdbziccpcae"
+        )
+        let graph = try canonicalNavigationGraph(id: eventID)
+        let store = makeCanonicalRootHarnessStore(
+            database: database,
+            client: EventRecordClient { _ in graph }
+        )
+        let route = AppRoute.event(eventID, .contributor(contributorID))
+        let url = try #require(URL(string: "https://openmusicevent.app" + route.path))
 
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
-            store.state.root.destination?.eventViewer?.authoring.content.content.contributorsViewer?
-                .destination?.contributorDetail?.contributorID == contributorID
+            store.state.root.destination?.eventViewer?.contributorsViewer?
+                .state.destination?.contributorDetail?.state.contributorID == contributorID
         }
 
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .contributors)
         #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
-                == .contributors
-        )
-        #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.contributorsViewer?
-                .destination?.contributorDetail?.contributorID == contributorID
+            store.state.root.destination?.eventViewer?.contributorsViewer?
+                .state.destination?.contributorDetail?.state.contributorID == contributorID
         )
     }
 
     @Test
     func stageDeepLinkSelectsStageDestination() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let stageID = stageLocalID("stage-1")
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1"
-        ))
+        let eventID = canonicalRouteEventID
+        let stageID = canonicalRouteRecordID(
+            "events.openmusic.eventPlace", "3mrdbziccpcae"
+        )
+        let graph = try canonicalNavigationGraph(id: eventID)
+        let store = makeCanonicalRootHarnessStore(
+            database: database,
+            client: EventRecordClient { _ in graph }
+        )
+        let route = AppRoute.event(eventID, .stage(stageID))
+        let url = try #require(URL(string: "https://openmusicevent.app" + route.path))
 
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
-            store.state.root.destination?.eventViewer?.authoring.content.content.stagesViewer?
-                .destination?.stageDetail?.stageID == stageID
+            store.state.root.destination?.eventViewer?.stagesViewer?
+                .state.destination?.stageDetail?.state.stageID == stageID
         }
 
+        #expect(store.state.root.destination?.eventViewer?.selectedFeature == .stages)
         #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
-                == .stages
-        )
-        #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.stagesViewer?
-                .destination?.stageDetail?.stageID == stageID
+            store.state.root.destination?.eventViewer?.stagesViewer?
+                .state.destination?.stageDetail?.state.stageID == stageID
         )
     }
 
     @Test
     func performanceDeepLinkPresentsPerformanceDetail() async throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let performanceID = performanceLocalID("opening")
+        let eventID = canonicalRouteEventID
+        let performanceID = canonicalRouteRecordID(
+            "events.openmusic.programItem", "3mrdbziccpcae"
+        )
+        let scheduleID = canonicalRouteRecordID(
+            "events.openmusic.schedule", "3mrdbziccpcae"
+        )
+        let stageID = canonicalRouteRecordID(
+            "events.openmusic.eventPlace", "3mrdbziccpcae"
+        )
+        let programID = canonicalRouteRecordID(
+            "events.openmusic.program", "3mrdbziccpcae"
+        )
         let date = try #require(LocalDate("2026-08-07"))
+        let graph = try canonicalNavigationGraph(id: eventID)
         try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Opening"
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalSchedule(
+                db, id: scheduleID, eventID: eventID, date: date
+            )
+            try Self.insertCanonicalStage(
+                db, id: stageID, eventID: eventID, name: "Meadow"
+            )
+            try Self.insertCanonicalProgram(
+                db, id: programID, eventID: eventID, eventPlaces: [stageID]
+            )
+            try Self.insertCanonicalProgramItem(
+                db, id: performanceID, eventID: eventID, programID: programID,
+                scheduleID: scheduleID, placeID: stageID, title: "Opening",
+                startsAt: Date(timeIntervalSince1970: 0),
+                endsAt: Date(timeIntervalSince1970: 3_600)
             )
         }
 
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/opening"
-        ))
+        let store = makeCanonicalRootHarnessStore(
+            database: database,
+            client: EventRecordClient { _ in graph }
+        )
+        let route = AppRoute.event(eventID, .performance(performanceID))
+        let url = try #require(URL(string: "https://openmusicevent.app" + route.path))
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
-            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers
+            store.state.root.destination?.eventViewer?.scheduleViewers
                 .contains { $0.state.destination?.performanceDetail?.performanceID == performanceID }
                 == true
         }
 
         #expect(
-            store.state.root.destination?.eventViewer?.authoring.content.content.selectedFeature
+            store.state.root.destination?.eventViewer?.selectedFeature
                 == .schedule(.schedule)
         )
         let scheduleViewer = try #require(
-            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers.first {
+            store.state.root.destination?.eventViewer?.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -1195,6758 +849,7 @@ struct NavigationTests {
         #expect(performanceDetail.performance?.title == "Opening")
     }
 
-    @Test
-    func performanceDeepLinkPreservesIDWhenPerformanceIsUnavailable() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let performanceID = performanceLocalID("missing")
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/performances/missing"
-        ))
-
-        await store.send(.root(.openURL(url)))?.value
-        await waitUntil {
-            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers
-                .contains { $0.state.destination?.performanceDetail?.performanceID == performanceID }
-                == true
-        }
-
-        let scheduleViewer = try #require(
-            store.state.root.destination?.eventViewer?.authoring.content.content.scheduleViewers.first {
-                $0.state.scheduleDivision == .schedule
-            }
-        )
-        let performanceDetail = try #require(scheduleViewer.state.destination?.performanceDetail)
-        #expect(performanceDetail.performanceID == performanceID)
-        #expect(performanceDetail.performance == nil)
-    }
-
-    @Test
-    func channelDeepLinkPresentsChannelDetail() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General"
-            )
-        }
-
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general"
-        ))
-        await store.send(.root(.openURL(url)))?.value
-        await waitUntil {
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.channelID == channelID
-        }
-
-        let eventViewer = try #require(
-            store.state.root.destination?.eventViewer?.authoring.content.content
-        )
-        #expect(eventViewer.selectedFeature == .communications)
-        #expect(eventViewer.communicationsViewer?.destination?.channelDetail?.channelID == channelID)
-        #expect(eventViewer.communicationsViewer?.destination?.channelDetail?.channel?.name == "General")
-    }
-
-    @Test
-    func postDeepLinkPresentsPostDetailByStableID() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let postID = commsPostID("welcome", channelID: "general", eventID: eventID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General"
-            )
-            try Self.insertCommsPost(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome",
-                title: "Welcome",
-                contents: "Welcome to the event.",
-                sortIndex: 0
-            )
-        }
-
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-        let url = try #require(URL(
-            string: "https://openmusicevent.app/orgs/did%3Aweb%3Aexample.com/events/event-1/communications/general/posts/welcome"
-        ))
-        await store.send(.root(.openURL(url)))?.value
-        await waitUntil {
-            store.state.root.destination?.eventViewer?
-                .authoring.content.content.communicationsViewer?
-                .destination?.channelDetail?.destination?
-                .postDetail?.postID == postID
-        }
-
-        let eventViewer = try #require(
-            store.state.root.destination?.eventViewer?.authoring.content.content
-        )
-        let channel = try #require(
-            eventViewer.communicationsViewer?.destination?.channelDetail
-        )
-        #expect(eventViewer.selectedFeature == .communications)
-        #expect(channel.destination?.postDetail?.postID == postID)
-        #expect(channel.destination?.postDetail?.post?.title == "Welcome")
-    }
-
-    @Test
-    func eventViewerConsumesContributorNavigationFromSearchDescendant() async throws {
-        let contributorID = contributorLocalID("contributor-1")
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = try makeEventViewerHarnessStore(database: database)
-
-        await withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            await store.send(
-                to: \.eventViewer.eventSearch,
-                EventSearch.Action.openTarget(.contributor(contributorID))
-            )?.value
-        }
-        await Task.yield()
-
-        #expect(
-            store.state.eventViewer.eventSearch.state.destination?.contributorDetail?.state
-                .contributorID == contributorID
-        )
-        #expect(store.state.lastRequest == nil)
-    }
-
-    @Test
-    func eventViewerSearchUsesMountedEventIDForContributorNavigation() async throws {
-        let selectedEventID = eventID("event-1")
-        let ambientEventID = eventID("other-event")
-        let contributorID = contributorLocalID("contributor-1")
-        let database = try makePreparedDatabase()
-        let store = try makeEventViewerHarnessStore(
-            eventID: selectedEventID,
-            defaultEventID: ambientEventID,
-            database: database
-        )
-
-        await withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = ambientEventID
-        } operation: {
-            await store.send(
-                to: \.eventViewer.eventSearch,
-                EventSearch.Action.openTarget(.contributor(contributorID))
-            )?.value
-        }
-        await Task.yield()
-
-        #expect(
-            store.state.eventViewer.eventSearch.state.destination?.contributorDetail?.state
-                .eventID == selectedEventID
-        )
-    }
-
-    @Test
-    func eventViewerConsumesStageNavigationFromSearchDescendant() async throws {
-        let stageID = stageLocalID("stage-1")
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = try makeEventViewerHarnessStore(database: database)
-
-        await withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            await store.send(
-                to: \.eventViewer.eventSearch,
-                EventSearch.Action.openTarget(.stage(stageID))
-            )?.value
-        }
-        await Task.yield()
-
-        #expect(
-            store.state.eventViewer.eventSearch.state.destination?.stageDetail?.state.stageID
-                == stageID
-        )
-        #expect(store.state.lastRequest == nil)
-    }
-
-    @Test
-    func myEventsPostsNavigationRequest() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try OMERecord.Organizer.insert {
-                OMERecord.Organizer.Draft(id: eventID.organizerID)
-            }
-            .execute(db)
-            let eventDraft = testEventDraft(
-                id: eventID,
-                name: "Test Event",
-                startDate: nil,
-                endDate: nil
-            )
-            try OMERecord.Event.insert {
-                eventDraft
-            }
-            .execute(db)
-        }
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: MyEventsEventHarness.State()) {
-                MyEventsEventHarness()
-            }
-        }
-
-        store.send(.myEvents(.eventButtonTapped(eventID))) {
-            $0.lastRequest = .event(eventID, nil)
-        }
-        #expect(store.state.lastRequest == .event(eventID, nil))
-    }
-
-
-    @Test
-    func organizerDetailFetchesLinkedEvents() async throws {
-        let database = try makePreparedDatabase()
-        let linkedEventID = eventID("linked-event")
-        let unlinkedEventID = eventID("unlinked-event")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: linkedEventID, name: "Linked Event")
-            try Self.insertEvent(db, id: unlinkedEventID, name: "Unlinked Event")
-            try Self.insertEventOrganizer(db, eventID: linkedEventID, organizerID: testOrganizerID)
-        }
-
-        let events = try await database.read { db in
-            try OrganizerDetail.eventsQuery(organizerID: testOrganizerID).fetchAll(db)
-        }
-
-        #expect(events.map(\.id) == [linkedEventID])
-    }
-
-    @Test
-    func organizerDetailFetchesCalendarsForOrganizer() async throws {
-        let database = try makePreparedDatabase()
-        let otherOrganizerID = try #require(OMERecord.Organizer.ID("did:web:other.example"))
-        let defaultCalendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-        let sideCalendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: calendarLocalID("side-room")
-        )
-        let otherCalendarID = OMERecord.Calendar.ID(
-            ownerID: otherOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertOrganizer(db, id: otherOrganizerID)
-            try Self.insertCalendar(db, id: sideCalendarID, name: "Side Room")
-            try Self.insertCalendar(db, id: defaultCalendarID, name: "Main Calendar")
-            try Self.insertCalendar(db, id: otherCalendarID, name: "Other Calendar")
-        }
-
-        let calendars = try await database.read { db in
-            try OrganizerDetail.calendarsQuery(organizerID: testOrganizerID).fetchAll(db)
-        }
-
-        #expect(calendars.map(\.id) == [defaultCalendarID, sideCalendarID])
-    }
-
-    @Test
-    func calendarDetailResolvesEntriesWithLocalEvents() async throws {
-        let database = try makePreparedDatabase()
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-        let firstEventID = eventID("first-event")
-        let pinnedEventID = eventID("pinned-event")
-        let firstEventDate = try #require(LocalDate("2026-06-01"))
-        let pinnedEventDate = try #require(LocalDate("2026-05-01"))
-        let firstEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("first-entry")
-        )
-        let pinnedEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("pinned-entry")
-        )
-        let unavailableEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("unavailable-entry")
-        )
-        let unavailableEventRef = OMERecord.Event.Reference(
-            uri: ATProto.URI(
-                authority: .did(try #require(OMERecord.Organizer.ID("did:web:remote.example"))),
-                collection: OMERecord.Event.nsid,
-                rkey: "remote-event"
-            )
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: firstEventID,
-                name: "First Event",
-                startDate: firstEventDate
-            )
-            try Self.insertEvent(
-                db,
-                id: pinnedEventID,
-                name: "Pinned Event",
-                startDate: pinnedEventDate
-            )
-            try Self.insertCalendar(db, id: calendarID, name: "Main Calendar")
-            try Self.insertCalendarEntry(
-                db,
-                id: firstEntryID,
-                event: OMERecord.Event.reference(id: firstEventID),
-                createdAt: Date(timeIntervalSince1970: 100)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: unavailableEntryID,
-                event: unavailableEventRef,
-                createdAt: Date(timeIntervalSince1970: 200)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: pinnedEntryID,
-                event: OMERecord.Event.reference(id: pinnedEventID),
-                createdAt: Date(timeIntervalSince1970: 50),
-                note: "Pinned pick",
-                pinned: true
-            )
-        }
-
-        let rows = try await database.read { db in
-            CalendarDetail.EntryRows(
-                entries: try CalendarDetail.entriesQuery(calendarID: calendarID).fetchAll(db),
-                events: try CalendarDetail.localEventsQuery.fetchAll(db)
-            )
-        }
-
-        #expect(rows.rows.map(\.entry.id) == [pinnedEntryID, firstEntryID, unavailableEntryID])
-        #expect(rows.rows.map(\.event?.id) == [pinnedEventID, firstEventID, nil])
-        #expect(rows.rows.first?.entry.note == "Pinned pick")
-    }
-
-
-    @Test
-    func editCalendarSavesHeroAndLogoImages() async throws {
-        let database = try makePreparedDatabase()
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-        let logoURL = try #require(URL(string: "https://example.com/logo.png"))
-        let logoImage = OMERecord.ImageAsset(
-            source: .url(logoURL),
-            role: .logo,
-            renderKind: .transparent,
-            materializationPolicy: .lazy
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertCalendar(
-                db,
-                id: calendarID,
-                name: "Main Calendar",
-                description: "Calendar description",
-                images: [logoImage]
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditCalendar.State(calendarID: calendarID)
-            state.hasLoadedDraft = true
-            state.draft = OMERecord.Calendar.Draft(
-                id: calendarID,
-                name: "Main Calendar",
-                description: "Calendar description",
-                images: [logoImage]
-            )
-            state.resetImagePickers()
-            state.form.value.name = " Updated Calendar "
-            state.form.value.description = " Updated description "
-            state.heroImagePicker.replaceURLString(" https://example.com/hero.png ")
-
-            return TestStore(initialState: state) {
-                EditCalendar()
-            }
-        }
-
-        let submitTask = store.send(.saveButtonTapped)
-        let saveTask = await store.receive(
-            \.formSubmitted,
-            .equals(
-                EditCalendar.FormValue(
-                    name: " Updated Calendar ",
-                    description: " Updated description "
-                )
-            ),
-            timeout: .seconds(1)
-        )
-        await saveTask?.value
-        await submitTask?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented == false)
-
-        let calendar = try await database.read { db in
-            try #require(
-                try OMERecord.Calendar
-                    .where { $0.id.eq(calendarID) }
-                    .fetchOne(db)
-            )
-        }
-
-        #expect(calendar.name == "Updated Calendar")
-        #expect(calendar.description == "Updated description")
-        #expect(calendar.images?.imageAsset(role: .hero)?.url?.absoluteString == "https://example.com/hero.png")
-        #expect(calendar.images?.imageAsset(role: .logo)?.url?.absoluteString == "https://example.com/logo.png")
-    }
-
-    @Test
-    func editCalendarLoadsMissingCalendarAsDefaultDraft() throws {
-        let database = try makePreparedDatabase()
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: EditCalendar.State(calendarID: calendarID)) {
-                EditCalendar()
-            }
-        }
-
-        #expect(store.state.hasLoadedDraft == true)
-        #expect(store.state.draft?.id == calendarID)
-        #expect(store.state.draft?.name == "Events")
-        #expect(store.state.form.value.name == "Events")
-        #expect(store.state.errorMessage == nil)
-    }
-
-    @Test
-    func editCalendarSavesMissingDefaultCalendar() async throws {
-        let database = try makePreparedDatabase()
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditCalendar.State(calendarID: calendarID)
-            state.hasLoadedDraft = true
-            state.draft = OMERecord.Calendar.Draft(
-                id: calendarID,
-                name: "Events",
-                description: nil,
-                images: nil
-            )
-            state.form.value.name = " Source Calendar "
-            state.form.value.description = " Source description "
-            state.heroImagePicker.replaceURLString("https://example.com/source-hero.png")
-
-            return TestStore(initialState: state) {
-                EditCalendar()
-            }
-        }
-
-        let submitTask = store.send(.saveButtonTapped)
-        let saveTask = await store.receive(
-            \.formSubmitted,
-            .equals(
-                EditCalendar.FormValue(
-                    name: " Source Calendar ",
-                    description: " Source description "
-                )
-            ),
-            timeout: .seconds(1)
-        )
-        await saveTask?.value
-        await submitTask?.value
-
-        let calendar = try await database.read { db in
-            try #require(
-                try OMERecord.Calendar
-                    .where { $0.id.eq(calendarID) }
-                    .fetchOne(db)
-            )
-        }
-
-        #expect(calendar.name == "Source Calendar")
-        #expect(calendar.description == "Source description")
-        #expect(calendar.images?.imageAsset(role: .hero)?.url?.absoluteString == "https://example.com/source-hero.png")
-    }
-
-    @Test
-    func editCalendarImagePickerImportAddsImageThroughParentDestination() async throws {
-        let calendarID = OMERecord.Calendar.ID(
-            ownerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-        let image = ImportImages.Configuration.calendarHero.importedImage(
-            id: UUID(uuidString: "00000000-0000-0000-0000-00000000ca01")!,
-            title: "Calendar Hero",
-            sourceName: "calendar-hero.png",
-            sourceURL: URL(fileURLWithPath: "/tmp/calendar-hero.png"),
-            mimeType: "image/png",
-            data: Data("calendar-hero".utf8)
-        )
-
-        var state = EditCalendar.State(calendarID: calendarID)
-        state.hasLoadedDraft = true
-
-        @Bindable var store = Store(initialState: state) {
-            EditCalendar()
-        }
-
-        store.send(.heroImagePicker(.addButtonTapped))
-        let importStore = try #require(
-            $store.scope(\.destination).heroImportImages.wrappedValue
-        )
-        importStore.send(.imagesImported([image]))
-        await importStore.send(.saveButtonTapped)?.value
-
-        await waitUntil { store.destination == nil }
-        expectNoDifference(store.heroImagePicker.images.map(\.importedImage), [image])
-        #expect(store.logoImagePicker.images.isEmpty)
-    }
-
-    @Test
-    func organizerDetailGroupsDefaultCalendarEntries() async throws {
-        let database = try makePreparedDatabase()
-        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
-        let currentEventID = eventID("current-event")
-        let previousEventID = eventID("previous-event")
-        let previousLaterEventID = eventID("previous-later-event")
-        let upcomingEventID = eventID("upcoming-event")
-        let upcomingLaterEventID = eventID("upcoming-later-event")
-        let legacyOnlyEventID = eventID("legacy-only-event")
-        let currentEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("current-event")
-        )
-        let previousEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("previous-event")
-        )
-        let previousLaterEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("previous-later-event")
-        )
-        let upcomingEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("upcoming-event")
-        )
-        let upcomingLaterEntryID = OMERecord.CalendarEntry.ID(
-            calendarOwnerID: testOrganizerID,
-            calendarID: OMERecord.Calendar.defaultID,
-            entryID: calendarEntryLocalID("upcoming-later-event")
-        )
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let today = try #require(LocalDate("2026-05-11"))
-        let currentStartDate = try #require(LocalDate("2026-05-10"))
-        let currentEndDate = try #require(LocalDate("2026-05-12"))
-        let previousStartDate = try #require(LocalDate("2026-05-01"))
-        let previousEndDate = try #require(LocalDate("2026-05-03"))
-        let previousLaterStartDate = try #require(LocalDate("2026-05-10"))
-        let previousLaterEndDate = try #require(LocalDate("2026-05-10"))
-        let upcomingStartDate = try #require(LocalDate("2026-06-01"))
-        let upcomingEndDate = try #require(LocalDate("2026-06-03"))
-        let upcomingLaterStartDate = try #require(LocalDate("2026-06-04"))
-        let upcomingLaterEndDate = try #require(LocalDate("2026-06-06"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: currentEventID,
-                name: "Current Event",
-                startDate: currentStartDate,
-                endDate: currentEndDate,
-                timeZone: timeZone
-            )
-            try Self.insertEvent(
-                db,
-                id: previousEventID,
-                name: "Previous Event",
-                startDate: previousStartDate,
-                endDate: previousEndDate,
-                timeZone: timeZone
-            )
-            try Self.insertEvent(
-                db,
-                id: previousLaterEventID,
-                name: "Previous Later Event",
-                startDate: previousLaterStartDate,
-                endDate: previousLaterEndDate,
-                timeZone: timeZone
-            )
-            try Self.insertEvent(
-                db,
-                id: upcomingEventID,
-                name: "Upcoming Event",
-                startDate: upcomingStartDate,
-                endDate: upcomingEndDate,
-                timeZone: timeZone
-            )
-            try Self.insertEvent(
-                db,
-                id: upcomingLaterEventID,
-                name: "Upcoming Later Event",
-                startDate: upcomingLaterStartDate,
-                endDate: upcomingLaterEndDate,
-                timeZone: timeZone
-            )
-            try Self.insertEvent(db, id: legacyOnlyEventID, name: "Legacy Only Event")
-            try Self.insertEventOrganizer(db, eventID: legacyOnlyEventID, organizerID: testOrganizerID)
-            try Self.insertCalendar(db, id: calendarID, name: "Main Calendar")
-            try Self.insertCalendarEntry(
-                db,
-                id: currentEntryID,
-                event: OMERecord.Event.reference(id: currentEventID),
-                createdAt: Date(timeIntervalSince1970: 100)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: previousEntryID,
-                event: OMERecord.Event.reference(id: previousEventID),
-                createdAt: Date(timeIntervalSince1970: 200)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: previousLaterEntryID,
-                event: OMERecord.Event.reference(id: previousLaterEventID),
-                createdAt: Date(timeIntervalSince1970: 250)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: upcomingEntryID,
-                event: OMERecord.Event.reference(id: upcomingEventID),
-                createdAt: Date(timeIntervalSince1970: 300)
-            )
-            try Self.insertCalendarEntry(
-                db,
-                id: upcomingLaterEntryID,
-                event: OMERecord.Event.reference(id: upcomingLaterEventID),
-                createdAt: Date(timeIntervalSince1970: 350)
-            )
-        }
-        let entryRows = try await database.read { db in
-            CalendarDetail.EntryRows(
-                entries: try OrganizerDetail.defaultCalendarEntriesQuery(
-                    organizerID: testOrganizerID
-                )
-                .fetchAll(db),
-                events: try CalendarDetail.localEventsQuery.fetchAll(db)
-            )
-        }
-        let sections = OrganizerDetail.CalendarEntrySections(
-            entryRows: entryRows,
-            now: today.atStartOfDay(in: timeZone)
-        )
-
-        #expect(sections.currentRows.map(\.event?.id) == [currentEventID])
-        #expect(sections.upcomingRows.map(\.event?.id) == [upcomingEventID, upcomingLaterEventID])
-        #expect(sections.previousRows.map(\.event?.id) == [previousLaterEventID, previousEventID])
-        #expect(sections.initialSection == .now)
-    }
-
-    @Test
-    func contributorsViewerFetchesContributorsForEvent() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "zara", name: "Zara")
-            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "amy", name: "Amy")
-            try Self.insertContributor(db, eventID: otherEventID, contributorID: "other", name: "Other")
-        }
-
-        let contributors = try await database.read { db in
-            try ContributorsViewer.contributorProfilesQuery(eventID: selectedEventID).fetchAll(db)
-        }
-
-        #expect(contributors.map(\.name) == ["Amy", "Zara"])
-    }
-
-
-    @Test
-    func contributorsViewerDeleteRemovesContributor() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let contributorID = contributorLocalID("amy")
-        let performanceID = performanceLocalID("opening")
-        let contributorRecordID = OMERecord.Contributor.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            contributorID: contributorID
-        )
-        let performanceRecordID = OMERecord.Performance.ID(
-            organizerID: eventID.organizerID,
-            eventID: eventID.eventID,
-            performanceID: performanceID
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Opening"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                contributorID: "amy"
-            )
-            try OMERecord.Relationship.insert {
-                OMERecord.Relationship(
-                    subject: .init(contributorID: contributorRecordID),
-                    role: .performer,
-                    object: .init(performanceID: performanceRecordID),
-                    createdAt: "2026-08-07T00:00:00Z"
-                )
-            }
-            .execute(db)
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: ContributorsViewer.State(eventID: eventID)) {
-                ContributorsViewer()
-            }
-        }
-
-        await store.send(.deleteContributors([contributorID]))?.value
-
-        #expect(store.state.errorMessage == nil)
-
-        try await database.read { db in
-            let contributor = try ContributorDetail.contributorQuery(
-                contributorID: contributorID,
-                eventID: eventID
-            )
-            .fetchOne(db)
-            let performanceContributorCount = try OMERecord.Performance.Contributors
-                .where { $0.performanceID.organizerID.eq(performanceRecordID.organizerID) }
-                .where { $0.performanceID.eventID.eq(performanceRecordID.eventID) }
-                .where { $0.performanceID.performanceID.eq(performanceRecordID.performanceID) }
-                .fetchCount(db)
-            let relationshipCount = try OMERecord.Relationship.fetchCount(db)
-
-            #expect(contributor == nil)
-            #expect(performanceContributorCount == 0)
-            #expect(relationshipCount == 0)
-        }
-    }
-
-    @Test
-    func contributorProfileUnhydratedDoesNotRequireActorCacheTables() async throws {
-        let database = try makeCoreDatabase()
-        let selectedEventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let date = try #require(LocalDate("2026-08-07"))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "speaker-1",
-                name: "Alice"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-        }
-
-        let profiles = try await database.read { db in
-            try ContributorProfile
-                .all(eventID: selectedEventID, hydration: .none)
-                .fetchAll(db)
-        }
-
-        let profile = try #require(profiles.first)
-        #expect(profile.name == "Alice")
-        #expect(profile.contributorActor == actor)
-        #expect(profile.handle == nil)
-        #expect(profile.subtitle == nil)
-
-        await #expect(throws: (any Error).self) {
-            try await database.read { db in
-                try ContributorProfile
-                    .all(eventID: selectedEventID, hydration: .bskyActorProfile)
-                    .fetchAll(db)
-            }
-        }
-    }
-
-    @Test
-    func contributorStageContextAggregatesScheduledAndLineupStages() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        let contributorID = contributorLocalID("artist")
-        let date = try #require(LocalDate("2026-08-07"))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "artist", name: "Artist")
-            try Self.insertContributor(db, eventID: otherEventID, contributorID: "artist", name: "Other Artist")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertSchedule(db, eventID: otherEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(
-                db,
-                eventID: selectedEventID,
-                stageID: "main",
-                name: "Main",
-                sortIndex: 1,
-                lineup: [contributorID]
-            )
-            try Self.insertStage(
-                db,
-                eventID: selectedEventID,
-                stageID: "meadow",
-                name: "Meadow",
-                sortIndex: 2
-            )
-            try Self.insertStage(
-                db,
-                eventID: selectedEventID,
-                stageID: "tent",
-                name: "Tent",
-                sortIndex: 3,
-                lineup: [contributorID]
-            )
-            try Self.insertStage(
-                db,
-                eventID: otherEventID,
-                stageID: "other",
-                name: "Other",
-                sortIndex: 0,
-                lineup: [contributorID]
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "meadow-set",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 100),
-                endTime: Date(timeIntervalSince1970: 200),
-                title: "Meadow Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "tent-set",
-                stageID: "tent",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 300),
-                endTime: Date(timeIntervalSince1970: 400),
-                title: "Tent Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: otherEventID,
-                performanceID: "other-set",
-                stageID: "other",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 50),
-                endTime: Date(timeIntervalSince1970: 60),
-                title: "Other Set"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "meadow-set",
-                contributorID: "artist"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "tent-set",
-                contributorID: "artist"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: otherEventID,
-                performanceID: "other-set",
-                contributorID: "artist"
-            )
-        }
-
-        let context = try await database.read { db in
-            ContributorStageContext(
-                contributorID: contributorID,
-                performanceRows: try PerformanceRow.forContributor(
-                    contributorID: contributorID,
-                    eventID: selectedEventID
-                )
-                .fetchAll(db),
-                lineupStages: try ContributorDetail.lineupStagesQuery(
-                    contributorID: contributorID,
-                    eventID: selectedEventID
-                )
-                    .fetchAll(db)
-            )
-        }
-
-        #expect(context.scheduledPerformances.map(\.title) == ["Meadow Set", "Tent Set"])
-        #expect(context.lineupOnlyStages.map(\.name) == ["Main"])
-        #expect(context.stages.map(\.name) == ["Main", "Meadow", "Tent"])
-        #expect(context.primaryStage?.name == "Main")
-        let firstPerformance = try #require(context.scheduledPerformances.first)
-        #expect(context.stage(for: firstPerformance)?.name == "Meadow")
-
-        let rowContext = try await database.read { db in
-            try #require(
-                ContributorsViewer.contributorRowsQuery(eventID: selectedEventID)
-                    .fetchAll(db)
-                    .first { $0.contributorID == contributorID }
-            )
-            .stageContext
-        }
-
-        #expect(rowContext.lineupOnlyStages.map(\.name) == ["Main"])
-        #expect(rowContext.stages.map(\.name) == ["Main", "Meadow", "Tent"])
-    }
-
-    @Test
-    func performanceRowScheduleQueryReturnsPerformanceAndStage() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "saturday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Opening"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "next-day",
-                stageID: "meadow",
-                scheduleID: "saturday",
-                startTime: try #require(date.at(hour: 20, in: timeZone)),
-                endTime: try #require(date.at(hour: 21, in: timeZone)),
-                title: "Next Day"
-            )
-        }
-
-        let rows = try await database.read { db in
-            try PerformanceRow
-                .all(eventID: selectedEventID, scheduleID: scheduleLocalID("friday"))
-                .fetchAll(db)
-        }
-
-        #expect(rows.map(\.performanceID) == [performanceLocalID("opening")])
-        #expect(rows.map(\.title) == ["Opening"])
-        #expect(rows.first?.stage?.name == "Meadow")
-    }
-
-    @Test
-    func performanceRowContributorQueryReturnsContributorPerformancesAndStages() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "artist", name: "Artist")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "tent", name: "Tent")
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "meadow-set",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Meadow Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "tent-set",
-                stageID: "tent",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 20, in: timeZone)),
-                endTime: try #require(date.at(hour: 21, in: timeZone)),
-                title: "Tent Set"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "meadow-set",
-                contributorID: "artist"
-            )
-        }
-
-        let rows = try await database.read { db in
-            try PerformanceRow
-                .forContributor(contributorID: contributorID, eventID: selectedEventID)
-                .fetchAll(db)
-        }
-
-        #expect(rows.map(\.performanceID) == [performanceLocalID("meadow-set")])
-        #expect(rows.map(\.title) == ["Meadow Set"])
-        #expect(rows.first?.stage?.name == "Meadow")
-    }
-
-    @Test
-    func performanceRowTimeLabelsUseEventTimeZoneAndLegacyDaySegment() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let friday = try #require(LocalDate("2026-08-07"))
-        let saturday = try #require(LocalDate("2026-08-08"))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: eventID,
-                name: "Event One",
-                timeZone: timeZone
-            )
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "evening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(friday.at(hour: 18, in: timeZone)),
-                endTime: try #require(friday.at(hour: 19, in: timeZone)),
-                title: "Evening Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "late-night",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(saturday.at(hour: 1, minute: 30, in: timeZone)),
-                endTime: try #require(saturday.at(hour: 2, minute: 30, in: timeZone)),
-                title: "Late Night"
-            )
-        }
-
-        let rows = try await database.read { db in
-            try PerformanceRow
-                .all(eventID: eventID, scheduleID: scheduleLocalID("friday"))
-                .fetchAll(db)
-        }
-        let eveningPerformance = try #require(rows.first?.performance)
-        let afterMidnightPerformance = try #require(rows.dropFirst().first?.performance)
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            ScheduleViewer.State(eventID: eventID)
-        }
-        let eventTimePresentation = try #require(state.eventTimePresentation)
-
-        expectNoDifference(
-            eventTimePresentation.performanceRowTimeRange(for: eveningPerformance),
-            "6:00 - 7:00 pm"
-        )
-        expectNoDifference(
-            eventTimePresentation.daySegment(for: eveningPerformance.startTime),
-            "Friday Evening"
-        )
-        expectNoDifference(
-            eventTimePresentation.performanceRowTimeRange(for: afterMidnightPerformance),
-            "1:30 - 2:30 am"
-        )
-        expectNoDifference(
-            eventTimePresentation.daySegment(for: afterMidnightPerformance.startTime),
-            "Friday Night"
-        )
-        #expect(
-            eventTimePresentation.formattedTimeRange(
-                start: try #require(friday.at(hour: 23, minute: 30, in: timeZone)),
-                end: try #require(saturday.at(hour: 1, minute: 15, in: timeZone))
-            ) == "11:30 pm - 1:15 am"
-        )
-    }
-
-    @Test
-    func eventTimeZoneDisclosureUsesTheEffectiveOffsetAndSeasonalAbbreviation() throws {
-        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let matchingDeviceTimeZone = try #require(TimeZone(identifier: "America/Edmonton"))
-        let differentDeviceTimeZone = try #require(TimeZone(identifier: "America/Vancouver"))
-        let summer = try #require(LocalDate("2026-09-04"))
-        let winter = try #require(LocalDate("2026-01-02"))
-        let summerStart = try #require(summer.at(hour: 18, in: eventTimeZone))
-        let summerEnd = try #require(summer.at(hour: 19, in: eventTimeZone))
-        let winterStart = try #require(winter.at(hour: 18, in: eventTimeZone))
-        let winterEnd = try #require(winter.at(hour: 19, in: eventTimeZone))
-        let eventTimePresentation = EventTimePresentation(timeZone: eventTimeZone)
-
-        // A visitor whose device clock disagrees sees the event's current abbreviation.
-        expectNoDifference(
-            eventTimePresentation.formattedTimeRange(
-                start: summerStart,
-                end: summerEnd,
-                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
-            ),
-            "6:00 - 7:00 pm (MDT)"
-        )
-
-        // Different zone identifiers do not add noise when both clocks agree.
-        expectNoDifference(
-            eventTimePresentation.formattedTimeRange(
-                start: summerStart,
-                end: summerEnd,
-                disclosure: .whenDeviceClockDiffers(matchingDeviceTimeZone)
-            ),
-            "6:00 - 7:00 pm"
-        )
-
-        // The event abbreviation follows daylight-saving rules at the performance date.
-        expectNoDifference(
-            eventTimePresentation.formattedTimeRange(
-                start: winterStart,
-                end: winterEnd,
-                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
-            ),
-            "6:00 - 7:00 pm (MST)"
-        )
-
-        // Dense schedule surfaces still render the event clock without repeating a suffix.
-        expectNoDifference(
-            eventTimePresentation.formattedTimeRange(
-                start: summerStart,
-                end: summerEnd,
-                disclosure: .never
-            ),
-            "6:00 - 7:00 pm"
-        )
-
-        // The feature supplies event-clock labels to the reusable timeline components.
-        expectNoDifference(
-            eventTimePresentation.hourLabel(for: summerStart),
-            "6pm"
-        )
-        expectNoDifference(
-            eventTimePresentation.currentTimeLabel(
-                for: summerStart,
-                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
-            ),
-            "6:00p (MDT)"
-        )
-        expectNoDifference(
-            eventTimePresentation.formattedTime(
-                for: summerStart,
-                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
-            ),
-            "6:00 pm (MDT)"
-        )
-    }
-
-    @Test
-    func eventTimeZoneRefreshUpdatesEveryMountedScheduleSurface() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-time-zone-refresh")
-        let contributorID = contributorLocalID("artist")
-        let performanceID = performanceLocalID("evening-set")
-        let denver = try #require(TimeZone(identifier: "America/Denver"))
-        let losAngeles = try #require(TimeZone(identifier: "America/Los_Angeles"))
-        let friday = try #require(LocalDate("2026-08-07"))
-        let startTime = try #require(friday.at(hour: 20, in: denver))
-        let endTime = try #require(friday.at(hour: 21, in: denver))
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: selectedEventID,
-                name: "Event Time Zone Refresh",
-                timeZone: denver
-            )
-            try Self.insertSchedule(
-                db,
-                eventID: selectedEventID,
-                scheduleID: "friday",
-                date: friday
-            )
-            try Self.insertStage(
-                db,
-                eventID: selectedEventID,
-                stageID: "meadow",
-                name: "Meadow"
-            )
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "artist",
-                name: "Artist"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "evening-set",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: startTime,
-                endTime: endTime,
-                title: "Evening Set"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "evening-set",
-                contributorID: "artist"
-            )
-        }
-
-        try await withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = selectedEventID
-        } operation: {
-            let store = Store(
-                initialState: EventViewer.State(
-                    eventID: selectedEventID,
-                    features: [.schedule(.schedule), .contributors]
-                )
-            ) {
-                EventViewer()
-            }
-            let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
-            let contributorsStore = try #require(store.spawn(\.contributorsViewer))
-
-            // The attendee opens a performance and contributor while the event uses Denver time.
-            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
-            let performanceDetail = try #require(
-                scheduleStore.destination?.performanceDetail
-            )
-            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
-            let contributorDetail = try #require(
-                contributorsStore.destination?.contributorDetail
-            )
-            expectNoDifference(
-                [
-                    scheduleStore.timeZone?.identifier,
-                    performanceDetail.timeZone?.identifier,
-                    contributorDetail.timeZone?.identifier,
-                ],
-                Array(repeating: denver.identifier, count: 3)
-            )
-
-            // A source refresh changes the event's published time zone while those features remain mounted.
-            try await database.write { db in
-                try OMERecord.Event
-                    .find(selectedEventID)
-                    .update { $0.timeZone = losAngeles }
-                    .execute(db)
-            }
-            await waitUntil {
-                scheduleStore.timeZone == losAngeles
-                    && performanceDetail.timeZone == losAngeles
-                    && contributorDetail.timeZone == losAngeles
-            }
-
-            // Every attendee-facing renderer follows the refreshed event record together.
-            expectNoDifference(
-                [
-                    scheduleStore.timeZone?.identifier,
-                    performanceDetail.timeZone?.identifier,
-                    contributorDetail.timeZone?.identifier,
-                ],
-                [
-                    losAngeles.identifier,
-                    losAngeles.identifier,
-                    losAngeles.identifier,
-                ]
-            )
-        }
-    }
-
-    @Test
-    func coldLaunchHydrationKeepsDeviceTimeZoneOutOfNewPerformanceDetail() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("cold-launch-time-zone")
-        let contributorID = contributorLocalID("woofax")
-        let performanceID = performanceLocalID("evening-set")
-        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let deviceTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
-        let friday = try #require(LocalDate("2026-08-07"))
-        let startTime = try #require(friday.at(hour: 15, in: eventTimeZone))
-        let endTime = try #require(friday.at(hour: 16, in: eventTimeZone))
-
-        try await withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = selectedEventID
-            $0.defaultEventTimeZone = SharedReader(value: deviceTimeZone)
-        } operation: {
-            let store = Store(
-                initialState: EventViewer.State(
-                    eventID: selectedEventID,
-                    features: [.schedule(.schedule), .contributors, .stages]
-                )
-            ) {
-                EventViewer()
-            }
-            let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
-            let singleStageStore: StoreOf<ScheduleSingleStageAtOnce> =
-                scheduleStore.spawn(\.singleStageAtOnce)
-            let manyStagesStore: StoreOf<ScheduleManyStagesAtOnce> =
-                scheduleStore.spawn(\.manyStagesAtOnce)
-            let performanceListStore: StoreOf<SchedulePerformanceList> =
-                scheduleStore.spawn(\.performanceList)
-            let eventSearchStore: StoreOf<EventSearch> = store.spawn(\.eventSearch)
-
-            // An unavailable event row never turns the device zone into an event-time fallback.
-            expectNoDifference(
-                [
-                    scheduleStore.timeZone?.identifier,
-                    singleStageStore.timeZone?.identifier,
-                    manyStagesStore.timeZone?.identifier,
-                    performanceListStore.timeZone?.identifier,
-                    eventSearchStore.timeZone?.identifier,
-                ],
-                Array<String?>(repeating: nil, count: 5)
-            )
-
-            // A restored shell can mount before its observed event row has hydrated.
-            try await database.write { db in
-                try Self.insertOrganizer(db, id: testOrganizerID)
-                try Self.insertEvent(
-                    db,
-                    id: selectedEventID,
-                    name: "Cold Launch Time Zone",
-                    timeZone: eventTimeZone
-                )
-                try Self.insertSchedule(
-                    db,
-                    eventID: selectedEventID,
-                    scheduleID: "friday",
-                    date: friday
-                )
-                try Self.insertStage(
-                    db,
-                    eventID: selectedEventID,
-                    stageID: "hallow",
-                    name: "The Hallow"
-                )
-                try Self.insertContributor(
-                    db,
-                    eventID: selectedEventID,
-                    contributorID: "woofax",
-                    name: "Woofax"
-                )
-                try Self.insertPerformance(
-                    db,
-                    eventID: selectedEventID,
-                    performanceID: "evening-set",
-                    stageID: "hallow",
-                    scheduleID: "friday",
-                    startTime: startTime,
-                    endTime: endTime,
-                    title: "Woofax"
-                )
-                try Self.insertPerformanceContributor(
-                    db,
-                    eventID: selectedEventID,
-                    performanceID: "evening-set",
-                    contributorID: "woofax"
-                )
-            }
-            try await store.state.$event.load()
-
-            expectNoDifference(
-                [
-                    scheduleStore.timeZone?.identifier,
-                    singleStageStore.timeZone?.identifier,
-                    manyStagesStore.timeZone?.identifier,
-                    performanceListStore.timeZone?.identifier,
-                    eventSearchStore.timeZone?.identifier,
-                ],
-                Array(repeating: eventTimeZone.identifier, count: 5)
-            )
-            let schedule = try #require(scheduleStore.schedules.first)
-            expectNoDifference(
-                ScheduleViewer.scheduleTitle(schedule, in: eventTimeZone),
-                "Friday"
-            )
-
-            let contributorsStore = try #require(store.spawn(\.contributorsViewer))
-            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
-            let contributorDetail = try #require(
-                contributorsStore.destination?.contributorDetail
-            )
-            expectNoDifference(
-                contributorDetail.timeZone?.identifier,
-                eventTimeZone.identifier
-            )
-
-            let stagesStore = try #require(store.spawn(\.stagesViewer))
-            await stagesStore.send(.stageButtonTapped(stageLocalID("hallow")))?.value
-            let stageDetail = try #require(stagesStore.destination?.stageDetail)
-            expectNoDifference(
-                stageDetail.timeZone?.identifier,
-                eventTimeZone.identifier
-            )
-
-            // Exercise the mounted reducer path used by a real schedule-row tap. The device zone
-            // may determine whether an MDT suffix is shown, but it can never become the clock.
-            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
-
-            let performanceDetail = try #require(
-                scheduleStore.destination?.performanceDetail
-            )
-            expectNoDifference(
-                performanceDetail.timeZone?.identifier,
-                eventTimeZone.identifier
-            )
-            let eventTimePresentation = try #require(
-                performanceDetail.eventTimePresentation
-            )
-            let performance = try #require(performanceDetail.performance)
-            expectNoDifference(
-                eventTimePresentation.performanceRowTimeRange(
-                    for: performance,
-                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
-                ),
-                "3:00 - 4:00 pm (MDT)"
-            )
-        }
-    }
-
-    @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
-    func contributorProfileUsesCachedBlueskyProfileDataForGeneratedActor(actorString: String) async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor(actorString))
-        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
-        let date = try #require(LocalDate("2026-08-07"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Alice Example",
-            description: "ATProto builder",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
-            banner: URL(string: "https://cdn.example/alice-banner.jpg")
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "schedule-actor-alice.bsky.social",
-                name: "alice.bsky.social"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                contributorID: "schedule-actor-alice.bsky.social",
-                contributorActor: actor
-            )
-            try BlueskyActorProfile.insert { profile }
-                .execute(db)
-            try BlueskyActorProfileCacheEntry.insert {
-                BlueskyActorProfileCacheEntry(
-                    actor: actor.description,
-                    did: profile.did,
-                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                )
-            }
-            .execute(db)
-        }
-
-        let row = try await database.read { db in
-            try #require(
-                ContributorsViewer.contributorRowsQuery(
-                    eventID: selectedEventID,
-                    hydration: .bskyActorProfile
-                )
-                    .fetchAll(db)
-                    .first { $0.contributorID == contributorID }
-            )
-        }
-        let contributorProfile = row.profile
-
-        #expect(contributorProfile.contributorActor == actor)
-        #expect(contributorProfile.usesActorProfileAsPrimary)
-        #expect(contributorProfile.name == "Alice Example")
-        #expect(contributorProfile.handle == "alice.bsky.social")
-        #expect(contributorProfile.subtitle == "@alice.bsky.social")
-        #expect(contributorProfile.bio == "ATProto builder")
-        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
-        #expect(contributorProfile.artworkCacheContext == nil)
-        #expect(row.matchesSearch("Alice Example"))
-        #expect(row.matchesSearch("alice.bsky.social"))
-    }
-
-    @Test
-    func contributorProfileKeepsExplicitContributorFieldsAheadOfCachedBlueskyProfileData() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let explicitImageURL = try #require(URL(string: "https://example.com/explicit.jpg"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Bluesky Alice",
-            description: "Bluesky bio",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "speaker-1",
-                name: "Explicit Alice",
-                bio: "OME bio",
-                imageURL: explicitImageURL
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-            try BlueskyActorProfile.insert { profile }
-                .execute(db)
-            try BlueskyActorProfileCacheEntry.insert {
-                BlueskyActorProfileCacheEntry(
-                    actor: actor.description,
-                    did: profile.did,
-                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                )
-            }
-            .execute(db)
-        }
-
-        let row = try await database.read { db in
-            try #require(
-                ContributorsViewer.contributorRowsQuery(
-                    eventID: selectedEventID,
-                    hydration: .bskyActorProfile
-                )
-                    .fetchAll(db)
-                    .first { $0.contributorID == contributorID }
-            )
-        }
-        let contributorProfile = row.profile
-
-        #expect(contributorProfile.contributorActor == actor)
-        #expect(!contributorProfile.usesActorProfileAsPrimary)
-        #expect(contributorProfile.name == "Explicit Alice")
-        #expect(contributorProfile.handle == "alice.bsky.social")
-        #expect(contributorProfile.subtitle == "@alice.bsky.social")
-        #expect(contributorProfile.bio == "OME bio")
-        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
-        #expect(contributorProfile.artworkCacheContext == LocalImageCacheContext(contributorID: row.contributor.id))
-        #expect(row.matchesSearch("Explicit Alice"))
-        #expect(row.matchesSearch("alice.bsky.social"))
-        #expect(!row.matchesSearch("Bluesky Alice"))
-    }
-
-    @Test
-    func contributorProfileUsesCachedBlueskyAvatarWhenExplicitContributorHasNoArtwork() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Bluesky Alice",
-            description: "Bluesky bio",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "speaker-1",
-                name: "Explicit Alice",
-                bio: "OME bio"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-            try BlueskyActorProfile.insert { profile }
-                .execute(db)
-            try BlueskyActorProfileCacheEntry.insert {
-                BlueskyActorProfileCacheEntry(
-                    actor: actor.description,
-                    did: profile.did,
-                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                )
-            }
-            .execute(db)
-        }
-
-        let row = try await database.read { db in
-            try #require(
-                ContributorsViewer.contributorRowsQuery(
-                    eventID: selectedEventID,
-                    hydration: .bskyActorProfile
-                )
-                .fetchAll(db)
-                .first { $0.contributorID == contributorID }
-            )
-        }
-        let contributorProfile = row.profile
-
-        #expect(!contributorProfile.usesActorProfileAsPrimary)
-        #expect(contributorProfile.name == "Explicit Alice")
-        #expect(contributorProfile.bio == "OME bio")
-        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
-        #expect(contributorProfile.artworkCacheContext == nil)
-    }
-
-    @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
-    func contributorsViewerRefreshesGeneratedActorProfilesForListRows(actorString: String) async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor(actorString))
-        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
-        let date = try #require(LocalDate("2026-08-07"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Alice Example",
-            description: "ATProto builder",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
-        )
-        let requestRecorder = BlueskyProfileRequestRecorder()
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: selectedEventID,
-                contributorID: "schedule-actor-alice.bsky.social",
-                name: "alice.bsky.social"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: selectedEventID,
-                performanceID: "talk-1",
-                contributorID: "schedule-actor-alice.bsky.social",
-                contributorActor: actor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { requestedActor in
-                    await requestRecorder.record(requestedActor)
-                    return profile
-                },
-                refreshProfileIfNeeded: { requestedActor, _, _ in
-                    await requestRecorder.record(requestedActor)
-                    try await database.write { db in
-                        try BlueskyActorProfile.insert { profile }
-                            .execute(db)
-                        try BlueskyActorProfileCacheEntry.insert {
-                            BlueskyActorProfileCacheEntry(
-                                actor: requestedActor,
-                                did: profile.did,
-                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                            )
-                        }
-                        .execute(db)
-                    }
-                    return profile
-                }
-            )
-        } operation: {
-            Store(initialState: ContributorsViewer.State(eventID: selectedEventID)) {
-                ContributorsViewer()
-            }
-        }
-
-        try await waitForContributorListBlueskyProfile(in: store, contributorID: contributorID)
-
-        #expect(await requestRecorder.actors == [actor.description])
-        let row = try #require(store.contributorRows.first { $0.contributorID == contributorID })
-        #expect(row.profile.name == "Alice Example")
-        #expect(row.profile.subtitle == "@alice.bsky.social")
-        #expect(row.profile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
-    }
-
-    @Test
-    func stagesViewerFetchesStagesForEventInOrder() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "late", name: "Late", sortIndex: 2)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(db, eventID: otherEventID, stageID: "other", name: "Other")
-        }
-
-        let stages = try await database.read { db in
-            try StagesViewer.stagesQuery(eventID: selectedEventID).fetchAll(db)
-        }
-
-        #expect(stages.map(\.name) == ["Main", "Late"])
-    }
-
-    @Test
-    func stageDetailFetchesStageForEvent() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "main", name: "Main")
-            try Self.insertStage(db, eventID: otherEventID, stageID: "main", name: "Other Main")
-        }
-
-        let stage = try await database.read { db in
-            try StageDetail.stageQuery(
-                stageID: stageLocalID("main"),
-                eventID: selectedEventID
-            )
-            .fetchOne(db)
-        }
-
-        #expect(stage?.name == "Main")
-    }
-
-    @Test
-    func stageDetailFiltersItsScheduleToTheSharedSelectedDay() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let friday = try #require(LocalDate("2026-08-07"))
-        let saturday = try #require(LocalDate("2026-08-08"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertStage(db, eventID: eventID, stageID: "forest", name: "Forest")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "saturday", date: saturday)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "meadow-friday",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(friday.at(hour: 18, in: timeZone)),
-                endTime: try #require(friday.at(hour: 19, in: timeZone)),
-                title: "Meadow Friday"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "forest-friday",
-                stageID: "forest",
-                scheduleID: "friday",
-                startTime: try #require(friday.at(hour: 18, in: timeZone)),
-                endTime: try #require(friday.at(hour: 19, in: timeZone)),
-                title: "Forest Friday"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "meadow-saturday",
-                stageID: "meadow",
-                scheduleID: "saturday",
-                startTime: try #require(saturday.at(hour: 18, in: timeZone)),
-                endTime: try #require(saturday.at(hour: 19, in: timeZone)),
-                title: "Meadow Saturday"
-            )
-        }
-
-        var state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)
-        }
-
-        state.eventViewerState.selectedScheduleID = scheduleLocalID("friday")
-
-        #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
-        #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Friday"])
-
-        state.eventViewerState.selectedScheduleID = scheduleLocalID("saturday")
-
-        #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Saturday"])
-
-        state.eventViewerState.selectedScheduleID = scheduleLocalID("missing")
-
-        #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
-    }
-
-    @Test
-    func stageDetailPerformanceTapPresentsPerformanceDetail() async throws {
-        let database = try makePreparedDatabase()
-        let ambientEventID = eventID("ambient-event")
-        let eventID = eventID("event-1")
-        let performanceID = performanceLocalID("meadow-friday")
-        let friday = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "meadow-friday",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(friday.at(hour: 18, in: timeZone)),
-                endTime: try #require(friday.at(hour: 19, in: timeZone)),
-                title: "Meadow Friday"
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = ambientEventID
-        } operation: {
-            Store(initialState: StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)) {
-                StageDetail()
-            }
-        }
-
-        await store.send(.performanceButtonTapped(performanceID))?.value
-
-        #expect(store.destination?.performanceDetail?.performanceID == performanceID)
-        expectNoDifference(store.destination?.performanceDetail?.eventID, eventID)
-    }
-
-    @Test
-    func scheduleViewerFetchesSchedulesForEventInOrder() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        let friday = try #require(LocalDate("2026-08-07"))
-        let saturday = try #require(LocalDate("2026-08-08"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One", timeZone: timeZone)
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two", timeZone: timeZone)
-            try Self.insertSchedule(
-                db,
-                eventID: selectedEventID,
-                scheduleID: "friday-late",
-                date: friday,
-                startsAt: friday.at(hour: 20, in: timeZone),
-                customTitle: "Friday Late"
-            )
-            try Self.insertSchedule(
-                db,
-                eventID: selectedEventID,
-                scheduleID: "saturday",
-                date: saturday,
-                startsAt: saturday.at(hour: 12, in: timeZone),
-                customTitle: "Saturday"
-            )
-            try Self.insertSchedule(
-                db,
-                eventID: selectedEventID,
-                scheduleID: "friday-early",
-                date: friday,
-                startsAt: friday.at(hour: 18, in: timeZone),
-                customTitle: "Friday Early"
-            )
-            try Self.insertSchedule(
-                db,
-                eventID: otherEventID,
-                scheduleID: "other",
-                date: friday,
-                startsAt: friday.at(hour: 17, in: timeZone),
-                customTitle: "Other"
-            )
-        }
-
-        let schedules = try await database.read { db in
-            try ScheduleViewer.schedulesQuery(eventID: selectedEventID).fetchAll(db)
-        }
-
-        #expect(schedules.map(\.id.scheduleID) == [
-            scheduleLocalID("friday-early"),
-            scheduleLocalID("friday-late"),
-            scheduleLocalID("saturday"),
-        ])
-    }
-
-    @Test
-    func scheduleViewerFetchesPerformancesForSelectedScheduleInOrder() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One", timeZone: timeZone)
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two", timeZone: timeZone)
-            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
-            try Self.insertStage(db, eventID: otherEventID, stageID: "other-stage", name: "Other")
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
-            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "saturday", date: date)
-            try Self.insertSchedule(db, eventID: otherEventID, scheduleID: "other", date: date)
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "closing",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 22, in: timeZone)),
-                endTime: try #require(date.at(hour: 23, in: timeZone)),
-                title: "Closing"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Opening"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: selectedEventID,
-                performanceID: "other-day",
-                stageID: "meadow",
-                scheduleID: "saturday",
-                startTime: try #require(date.at(hour: 17, in: timeZone)),
-                endTime: try #require(date.at(hour: 18, in: timeZone)),
-                title: "Other Day"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: otherEventID,
-                performanceID: "other-event",
-                stageID: "other-stage",
-                scheduleID: "other",
-                startTime: try #require(date.at(hour: 16, in: timeZone)),
-                endTime: try #require(date.at(hour: 17, in: timeZone)),
-                title: "Other Event"
-            )
-        }
-
-        let performances = try await database.read { db in
-            try ScheduleViewer.performancesQuery(
-                eventID: selectedEventID,
-                scheduleID: scheduleLocalID("friday")
-            )
-            .fetchAll(db)
-        }
-
-        #expect(performances.map(\.title) == ["Opening", "Closing"])
-    }
-
-    @Test
-    func scheduleTimelineCardsWrapPerformancesAndBuildBufferedRange() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let openingStart = try #require(date.at(hour: 18, in: timeZone))
-        let openingEnd = try #require(date.at(hour: 19, in: timeZone))
-        let closingStart = try #require(date.at(hour: 20, in: timeZone))
-        let closingEnd = try #require(date.at(hour: 21, in: timeZone))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "closing",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: closingStart,
-                endTime: closingEnd,
-                title: "Closing"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: openingStart,
-                endTime: openingEnd,
-                title: "Opening"
-            )
-        }
-
-        let performanceRows = try await database.read { db in
-            try PerformanceRow.all(
-                eventID: eventID,
-                scheduleID: scheduleLocalID("friday")
-            )
-            .fetchAll(db)
-        }
-        let performances = performanceRows.map(\.performance)
-        let cards = performances.map(SchedulePerformanceTimelineCard.init)
-        let timeRange = try #require(
-            ScheduleStageTimelinePage.timeRange(
-                for: performances,
-                buffer: 30 * 60
-            )
-        )
-
-        #expect(cards.map(\.id) == [
-            performanceLocalID("opening"),
-            performanceLocalID("closing"),
-        ])
-        #expect(cards.first?.dateInterval.start == openingStart)
-        #expect(cards.first?.dateInterval.end == openingEnd)
-        #expect(timeRange.start == openingStart.addingTimeInterval(-30 * 60))
-        #expect(timeRange.end == closingEnd.addingTimeInterval(30 * 60))
-    }
-
-    @Test
-    func manyStagesTimelineCardsUseVisibleStageOrderAsLanes() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "late", name: "Late", sortIndex: 2)
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "late-set",
-                stageID: "late",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Late Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "main-set",
-                stageID: "main",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 20, in: timeZone)),
-                endTime: try #require(date.at(hour: 21, in: timeZone)),
-                title: "Main Set"
-            )
-        }
-
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-        let performanceRows = try await database.read { db in
-            try PerformanceRow.all(
-                eventID: eventID,
-                scheduleID: scheduleLocalID("friday")
-            )
-            .fetchAll(db)
-        }
-        let cards = ScheduleManyStagesAtOnceView.timelineCards(
-            performanceRows: performanceRows,
-            stages: stages
-        )
-        let laneByPerformanceID = Dictionary(
-            uniqueKeysWithValues: cards.map { ($0.id, $0.groupWidth.lowerBound) }
-        )
-
-        #expect(stages.map(\.id.stageID) == [
-            stageLocalID("main"),
-            stageLocalID("late"),
-        ])
-        #expect(laneByPerformanceID[performanceLocalID("main-set")] == 0)
-        #expect(laneByPerformanceID[performanceLocalID("late-set")] == 1)
-        #expect(Set(cards.map(\.groupWidth.upperBound)) == Set([0, 1]))
-    }
-
-    @Test
-    func `stages with performances are shown before empty stages`() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("sparse-friday")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Sparse Friday", timeZone: timeZone)
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow", sortIndex: 1)
-            try Self.insertStage(db, eventID: eventID, stageID: "amp", name: "Amp", sortIndex: 2)
-            try Self.insertStage(db, eventID: eventID, stageID: "grove", name: "Grove", sortIndex: 3)
-            try Self.insertStage(db, eventID: eventID, stageID: "lake", name: "Lake", sortIndex: 4)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "amp-opening",
-                stageID: "amp",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Amp Opening"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "lake-opening",
-                stageID: "lake",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 19, in: timeZone)),
-                endTime: try #require(date.at(hour: 20, in: timeZone)),
-                title: "Lake Opening"
-            )
-        }
-
-        // Friday opens at Amp and Lake, so those stages lead without losing their configured order.
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-        let performances = try await database.read { db in
-            try PerformanceRow.all(
-                eventID: eventID,
-                scheduleID: scheduleLocalID("friday")
-            )
-            .fetchAll(db)
-            .map(\.performance)
-        }
-        let orderedStages = ScheduleViewer.orderedStages(
-            stages,
-            performances: performances
-        )
-
-        expectNoDifference(
-            orderedStages.map(\.id.stageID),
-            [
-                stageLocalID("amp"),
-                stageLocalID("lake"),
-                stageLocalID("meadow"),
-                stageLocalID("grove"),
-            ]
-        )
-        expectNoDifference(
-            ScheduleViewer.unavailableStageIDs(
-                stages: orderedStages,
-                performances: performances
-            ),
-            Set([stageLocalID("meadow"), stageLocalID("grove")])
-        )
-
-        // The empty-stage message names the schedule category, day, and stage exactly.
-        let meadow = try #require(stages.first { $0.id.stageID == stageLocalID("meadow") })
-        expectNoDifference(
-            ScheduleViewer.emptyStageTitle(
-                scheduleDivision: .schedule,
-                scheduleTitle: "Friday",
-                stage: meadow
-            ),
-            "No Schedule on Friday at Meadow"
-        )
-    }
-
-    @Test
-    func `empty schedule titles are friendly`() {
-        expectNoDifference(
-            ScheduleViewer.emptyScheduleTitle(
-                scheduleDivision: .schedule,
-                scheduleTitle: "Friday"
-            ),
-            "No Schedule on Friday"
-        )
-        expectNoDifference(
-            ScheduleViewer.emptyScheduleTitle(
-                scheduleDivision: .init(category: OMERecord.Stage.Category("workshop")),
-                scheduleTitle: "Friday"
-            ),
-            "No Workshops on Friday"
-        )
-    }
-
-    @Test
-    func manyStagesTimelineGroupsKeepEmptyStageLanes() {
-        #expect(ScheduleManyStagesAtOnceView.timelineGroups(stageCount: 4) == [0, 1, 2, 3])
-    }
-
-    @Test
-    func manyStagesContentWidthShowsPartialLastStageOnCompactLayouts() {
-        let width = ScheduleManyStagesAtOnceView.contentWidth(
-            availableWidth: 393,
-            stageCount: 3,
-            minimumStageLaneWidth: 132,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 463)
-    }
-
-    @Test
-    func manyStagesContentWidthDoesNotAddOverflowCueForSingleStage() {
-        let width = ScheduleManyStagesAtOnceView.contentWidth(
-            availableWidth: 393,
-            stageCount: 1,
-            minimumStageLaneWidth: 132,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 393)
-    }
-
-    @Test
-    func manyStagesContentWidthDoesNotAddOverflowCueForTwoStages() {
-        let width = ScheduleManyStagesAtOnceView.contentWidth(
-            availableWidth: 393,
-            stageCount: 2,
-            minimumStageLaneWidth: 132,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 393)
-    }
-
-    @Test
-    func manyStagesContentWidthKeepsMinimumLaneWidthWhenCompactTargetWouldShrinkLanes() {
-        let width = ScheduleManyStagesAtOnceView.contentWidth(
-            availableWidth: 320,
-            stageCount: 4,
-            minimumStageLaneWidth: 132,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 571)
-    }
-
-    @Test
-    func manyStagesContentWidthDoesNotAddCompactStageRevealToWideLayouts() {
-        let width = ScheduleManyStagesAtOnceView.contentWidth(
-            availableWidth: 700,
-            stageCount: 3,
-            minimumStageLaneWidth: 132,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 700)
-    }
-
-    @Test
-    func manyStagesTimelineWidthExcludesHourLabelRail() {
-        let width = ScheduleManyStagesAtOnceView.timelineContentWidth(
-            totalWidth: 463,
-            hourLabelsWidth: 43
-        )
-
-        #expect(width == 420)
-    }
-
-    @Test
-    func manyStagesResolvedTimelineWidthExcludesHourLabelRail() {
-        let width = ScheduleManyStagesAtOnceView.resolvedTimelineWidth(
-            totalWidth: 463,
-            hourLabelsWidth: 43
-        )
-
-        expectNoDifference(width, 420)
-    }
-
-    @Test
-    func manyStagesHorizontalLaneHeightUsesAvailableHeight() {
-        let laneHeight = ScheduleManyStagesAtOnceView.horizontalStageLaneHeight(
-            availableHeight: 700,
-            stageCount: 4,
-            hourLabelsHeight: 32,
-            minimumStageLaneHeight: 84
-        )
-
-        #expect(laneHeight == 167)
-    }
-
-    @Test
-    func manyStagesHorizontalLaneHeightKeepsMinimumHeight() {
-        let laneHeight = ScheduleManyStagesAtOnceView.horizontalStageLaneHeight(
-            availableHeight: 300,
-            stageCount: 4,
-            hourLabelsHeight: 32,
-            minimumStageLaneHeight: 84
-        )
-
-        #expect(laneHeight == 84)
-    }
-
-    @Test
-    func scheduleViewerDefaultsToSingleStageKind() throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            ScheduleViewer.State(eventID: eventID)
-        }
-
-        #expect(state.scheduleKind == .singleStageAtOnce)
-    }
-
-    @Test
-    func addScheduleDefaultsToEventStartDate() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let eventStartDate = try #require(LocalDate("2026-08-07"))
-        let today = try #require(LocalDate("2026-06-01"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let now = try #require(today.at(hour: 12, in: timeZone))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: eventID,
-                name: "Event One",
-                startDate: eventStartDate,
-                timeZone: timeZone
-            )
-        }
-        var state = withDependencies {
-            $0.context = .test
-            $0.date = .constant(now)
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            EventViewer.State(eventID: eventID)
-        }
-        state.selectedFeature = .contributors
-
-        withDependencies {
-            $0.context = .test
-            $0.date = .constant(now)
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            state.handleEditingIntent(.addSchedule(eventID))
-        }
-
-        let editSchedule = try #require(state.destination?.scheduleForm)
-        expectNoDifference(state.selectedFeature, .contributors)
-        expectNoDifference(editSchedule.scheduleDate, eventStartDate)
-        expectNoDifference(editSchedule.customTitle, "")
-        expectNoDifference(editSchedule.inferredTitle, "Friday")
-        expectNoDifference(editSchedule.sourceFileName, "2026-08-07")
-    }
-
-    @Test
-    func scheduleNowDestinationPrefersSelectedCurrentScheduleAndActivePerformance() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("schedule-now-selected")
-        let date = try #require(LocalDate("2026-08-07"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "first", date: date)
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "selected", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "first-active",
-                stageID: "meadow",
-                scheduleID: "first",
-                startTime: Date(timeIntervalSince1970: 100),
-                endTime: Date(timeIntervalSince1970: 300),
-                title: "First Active"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "selected-active",
-                stageID: "meadow",
-                scheduleID: "selected",
-                startTime: Date(timeIntervalSince1970: 120),
-                endTime: Date(timeIntervalSince1970: 320),
-                title: "Selected Active"
-            )
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            ScheduleViewer.State(eventID: eventID)
-        }
-        let destination = state.currentTimeDestination(
-            currentDate: Date(timeIntervalSince1970: 200),
-            selectedScheduleID: scheduleLocalID("selected"),
-            buffer: 3_600
-        )
-
-        expectNoDifference(destination?.scheduleID, scheduleLocalID("selected"))
-        expectNoDifference(destination?.performanceID, performanceLocalID("selected-active"))
-    }
-
-    @Test
-    func scheduleNowDestinationSwitchesSchedulesAndTargetsNextThenLastPerformance() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("schedule-now-switch")
-        let date = try #require(LocalDate("2026-08-07"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "past", date: date)
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "current", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "past-set",
-                stageID: "meadow",
-                scheduleID: "past",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Past Set"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "current",
-                startTime: Date(timeIntervalSince1970: 10_000),
-                endTime: Date(timeIntervalSince1970: 11_000),
-                title: "Opening"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "closing",
-                stageID: "meadow",
-                scheduleID: "current",
-                startTime: Date(timeIntervalSince1970: 12_000),
-                endTime: Date(timeIntervalSince1970: 13_000),
-                title: "Closing"
-            )
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            ScheduleViewer.State(eventID: eventID)
-        }
-        let nextDestination = state.currentTimeDestination(
-            currentDate: Date(timeIntervalSince1970: 9_000),
-            selectedScheduleID: scheduleLocalID("past"),
-            buffer: 3_600
-        )
-        let lastDestination = state.currentTimeDestination(
-            currentDate: Date(timeIntervalSince1970: 15_500),
-            selectedScheduleID: scheduleLocalID("past"),
-            buffer: 3_600
-        )
-
-        expectNoDifference(nextDestination?.scheduleID, scheduleLocalID("current"))
-        expectNoDifference(nextDestination?.performanceID, performanceLocalID("opening"))
-        expectNoDifference(lastDestination?.scheduleID, scheduleLocalID("current"))
-        expectNoDifference(lastDestination?.performanceID, performanceLocalID("closing"))
-    }
-
-    @Test
-    func scheduleNowDestinationHandlesOvernightRangesAndHidesOutsideRenderedTime() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("schedule-now-overnight")
-        let date = try #require(LocalDate("2026-08-07"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "overnight", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "late-set",
-                stageID: "meadow",
-                scheduleID: "overnight",
-                startTime: Date(timeIntervalSince1970: 86_000),
-                endTime: Date(timeIntervalSince1970: 90_000),
-                title: "Late Set"
-            )
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            ScheduleViewer.State(eventID: eventID)
-        }
-        let overnightDestination = state.currentTimeDestination(
-            currentDate: Date(timeIntervalSince1970: 88_000),
-            selectedScheduleID: nil,
-            buffer: 3_600
-        )
-        let outsideDestination = state.currentTimeDestination(
-            currentDate: Date(timeIntervalSince1970: 94_000),
-            selectedScheduleID: nil,
-            buffer: 3_600
-        )
-        let unavailableDestination = state.currentTimeDestination(
-            currentDate: nil,
-            selectedScheduleID: nil,
-            buffer: 3_600
-        )
-
-        expectNoDifference(overnightDestination?.performanceID, performanceLocalID("late-set"))
-        #expect(outsideDestination == nil)
-        #expect(unavailableDestination == nil)
-    }
-
-    @Test
-    func scheduleViewerStatePersistsModeAndStagePerDivision() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-
-        let firstVisit = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
-        }
-
-        await firstVisit.send(
-            .scheduleKindButtonTapped(.allStagesAtOnce(.horizontal))
-        )?.value
-        await firstVisit.modify {
-            $0.selectedStageID = stageLocalID("main")
-        }?.value
-
-        let storedState = try await database.read { db in
-            try ScheduleViewerStateRequest(
-                eventID: eventID,
-                scheduleDivision: .schedule
-            )
-            .fetch(db)
-        }
-        await firstVisit.dismount()
-
-        let returnVisit = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
-        }
-
-        await waitForObservation {
-            returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal)
-                && returnVisit.state.selectedStageID == stageLocalID("main")
-        }
-
-        let workshopVisit = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            return TestStore(
-                initialState: ScheduleViewer.State(
-                    eventID: eventID,
-                    scheduleDivision: workshopDivision
-                )
-            ) {
-                ScheduleViewer()
-            }
-        }
-
-        #expect(storedState.scheduleKind == .allStagesAtOnce(.horizontal))
-        #expect(storedState.selectedStageID == stageLocalID("main"))
-        #expect(returnVisit.state.scheduleKind == .allStagesAtOnce(.horizontal))
-        #expect(returnVisit.state.selectedStageID == stageLocalID("main"))
-        #expect(workshopVisit.state.scheduleKind == .singleStageAtOnce)
-        #expect(workshopVisit.state.selectedStageID == nil)
-        await workshopVisit.dismount()
-    }
-
-    @Test
-    func scheduleViewerStatePersistenceMergesStaleFeatureChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        var storedState = ScheduleViewerState(
-            eventID: eventID,
-            scheduleDivision: .schedule
-        )
-        storedState.selectedStageID = stageLocalID("main")
-        storedState.filteringFavorites = true
-        storedState.scheduleKind = .allStagesAtOnce(.horizontal)
-        storedState.syncScheduleKindStorage()
-        let stateToStore = storedState
-        try await database.write { db in
-            try ScheduleViewerState.insert { stateToStore }.execute(db)
-        }
-
-        let staleState = ScheduleViewerState(
-            eventID: eventID,
-            scheduleDivision: .schedule
-        )
-        var changedState = staleState
-        changedState.scheduleKind = .list
-        let stateToPersist = changedState
-        try await database.write { db in
-            try ScheduleViewerState.persistChanges(
-                from: staleState,
-                to: stateToPersist,
-                eventID: eventID,
-                scheduleDivision: .schedule,
-                in: db
-            )
-        }
-
-        let mergedState = try await database.read { db in
-            try ScheduleViewerStateRequest(
-                eventID: eventID,
-                scheduleDivision: .schedule
-            )
-            .fetch(db)
-        }
-        #expect(mergedState.selectedStageID == stageLocalID("main"))
-        #expect(mergedState.filteringFavorites)
-        #expect(mergedState.scheduleKind == .list)
-    }
-
-    @Test
-    func scheduleViewerStateMigratesLegacyManyStageOrientation() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-
-        try await database.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO "scheduleViewerState" (
-                  "organizerID",
-                  "eventID",
-                  "category",
-                  "scheduleKind",
-                  "manyStagesOrientation"
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                arguments: [
-                    String(describing: eventID.organizerID),
-                    eventID.eventID.rawValue.rawValue,
-                    ScheduleViewer.ScheduleDivision.schedule.id,
-                    "allStagesAtOnce",
-                    "horizontal",
-                ]
-            )
-        }
-
-        let state = try await database.read { db in
-            try ScheduleViewerStateRequest(
-                eventID: eventID,
-                scheduleDivision: .schedule
-            )
-            .fetch(db)
-        }
-
-        #expect(state.scheduleKind == .allStagesAtOnce(.horizontal))
-        #expect(state.legacyManyStagesOrientation == .horizontal)
-    }
-
-    @Test
-    func scheduleViewerResolvedStageFallsBackToFirstOrderedStage() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "late", name: "Late", sortIndex: 2)
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-        }
-
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-
-        #expect(
-            ScheduleViewer.resolvedSelectedStageID(
-                selectedStageID: nil,
-                stages: stages
-            ) == stageLocalID("main")
-        )
-        #expect(
-            ScheduleViewer.resolvedSelectedStageID(
-                selectedStageID: stageLocalID("missing"),
-                stages: stages
-            ) == stageLocalID("main")
-        )
-        #expect(
-            ScheduleViewer.resolvedSelectedStageID(
-                selectedStageID: stageLocalID("late"),
-                stages: stages
-            ) == stageLocalID("late")
-        )
-    }
-
-    @Test
-    func eventViewerNeedsStageDisambiguationOnlyWithMultipleStages() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: OMERecord.Stage.singletonID.rawValue.rawValue,
-                name: OMERecord.Stage.singletonName,
-                sortIndex: 1
-            )
-        }
-
-        func state() -> EventViewer.State {
-            withDependencies {
-                $0.context = .test
-                $0.defaultDatabase = database
-                $0.defaultEventID = eventID
-            } operation: {
-                EventViewer.State(eventID: eventID)
-            }
-        }
-
-        #expect(state().needsStageDisambiguation == false)
-
-        try await database.write { db in
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 2)
-        }
-
-        #expect(state().needsStageDisambiguation)
-    }
-
-    @Test
-    func scheduleViewerBuildsDivisionsFromStageCategories() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: OMERecord.Stage.Category("workshop"),
-                sortIndex: 2
-            )
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "second-workshop",
-                name: "Second Workshop",
-                category: OMERecord.Stage.Category("workshop"),
-                sortIndex: 3
-            )
-        }
-
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-        let divisions = ScheduleViewer.scheduleDivisions(stages: stages)
-
-        #expect(divisions.map(\.id) == ["schedule", "workshop"])
-        #expect(divisions.map(\.title) == ["Schedule", "Workshops"])
-    }
-
-    @Test
-    func scheduleViewerFiltersStagesAndPerformancesToDivision() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: OMERecord.Stage.Category("workshop"),
-                sortIndex: 2
-            )
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "concert",
-                stageID: "main",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Concert"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "workshop",
-                stageID: "workshop",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 20, in: timeZone)),
-                endTime: try #require(date.at(hour: 21, in: timeZone)),
-                title: "Workshop"
-            )
-        }
-
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-        let performanceRows = try await database.read { db in
-            try PerformanceRow.all(
-                eventID: eventID,
-                scheduleID: scheduleLocalID("friday")
-            )
-            .fetchAll(db)
-        }
-        let visibleStages = ScheduleViewer.visibleStages(
-            stages: stages,
-            division: workshopDivision
-        )
-        let visiblePerformances = ScheduleViewer.visiblePerformances(
-            performanceRows: performanceRows,
-            scheduleID: scheduleLocalID("friday"),
-            stages: visibleStages
-        )
-        let timelineCards = ScheduleManyStagesAtOnceView.timelineCards(
-            performanceRows: visiblePerformances,
-            stages: visibleStages
-        )
-
-        #expect(visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
-        #expect(visiblePerformances.map(\.title) == ["Workshop"])
-        #expect(timelineCards.map(\.performance.title) == ["Workshop"])
-        #expect(timelineCards.map(\.stage.id.stageID) == [stageLocalID("workshop")])
-    }
-
-    @Test
-    func eventViewerBuildsScheduleDivisionTabsFromStageCategories() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: workshopDivision.category,
-                sortIndex: 2
-            )
-        }
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            EventViewer.State(eventID: eventID)
-        }
-
-        #expect(Array(state.installedFeatures.prefix(2).map(\.description)) == [
-            "schedule",
-            "schedule:workshop",
-        ])
-        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
-        #expect(state.installedFeatures.contains(.workspace) == false)
-        #expect(state.eventWorkspace == nil)
-    }
-
-    @Test
-    func `empty stage links open another schedule category`() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("schedule-category-link")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Category Links")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: workshopDivision.category,
-                sortIndex: 2
-            )
-        }
-
-        // The attendee starts on the regular Schedule and taps the Workshops link below an empty stage.
-        let store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
-            }
-        }
-        let scheduleStore = try #require(
-            store.spawn(\.scheduleViewers).first {
-                $0.scheduleDivision == .schedule
-            }
-        )
-        let singleStageStore = scheduleStore.spawn(\.singleStageAtOnce)
-
-        await singleStageStore.send(
-            .scheduleDivisionButtonTapped(workshopDivision)
-        )?.value
-
-        expectNoDifference(store.selectedFeature, .schedule(workshopDivision))
-
-        await scheduleStore.spawn(\.manyStagesAtOnce).send(
-            .scheduleDivisionButtonTapped(.schedule)
-        )?.value
-
-        expectNoDifference(store.selectedFeature, .schedule(.schedule))
-
-        await scheduleStore.spawn(\.performanceList).send(
-            .scheduleDivisionButtonTapped(workshopDivision)
-        )?.value
-
-        expectNoDifference(store.selectedFeature, .schedule(workshopDivision))
-    }
-
-    @Test
-    func eventViewerStartsInAttendeeModeWhenAuthoringIsNotAllowed() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("attendee-mode-event")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Attendee Mode Event")
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            EventViewer.State(eventID: eventID)
-        }
-
-        #expect(state.authoringAccess == .attendee)
-        #expect(!state.installedFeatures.contains(.workspace))
-        #expect(state.installedFeatures.contains(.settings))
-        #expect(state.eventWorkspace == nil)
-        #expect(state.eventSettings?.eventID == eventID)
-    }
-
-    @Test
-    func eventViewerStatePersistsSelectedSchedulePerEvent() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-
-        let firstVisit = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(
-                initialState: EventViewer.State(
-                    eventID: eventID,
-                    features: [
-                        .schedule(.schedule),
-                        .schedule(workshopDivision),
-                    ]
-                )
-            ) {
-                EventViewer()
-            }
-        }
-
-        await firstVisit.modify {
-            $0.eventViewerState.selectedScheduleID = scheduleLocalID("thursday")
-        }?.value
-
-        let storedState = try await database.read { db in
-            try EventViewerStateRequest(eventID: eventID).fetch(db)
-        }
-        await firstVisit.dismount()
-
-        let returnVisit = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(
-                initialState: EventViewer.State(
-                    eventID: eventID,
-                    features: [
-                        .schedule(.schedule),
-                        .schedule(workshopDivision),
-                    ]
-                )
-            ) {
-                EventViewer()
-            }
-        }
-
-        await waitForObservation {
-            returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday")
-        }
-
-        #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
-        #expect(returnVisit.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
-    }
-
-    @Test
-    func eventViewerStatePersistenceMergesStaleFeatureChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let userScheduleID = try #require(
-            UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
-        )
-        var storedState = EventViewerState(id: eventID)
-        storedState.selectedScheduleID = scheduleLocalID("thursday")
-        storedState.didInitializeUserSchedules = true
-        let stateToStore = storedState
-        try await database.write { db in
-            try UserSchedule.insert {
-                UserSchedule(
-                    id: userScheduleID,
-                    eventID: eventID,
-                    title: "Favorites"
-                )
-            }
-            .execute(db)
-            try EventViewerState.insert { stateToStore }.execute(db)
-        }
-
-        let staleState = EventViewerState(id: eventID)
-        var changedState = staleState
-        changedState.selectedUserScheduleID = userScheduleID
-        let stateToPersist = changedState
-        try await database.write { db in
-            try EventViewerState.persistChanges(
-                from: staleState,
-                to: stateToPersist,
-                in: db
-            )
-        }
-
-        let mergedState = try await database.read { db in
-            try EventViewerStateRequest(eventID: eventID).fetch(db)
-        }
-        #expect(mergedState.selectedScheduleID == scheduleLocalID("thursday"))
-        #expect(mergedState.selectedUserScheduleID == userScheduleID)
-        #expect(mergedState.didInitializeUserSchedules)
-    }
-
-    @Test
-    func eventViewerStateObservationPreservesNewerLocalChanges() throws {
-        let eventID = eventID("event-1")
-        let userScheduleID = try #require(
-            UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
-        )
-        var localState = EventViewerState(
-            id: eventID,
-            selectedUserScheduleID: userScheduleID,
-            didInitializeUserSchedules: true
-        )
-        let stalePersistedState = EventViewerState(
-            id: eventID,
-            selectedScheduleID: scheduleLocalID("thursday"),
-            didInitializeUserSchedules: true
-        )
-
-        localState.mergePersistedChanges(
-            from: nil,
-            to: stalePersistedState
-        )
-
-        #expect(localState.selectedScheduleID == scheduleLocalID("thursday"))
-        #expect(localState.selectedUserScheduleID == userScheduleID)
-        #expect(localState.didInitializeUserSchedules)
-    }
-
-    @Test
-    func scheduleViewerStageFallbackIsScopedToDivision() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: workshopDivision.category,
-                sortIndex: 2
-            )
-        }
-
-        var state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            var state = ScheduleViewer.State(
-                eventID: eventID,
-                scheduleDivision: workshopDivision
-            )
-            state.selectedStageID = stageLocalID("main")
-            return state
-        }
-
-        #expect(state.visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
-        #expect(state.resolvedSelectedStageID == stageLocalID("workshop"))
-        #expect(state.selectedStageID == stageLocalID("workshop"))
-
-        state.selectedStageID = stageLocalID("main")
-
-        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
-    }
-
-    @Test
-    func singleStageScheduleSelectionBindingNormalizesToVisibleStage() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: workshopDivision.category,
-                sortIndex: 2
-            )
-        }
-
-        var state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            var state = ScheduleSingleStageAtOnce.State(
-                eventID: eventID,
-                scheduleDivision: workshopDivision
-            )
-            state.scheduleViewerState.selectedStageID = stageLocalID("main")
-            return state
-        }
-
-        #expect(state.visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
-        #expect(state.selectedStageID == stageLocalID("workshop"))
-        #expect(state.resolvedSelectedStageID == stageLocalID("workshop"))
-        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("main"))
-
-        state.selectedStageID = state.selectedStageID
-
-        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
-    }
-
-    @MainActor
-    @Test
-    func singleStageMountNormalizesSelectionBeforeViewObservation() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
-        )
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "workshop",
-                name: "Workshop",
-                category: workshopDivision.category,
-                sortIndex: 2
-            )
-        }
-
-        // The persisted selection points outside the visible workshop division.
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            var state = ScheduleSingleStageAtOnce.State(
-                eventID: eventID,
-                scheduleDivision: workshopDivision
-            )
-            state.scheduleViewerState.selectedStageID = stageLocalID("main")
-            return state
-        }
-
-        // Feature mounting must repair query-loaded selection before SwiftUI observes the store.
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(initialState: state) {
-                ScheduleSingleStageAtOnce()
-            } changes: {
-                $0.scheduleViewerState.selectedStageID = stageLocalID("workshop")
-            }
-        }
-
-        #expect(store.state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
-    }
-
-    @Test
-    func scheduleViewerPerformanceTapPresentsDetail() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let performanceID = performanceLocalID("opening")
-        await withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            let store = Store(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
-            await store.send(.performanceButtonTapped(performanceID))?.value
-
-            #expect(store.destination?.performanceDetail?.performanceID == performanceID)
-            expectNoDifference(
-                store.destination?.performanceDetail?.eventID,
-                eventID
-            )
-        }
-    }
-
-    @Test
-    func performanceDetailQueriesCoreFields() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let recordingURL = try #require(URL(string: "https://example.com/recording"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "zara", name: "Zara")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Opening",
-                description: "First set",
-                recordings: [ExternalPlatform.Asset(url: recordingURL)]
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                contributorID: "zara",
-                sortIndex: 1
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                contributorID: "amy",
-                sortIndex: 0
-            )
-        }
-
-        let performance = try await database.read { db in
-            try #require(
-                try PerformanceDetail.performanceQuery(
-                    performanceID: performanceLocalID("opening"),
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-        let contributors = try await database.read { db in
-            try PerformanceDetail.contributorsQuery(
-                performanceID: performanceLocalID("opening"),
-                eventID: eventID
-            )
-            .fetchAll(db)
-        }
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-
-        #expect(performance.title == "Opening")
-        #expect(performance.description == "First set")
-        #expect(performance.recordings.map(\.url) == [recordingURL])
-        #expect(stages.first { $0.id.stageID == performance.stageID }?.name == "Meadow")
-        #expect(contributors.map(\.name) == ["Amy", "Zara"])
-    }
-
-    @Test
-    func performanceDetailDisplaysPrimaryContributorsAtStageAndSupportBelow() async throws {
-        let database = try makePreparedDatabase()
-        let ambientEventID = eventID("ambient-event")
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "stylust",
-                name: "STYLUST"
-            )
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "oodra",
-                name: "Oodra Movement"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "stylust-set",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "STYLUST"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "stylust-set",
-                contributorID: "oodra",
-                billing: .supporting,
-                role: "dancer",
-                sortIndex: 0
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "stylust-set",
-                contributorID: "stylust",
-                billing: .primary,
-                role: "dj",
-                sortIndex: 1
-            )
-        }
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = ambientEventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            PerformanceDetail.State(
-                performanceID: performanceLocalID("stylust-set"),
-                eventID: eventID
-            )
-        }
-
-        expectNoDifference(state.headlineContributors.map(\.name), ["STYLUST"])
-        expectNoDifference(
-            state.displayedContributors.map(\.name),
-            ["STYLUST", "Oodra Movement"]
-        )
-        expectNoDifference(
-            state.displayedContributorCredits.compactMap(\.roleTitle),
-            ["DJ", "Dancer"]
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = ambientEventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            TestStore(
-                initialState: PerformanceDetail.State(
-                    performanceID: performanceLocalID("stylust-set"),
-                    eventID: eventID
-                )
-            ) {
-                PerformanceDetail()
-            }
-        }
-        store.send(.contributorButtonTapped(contributorLocalID("stylust")))
-        #expect(
-            store.state.destination?.contributorDetail?.contributorID
-                == contributorLocalID("stylust")
-        )
-        expectNoDifference(store.state.destination?.contributorDetail?.eventID, eventID)
-    }
-
-    @Test
-    func contributorDetailPerformanceTapPresentsPerformanceDetail() async throws {
-        let database = try makePreparedDatabase()
-        let ambientEventID = eventID("ambient-event")
-        let eventID = eventID("event-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let contributorID = contributorLocalID("amy")
-        let performanceID = performanceLocalID("opening")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                stageID: "meadow",
-                scheduleID: "friday",
-                startTime: try #require(date.at(hour: 18, in: timeZone)),
-                endTime: try #require(date.at(hour: 19, in: timeZone)),
-                title: "Opening"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "opening",
-                contributorID: "amy"
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = ambientEventID
-            $0.defaultEventTimeZone = SharedReader(value: timeZone)
-        } operation: {
-            TestStore(
-                initialState: ContributorDetail.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                ContributorDetail()
-            }
-        }
-
-        store.send(.performanceButtonTapped(performanceID))
-
-        #expect(store.state.destination?.performanceDetail?.performanceID == performanceID)
-        expectNoDifference(store.state.destination?.performanceDetail?.eventID, eventID)
-    }
-
-    @Test
-    func contributorDetailFallsBackToFestivalHeroAndLogo() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("festival")
-        let contributorID = contributorLocalID("artist")
-        let festivalHeroURL = try #require(URL(string: "https://example.com/festival-hero.jpg"))
-        let festivalLogoURL = try #require(URL(string: "https://example.com/festival-logo.png"))
-        let festivalHero = OMERecord.ImageAsset(
-            source: .url(festivalHeroURL),
-            role: .hero,
-            renderKind: .fullImage,
-            materializationPolicy: .prefetchOnOpen
-        )
-        let festivalLogo = OMERecord.ImageAsset(
-            source: .url(festivalLogoURL),
-            role: .icon,
-            renderKind: .transparent,
-            materializationPolicy: .prefetchOnOpen
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try OMERecord.Event.insert {
-                OMERecord.Event.Draft(
-                    id: eventID,
-                    name: "Festival",
-                    timeZone: .current,
-                    imageURL: festivalHeroURL,
-                    iconImageURL: festivalLogoURL
-                )
-            }
-            .execute(db)
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "artist",
-                name: "Artist"
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: ContributorDetail.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                ContributorDetail()
-            }
-        }
-
-        let eventCacheContext = LocalImageCacheContext(eventID: eventID)
-        expectNoDifference(
-            store.state.heroImageSources,
-            [
-                .primaryImage(
-                    DisplayImageAsset(
-                        asset: festivalHero,
-                        cacheContext: eventCacheContext
-                    )
-                ),
-                .logo(
-                    DisplayImageAsset(
-                        asset: festivalLogo,
-                        cacheContext: eventCacheContext
-                    )
-                ),
-            ]
-        )
-    }
-
-    @Test
-    func editContributorSavesChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
-            state.hasLoadedDraft = true
-            state.form.value.name = " New Name "
-            state.form.value.bio = " Updated bio "
-            state.imageURL = "https://example.com/image.jpg"
-            state.logoURL = " "
-            var link = EditableContributorLink()
-            link.url = "https://example.com"
-            link.platformRawValue = ExternalPlatform.website.rawValue
-            state.form.value.links = [link]
-
-            return TestStore(initialState: state) {
-                EditContributor()
-            }
-        }
-
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented == false)
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(contributor.name == "New Name")
-        #expect(contributor.bio == "Updated bio")
-        #expect(contributor.imageURL?.absoluteString == "https://example.com/image.jpg")
-        #expect(contributor.logoURL == nil)
-        #expect(contributor.links?.map(\.url.absoluteString) == ["https://example.com"])
-        #expect(contributor.links?.map(\.platform) == [.website])
-    }
-
-    @Test
-    func editContributorImagePickerImportAddsImageThroughParentDestination() async throws {
-        let eventID = eventID("event-1")
-        let image = ImportImages.Configuration.contributorPhoto.importedImage(
-            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c001")!,
-            title: "Contributor Photo",
-            sourceName: "contributor-photo.png",
-            sourceURL: URL(fileURLWithPath: "/tmp/contributor-photo.png"),
-            mimeType: "image/png",
-            data: Data("contributor-photo".utf8)
-        )
-
-        @Bindable var store = Store(initialState: EditContributor.State(eventID: eventID)) {
-            EditContributor()
-        }
-
-        store.send(.photoImagePicker(.addButtonTapped))
-        let importStore = try #require(
-            $store.scope(\.destination).photoImportImages.wrappedValue
-        )
-        importStore.send(.imagesImported([image]))
-        await importStore.send(.saveButtonTapped)?.value
-
-        await waitUntil { store.destination == nil }
-        expectNoDifference(store.photoImagePicker.images.map(\.importedImage), [image])
-        #expect(store.logoImagePicker.images.isEmpty)
-    }
-
-    @Test
-    func editContributorPhotoDetailsSaveThroughParentDestination() async throws {
-        let eventID = eventID("event-1")
-        let imageID = UUID(uuidString: "00000000-0000-0000-0000-00000000c004")!
-        let imageURL = try #require(URL(string: "https://example.com/contributor-photo.jpg"))
-        let image = ImageAssetPicker.ImageValue(
-            id: imageID,
-            asset: OMERecord.ImageAsset(
-                source: .url(imageURL),
-                role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
-            )
-        )
-        var state = EditContributor.State(eventID: eventID)
-        state.photoImagePicker.images = [image]
-
-        @Bindable var store = Store(initialState: state) {
-            EditContributor()
-        }
-
-        store.send(.photoImagePicker(.imageInfoButtonTapped(imageID)))
-        @Bindable var imageInfoStore = try #require(
-            $store.scope(\.destination).photoImageInfo.wrappedValue
-        )
-        $imageInfoStore.asset.appearance.wrappedValue = .dark
-        await imageInfoStore.send(.saveButtonTapped)?.value
-
-        await waitUntil { store.destination == nil }
-        expectNoDifference(store.photoImagePicker.images.map(\.asset.appearance), [.dark])
-        #expect(store.logoImagePicker.images.isEmpty)
-    }
-
-    @Test
-    func `image picker shows remote URL and local filename`() throws {
-        let remoteURL = try #require(
-            URL(
-                string: "https://wickedwoods.festivalpro.com/?getPublicFile&ENCSTR=qgHiinSYLIbtusbFnwpO"
-            )
-        )
-        let remoteImage = ImageAssetPicker.ImageValue(
-            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c002"),
-            asset: OMERecord.ImageAsset(
-                source: .url(remoteURL),
-                role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
-            )
-        )
-
-        // The contributor's remote endpoint keeps its complete URL, including the query.
-        expectNoDifference(remoteImage.displaySource, remoteURL.absoluteString)
-
-        let localImage = ImageAssetPicker.ImageValue(
-            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c003"),
-            asset: OMERecord.ImageAsset(
-                source: .url(URL(fileURLWithPath: "/tmp/contributor-photo.png")),
-                role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
-            )
-        )
-
-        // A local asset stays concise because its filename identifies it.
-        expectNoDifference(localImage.displaySource, "contributor-photo.png")
-    }
-
-    @Test
-    func editContributorSaveSurfacesUnderlyingError() async throws {
-        let database = try defaultDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
-            state.hasLoadedDraft = true
-            state.form.value.name = "New Name"
-
-            return TestStore(initialState: state) {
-                EditContributor()
-            }
-        }
-
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let failure = await store.receive(
-            \.saveFailed,
-            TestStoreMatcher<String>(matching: { $0.hasPrefix("Unable to save contributor: ") }),
-            timeout: .seconds(1)
-        )
-        await failure?.value
-        await save?.value
-        await submission?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.isPresented)
-        #expect(store.state.errorMessage?.hasPrefix("Unable to save contributor: ") == true)
-        #expect(store.state.errorMessage != "Unable to save contributor.")
-    }
-
-    @Test
-    func editContributorBindingWritesThroughToForm() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        @Bindable var store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        #expect(store.hasLoadedDraft)
-        #expect(store.form.value.name == "Old Name")
-
-        // This is the binding used by the editable name field.
-        $store.form.value.name.wrappedValue = "New Name"
-        #expect(store.form.value.name == "New Name")
-    }
-
-    @Test
-    func editContributorBindingChangeSavesToDatabase() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        #expect(store.state.hasLoadedDraft)
-        #expect(store.state.form.value.name == "Old Name")
-
-        // The edited draft is submitted through the save action.
-        store.modify { $0.form.value.name = "New Name" }
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(contributor.name == "New Name")
-    }
-
-    @Test
-    func contributorDetailEditButtonEmitsContributorEditorRequest() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(
-                initialState: ContributorDetail.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                ContributorDetail()
-            }
-        }
-
-        let editTask = store.send(.editButtonTapped)
-        await store.receive(
-            key: EventEditingRequested.self,
-            value: .equals(
-                .editContributor(
-                    eventID: eventID,
-                    contributorID: contributorID
-                )
-            ),
-            timeout: .seconds(1)
-        )
-        await editTask?.value
-    }
-
-    @Test
-    func editContributorLoadsBracketedContributorOnAppear() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("wicked-woods-ome-2025")
-        let contributorID = contributorLocalID("[IVY]")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Wicked Woods")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "[IVY]", name: "IVY")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(
-                initialState: EditContributor.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.onAppear)?.value
-
-        #expect(store.state.hasLoadedDraft)
-        #expect(store.state.form.value.name == "IVY")
-        #expect(store.state.mode.contributorID == contributorID)
-    }
-
-    @Test
-    func editContributorAddLinkButtonUpdatesForm() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Artist One")
-        }
-
-        @Bindable var store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(
-                initialState: EditContributor.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.onAppear)?.value
-        #expect(store.form.value.links.isEmpty)
-
-        await store.send(.addLinkButtonTapped)?.value
-
-        #expect(store.form.value.links.count == 1)
-    }
-
-    @Test
-    func eventViewerContactInfoEditorSavesMultipleReportingLinksToDefaultDatabase() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-        }
-
-        var state = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            EventViewer.State(eventID: eventID)
-        }
-        state.handleEditingIntent(.editContactInfo(eventID))
-
-        @Bindable var store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(initialState: state) {
-                EventViewer()
-            }
-        }
-
-        let destinationStore = try #require(store.scope(\.destination))
-        let contactInfoStore: StoreOf<EditContactInfo>
-        switch EventViewer.Destination.switch(store: destinationStore) {
-        case let .contactInfoForm(store):
-            contactInfoStore = store
-        default:
-            Issue.record("Expected contact info form destination")
-            return
-        }
-
-        await waitUntil {
-            contactInfoStore.hasLoadedDraft
-        }
-        @Bindable var editableContactInfoStore = contactInfoStore
-        await editableContactInfoStore.send(.addReportingLinkButtonTapped)?.value
-        await editableContactInfoStore.send(.addReportingLinkButtonTapped)?.value
-        $editableContactInfoStore.reportingLinks[0].name.wrappedValue = "Report an Incident"
-        $editableContactInfoStore.reportingLinks[0].urlString.wrappedValue = "https://example.org/report"
-        $editableContactInfoStore.reportingLinks[0].description.wrappedValue = "Event support form."
-        $editableContactInfoStore.reportingLinks[1].name.wrappedValue = "Accessibility Help"
-        $editableContactInfoStore.reportingLinks[1].urlString.wrappedValue = "https://example.org/accessibility"
-
-        await editableContactInfoStore.send(.saveButtonTapped)?.value
-
-        let expectedReportingLinks = [
-            OMERecord.Event.ReportingLink(
-                name: "Report an Incident",
-                url: try #require(URL(string: "https://example.org/report")),
-                description: "Event support form."
-            ),
-            OMERecord.Event.ReportingLink(
-                name: "Accessibility Help",
-                url: try #require(URL(string: "https://example.org/accessibility")),
-                description: nil
-            ),
-        ]
-        let savedReportingLinks = try await database.read { db in
-            try #require(
-                try OMERecord.Event
-                    .where { $0.id.eq(eventID) }
-                    .fetchOne(db)?
-                    .reportingLinks
-            )
-        }
-
-        expectNoDifference(savedReportingLinks, expectedReportingLinks)
-    }
-
-    @Test
-    func editContributorLoadsExistingContributorOnAppear() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Artist One")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            TestStore(
-                initialState: EditContributor.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.onAppear)?.value
-
-        #expect(store.state.hasLoadedDraft)
-        #expect(store.state.form.value.name == "Artist One")
-        #expect(store.state.mode.contributorID == contributorID)
-    }
-
-
-    @Test
-    func contributorDetailObservesSavedContributorChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        @Bindable var detailStore = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
-                ContributorDetail()
-            }
-        }
-
-        let editStore = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        #expect(editStore.state.hasLoadedDraft)
-        #expect(editStore.state.form.value.name == "Old Name")
-        editStore.modify { $0.form.value.name = "New Name" }
-        let submittedValue = editStore.state.form.value
-        let submission = editStore.send(.saveButtonTapped)
-        let save = await editStore.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(contributor.name == "New Name")
-        await waitForObservation {
-            detailStore.contributor?.name == "New Name"
-        }
-        #expect(detailStore.contributor?.name == "New Name")
-    }
-
-    @Test
-    func spawnedContributorDetailObservesSavedChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("artist-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
-        }
-
-        @Bindable var contributorsStore = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(initialState: ContributorsViewer.State(eventID: eventID)) {
-                ContributorsViewer()
-            }
-        }
-
-        contributorsStore.send(.contributorButtonTapped(contributorID))
-        @Bindable var detailStore = try #require(
-            $contributorsStore
-                .scope(\.destination)
-                .contributorDetail
-                .wrappedValue
-        )
-
-        let viewObservationRecorder = ObservationRecorder<String>()
-        withObservationTracking {
-            _ = ContributorDetailView(store: detailStore).body
-        } onChange: {
-            Task {
-                await viewObservationRecorder.record("invalidated")
-            }
-        }
-
-        let editStore = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-        editStore.modify { $0.form.value.name = "New Name" }
-        let submittedValue = editStore.state.form.value
-        let submission = editStore.send(.saveButtonTapped)
-        let save = await editStore.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-        for _ in 0..<100 {
-            if await viewObservationRecorder.values == ["invalidated"] {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-
-        #expect(await viewObservationRecorder.values == ["invalidated"])
-        await waitUntil { detailStore.contributor?.name == "New Name" }
-        #expect(detailStore.contributor?.name == "New Name")
-    }
-
-    @Test
-    func contributorDetailDerivesActorFromMatchingPerformanceContributors() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Alice"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
-                ContributorDetail()
-            }
-        }
-
-        #expect(store.contributorActor == actor)
-        #expect(store.actorProfileLoadRequest?.actor == actor)
-        #expect(!store.usesActorProfileAsPrimary)
-    }
-
-    @Test
-    func editContributorDoesNotUsePerformanceContributorActorFallback() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Alice"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        #expect(store.hasLoadedDraft)
-        #expect(store.contributorDID == nil)
-        #expect(store.contributorActor == nil)
-    }
-
-    @Test
-    func contributorProfilePrefersContributorDIDOverPerformanceContributorActor() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorDID = try #require(DID("did:plc:alice123"))
-        let contributorActor = try #require(OMERecord.Contributor.Actor(contributorDID.description))
-        let stalePerformanceActor = try #require(OMERecord.Contributor.Actor("bob.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let contributorProfile = BlueskyActorProfile(
-            did: contributorDID.description,
-            handle: "alice.bsky.social",
-            displayName: "Alice Profile",
-            description: "Alice profile bio"
-        )
-        let staleProfile = BlueskyActorProfile(
-            did: "did:plc:bob456",
-            handle: "bob.bsky.social",
-            displayName: "Bob Profile",
-            description: "Bob profile bio"
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Local Alice",
-                did: contributorDID
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: stalePerformanceActor
-            )
-            try BlueskyActorProfile.insert { contributorProfile }
-                .execute(db)
-            try BlueskyActorProfile.insert { staleProfile }
-                .execute(db)
-            try BlueskyActorProfileCacheEntry.insert {
-                BlueskyActorProfileCacheEntry(
-                    actor: contributorActor.description,
-                    did: contributorProfile.did,
-                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                )
-            }
-            .execute(db)
-            try BlueskyActorProfileCacheEntry.insert {
-                BlueskyActorProfileCacheEntry(
-                    actor: stalePerformanceActor.description,
-                    did: staleProfile.did,
-                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                )
-            }
-            .execute(db)
-        }
-
-        let profile = try await database.read { db in
-            try #require(
-                try ContributorProfile
-                    .one(
-                        contributorID: contributorID,
-                        eventID: eventID,
-                        hydration: .bskyActorProfile
-                    )
-                    .fetchOne(db)
-            )
-        }
-
-        #expect(profile.contributorActor == contributorActor)
-        #expect(profile.handle == "alice.bsky.social")
-        #expect(profile.name == "Local Alice")
-        #expect(profile.bio == nil)
-        #expect(profile.actorProfileLoadRequest?.actor == contributorActor)
-    }
-
-    @Test
-    func editContributorInlineProfileSearchUsesTypeaheadUntilSubmitted() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("speaker-1")
-        let exactLookupInputs = ObservationRecorder<String>()
-        let typeaheadQueries = ObservationRecorder<String>()
-        let exactIdentity = ActorIdentity(
-            did: try #require(DID("did:plc:alice123")),
-            handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
-            displayName: "Alice Exact",
-            source: .canonicalResolution
-        )
-        let typeaheadIdentity = ActorIdentity(
-            did: try #require(DID("did:plc:alice456")),
-            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
-            displayName: "Alice Typeahead",
-            avatar: try #require(URL(string: "https://example.com/alice.jpg")),
-            source: .typeahead
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Alice"
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.actorTypeaheadSearch.search = { query in
-                await typeaheadQueries.record(query.normalizedText)
-                return [typeaheadIdentity]
-            }
-            $0.actorIdentityLookup.resolve = { input in
-                await exactLookupInputs.record(input)
-                return exactIdentity
-            }
-        } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.actorSearchQueryChanged(" alice "))?.value
-
-        expectNoDifference(
-            store.actorSearchSections.map(\.title),
-            ["Profiles"]
-        )
-        expectNoDifference(
-            store.actorSearchSections.flatMap(\.results),
-            [typeaheadIdentity]
-        )
-        #expect(await typeaheadQueries.values == ["alice"])
-        #expect(await exactLookupInputs.values == [])
-        #expect(store.actorSearchIsLoading == false)
-        #expect(store.actorSearchFailures.isEmpty)
-
-        await store.send(.actorSearchSubmitted)?.value
-
-        expectNoDifference(
-            store.actorSearchSections.map(\.title),
-            ["Exact match"]
-        )
-        expectNoDifference(
-            store.actorSearchSections.flatMap(\.results),
-            [exactIdentity]
-        )
-        #expect(await typeaheadQueries.values == ["alice"])
-        #expect(await exactLookupInputs.values == ["alice"])
-        #expect(store.actorSearchIsLoading == false)
-        #expect(store.actorSearchFailures.isEmpty)
-    }
-
-    @Test
-    func editContributorActorPickerSavesSelectedDidToContributor() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let contributorID = contributorLocalID("speaker-1")
-        let previousActor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let selectedIdentity = ActorIdentity(
-            did: try #require(DID("did:plc:alice123")),
-            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
-            displayName: "Alice",
-            source: .canonicalResolution
-        )
-        let selectedActor = try #require(OMERecord.Contributor.Actor(selectedIdentity.did.description))
-        let date = try #require(LocalDate("2026-08-07"))
-        let requestRecorder = BlueskyProfileRequestRecorder()
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Alice"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk One"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-2",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 7_200),
-                endTime: Date(timeIntervalSince1970: 10_800),
-                title: "Talk Two"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: previousActor
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-2",
-                contributorID: "speaker-1",
-                contributorActor: previousActor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { requestedActor in
-                    await requestRecorder.record(requestedActor)
-                    return BlueskyActorProfile(
-                        did: selectedActor.description,
-                        handle: "alice.bsky.social"
-                    )
-                },
-                refreshProfileIfNeeded: { requestedActor, _, _ in
-                    await requestRecorder.record(requestedActor)
-                    return BlueskyActorProfile(
-                        did: selectedActor.description,
-                        handle: "alice.bsky.social"
-                    )
-                }
-            )
-        } operation: {
-            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
-            state.hasLoadedDraft = true
-            state.form.value.name = "Alice"
-            return TestStore(initialState: state) {
-                EditContributor()
-            }
-        }
-
-        let profileLookup = store.send(.actorIdentityTapped(selectedIdentity))
-        let profileResponse = await store.receive(
-            \.actorProfileResponse,
-            TestStoreMatcher<BlueskyActorProfile?>(matching: { $0?.did == selectedActor.description }),
-            timeout: .seconds(1)
-        )
-        await profileResponse?.value
-        await profileLookup?.value
-
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-        let actors = try await database.read { db in
-            try OMERecord.Performance.Contributors.fetchAll(db)
-                .compactMap(\.contributorActor?.description)
-        }
-
-        #expect(contributor.did == selectedIdentity.did)
-        expectNoDifference(actors, [])
-
-        #expect(await requestRecorder.actors == [selectedActor.description])
-        #expect(store.state.contributorActor == selectedActor)
-        #expect(store.state.actorSearchQuery == "")
-        #expect(store.state.actorSearchSections.isEmpty)
-        #expect(store.state.isSavingActor == false)
-        #expect(store.state.actorSearchErrorMessage == nil)
-    }
-
-    @Test
-    func createContributorActorPickerPrefillsBlankFieldsAndSavesDID() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let selectedIdentity = ActorIdentity(
-            did: try #require(DID("did:plc:alice123")),
-            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
-            displayName: "Alice Typeahead",
-            avatar: try #require(URL(string: "https://example.com/alice-avatar.jpg")),
-            source: .typeahead
-        )
-        let profile = BlueskyActorProfile(
-            did: selectedIdentity.did.description,
-            handle: "alice.bsky.social",
-            displayName: "Alice Profile",
-            description: "ATProto builder",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { _ in profile },
-                refreshProfileIfNeeded: { _, _, _ in profile }
-            )
-        } operation: {
-            TestStore(initialState: EditContributor.State(eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        let profileLookup = store.send(.actorIdentityTapped(selectedIdentity))
-        let profileResponse = await store.receive(
-            \.actorProfileResponse,
-            .equals(Optional(profile)),
-            timeout: .seconds(1)
-        )
-        await profileResponse?.value
-        await profileLookup?.value
-
-        #expect(store.state.contributorDID == selectedIdentity.did)
-        #expect(store.state.form.value.name == "Alice Typeahead")
-        #expect(store.state.form.value.bio == "ATProto builder")
-        #expect(store.state.imageURL == "https://example.com/alice-avatar.jpg")
-
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorLocalID("alice-typeahead"),
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(contributor.did == selectedIdentity.did)
-        #expect(contributor.name == "Alice Typeahead")
-        #expect(contributor.bio == "ATProto builder")
-        #expect(contributor.images?.first?.url?.absoluteString == "https://example.com/alice-avatar.jpg")
-    }
-
-    @Test
-    func createContributorActorPickerDoesNotOverwriteEnteredFields() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let manualPhotoURL = try #require(URL(string: "https://example.com/manual-photo.jpg"))
-        let selectedIdentity = ActorIdentity(
-            did: try #require(DID("did:plc:alice123")),
-            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
-            displayName: "Alice Typeahead",
-            avatar: try #require(URL(string: "https://example.com/alice-avatar.jpg")),
-            source: .typeahead
-        )
-        let profile = BlueskyActorProfile(
-            did: selectedIdentity.did.description,
-            handle: "alice.bsky.social",
-            displayName: "Alice Profile",
-            description: "ATProto builder",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
-        )
-
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { _ in profile },
-                refreshProfileIfNeeded: { _, _, _ in profile }
-            )
-        } operation: {
-            var state = EditContributor.State(eventID: eventID)
-            state.form.value.name = "Manual Artist"
-            state.form.value.bio = "Manual bio"
-            state.imageURL = manualPhotoURL.absoluteString
-            return Store(initialState: state) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.actorIdentityTapped(selectedIdentity))?.value
-
-        #expect(store.contributorDID == selectedIdentity.did)
-        #expect(store.form.value.name == "Manual Artist")
-        #expect(store.form.value.bio == "Manual bio")
-        #expect(store.imageURL == manualPhotoURL.absoluteString)
-    }
-
-    @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
-    func generatedActorContributorDisplayUsesBlueskyProfileData(actorString: String) async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor(actorString))
-        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
-        let date = try #require(LocalDate("2026-08-07"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Alice Example",
-            description: "ATProto builder",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
-            banner: URL(string: "https://cdn.example/alice-banner.jpg")
-        )
-        let requestRecorder = BlueskyProfileRequestRecorder()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "schedule-actor-alice.bsky.social",
-                name: "alice.bsky.social"
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "schedule-actor-alice.bsky.social",
-                contributorActor: actor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { requestedActor in
-                    await requestRecorder.record(requestedActor)
-                    return profile
-                },
-                refreshProfileIfNeeded: { requestedActor, _, _ in
-                    await requestRecorder.record(requestedActor)
-                    try await database.write { db in
-                        try BlueskyActorProfile.insert { profile }
-                            .execute(db)
-                        try BlueskyActorProfileCacheEntry.insert {
-                            BlueskyActorProfileCacheEntry(
-                                actor: requestedActor,
-                                did: profile.did,
-                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                            )
-                        }
-                        .execute(db)
-                    }
-                    return profile
-                }
-            )
-        } operation: {
-            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
-                ContributorDetail()
-            }
-        }
-
-        try await waitForBlueskyProfile(in: store)
-
-        #expect(await requestRecorder.actors == [actor.description])
-        #expect(store.contributorActor == actor)
-        #expect(store.usesActorProfileAsPrimary)
-        let contributorProfile = try #require(store.profile)
-        #expect(contributorProfile.name == "Alice Example")
-        #expect(contributorProfile.bio == "ATProto builder")
-        #expect(contributorProfile.handle == "alice.bsky.social")
-        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
-        #expect(contributorProfile.artworkCacheContext == nil)
-    }
-
-    @Test
-    func explicitContributorDisplayDoesNotGetOverwrittenByBlueskyProfileData() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
-        let contributorID = contributorLocalID("speaker-1")
-        let date = try #require(LocalDate("2026-08-07"))
-        let explicitImageURL = try #require(URL(string: "https://example.com/explicit.jpg"))
-        let profile = BlueskyActorProfile(
-            did: "did:plc:alice123",
-            handle: "alice.bsky.social",
-            displayName: "Alice Example",
-            description: "Bluesky bio",
-            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
-            banner: URL(string: "https://cdn.example/alice-banner.jpg")
-        )
-        let requestRecorder = BlueskyProfileRequestRecorder()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-            try Self.insertContributor(
-                db,
-                eventID: eventID,
-                contributorID: "speaker-1",
-                name: "Explicit Alice",
-                bio: "OME bio",
-                imageURL: explicitImageURL
-            )
-            try Self.insertPerformance(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                stageID: "meadow",
-                scheduleID: "day-1",
-                startTime: Date(timeIntervalSince1970: 0),
-                endTime: Date(timeIntervalSince1970: 3_600),
-                title: "Talk"
-            )
-            try Self.insertPerformanceContributor(
-                db,
-                eventID: eventID,
-                performanceID: "talk-1",
-                contributorID: "speaker-1",
-                contributorActor: actor
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
-                cachedProfile: { _ in nil },
-                refreshProfile: { requestedActor in
-                    await requestRecorder.record(requestedActor)
-                    return profile
-                },
-                refreshProfileIfNeeded: { requestedActor, _, _ in
-                    await requestRecorder.record(requestedActor)
-                    try await database.write { db in
-                        try BlueskyActorProfile.insert { profile }
-                            .execute(db)
-                        try BlueskyActorProfileCacheEntry.insert {
-                            BlueskyActorProfileCacheEntry(
-                                actor: requestedActor,
-                                did: profile.did,
-                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
-                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
-                            )
-                        }
-                        .execute(db)
-                    }
-                    return profile
-                }
-            )
-        } operation: {
-            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
-                ContributorDetail()
-            }
-        }
-        try await waitForBlueskyProfile(in: store)
-
-        #expect(await requestRecorder.actors == [actor.description])
-        #expect(store.contributorActor == actor)
-        #expect(!store.usesActorProfileAsPrimary)
-        let contributorProfile = try #require(store.profile)
-        #expect(contributorProfile.name == "Explicit Alice")
-        #expect(contributorProfile.handle == "alice.bsky.social")
-        #expect(contributorProfile.bio == "OME bio")
-        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
-        #expect(contributorProfile.artworkCacheContext == LocalImageCacheContext(contributorID: contributorProfile.contributor.id))
-    }
-
-    @Test
-    func createContributorSavesNewContributor() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditContributor.State(eventID: eventID)
-            state.form.value.name = " New Contributor "
-            state.form.value.bio = " Bio "
-
-            return TestStore(initialState: state) {
-                EditContributor()
-            }
-        }
-
-        let submittedValue = store.state.form.value
-        let submission = store.send(.saveButtonTapped)
-        let save = await store.receive(
-            \.formSubmitted,
-            .equals(submittedValue),
-            timeout: .seconds(1)
-        )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
-        await save?.value
-        await submission?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented == false)
-
-        let contributorID = contributorLocalID("new-contributor")
-        let contributor = try await database.read { db in
-            try #require(
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(contributor.name == "New Contributor")
-        #expect(contributor.bio == "Bio")
-    }
-
-    @Test
-    func createContributorRequiresValidComposableForm() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: EditContributor.State(eventID: eventID)) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.saveButtonTapped)?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented)
-        #expect(
-            store.state.form.validation[AnyHashable(\EditContributor.FormValue.name)]?.errors.map(\.message)
-                == ["Enter a name."]
-        )
-
-        let contributors = try await database.read { db in
-            try OMERecord.Contributor.fetchAll(db)
-        }
-        #expect(contributors.isEmpty)
-    }
-
-    @Test
-    func stageDetailEditButtonEmitsEventStageEditorRequest() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let stageID = stageLocalID("meadow")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: StageDetail.State(stageID: stageID, eventID: eventID)) {
-                StageDetail()
-            }
-        }
-
-        let editTask = store.send(.editButtonTapped)
-        await store.receive(
-            key: EventEditingRequested.self,
-            value: .equals(.editStage(eventID: eventID, stageID: stageID)),
-            timeout: .seconds(1)
-        )
-        await editTask?.value
-    }
-
-    @Test
-    func editStageSavesEventSnapshotChanges() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let stageID = stageLocalID("meadow")
-        let lineupID = contributorLocalID("artist-1")
-        let posterURL = try #require(URL(string: "https://example.com/poster.png"))
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(
-                db,
-                eventID: eventID,
-                stageID: "meadow",
-                name: "Old Meadow",
-                posterImageURL: posterURL,
-                lineup: [lineupID]
-            )
-        }
-        let existingStage = try await database.read { db in
-            try #require(
-                try StageDetail.stageQuery(
-                    stageID: stageID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditStage.State(stageID: stageID, eventID: eventID)
-            state.hasLoadedDraft = true
-            state.draft = OMERecord.Stage.Draft(
-                id: existingStage.id,
-                name: " New Meadow ",
-                color: existingStage.color,
-                category: existingStage.category,
-                sortIndex: existingStage.sortIndex,
-                images: existingStage.images,
-                systemIconName: existingStage.systemIconName,
-                iconShortCode: existingStage.iconShortCode,
-                lineup: existingStage.lineup
-            )
-            state.category = " workshop "
-            state.sortIndex = " 7 "
-            state.colorHex = " #AABBCC "
-            state.systemIconName = "sparkles"
-            state.iconShortCode = " MD "
-            state.logoURL = "https://example.com/logo.png"
-            state.heroImageURL = "https://example.com/hero.png"
-
-            return TestStore(initialState: state) {
-                EditStage()
-            }
-        }
-
-        await store.send(.saveButtonTapped)?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented == false)
-
-        let stage = try await database.read { db in
-            try #require(
-                try StageDetail.stageQuery(
-                    stageID: stageID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(stage.name == "New Meadow")
-        #expect(stage.category == OMERecord.Stage.Category("workshop"))
-        #expect(stage.sortIndex == 7)
-        #expect(stage.color.rawValue == 0xAABBCC)
-        #expect(stage.systemIconName == "sparkles")
-        #expect(stage.iconShortCode == "MD")
-        #expect(stage.iconImageURL?.absoluteString == "https://example.com/logo.png")
-        #expect(stage.imageURL?.absoluteString == "https://example.com/hero.png")
-        #expect(stage.posterImageURL?.absoluteString == "https://example.com/poster.png")
-        #expect(stage.lineup == [lineupID])
-    }
-
-    @Test
-    func stagesViewerAddButtonEmitsCreateStageEditorRequest() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
-                StagesViewer()
-            }
-        }
-
-        let addTask = store.send(.addButtonTapped)
-        await store.receive(
-            key: EventEditingRequested.self,
-            value: .equals(.createStage(eventID)),
-            timeout: .seconds(1)
-        )
-        await addTask?.value
-    }
-
-    @Test
-    func communicationsViewerChannelQueryFiltersAndSortsEventChannels() async throws {
-        let database = try makePreparedDatabase()
-        let selectedEventID = eventID("event-1")
-        let otherEventID = eventID("event-2")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
-            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertChannel(
-                db,
-                eventID: selectedEventID,
-                channelID: "announcements",
-                name: "Announcements",
-                sortIndex: 2
-            )
-            try Self.insertChannel(
-                db,
-                eventID: selectedEventID,
-                channelID: "general",
-                name: "General",
-                sortIndex: 1
-            )
-            try Self.insertChannel(
-                db,
-                eventID: selectedEventID,
-                channelID: "late-news",
-                name: "Late News"
-            )
-            try Self.insertChannel(
-                db,
-                eventID: otherEventID,
-                channelID: "other",
-                name: "Other",
-                sortIndex: 0
-            )
-        }
-
-        let channels = try await database.read { db in
-            try CommunicationsViewer.channelsQuery(eventID: selectedEventID).fetchAll(db)
-        }
-
-        expectNoDifference(
-            channels.map(\.id.channelID),
-            [
-                channelLocalID("general"),
-                channelLocalID("announcements"),
-                channelLocalID("late-news"),
-            ]
-        )
-    }
-
-    @Test
-    func channelFormAddsSourceBackedChannelWithRequiredNotifications() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general-updates",
-                name: "General Updates",
-                sortIndex: 4
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: ChannelForm.State(
-                    eventID: eventID,
-                    formValue: ChannelForm.FormValue(
-                        name: "  General Updates  ",
-                        description: "  Important information for everyone.  ",
-                        defaultNotificationState: .unsubscribed,
-                        notificationsRequired: true
-                    )
-                )
-            ) {
-                ChannelForm()
-            }
-        }
-
-        await store.send(
-            ChannelForm.Action.formSubmitted(
-                ChannelForm.FormValue(
-                    name: "  General Updates  ",
-                    description: "  Important information for everyone.  ",
-                    defaultNotificationState: .unsubscribed,
-                    notificationsRequired: true
-                )
-            )
-        )?.value
-
-        let channel = try await database.read { db in
-            try #require(
-                try CommunicationsViewer
-                    .channelsQuery(eventID: eventID)
-                    .fetchAll(db)
-                    .first(where: { $0.id.channelID == channelLocalID("general-updates-2") })
-            )
-        }
-
-        expectNoDifference(channel.name, "General Updates")
-        expectNoDifference(channel.description, "Important information for everyone.")
-        expectNoDifference(channel.sortIndex, 5)
-        expectNoDifference(channel.defaultNotificationState, .subscribed)
-        #expect(channel.notificationsRequired)
-        #expect(store.isPresented == false)
-    }
-
-    @Test
-    func channelFormEditsTheExistingChannelWithoutChangingItsIDOrOrder() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                description: "Original updates.",
-                sortIndex: 4,
-                defaultNotificationState: .unsubscribed
-            )
-        }
-
-        let channel = try await database.read { db in
-            try #require(
-                try CommunicationsViewer
-                    .channelsQuery(eventID: eventID)
-                    .fetchAll(db)
-                    .first
-            )
-        }
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: ChannelForm.State(channel: channel)) {
-                ChannelForm()
-            }
-        }
-
-        await store.send(
-            .formSubmitted(
-                ChannelForm.FormValue(
-                    name: "  Camp Updates  ",
-                    description: "  Messages for campers.  ",
-                    defaultNotificationState: .subscribed,
-                    notificationsRequired: false
-                )
-            )
-        )?.value
-
-        let savedChannel = try await database.read { db in
-            try #require(
-                try CommunicationsViewer
-                    .channelsQuery(eventID: eventID)
-                    .fetchAll(db)
-                    .first
-            )
-        }
-
-        expectNoDifference(savedChannel.id.channelID, channelID)
-        expectNoDifference(savedChannel.name, "Camp Updates")
-        expectNoDifference(savedChannel.description, "Messages for campers.")
-        expectNoDifference(savedChannel.sortIndex, 4)
-        expectNoDifference(savedChannel.defaultNotificationState, .subscribed)
-        #expect(!savedChannel.notificationsRequired)
-        #expect(store.isPresented == false)
-    }
-
-    @Test
-    func communicationsViewerChannelActionsEditAndDeleteTheSelectedChannel() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-        let channel = try await database.read { db in
-            try #require(
-                try CommunicationsViewer
-                    .channelsQuery(eventID: eventID)
-                    .fetchAll(db)
-                    .first
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        store.send(.editChannelButtonTapped(channel))
-
-        #expect(store.state.destination?.channelForm?.channelID == channelID)
-
-        store.send(.deleteChannelButtonTapped(channelID))
-
-        #expect(store.state.destination?.deleteChannelConfirmation?.channelID == channelID)
-
-        await store.send(
-            .destination(
-                .deleteChannelConfirmation(
-                    .deleteButtonTapped(channelID)
-                )
-            )
-        )?.value
-
-        let channels = try await database.read { db in
-            try CommunicationsViewer.channelsQuery(eventID: eventID).fetchAll(db)
-        }
-        #expect(channels.isEmpty)
-    }
-
-    @Test
-    func communicationChannelDetailAuthoringActionsOpenTheComposerEditorAndDeleteTheChannel() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-        let channel = try await database.read { db in
-            try #require(
-                try CommunicationsViewer
-                    .channelsQuery(eventID: eventID)
-                    .fetchAll(db)
-                .first
-            )
-        }
-        let workspace = SourceWorkspace(
-            organizerID: eventID.organizerID,
-            repository: "tangled.org/example/events",
-            branch: "main"
-        )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(
-                actorID: try #require(DID(eventID.organizerID.description))
-            ),
-            role: .owner,
-            workspaceID: workspace.id
-        )
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            authoringGrant.withLock { $0 = grant }
-            return TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        #expect(store.state.canEditChannel)
-
-        store.send(.newPostButtonTapped)
-
-        #expect(store.state.destination?.composer?.channelID == channel.id)
-
-        store.send(.editChannelButtonTapped(channel))
-
-        #expect(store.state.destination?.channelForm?.channelID == channelID)
-
-        store.send(.deleteChannelButtonTapped)
-
-        #expect(store.state.destination?.deleteChannelConfirmation?.channelID == channelID)
-    }
-
-    @Test
-    func communicationsViewerRowsPreferStoredPreferenceBeforeChannelDefault() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .unsubscribed
-            )
-            try ChannelPreferences.insert {
-                ChannelPreferences(
-                    id: channelRecordID("general", eventID: eventID),
-                    notificationState: .subscribed
-                )
-            }
-            .execute(db)
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        expectNoDifference(
-            store.state.channelRows.map(\.effectiveNotificationState),
-            [.subscribed]
-        )
-    }
-
-    @Test
-    func communicationsViewerNotificationPromptRequestsPermissionAndThenDisappears() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let permissionWasRequested = TestMutex(false)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-        let client = DevicePermissionsClient(
-            load: {
-                DevicePermissions(
-                    notifications: permissionWasRequested.withLock {
-                        $0 ? .authorized : .unknown
-                    }
-                )
-            },
-            openNotificationSettings: { false },
-            requestCriticalAlerts: { .unavailable },
-            requestNotifications: {
-                permissionWasRequested.withLock { $0 = true }
-                return .authorized
-            }
-        )
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-            $0.devicePermissions = client
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        // Comms starts with the notification prompt while device permission is undecided.
-        try await store.state.$permissions.load()
-        #expect(store.state.shouldShowNotificationPrompt)
-
-        // Allowing notifications reloads the shared device state and removes the prompt.
-        await store.send(.notificationPermissionButtonTapped)?.value
-        #expect(permissionWasRequested.withLock { $0 })
-        #expect(!store.state.shouldShowNotificationPrompt)
-    }
-
-    @Test
-    func communicationsViewerOffersCriticalAlertsAfterNotificationsAreAllowed() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let criticalAlertsWereRequested = TestMutex(false)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-        let client = DevicePermissionsClient(
-            load: {
-                DevicePermissions(
-                    criticalAlerts: criticalAlertsWereRequested.withLock {
-                        $0 ? .enabled : .disabled
-                    },
-                    notifications: .authorized
-                )
-            },
-            openNotificationSettings: { false },
-            requestCriticalAlerts: {
-                criticalAlertsWereRequested.withLock { $0 = true }
-                return .enabled
-            },
-            requestNotifications: { .authorized }
-        )
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-            $0.devicePermissions = client
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        // Existing users do not see the ordinary notification prompt again.
-        try await store.state.$permissions.load()
-        #expect(!store.state.shouldShowNotificationPrompt)
-        #expect(store.state.shouldShowCriticalAlertPrompt)
-
-        // The Comms prompt requests Critical Alerts independently and disappears when enabled.
-        await store.send(.criticalAlertPermissionButtonTapped)?.value
-
-        #expect(criticalAlertsWereRequested.withLock { $0 })
-        #expect(!store.state.shouldShowCriticalAlertPrompt)
-    }
-
-    @Test
-    func communicationsViewerNotificationPromptOpensSettingsWhenPermissionIsOff() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let settingsOpenCount = TestMutex(0)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-        let client = DevicePermissionsClient(
-            load: { DevicePermissions(notifications: .denied) },
-            openNotificationSettings: {
-                settingsOpenCount.withLock { $0 += 1 }
-                return true
-            },
-            requestCriticalAlerts: { .unavailable },
-            requestNotifications: { .denied }
-        )
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-            $0.devicePermissions = client
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        try await store.state.$permissions.load()
-        #expect(store.state.shouldShowNotificationPrompt)
-
-        await store.send(.openNotificationSettingsButtonTapped)?.value
-
-        expectNoDifference(settingsOpenCount.withLock { $0 }, 1)
-    }
-
-    @Test
-    func communicationsViewerNotificationActionWritesPreference() async throws {
-        // An attendee changes a channel preference from either the row's long-press
-        // menu or its swipe action. Both UI surfaces send this same feature action.
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelRecordID("general", eventID: eventID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .unsubscribed
-            )
-        }
-
-        let refreshCount = TestMutex(0)
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-                    .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
-                        refreshCount.withLock { $0 += 1 }
-                    }
-            }
-        }
-
-        let preferenceTask = store.send(
-            .notificationStateButtonTapped(channelID, .subscribed)
-        )
-        await preferenceTask?.value
-        expectNoDifference(refreshCount.withLock { $0 }, 1)
-
-        let preference = try await database.read { db in
-            try ChannelPreferences
-                .where { $0.id.eq(channelID) }
-                .fetchOne(db)
-        }
-
-        #expect(preference?.notificationState == .subscribed)
-    }
-
-    @Test
-    func communicationsViewerRequiredChannelDoesNotWriteUnsubscribePreference() async throws {
-        // Required channels still show the complete notification menu, but the
-        // feature boundary refuses an unsubscribe even if an action reaches it.
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelRecordID("general", eventID: eventID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .subscribed,
-                notificationsRequired: true
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
-            }
-        }
-
-        store.send(.notificationStateButtonTapped(channelID, .unsubscribed))
-
-        let preference = try await database.read { db in
-            try ChannelPreferences
-                .where { $0.id.eq(channelID) }
-                .fetchOne(db)
-        }
-
-        #expect(preference == nil)
-    }
-
-    @Test
-    func communicationsViewerAuthoringGrantReachesChannelDetail() async throws {
-        let database = try makePreparedDatabase()
-        let unrelatedEventID = eventID("unrelated-event")
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        let workspace = SourceWorkspace(
-            organizerID: eventID.organizerID,
-            repository: "tangled.org/example/events",
-            branch: "main"
-        )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(
-                actorID: try #require(DID(eventID.organizerID.description))
-            ),
-            role: .owner,
-            workspaceID: workspace.id
-        )
-        let authoringGrant = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-        }
-        let initialState = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            authoringGrant.withLock { $0 = grant }
-            return OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-                workspace: workspace,
-                grant: authoringGrant
-            ) {
-                EventViewer.State(eventID: eventID)
-            }
-        }
-
-        let workspaceStore = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = unrelatedEventID
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: initialState) {
-                OpenMusicEventWorkspace()
-            }
-        }
-        await waitForObservation {
-            workspaceStore.authoring.phase == .inactive(.unavailable)
-        }
-        authoringGrant.withLock { $0 = grant }
-        let authoringStore = workspaceStore
-            .scope(\.authoring)
-        let workspaceContentStore = authoringStore
-            .scope(\.content)
-        let eventViewerStore = workspaceContentStore
-            .scope(\.content)
-        let store = try #require(
-            eventViewerStore.scope(\.communicationsViewer)
-        )
-
-        // The organizer can manage channels from the Comms list.
-        #expect(store.canManageChannels)
-
-        // They open a channel through the same action sent by the channel row.
-        store.send(.channelButtonTapped(channelID))
-
-        #expect(store.destination?.channelDetail?.channelID == channelID)
-        #expect(store.destination?.channelDetail?.eventID == eventID)
-        #expect(store.destination?.channelDetail?.canEditChannel == true)
-    }
-
-    @Test
-    func communicationsChannelDetailNotifyMeWritesPreference() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .unsubscribed
-            )
-        }
-
-        let refreshCount = TestMutex(0)
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-                    .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
-                        refreshCount.withLock { $0 += 1 }
-                    }
-            }
-        }
-
-        let notifyTask = store.send(.notificationStateButtonTapped(.subscribed))
-        await notifyTask?.value
-        expectNoDifference(refreshCount.withLock { $0 }, 1)
-
-        let preference = try await database.read { db in
-            try ChannelPreferences
-                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
-                .fetchOne(db)
-        }
-
-        #expect(preference?.notificationState == .subscribed)
-    }
-
-    @Test
-    func communicationsChannelDetailStopNotifyingMeWritesPreference() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .subscribed
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        let notifyTask = store.send(.notificationStateButtonTapped(.unsubscribed))
-        await notifyTask?.value
-
-        let preference = try await database.read { db in
-            try ChannelPreferences
-                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
-                .fetchOne(db)
-        }
-
-        #expect(preference?.notificationState == .unsubscribed)
-    }
-
-    @Test
-    func communicationsChannelDetailRequiredChannelDoesNotWriteUnsubscribePreference() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                name: "General",
-                defaultNotificationState: .subscribed,
-                notificationsRequired: true
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        store.send(.notificationStateButtonTapped(.unsubscribed))
-
-        let preference = try await database.read { db in
-            try ChannelPreferences
-                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
-                .fetchOne(db)
-        }
-
-        #expect(preference == nil)
-    }
-
-    @Test
-    func communicationsChannelDetailFetchesSelectedChannelPosts() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-            try Self.insertChannel(db, eventID: eventID, channelID: "safety", name: "Safety")
-            try Self.insertCommsPost(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                postID: "arrival",
-                title: "Arrival Info",
-                contents: "Use the north gate.",
-                sortIndex: 0
-            )
-            try Self.insertCommsPost(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome",
-                title: "Welcome",
-                contents: "Welcome to the event.",
-                isPinned: true,
-                sortIndex: 1
-            )
-            try Self.insertCommsPost(
-                db,
-                eventID: eventID,
-                channelID: "safety",
-                postID: "weather",
-                title: "Weather",
-                contents: "Bring layers.",
-                sortIndex: 0
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            Store(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        expectNoDifference(store.state.pinnedPosts.map(\.title), ["Welcome"])
-        expectNoDifference(store.state.recentPosts.map(\.title), ["Arrival Info"])
-        #expect(store.state.shouldShowEmptyPostsFooter == false)
-    }
-
-    @Test
-    func communicationsChannelDetailShowsEmptyPostsFooterWhenNoPosts() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            Store(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        #expect(store.state.shouldShowEmptyPostsFooter == true)
-        expectNoDifference(store.state.pinnedPosts, [])
-        expectNoDifference(store.state.recentPosts, [])
-    }
-
-    @Test
-    func communicationsChannelDetailPostTapPresentsPostDetail() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelLocalID("general")
-        let postID = commsPostID("welcome", channelID: "general", eventID: eventID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-            try Self.insertCommsPost(
-                db,
-                eventID: eventID,
-                channelID: "general",
-                postID: "welcome",
-                title: "Welcome",
-                contents: "Welcome to the event.",
-                isPinned: true,
-                sortIndex: 0
-            )
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultEventID = eventID
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: CommunicationChannelDetail.State(
-                    channelID: channelID,
-                    eventID: eventID
-                )
-            ) {
-                CommunicationChannelDetail()
-            }
-        }
-
-        store.send(.postButtonTapped(postID))
-
-        #expect(store.state.destination?.postDetail?.postID == postID)
-        #expect(store.state.destination?.postDetail?.post?.title == "Welcome")
-    }
-
-    @Test
-    func `an author saves an emergency comms post to the event database`() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let channelID = channelRecordID("general", eventID: eventID)
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
-        }
-
-        // The author writes the announcement in the same form opened from the channel.
-        let store = withDependencies {
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(
-                initialState: CommsPostComposer.State(
-                    channelID: channelID,
-                    draft: CommsPostDraft(
-                        title: "  Gates are open  ",
-                        markdown: "  **Welcome** to Wicked Woods.  "
-                    )
-                )
-            ) {
-                CommsPostComposer()
-            }
-        }
-
-        // The author marks this post as an emergency in the notification picker.
-        store.modify {
-            $0.draft.delivery = .emergency
-        }
-
-        // Saving dismisses the form and leaves the source-backed change in defaultDatabase.
-        await store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }?.value
-        #expect(store.isPresented == false)
-
-        let post = try await database.read { db in
-            try CommsPost.fetchOne(db)
-        }
-        expectNoDifference(
-            post,
-            CommsPost(
-                id: CommsPost.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    channelID: channelID.channelID,
-                    postID: CommsPost.PostID("gates-are-open")
-                ),
-                title: "Gates are open",
-                contents: "**Welcome** to Wicked Woods.",
-                timestamp: Date(timeIntervalSince1970: 0),
-                delivery: .emergency,
-                sortIndex: 0
-            )
-        )
-    }
-
-    @Test
-    func createStageSavesNewEventStage() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "new-meadow", name: "Old Meadow")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditStage.State(eventID: eventID)
-            state.draft.name = " New Meadow "
-            state.category = " workshop "
-            state.sortIndex = " 4 "
-            state.colorHex = "#123456"
-            state.systemIconName = "music.mic"
-            state.iconShortCode = "NM"
-            state.logoURL = "https://example.com/new-logo.png"
-            state.heroImageURL = "https://example.com/new-hero.png"
-
-            return TestStore(initialState: state) {
-                EditStage()
-            }
-        }
-
-        await store.send(.saveButtonTapped)?.value
-
-        #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == nil)
-        #expect(store.isPresented == false)
-
-        let stageID = stageLocalID("new-meadow-2")
-        let stage = try await database.read { db in
-            try #require(
-                try StageDetail.stageQuery(
-                    stageID: stageID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            )
-        }
-
-        #expect(stage.name == "New Meadow")
-        #expect(stage.category == OMERecord.Stage.Category("workshop"))
-        #expect(stage.sortIndex == 4)
-        #expect(stage.color.rawValue == 0x123456)
-        #expect(stage.systemIconName == "music.mic")
-        #expect(stage.iconShortCode == "NM")
-        #expect(stage.iconImageURL?.absoluteString == "https://example.com/new-logo.png")
-        #expect(stage.imageURL?.absoluteString == "https://example.com/new-hero.png")
-        #expect(stage.posterImageURL == nil)
-    }
-
-    @Test
-    func createStageReplacesSourceInferredSingletonStage() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSingletonStage.insert(eventID: eventID, in: db)
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-        } operation: {
-            var state = EditStage.State(eventID: eventID)
-            state.draft.name = "Meadow Stage"
-
-            return TestStore(initialState: state) {
-                EditStage()
-            }
-        }
-
-        await store.send(.saveButtonTapped)?.value
-
-        let stages = try await database.read { db in
-            try StagesViewer.stagesQuery(eventID: eventID).fetchAll(db)
-        }
-        expectNoDifference(stages.map(\.id.stageID), [stageLocalID("meadow-stage")])
-        expectNoDifference(stages.map(\.name), ["Meadow Stage"])
-    }
-
-    @Test
-    func editStageImagePickerImportAddsImageThroughParentDestination() async throws {
-        let eventID = eventID("event-1")
-        let image = ImportImages.Configuration.stagePoster.importedImage(
-            id: UUID(uuidString: "00000000-0000-0000-0000-0000000057a6")!,
-            title: "Stage Poster",
-            sourceName: "stage-poster.png",
-            sourceURL: URL(fileURLWithPath: "/tmp/stage-poster.png"),
-            mimeType: "image/png",
-            data: Data("stage-poster".utf8)
-        )
-
-        @Bindable var store = Store(initialState: EditStage.State(eventID: eventID)) {
-            EditStage()
-        }
-
-        store.send(.posterImagePicker(.addButtonTapped))
-        let importStore = try #require(
-            $store.scope(\.destination).posterImportImages.wrappedValue
-        )
-        importStore.send(.imagesImported([image]))
-        await importStore.send(.saveButtonTapped)?.value
-
-        await waitUntil { store.destination == nil }
-        expectNoDifference(store.posterImagePicker.images.map(\.importedImage), [image])
-        #expect(store.heroImagePicker.images.isEmpty)
-        #expect(store.logoImagePicker.images.isEmpty)
-    }
-
-    @Test
-    func stagesViewerDeleteRemovesEventStage() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let stageID = stageLocalID("meadow")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
-                StagesViewer()
-            }
-        }
-
-        await store.send(.deleteStages([stageID]))?.value
-
-        #expect(store.state.errorMessage == nil)
-
-        let stage = try await database.read { db in
-            try StageDetail.stageQuery(
-                stageID: stageID,
-                eventID: eventID
-            )
-            .fetchOne(db)
-        }
-        #expect(stage == nil)
-    }
-
-    @Test
-    func launchRestoreMountsEventViewer() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/example/event-1",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-1"
-                )
-            }
-            .execute(db)
-            try AppState.update {
-                $0.organizerID = #bind(eventID.organizerID)
-                $0.eventID = #bind(eventID.eventID)
-            }
-            .execute(db)
-        }
-
-        let store = makeRootHarnessStore(
-            database: database,
-            eventID: eventID,
-            selectedEventIDAtLaunch: eventID
-        )
-        #expect(store.state.root.destination?.eventViewer?.id == eventID)
-        expectNoDifference(
-            store.state.root.destination?.eventViewer?.authoring.content.content.pendingScheduleLaunchAction,
-            .jumpToCurrentTime
-        )
-    }
-
-    @Test
-    func openingAnEventPresentsItsViewerAndDismissingReturnsToTheBrowser() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/example/event-1",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-1"
-                )
-            }
-            .execute(db)
-        }
-        @Bindable var store = withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            // Root navigation and the mounted viewer must resolve the same installed event.
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.omeEventInstallation = .live(database: database)
-        } operation: {
-            Store(initialState: OpenMusicEventAppRoot.State()) {
-                OpenMusicEventAppRoot()
-            }
-        }
-
-        await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-
-        // Evaluate the production root view so its presentation must scope through the child
-        // installed by OpenMusicEventAppRoot.Destination.body.
-        _ = OpenMusicEventAppRootView(
-            store: store,
-            serviceEnvironment: .production,
-            isServiceEnvironmentSelectionEnabled: false,
-            isServiceEnvironmentSwitching: false,
-            serviceEnvironmentSelected: { _ in }
-        ).body
-
-        let presentation = $store
-            .scope(\.destination)
-            .eventViewer
-        let eventViewerStore = try #require(presentation.wrappedValue)
-        #expect(eventViewerStore.state.id == eventID)
-
-        presentation.wrappedValue = nil
-
-        #expect(store.destination == nil)
-    }
-
-    @Test
-    func appLaunchCarriesSelectedEventLookupFailureIntoRootRestoration() throws {
-        let database = try makePreparedDatabase()
-        try database.close()
-
-        let restoration = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            OpenMusicEventApplicationRootView.selectedEventRestoration(
-                for: .generic
-            )
-        }
-
-        #expect(restoration.eventID == nil)
-        let error = try #require(restoration.error)
-        #expect(String(reflecting: error).contains("closed"))
-
-        let state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            OpenMusicEventAppRoot.State(
-                workspaceRestorationErrorAtLaunch: error
-            )
-        }
-        #expect(state.destination == nil)
-        #expect(state.workspaceRestorationError != nil)
-    }
-
-    @Test
-    func eventViewerDismissClearsSelectedEvent() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/example/event-1",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-1"
-                )
-            }
-            .execute(db)
-            try AppState.update {
-                $0.organizerID = #bind(eventID.organizerID)
-                $0.eventID = #bind(eventID.eventID)
-            }
-            .execute(db)
-        }
-
-        let store = makeRootHarnessStore(
-            database: database,
-            eventID: eventID,
-            selectedEventIDAtLaunch: eventID
-        )
-        #expect(store.state.root.destination?.eventViewer?.authoring.content.content.eventID == eventID)
-
-        await store.send(
-            .root(
-                .destination(
-                    .eventViewer(
-                        .authoring(
-                            .content(
-                                .content(.closeButtonTapped)
-                            )
-                        )
-                    )
-                )
-            )
-        )?.value
-
-        #expect(store.state.root.destination?.eventViewer == nil)
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
-        }
-        #expect(appState?.selectedEventID == nil)
-    }
-
-    @Test
-    func editContributorLoadedDraftAcceptsAddLinkAction() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("wicked-woods-ome-2025")
-        let contributorID = contributorLocalID("[IVY]")
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: eventID, name: "Wicked Woods")
-            try Self.insertContributor(db, eventID: eventID, contributorID: "[IVY]", name: "IVY")
-        }
-
-        let store = withDependencies {
-            $0.context = .test
-            $0.continuousClock = ImmediateClock()
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-        } operation: {
-            Store(
-                initialState: EditContributor.State(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-            ) {
-                EditContributor()
-            }
-        }
-
-        await store.send(.onAppear)?.value
-        #expect(store.hasLoadedDraft)
-        #expect(store.form.value.name == "IVY")
-        #expect(store.form.value.links.isEmpty)
-
-        await store.send(.addLinkButtonTapped)?.value
-
-        #expect(store.form.value.links.count == 1)
-    }
-
-    @Test
-    func normalEventViewerNavigationPersistsSelectedEvent() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/example/event-1",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-1"
-                )
-            }
-            .execute(db)
-        }
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-
-        await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
-        #expect(store.state.root.destination?.eventViewer?.id == eventID)
-
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
-        }
-        #expect(appState?.selectedEventID == eventID)
-    }
-
-
-    @Test
-    func normalEventViewerDismissClearsSelectedEvent() async throws {
-        let eventID = eventID("event-1")
-        let database = try makePreparedDatabase()
-        try await database.write { db in
-            try Self.insertOrganizer(db, id: eventID.organizerID)
-            try Self.insertEvent(db, id: eventID, name: "Event One")
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/example/event-1",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-1"
-                )
-            }
-            .execute(db)
-        }
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
-
-        await store.send(.root(.handleNavigationRequest(.event(eventID, nil))))?.value
-        #expect(store.state.root.destination?.eventViewer?.id == eventID)
-
-        await store.send(
-            .root(
-                .destination(
-                    .eventViewer(
-                        .authoring(
-                            .content(
-                                .content(.closeButtonTapped)
-                            )
-                        )
-                    )
-                )
-            )
-        )?.value
-
-        #expect(store.state.root.destination?.eventViewer == nil)
-        let appState = try await database.read { db in
-            try AppState.fetchOne(db)
-        }
-        #expect(appState?.selectedEventID == nil)
-    }
-
-    private func makePreparedDatabase() throws -> any DatabaseWriter {
+    func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -7956,7 +859,7 @@ struct NavigationTests {
         }
     }
 
-    private func makeFileBackedPreparedDatabase(
+    func makeFileBackedPreparedDatabase(
         at databaseURL: URL
     ) throws -> any DatabaseWriter {
         let database = try DatabasePool(path: databaseURL.path)
@@ -7969,16 +872,17 @@ struct NavigationTests {
     }
 
 
-    private func makeCoreDatabase() throws -> any DatabaseWriter {
+    func makeCoreDatabase() throws -> any DatabaseWriter {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OMERecord.DatabaseMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
         return database
     }
 
 
-    private func temporaryDirectoryURL() throws -> URL {
+    func temporaryDirectoryURL() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "ome-navigation-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -7986,7 +890,7 @@ struct NavigationTests {
     }
 
 
-    private nonisolated static func insertOrganizer(
+    nonisolated static func insertOrganizer(
         _ db: Database,
         id organizerID: OMERecord.Organizer.ID
     ) throws {
@@ -7996,39 +900,8 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func ensureRootHarnessEventIsInstalled(
-        _ db: Database,
-        eventID: OMERecord.Event.ID
-    ) throws {
-        if try OMERecord.Organizer.find(eventID.organizerID).fetchOne(db) == nil {
-            try insertOrganizer(db, id: eventID.organizerID)
-        }
-        if try OMERecord.Event.find(eventID).fetchOne(db) == nil {
-            try insertEvent(db, id: eventID, name: eventID.eventID.rawValue.rawValue)
-        }
-        if try EventSourceProvenanceRecord.find(eventID).fetchOne(db) == nil {
-            try insertEventSourceProvenance(db, eventID: eventID)
-        }
-    }
 
-    private nonisolated static func insertEventSourceProvenance(
-        _ db: Database,
-        eventID: OMERecord.Event.ID
-    ) throws {
-        try EventSourceProvenanceRecord.insert {
-            EventSourceProvenanceRecord(
-                id: eventID,
-                sourceKind: .tangled,
-                sourceReference: "tangled.org/example/\(eventID.eventID.rawValue.rawValue)",
-                ref: "main",
-                eventIDOrigin: .explicit,
-                sourceEventDirectory: eventID.eventID.rawValue.rawValue
-            )
-        }
-        .execute(db)
-    }
-
-    private nonisolated static func insertEvent(
+    nonisolated static func insertEvent(
         _ db: Database,
         id eventID: OMERecord.Event.ID,
         name: String,
@@ -8048,7 +921,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertEventOrganizer(
+    nonisolated static func insertEventOrganizer(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         organizerID: OMERecord.Organizer.ID
@@ -8065,7 +938,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertCalendar(
+    nonisolated static func insertCalendar(
         _ db: Database,
         id calendarID: OMERecord.Calendar.ID,
         name: String,
@@ -8083,7 +956,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertCalendarEntry(
+    nonisolated static func insertCalendarEntry(
         _ db: Database,
         id entryID: OMERecord.CalendarEntry.ID,
         event: OMERecord.Event.Reference,
@@ -8104,7 +977,7 @@ struct NavigationTests {
     }
 
 
-    private nonisolated static func insertContributor(
+    nonisolated static func insertContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         contributorID: String,
@@ -8120,7 +993,7 @@ struct NavigationTests {
                 id: OMERecord.Contributor.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    contributorID: contributorLocalID(contributorID)
+                    contributorID: navigationContributorLocalID(contributorID)
                 ),
                 name: name,
                 did: did,
@@ -8133,7 +1006,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertPerformance(
+    nonisolated static func insertPerformance(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         performanceID: String,
@@ -8150,10 +1023,10 @@ struct NavigationTests {
                 id: OMERecord.Performance.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    performanceID: performanceLocalID(performanceID)
+                    performanceID: navigationPerformanceLocalID(performanceID)
                 ),
-                stageID: stageLocalID(stageID),
-                scheduleID: scheduleLocalID(scheduleID),
+                stageID: navigationStageLocalID(stageID),
+                scheduleID: navigationScheduleLocalID(scheduleID),
                 startTime: startTime,
                 endTime: endTime,
                 title: title,
@@ -8164,7 +1037,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertPerformanceContributor(
+    nonisolated static func insertPerformanceContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         performanceID: String,
@@ -8179,9 +1052,9 @@ struct NavigationTests {
                 performanceID: OMERecord.Performance.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    performanceID: performanceLocalID(performanceID)
+                    performanceID: navigationPerformanceLocalID(performanceID)
                 ),
-                contributorID: contributorLocalID(contributorID),
+                contributorID: navigationContributorLocalID(contributorID),
                 anonymousName: nil,
                 contributorActor: contributorActor,
                 billing: billing,
@@ -8192,7 +1065,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertSchedule(
+    nonisolated static func insertSchedule(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         scheduleID: String,
@@ -8206,7 +1079,7 @@ struct NavigationTests {
                 id: OMERecord.Schedule.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    scheduleID: scheduleLocalID(scheduleID)
+                    scheduleID: navigationScheduleLocalID(scheduleID)
                 ),
                 date: date,
                 startsAt: startsAt,
@@ -8217,7 +1090,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertStage(
+    nonisolated static func insertStage(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         stageID: String,
@@ -8237,7 +1110,7 @@ struct NavigationTests {
                 id: OMERecord.Stage.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    stageID: stageLocalID(stageID)
+                    stageID: navigationStageLocalID(stageID)
                 ),
                 name: name,
                 color: color,
@@ -8254,7 +1127,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertChannel(
+    nonisolated static func insertChannel(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         channelID: String,
@@ -8279,7 +1152,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertCommsPost(
+    nonisolated static func insertCommsPost(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         channelID: String,
@@ -8305,7 +1178,7 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private func waitForBlueskyProfile(
+    func waitForBlueskyProfile(
         in store: StoreOf<ContributorDetail>
     ) async throws {
         for _ in 0..<100 {
@@ -8316,9 +1189,9 @@ struct NavigationTests {
         #expect(store.profile?.handle != nil)
     }
 
-    private func waitForContributorListBlueskyProfile(
+    func waitForContributorListBlueskyProfile(
         in store: StoreOf<ContributorsViewer>,
-        contributorID: OMERecord.ID<OMERecord.Contributor>
+        contributorID: Contributor.ID
     ) async throws {
         for _ in 0..<100 {
             if store.contributorRows.first(where: { $0.contributorID == contributorID })?
@@ -8334,55 +1207,24 @@ struct NavigationTests {
         )
     }
 
-    private func waitUntil(
+    func waitUntil(
         _ condition: @escaping @MainActor () -> Bool,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
+        let deadline = clock.now.advanced(by: .seconds(30))
         while clock.now < deadline {
             if condition() { return }
-            try? await clock.sleep(for: .milliseconds(1))
+            try? await clock.sleep(for: .milliseconds(5))
         }
         Issue.record(
-            "Condition was not satisfied within one second",
+            "Condition was not satisfied within thirty seconds",
             sourceLocation: sourceLocation
         )
     }
 
-    private func waitForContributor(
-        in database: any DatabaseWriter,
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        eventID: OMERecord.Event.ID,
-        matching predicate: (OMERecord.Contributor) -> Bool,
-        sourceLocation: SourceLocation = #_sourceLocation
-    ) async throws -> OMERecord.Contributor {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        var lastContributor: OMERecord.Contributor?
 
-        while clock.now < deadline {
-            lastContributor = try await database.read { db in
-                try ContributorDetail.contributorQuery(
-                    contributorID: contributorID,
-                    eventID: eventID
-                )
-                .fetchOne(db)
-            }
-            if let lastContributor, predicate(lastContributor) {
-                return lastContributor
-            }
-            try await clock.sleep(for: .milliseconds(1))
-        }
-
-        Issue.record(
-            "Contributor did not reach the expected persisted state within one second",
-            sourceLocation: sourceLocation
-        )
-        return try #require(lastContributor, sourceLocation: sourceLocation)
-    }
-
-    private func waitForObservation(
+    func waitForObservation(
         _ condition: @escaping @MainActor () -> Bool
     ) async {
         while !condition() {
@@ -8396,8 +1238,8 @@ struct NavigationTests {
         }
     }
 
-    private func waitForSelectedEventID(
-        _ expectedEventID: OMERecord.Event.ID?,
+    func waitForSelectedEventID(
+        _ expectedEventID: Event.ID?,
         in database: any DatabaseWriter,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
@@ -8420,38 +1262,228 @@ struct NavigationTests {
         )
     }
 
-    private func makeRootHarnessStore(
+    func canonicalNavigationGraph(id: Event.ID) throws -> EventRecordGraph {
+        try EventRecordGraph(
+            event: Event(
+                id: id,
+                name: "Wicked Woods",
+                createdAt: "2026-09-01T12:00:00Z",
+                timeZone: .gmt
+            )
+        )
+    }
+
+    nonisolated static func insertCanonicalEvent(
+        _ db: Database,
+        id: Event.ID,
+        name: String,
+        startDate: LocalDate? = nil,
+        endDate: LocalDate? = nil,
+        timeZone: TimeZone = .gmt
+    ) throws {
+        var event = try Event(
+            id: id,
+            name: name,
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: timeZone
+        )
+        event.start = startDate.map { .known(.day(Event.Day(value: $0))) }
+        event.end = endDate.map { .known(.day(Event.Day(value: $0))) }
+        try Event.insert { event }.execute(db)
+    }
+
+    nonisolated static func insertCanonicalStage(
+        _ db: Database,
+        id: EventPlace.ID,
+        eventID: Event.ID,
+        name: String,
+        category: String? = nil,
+        lineup: [Contributor.ID]? = nil,
+        sortIndex: Int? = nil
+    ) throws {
+        var place = try EventPlace(
+            id: id,
+            event: eventID,
+            name: name,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        var stageUse = EventPlace.Kind.Stage()
+        stageUse.category = category
+        stageUse.lineup = lineup
+        stageUse.sortIndex = sortIndex
+        place.kind = .known(.stage(stageUse))
+        try EventPlace.insert { place }.execute(db)
+    }
+
+    nonisolated static func insertCanonicalCategory(
+        _ db: Database,
+        id: Social.Category.ID,
+        eventID: Event.ID,
+        name: String,
+        description: String? = nil,
+        defaultNotificationState: Social.Category.NotificationState = .subscribed,
+        notificationsRequired: Bool = false
+    ) throws {
+        var category = try Social.Category(
+            id: id,
+            event: eventID,
+            name: name,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        category.description = description
+        category.defaultNotificationState = .known(
+            notificationsRequired ? .subscribed : defaultNotificationState
+        )
+        category.notificationsRequired = notificationsRequired
+        try Social.Category.insert { category }.execute(db)
+        var event = try #require(try Event.find(eventID).fetchOne(db))
+        event.categories = (event.categories ?? []) + [id]
+        try Event.upsert { event }.execute(db)
+    }
+
+    nonisolated static func insertCanonicalPost(
+        _ db: Database,
+        id: Social.Post.ID,
+        eventID: Event.ID,
+        categoryID: Social.Category.ID,
+        title: String,
+        text: String,
+        pinned: Bool = false
+    ) throws {
+        var post = try Social.Post(
+            id: id,
+            text: text,
+            event: eventID,
+            category: categoryID,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        post.title = title
+        try Social.Post.insert { post }.execute(db)
+        if pinned {
+            var category = try #require(try Social.Category.find(categoryID).fetchOne(db))
+            category.pinnedPosts = (category.pinnedPosts ?? []) + [id]
+            try Social.Category.upsert { category }.execute(db)
+        }
+    }
+
+    nonisolated static func insertCanonicalSchedule(
+        _ db: Database,
+        id: Schedule.ID,
+        eventID: Event.ID,
+        date: LocalDate,
+        title: String? = nil
+    ) throws {
+        var schedule = try Schedule(
+            id: id,
+            event: eventID,
+            date: date,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        schedule.title = title
+        try Schedule.insert { schedule }.execute(db)
+        var event = try #require(try Event.find(eventID).fetchOne(db))
+        event.schedules = (event.schedules ?? []) + [id]
+        try Event.upsert { event }.execute(db)
+    }
+
+    nonisolated static func insertCanonicalProgram(
+        _ db: Database,
+        id: Program.ID,
+        eventID: Event.ID,
+        eventPlaces: [EventPlace.ID]
+    ) throws {
+        let program = try Program(
+            id: id,
+            event: eventID,
+            title: "Main Schedule",
+            createdAt: "2026-09-01T12:00:00Z",
+            eventPlaces: eventPlaces
+        )
+        try Program.insert { program }.execute(db)
+        var event = try #require(try Event.find(eventID).fetchOne(db))
+        event.programs = (event.programs ?? []) + [id]
+        try Event.upsert { event }.execute(db)
+    }
+
+    nonisolated static func insertCanonicalProgramItem(
+        _ db: Database,
+        id: ProgramItem.ID,
+        eventID: Event.ID,
+        programID: Program.ID,
+        scheduleID: Schedule.ID,
+        placeID: EventPlace.ID,
+        title: String,
+        startsAt: Date,
+        endsAt: Date,
+        credits: [ProgramItem.Credit]? = nil
+    ) throws {
+        var item = try ProgramItem(
+            id: id,
+            event: eventID,
+            program: programID,
+            title: title,
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        item.schedule = scheduleID
+        item.eventPlace = placeID
+        item.startsAt = ATProto.DateTime(
+            rawValue: ISO8601DateFormatter().string(from: startsAt)
+        )
+        item.endsAt = ATProto.DateTime(
+            rawValue: ISO8601DateFormatter().string(from: endsAt)
+        )
+        item.credits = credits
+        try ProgramItem.insert { item }.execute(db)
+    }
+
+    func insertCanonicalContributor(
+        into database: any DatabaseWriter,
+        name: String,
+        subject: DID? = nil,
+        description: String? = nil
+    ) async throws -> Contributor {
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID(
+            "events.openmusic.contributor", "3mrdbziccpcaj"
+        )
+        let createdAt = ATProto.DateTime(rawValue: "2026-08-01T12:00:00Z")
+        let event = try Event(
+            id: eventID,
+            name: "Event One",
+            createdAt: createdAt,
+            timeZone: .gmt
+        )
+        var contributor = try Contributor(
+            id: contributorID,
+            event: eventID,
+            name: name,
+            createdAt: createdAt,
+            subject: subject
+        )
+        contributor.description = description
+        let record = contributor
+        try await database.write { db in
+            try Event.insert { event }.execute(db)
+            try Contributor.insert { record }.execute(db)
+        }
+        return record
+    }
+
+    func makeCanonicalRootHarnessStore(
         database: any DatabaseWriter,
-        eventID: OMERecord.Event.ID = eventID("event-1"),
-        variant: OpenMusicEventAppVariant = .generic,
-        selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
-        installationClient: OMEEventInstallationClient? = nil,
+        client: EventRecordClient,
+        selectedEventIDAtLaunch: Event.ID? = nil,
         brandedEventRouteClaims: [BrandedEventRouteClaim] = []
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.eventRecords = client
             $0.brandedEventRouteClaims = brandedEventRouteClaims
-            $0.omeEventInstallation = installationClient ?? OMEEventInstallationClient(
-                ensureInstalled: { uri in
-                    guard let eventID = OME.Event.ID(uri) else {
-                        throw OMEEventInstallationError.invalidEventURI(uri)
-                    }
-                    try await database.write { db in
-                        try Self.ensureRootHarnessEventIsInstalled(db, eventID: eventID)
-                    }
-                    return eventID
-                },
-                synchronizeInstalledEvent: { _ in
-                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
-                }
-            )
         } operation: {
             var state = RootHarness.State()
             state.root = OpenMusicEventAppRoot.State(
-                variant: variant,
                 selectedEventIDAtLaunch: selectedEventIDAtLaunch
             )
             return TestStore(initialState: state) {
@@ -8460,9 +1492,9 @@ struct NavigationTests {
         }
     }
 
-    private func makeEventViewerHarnessStore(
-        eventID: OMERecord.Event.ID = eventID("event-1"),
-        defaultEventID: OMERecord.Event.ID? = nil,
+
+    func makeEventViewerHarnessStore(
+        eventID: Event.ID = canonicalRouteEventID,
         database: (any DatabaseWriter)? = nil
     ) throws -> TestStore<EventViewerHarness> {
         let database = try database ?? makePreparedDatabase()
@@ -8470,7 +1502,6 @@ struct NavigationTests {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
-            $0.defaultEventID = defaultEventID ?? eventID
         } operation: {
             TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
                 EventViewerHarness()
@@ -8480,7 +1511,7 @@ struct NavigationTests {
 }
 
 @Feature
-private struct RootHarness {
+struct RootHarness {
     struct State {
         @DebugSnapshotIgnored
         var root = OpenMusicEventAppRoot.State()
@@ -8509,11 +1540,12 @@ private struct RootHarness {
                 OpenMusicEventAppRoot()
             }
         }
+        .onTrigger(store.root.notificationSignal) { _, _ in }
     }
 }
 
 @Feature
-private struct MyEventsEventHarness {
+struct MyEventsEventHarness {
     struct State {
         var lastRequest: NavigationRequest?
         var myEvents = MyEvents.State()
@@ -8534,7 +1566,7 @@ private struct MyEventsEventHarness {
 }
 
 @Feature
-private struct OrganizerDetailHarness {
+struct OrganizerDetailHarness {
     struct State {
         init(organizerID: OMERecord.Organizer.ID) {
             self.organizerDetail = OrganizerDetail.State(organizerID: organizerID)
@@ -8561,7 +1593,7 @@ private struct OrganizerDetailHarness {
 
 
 @Feature
-private struct CalendarDetailHarness {
+struct CalendarDetailHarness {
     struct State {
         init(calendarID: OMERecord.Calendar.ID) {
             self.calendarDetail = CalendarDetail.State(calendarID: calendarID)
@@ -8588,9 +1620,9 @@ private struct CalendarDetailHarness {
 
 
 @Feature
-private struct EventViewerHarness {
+struct EventViewerHarness {
     struct State {
-        init(eventID: OMERecord.Event.ID = eventID("event-1")) {
+        init(eventID: Event.ID = canonicalRouteEventID) {
             self.eventViewer = EventViewer.State.route(
                 eventID: eventID,
                 target: nil

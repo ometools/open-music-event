@@ -1,4 +1,5 @@
 import Foundation
+import OpenMusicEventImages
 import OpenMusicEventLexicon
 import Testing
 
@@ -6,24 +7,23 @@ import Testing
 
 struct EventRowImageTests {
     @Test
-    func `an event poster is shown before its icon fallback`() {
-        let icon = imageAsset(role: .icon, url: "https://example.com/icon.png")
-        let poster = imageAsset(role: .poster, url: "https://example.com/poster.png")
-
-        #expect(EventRowView.imageAssets(icon: icon, poster: poster) == [poster, icon])
-        #expect(EventRowView.imageAssets(icon: nil, poster: poster) == [poster])
-        #expect(EventRowView.imageAssets(icon: icon, poster: nil) == [icon])
-    }
-
-    private func imageAsset(
-        role: OME.ImageAsset.Role,
-        url: String
-    ) -> OME.ImageAsset {
-        OME.ImageAsset(
-            source: .url(URL(string: url)!),
-            role: role,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy
+    func `an event poster is shown before its icon fallback`() throws {
+        let event = try Event(
+            id: try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah")),
+            name: "Wicked Woods",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: try #require(TimeZone(identifier: "America/Denver")),
+            media: [
+                .known(.image(OME.Image(
+                    source: .known(.url(try #require(URL(string: "https://example.com/icon.png")))),
+                    role: .known(.icon(.init()))
+                ))),
+                .known(.image(OME.Image(
+                    source: .known(.url(try #require(URL(string: "https://example.com/poster.png")))),
+                    role: .known(.poster)
+                )))
+            ]
         )
+        #expect(event.heroImageSources.map(\.image.asset.role) == [.poster, .icon])
     }
 }

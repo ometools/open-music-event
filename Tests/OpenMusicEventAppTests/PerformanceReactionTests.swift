@@ -6,6 +6,7 @@ import DependenciesTestSupport
 import Foundation
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import SQLiteData
 import Testing
 
@@ -14,22 +15,22 @@ import Testing
 
 @Suite(.serialized)
 struct PerformanceReactionTests {
-    let organizerID = OMERecord.Organizer.ID("did:web:reactions.example")!
-
-    var eventID: OMERecord.Event.ID {
-        OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: localID("event")
-        )
-    }
-
-    var performanceID: OMERecord.Performance.ID {
-        OMERecord.Performance.ID(
-            organizerID: organizerID,
-            eventID: eventID.eventID,
-            performanceID: localID("performance")
-        )
-    }
+    let organizerID = DID("did:web:reactions.example")!
+    let eventID = Event.ID(
+        "at://did:web:reactions.example/events.openmusic.event/3mrdbziccpcae"
+    )!
+    let performanceID = ProgramItem.ID(
+        "at://did:web:reactions.example/events.openmusic.programItem/3mrdbziccpcae"
+    )!
+    let scheduleID = Schedule.ID(
+        "at://did:web:reactions.example/events.openmusic.schedule/3mrdbziccpcae"
+    )!
+    let stageID = EventPlace.ID(
+        "at://did:web:reactions.example/events.openmusic.eventPlace/3mrdbziccpcae"
+    )!
+    let programID = Program.ID(
+        "at://did:web:reactions.example/events.openmusic.program/3mrdbziccpcae"
+    )!
 
     @Test
     func independentTogglesRetainHistoricalUsageAndRefreshTimestamps() async throws {
@@ -225,14 +226,14 @@ struct PerformanceReactionTests {
                     INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
                     VALUES (?, ?, 'Sentinel Event', 'America/Denver')
                     """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+                arguments: [organizerID.description, "event"]
             )
             try db.execute(
                 sql: """
                     INSERT INTO "app.openmusicevent.schedule" (organizerID, eventID, scheduleID, date, customTitle)
                     VALUES (?, ?, 'sentinel-schedule', '2026-07-28', 'Sentinel Schedule')
                     """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+                arguments: [organizerID.description, "event"]
             )
             try db.execute(
                 sql: """
@@ -240,7 +241,7 @@ struct PerformanceReactionTests {
                       (organizerID, eventID, contributorID, isFavorite)
                     VALUES (?, ?, 'sentinel-contributor', 1)
                     """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+                arguments: [organizerID.description, "event"]
             )
             try db.execute(
                 sql: """
@@ -248,7 +249,7 @@ struct PerformanceReactionTests {
                       (organizerID, eventID, performanceID, interested, seen)
                     VALUES (?, ?, 'sentinel-performance', 1, 1)
                     """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+                arguments: [organizerID.description, "event"]
             )
         }
 
@@ -289,7 +290,7 @@ struct PerformanceReactionTests {
                     INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
                     VALUES (?, ?, 'Before Failure', 'America/Denver')
                     """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+                arguments: [organizerID.description, "event"]
             )
         }
 
@@ -328,21 +329,9 @@ struct PerformanceReactionTests {
                 date: Date(timeIntervalSince1970: 10),
                 in: db
             )
-            try db.execute(
-                sql: """
-                    INSERT OR REPLACE INTO "app.openmusicevent.performance"
-                      (organizerID, eventID, performanceID, stageID, scheduleID,
-                       startTime, endTime, title, recordings)
-                    VALUES (?, ?, ?, 'stage', 'schedule', ?, ?, 'Refreshed', '[]')
-                    """,
-                arguments: [
-                    organizerID.description,
-                    eventID.eventID.rawValue.rawValue,
-                    performanceID.performanceID.rawValue.rawValue,
-                    "1970-01-01 00:01:40.000",
-                    "1970-01-01 00:03:20.000",
-                ]
-            )
+            var item = try #require(try ProgramItem.find(performanceID).fetchOne(db))
+            item.title = "Refreshed"
+            try ProgramItem.upsert { item }.execute(db)
         }
 
         let reaction = try await database.read { db in
@@ -354,6 +343,7 @@ struct PerformanceReactionTests {
     @Test @MainActor
     func scheduleDetailAndViewerActionsShareStateWithoutTriggeringNavigation() async throws {
         let database = try preparedDatabase()
+        try await seedPerformance(in: database, title: "Live")
         let reactionDate = Date(timeIntervalSince1970: 40)
         let userDID = try #require(DID("did:plc:reaction-user"))
 
@@ -372,7 +362,7 @@ struct PerformanceReactionTests {
             }
             let detailStore = Store(
                 initialState: PerformanceDetail.State(
-                    performanceID: performanceID.performanceID,
+                    performanceID: performanceID,
                     eventID: eventID
                 )
             ) {
@@ -428,51 +418,64 @@ struct PerformanceReactionTests {
         in database: any DatabaseWriter,
         title: String
     ) async throws {
+        let eventID = self.eventID
+        let stageID = self.stageID
+        let scheduleID = self.scheduleID
+        let programID = self.programID
+        let performanceID = self.performanceID
+        let date = try #require(LocalDate("2026-07-28"))
         try await database.write { db in
-            try db.execute(sql: #"INSERT INTO "app.openmusicevent.organizer" (id) VALUES (?)"#, arguments: [organizerID.description])
-            try db.execute(
-                sql: """
-                    INSERT INTO "app.openmusicevent.event" (organizerID, eventID, name, timeZone)
-                    VALUES (?, ?, 'Reaction Event', 'America/Denver')
-                    """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+            var event = try Event(
+                id: eventID,
+                name: "Reaction Event",
+                createdAt: "2026-09-01T12:00:00Z",
+                timeZone: .gmt
             )
-            try db.execute(
-                sql: """
-                    INSERT INTO "app.openmusicevent.stage" (organizerID, eventID, stageID, name, color)
-                    VALUES (?, ?, 'stage', 'Stage', 0)
-                    """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+            event.schedules = [scheduleID]
+            event.programs = [programID]
+            try Event.insert { event }.execute(db)
+
+            var stage = try EventPlace(
+                id: stageID,
+                event: eventID,
+                name: "Stage",
+                createdAt: "2026-09-01T12:00:00Z"
             )
-            try db.execute(
-                sql: """
-                    INSERT INTO "app.openmusicevent.schedule" (organizerID, eventID, scheduleID, date)
-                    VALUES (?, ?, 'schedule', '2026-07-28')
-                    """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
+            stage.kind = .known(.stage(EventPlace.Kind.Stage()))
+            try EventPlace.insert { stage }.execute(db)
+
+            let schedule = try Schedule(
+                id: scheduleID,
+                event: eventID,
+                date: date,
+                createdAt: "2026-09-01T12:00:00Z"
             )
-            try db.execute(
-                sql: """
-                    INSERT INTO "app.openmusicevent.performance"
-                      (organizerID, eventID, performanceID, stageID, scheduleID,
-                       startTime, endTime, title, recordings)
-                    VALUES (?, ?, ?, 'stage', 'schedule', ?, ?, ?, '[]')
-                    """,
-                arguments: [
-                    organizerID.description,
-                    eventID.eventID.rawValue.rawValue,
-                    performanceID.performanceID.rawValue.rawValue,
-                    "1970-01-01 00:01:40.000",
-                    "1970-01-01 00:03:20.000",
-                    title,
-                ]
+            try Schedule.insert { schedule }.execute(db)
+
+            let program = try Program(
+                id: programID,
+                event: eventID,
+                title: "Main Schedule",
+                createdAt: "2026-09-01T12:00:00Z",
+                eventPlaces: [stageID]
             )
+            try Program.insert { program }.execute(db)
+
+            var item = try ProgramItem(
+                id: performanceID,
+                event: eventID,
+                program: programID,
+                title: title,
+                createdAt: "2026-09-01T12:00:00Z"
+            )
+            item.schedule = scheduleID
+            item.eventPlace = stageID
+            item.startsAt = ATProto.DateTime(rawValue: "1970-01-01T00:01:40Z")
+            item.endsAt = ATProto.DateTime(rawValue: "1970-01-01T00:03:20Z")
+            try ProgramItem.insert { item }.execute(db)
         }
     }
 
-    func localID<T>(_ value: String) -> OMERecord.ID<T> {
-        OMERecord.ID<T>(rawValue: ATProto.Record.Key(rawValue: value))
-    }
 }
 
 private struct ExpectedMigrationError: Error {}

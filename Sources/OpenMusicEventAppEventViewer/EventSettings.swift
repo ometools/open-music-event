@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableWorkspace
@@ -16,21 +17,23 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
+public struct EventEditingModeRequested: FeatureEventKey {
+    public typealias Value = Bool
+
+    public init() {}
+}
+
 @Feature
 public struct EventSettings {
     public init() {}
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
-            )
         }
 
-        @FetchOne public var event: OMERecord.Event?
         public var destination: Destination.State?
-        public var eventID: OMERecord.Event.ID
+        public var eventID: Event.ID
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
 
         public var notificationIndicatorValue: Int? {
@@ -41,7 +44,9 @@ public struct EventSettings {
     public enum Action {
         case criticalAlertPermissionButtonTapped
         case destination(Destination.Action)
+        case enterEditingButtonTapped
         case enterAuthoringButtonTapped
+        case exitEditingButtonTapped
         case exitAuthoringButtonTapped
         case notificationPermissionButtonTapped
         case testErrorButtonTapped
@@ -83,9 +88,21 @@ public struct EventSettings {
             case .destination(.exitAuthoringConfirmation(.exitAndDeleteButtonTapped)):
                 requestAuthoringExit()
 
+            case .enterEditingButtonTapped:
+                store.addTask {
+                    let task = try store.post(key: EventEditingModeRequested.self, value: true)
+                    await task?.value
+                }
+
             case .enterAuthoringButtonTapped:
                 store.addTask {
                     let task = try store.post(key: AuthoringRequested.self, value: ())
+                    await task?.value
+                }
+
+            case .exitEditingButtonTapped:
+                store.addTask {
+                    let task = try store.post(key: EventEditingModeRequested.self, value: false)
                     await task?.value
                 }
 
@@ -104,15 +121,21 @@ public struct EventSettings {
                 store.addTask {
                     let hasNoUnpublishedChanges: Bool
                     do {
-                        let summary = try await database.read { db in
-                            try SourceWorkspaceEditSummary.query(
+                        hasNoUnpublishedChanges = try await database.read { db in
+                            let summary = try SourceWorkspaceEditSummary.query(
                                 workspace: sourceWorkspace,
                                 in: db,
                                 referenceDatabase: referenceDatabase
                             )
+                            let hasCanonicalChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
+                                workspace: sourceWorkspace,
+                                in: db,
+                                referenceDatabase: referenceDatabase
+                            )
+                            return summary.availability == .available
+                                && summary.totalCount == 0
+                                && !hasCanonicalChanges
                         }
-                        hasNoUnpublishedChanges = summary.availability == .available
-                            && summary.totalCount == 0
                     } catch {
                         // If the comparison cannot prove the workspace is clean, require the same
                         // explicit destructive confirmation as a known dirty workspace.
@@ -214,9 +237,11 @@ public struct EventSettings {
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
     @Environment(\.openMusicEventAuthoringPhase) var authoringPhase
+    let isEditing: Bool
 
-    public init(store: StoreOf<EventSettings>) {
+    public init(store: StoreOf<EventSettings>, isEditing: Bool) {
         self.store = store
+        self.isEditing = isEditing
     }
 
     var criticalAlertPermissionButtonTitle: LocalizedStringKey {
@@ -271,6 +296,16 @@ public struct EventSettingsView: View {
 
     public var body: some View {
         Form {
+            Section {
+                Button {
+                    store.send(isEditing ? .exitEditingButtonTapped : .enterEditingButtonTapped)
+                } label: {
+                    Text(isEditing ? "Done Editing" : "Edit Event", bundle: .module)
+                }
+            } header: {
+                Text("Editing", bundle: .module)
+            }
+
             switch authoringPhase {
             case .some(.entering):
                 Section {

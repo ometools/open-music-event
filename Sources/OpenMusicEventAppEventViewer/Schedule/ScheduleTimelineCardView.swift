@@ -1,5 +1,6 @@
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventLexicon
 import ScheduleComponents
 #if os(Android)
 import SkipSwiftUI
@@ -8,18 +9,24 @@ import SwiftUI
 #endif
 
 struct SchedulePerformanceTimelineCard: DateIntervalRepresentable, Equatable, Identifiable {
-    let performance: OMERecord.Performance
+    let performance: ProgramItem
+    let dateInterval: DateInterval
 
-    var id: OMERecord.ID<OMERecord.Performance> { performance.id.performanceID }
-    var dateInterval: DateInterval {
-        DateInterval(start: performance.startTime, end: performance.endTime)
+    init?(performance: ProgramItem) {
+        guard let start = performance.startDate,
+              let end = performance.endDate,
+              end > start else { return nil }
+        self.performance = performance
+        self.dateInterval = DateInterval(start: start, end: end)
     }
+
+    var id: ProgramItem.ID { performance.id }
 }
 
 struct ScheduleTimelineCardView: View {
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage
+    let performance: ProgramItem
+    let stage: EventPlace
     let timeRangeText: String
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
@@ -35,7 +42,7 @@ struct ScheduleTimelineCardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(
-            "button.performance.\(performance.id.performanceID.rawValue.rawValue)"
+            "button.performance.\(performance.id.description)"
         )
         .accessibilityLabel(Text(accessibilityLabel))
         .portableAccessibilityHint(Text(timeRangeText))
@@ -93,7 +100,7 @@ struct ScheduleTimelineCardView: View {
         }
     }
 
-    private var cardContent: some View {
+    var cardContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(performance.title)
@@ -103,14 +110,14 @@ struct ScheduleTimelineCardView: View {
                 Spacer(minLength: 0)
 
                 if userScheduleOverlay.showsMembershipIndicator(
-                    performanceID: performance.id.performanceID
+                    performanceID: performance.id
                 ) {
                     MappedSystemImage(systemName: userScheduleSystemImage)
                         .frame(width: 16, height: 16)
                         .accessibilityHidden(true)
                 }
 
-                if !performance.recordings.isEmpty {
+                if !performance.recordingMedia.isEmpty {
                     Image(systemName: "play.circle.fill")
                         .font(.caption)
                         .accessibilityLabel("Has recordings")
@@ -142,11 +149,11 @@ struct ScheduleTimelineCardView: View {
         .padding(8)
         .foregroundStyle(.white)
         .background {
-            ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
+            ScheduleTimelineCardBackground(stageColor: stage.stageUIColor)
         }
         .overlay {
             if userScheduleOverlay.isDimmed(
-                performanceID: performance.id.performanceID
+                performanceID: performance.id
             ) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(.black.opacity(0.62))
@@ -158,20 +165,20 @@ struct ScheduleTimelineCardView: View {
     var accessibilityLabel: String {
         guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
             return userScheduleOverlay.showsMembershipIndicator(
-                performanceID: performance.id.performanceID
+                performanceID: performance.id
             )
                 ? "\(performance.title), In a personal schedule"
                 : performance.title
         }
         let membership = userScheduleOverlay.isMember(
-            performanceID: performance.id.performanceID
+            performanceID: performance.id
         ) ? "In" : "Not in"
         return "\(performance.title), \(membership) \(selectedSchedule.title)"
     }
 
     func quickActionTitle(_ schedule: UserSchedule) -> String {
         let prefix = userScheduleOverlay.contains(
-            performanceID: performance.id.performanceID,
+            performanceID: performance.id,
             in: schedule.id
         ) ? "Remove from" : "Add to"
         return "\(prefix) \(schedule.title)"

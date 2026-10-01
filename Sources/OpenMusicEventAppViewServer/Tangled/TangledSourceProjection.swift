@@ -4,7 +4,6 @@ import ComposableNotificationsServer
 import Foundation
 import GRDB
 import OpenMusicEventLexicon
-import OpenMusicEventRouting
 import SQLiteData
 
 extension OpenMusicEventAppViewStore {
@@ -219,7 +218,7 @@ extension OpenMusicEventAppViewStore {
                 case .standard:
                     source = NotificationSource(
                         id: .init(
-                            rawValue: openMusicEventEventPathRouter.communicationChannelPath(
+                            rawValue: TangledSourceNotificationPath.channel(
                                 eventID: eventID,
                                 channelID: post.id.channelID
                             )
@@ -229,7 +228,7 @@ extension OpenMusicEventAppViewStore {
                     delivery = .standard
                 }
                 let route = TangledCommunicationPostNotificationRoute(
-                    notificationRoute: openMusicEventEventPathRouter.communicationPostPath(
+                    notificationRoute: TangledSourceNotificationPath.post(
                         eventID: eventID,
                         channelID: post.id.channelID,
                         postID: post.id.postID.rawValue.rawValue
@@ -369,6 +368,33 @@ private struct TangledCommunicationPostNotificationRoute: NotificationRoute {
 
     init(notificationRoute: String) {
         self.notificationRoute = notificationRoute
+    }
+}
+
+private enum TangledSourceNotificationPath {
+    static func channel(
+        eventID: OME.Event.ID,
+        channelID: OME.ID<OME.Channel>
+    ) -> String {
+        let organizer = encode(eventID.organizerID.description)
+        let event = encode(eventID.eventID.rawValue.rawValue)
+        let channel = encode(channelID.rawValue.rawValue)
+        return "/orgs/\(organizer)/events/\(event)/communications/\(channel)"
+    }
+
+    static func post(
+        eventID: OME.Event.ID,
+        channelID: OME.ID<OME.Channel>,
+        postID: String
+    ) -> String {
+        "\(channel(eventID: eventID, channelID: channelID))/posts/\(encode(postID))"
+    }
+
+    private static func encode(_ segment: String) -> String {
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
     }
 }
 

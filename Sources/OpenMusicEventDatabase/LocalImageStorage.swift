@@ -1,3 +1,6 @@
+import ATProto
+import ATProtoTypes
+import Crypto
 import Dependencies
 import Foundation
 import HTTPClient
@@ -226,6 +229,53 @@ private func localImageFileURL(assetKey: String, mimeType: String) throws -> URL
     try fileStoreRootURL()
         .appending(path: assetKey.fileSafeComponent)
         .appendingPathExtension(mimeType.fileExtension)
+}
+
+public func stageLocalImageBlob(
+    _ data: Data,
+    mimeType: ATProto.MIMEType
+) throws -> ATProto.Blob {
+    @Dependency(\.localImageFileStore) var fileStore
+
+    return try stageLocalImageBlob(data, mimeType: mimeType, using: fileStore)
+}
+
+public func stageLocalImageBlob(
+    _ data: Data,
+    mimeType: ATProto.MIMEType,
+    using fileStore: LocalImageFileStoreClient
+) throws -> ATProto.Blob {
+
+    let cidBytes: [UInt8] = [0x01, 0x55, 0x12, 0x20] + Array(SHA256.hash(data: data))
+    let cid = ATProto.CID(rawValue: "b" + base32Lowercase(cidBytes))
+    _ = try fileStore.write(cid.rawValue, data, mimeType.rawValue)
+    return ATProto.Blob(ref: cid, mimeType: mimeType, size: data.count)
+}
+
+public func stagedLocalImageBlobURL(for blob: ATProto.Blob) throws -> URL? {
+    @Dependency(\.localImageFileStore) var fileStore
+    return try fileStore.existingFileURL(blob.ref.rawValue, blob.mimeType.rawValue)
+}
+
+private func base32Lowercase(_ bytes: [UInt8]) -> String {
+    let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
+    var result = ""
+    var value: UInt16 = 0
+    var bitCount = 0
+
+    for byte in bytes {
+        value = (value << 8) | UInt16(byte)
+        bitCount += 8
+        while bitCount >= 5 {
+            bitCount -= 5
+            result.append(alphabet[Int((value >> bitCount) & 0x1f)])
+        }
+        value &= (1 << bitCount) - 1
+    }
+    if bitCount > 0 {
+        result.append(alphabet[Int((value << (5 - bitCount)) & 0x1f)])
+    }
+    return result
 }
 
 public struct LocalImageImportRequest: Equatable, Sendable {

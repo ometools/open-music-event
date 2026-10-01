@@ -1,19 +1,20 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import ATProtoTypes
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SwiftUI
 
 public struct CommsPostDraft: Equatable, Sendable {
-    public var delivery: OME.Announcement.Delivery
+    public var delivery: Social.Post.Delivery
     public var markdown: String
     public var title: String
 
     public init(
         title: String = "",
         markdown: String = "",
-        delivery: OME.Announcement.Delivery = .standard
+        delivery: Social.Post.Delivery = .standard
     ) {
         self.delivery = delivery
         self.markdown = markdown
@@ -39,17 +40,23 @@ public struct CommsPostComposer {
 
     public struct State {
         public init(
-            channelID: OMERecord.Channel.ID,
+            eventID: Event.ID,
+            categoryID: Social.Category.ID,
+            author: DID,
             draft: CommsPostDraft = CommsPostDraft()
         ) {
-            self.channelID = channelID
+            self.eventID = eventID
+            self.categoryID = categoryID
+            self.author = author
             self.draft = draft
             self.imagePicker = ImageAssetPicker.State(
                 configuration: .communicationPostPhotos
             )
         }
 
-        public var channelID: OMERecord.Channel.ID
+        public var eventID: Event.ID
+        public var categoryID: Social.Category.ID
+        public var author: DID
         public var destination: Destination.State?
         public var draft: CommsPostDraft
         public var errorMessage: String?
@@ -58,7 +65,13 @@ public struct CommsPostComposer {
         public var isSaving = false
 
         public var canSubmit: Bool {
-            draft.canSubmit && !isSaving
+            draft.canSubmit
+                && !isSaving
+                && (draft.delivery != .emergency || canRequestEmergency)
+        }
+
+        public var canRequestEmergency: Bool {
+            eventID.authority == .did(author)
         }
     }
 
@@ -106,37 +119,32 @@ public struct CommsPostComposer {
 
             case .saveButtonTapped:
                 guard state.canSubmit else { return }
-                let channelID = state.channelID
+                guard state.imagePicker.images.isEmpty else {
+                    state.errorMessage = "Photos require a PDS upload before this post can be saved."
+                    return
+                }
+                let eventID = state.eventID
+                let categoryID = state.categoryID
+                let author = state.author
                 let draft = state.draft
-                let imagePicker = state.imagePicker
                 let timestamp = now
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
                         try await database.write { db in
-                            let existingPosts = try CommsPost
-                                .where { $0.id.organizerID.eq(channelID.organizerID) }
-                                .where { $0.id.eventID.eq(channelID.eventID) }
-                                .where { $0.id.channelID.eq(channelID.channelID) }
-                                .fetchAll(db)
-                            var post = Self.newPost(
-                                channelID: channelID,
-                                draft: draft,
-                                existingPosts: existingPosts,
-                                timestamp: timestamp
+                            _ = try SocialPostRecordEditing.create(
+                                eventID: eventID,
+                                categoryID: categoryID,
+                                author: author,
+                                fields: .init(
+                                    title: draft.trimmedTitle,
+                                    text: draft.trimmedMarkdown,
+                                    delivery: draft.delivery
+                                ),
+                                createdAt: timestamp,
+                                in: db
                             )
-                            let preparedImages = try imagePicker.materializedImages(
-                                context: LocalImageCacheContext(commsPostID: post.id)
-                            )
-                            post.images = preparedImages.images.isEmpty ? nil : preparedImages.images
-                            try CommsPost.insert {
-                                post
-                            }
-                            .execute(db)
-                            if !preparedImages.blobs.isEmpty {
-                                try LocalImageBlob.insert { preparedImages.blobs }.execute(db)
-                            }
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -158,11 +166,11 @@ public struct CommsPostComposer {
                     ImportImages()
                 }
                 .ifCaseLet(\.imageInfo) {
-                    ImageInfo { imageID, asset in
+                    ImageInfo { imageID, image in
                         try store.modify {
                             $0.imagePicker.updateImageInfo(
                                 imageID: imageID,
-                                asset: asset
+                                image: image
                             )
                         }
                     }
@@ -174,38 +182,6 @@ public struct CommsPostComposer {
         }
     }
 
-    static func newPost(
-        channelID: OMERecord.Channel.ID,
-        draft: CommsPostDraft,
-        existingPosts: [CommsPost],
-        timestamp: Date
-    ) -> CommsPost {
-        let words = draft.trimmedTitle
-            .lowercased()
-            .split { !$0.isLetter && !$0.isNumber }
-        let baseID = words.isEmpty ? "post" : words.joined(separator: "-")
-        let existingIDs = Set(existingPosts.map(\.id.postID))
-        var postID = CommsPost.PostID(rawValue: baseID)
-        var suffix = 2
-        while existingIDs.contains(postID) {
-            postID = CommsPost.PostID(rawValue: "\(baseID)-\(suffix)")
-            suffix += 1
-        }
-
-        return CommsPost(
-            id: CommsPost.ID(
-                organizerID: channelID.organizerID,
-                eventID: channelID.eventID,
-                channelID: channelID.channelID,
-                postID: postID
-            ),
-            title: draft.trimmedTitle,
-            contents: draft.trimmedMarkdown,
-            timestamp: timestamp,
-            delivery: draft.delivery,
-            sortIndex: (existingPosts.map(\.sortIndex).max() ?? -1) + 1
-        )
-    }
 }
 
 public struct CommsPostComposerView: View {
@@ -216,9 +192,7 @@ public struct CommsPostComposerView: View {
     }
 
     public var body: some View {
-        let emergencyLifetimeInMinutes = Int(
-            OME.Announcement.Delivery.emergencyTimeToLive / 60
-        )
+        let emergencyLifetimeInMinutes = 15
 
         Form {
             Section {
@@ -247,8 +221,9 @@ public struct CommsPostComposerView: View {
 
             Section("Notification") {
                 Picker("Delivery", selection: $store.draft.delivery) {
-                    Text("Standard").tag(OME.Announcement.Delivery.standard)
-                    Text("Emergency").tag(OME.Announcement.Delivery.emergency)
+                    Text("Standard").tag(Social.Post.Delivery.standard)
+                    Text("Emergency").tag(Social.Post.Delivery.emergency)
+                        .disabled(!store.canRequestEmergency)
                 }
                 Text(
                     "Emergency alerts use the operating system's urgent presentation and expire after \(emergencyLifetimeInMinutes) minutes."

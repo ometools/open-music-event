@@ -15,8 +15,8 @@ extension UserStoryTests {
     @Test
     func `an attendee keeps a personal schedule across visits until deleting it`() async throws {
         let database = try UserStory.makePreparedStoryDatabase()
-        try await UserStory.seedDefault(in: database)
-        let eventID = UserStory.eventID
+        try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
+        let eventID = OpenMusicEventUIAutomationFixture.canonicalEventID
         let userDID = try #require(DID("did:plc:attendee"))
 
         try await withDependencies {

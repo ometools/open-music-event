@@ -28,7 +28,7 @@ public struct EventWorkspace {
     public struct State: Identifiable {
         public init(
             workspace: SourceWorkspace,
-            eventID: OME.Event.ID,
+            eventID: Event.ID,
             workspaceState: SharedReader<WorkspaceState<SourceWorkspaceResource>>,
             referenceDatabase: SourceBaselineDatabase? = nil
         ) {
@@ -43,7 +43,7 @@ public struct EventWorkspace {
         }
 
         public let workspace: SourceWorkspace
-        public let eventID: OME.Event.ID
+        public let eventID: Event.ID
         @SharedReader(.defaultAuthoringGrant)
         public var authoringGrant: AuthoringGrant?
         @SharedReader public var workspaceState: WorkspaceState<SourceWorkspaceResource>
@@ -428,14 +428,14 @@ struct WorkspaceBadgeValueView: View {
 
 struct WorkspaceTechnicalDetailsSection: View {
     let workspace: SourceWorkspace
-    let eventID: OME.Event.ID
+    let eventID: Event.ID
     let workspaceState: WorkspaceState<SourceWorkspaceResource>
 
     var body: some View {
         Section("Technical details") {
             WorkspaceTechnicalValueView(label: "Repository", value: workspace.repository)
             WorkspaceTechnicalValueView(label: "Organization", value: workspace.organizerID.description)
-            WorkspaceTechnicalValueView(label: "Event", value: eventID.eventID.rawValue.rawValue)
+            WorkspaceTechnicalValueView(label: "Event", value: eventID.description)
             if let baseline = workspaceState.baseline {
                 WorkspaceTechnicalValueView(
                     label: "Baseline revision",
@@ -713,13 +713,13 @@ public extension SourceRecordComparisonStyle {
     @MainActor
     static var openMusicEvent: Self {
         var style = Self()
-        style.set(for: OME.Contributor.self) { configuration in
+        style.set(for: Contributor.self) { configuration in
             SourceSemanticRecordChangeRow(
                 record: configuration.record,
                 fieldComparisons: configuration.fieldComparisons,
                 title: configuration.comparison.right?.name
                     ?? configuration.comparison.left?.name
-                    ?? String(describing: OME.Contributor.self),
+                    ?? String(describing: Contributor.self),
                 recordTitle: "Contributor"
             )
         }

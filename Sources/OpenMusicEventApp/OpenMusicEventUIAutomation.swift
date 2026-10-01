@@ -1,11 +1,8 @@
 import ATProto
 import Dependencies
 import Foundation
-import HTTPClient
-import HTTPTypes
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
-import OpenMusicEventSource
 import SQLiteData
 import SwiftUI
 
@@ -21,237 +18,434 @@ extension DependencyValues {
     }
 }
 
-enum OpenMusicEventUIAutomationFixtureError: Error, Equatable {
-    case missingBundledSource
-}
-
 enum OpenMusicEventUIAutomationFixture {
     /// Saturday, August 1, 2026 at 6:15 PM in Testival's America/Denver time zone.
     /// One frozen clock keeps Browse, Schedule, and performance indicators in agreement.
     static let now = Date(timeIntervalSince1970: 1_785_629_700)
-    static let organizerID = OME.Organizer.ID("did:web:example.com")!
-    static let eventID = OME.Event.ID(
-        organizerID: organizerID,
-        eventID: OME.ID<OME.Event>(rawValue: "testival-source-testival-2026")
-    )
-    static let sourceReference = "tangled.org/open-music-event/testival-source"
-    static let sourceRef = "main"
-    static let refreshRevision = "testival-refresh-b"
-    static let refreshArtifactRepository =
-        "https://resources.openmusicevent.test/open-music-event/testival-source"
-    static let refreshArtifactURL = URL(
-        string: "\(refreshArtifactRepository)/archive/\(refreshRevision).tar.gz"
+    static let canonicalEventID = Event.ID(
+        "at://did:web:example.com/events.openmusic.event/3mrdbziccpcah"
     )!
-    static let refreshArtifactSHA256 =
-        "r7PUPbDE4x1C1vB6GEu4pRm1A9/aztbcxiK131Roetc="
-    static let refreshArtifactByteCount = 21_198
-    static let calendarEventPath = "/xrpc/\(OME.CalendarEvent.GetEvent.nsid)"
-
-    static let bundledFiles = [
-        "calendar.yml",
-        "events/testival-2026/event.yml",
-        "events/testival-2026/maps/main.yml",
-        "events/testival-2026/maps/public-map.png",
-        "events/testival-2026/maps/safety-map.png",
-        "events/testival-2026/stages/canopy.yml",
-        "events/testival-2026/stages/meadow.yml",
-        "events/testival-2026/stages/workshop-grove.yml",
-        "events/testival-2026/contributors/artist-one.md",
-        "events/testival-2026/contributors/artist-three.md",
-        "events/testival-2026/contributors/artist-two.md",
-        "events/testival-2026/contributors/facilitator-four.md",
-        "events/testival-2026/schedules/saturday.yml",
-        "events/testival-2026/schedules/sunday.yml",
-        "events/testival-2026/channels/general.yml",
-        "events/testival-2026/channels/safety.yml",
-        "events/testival-2026/communications/general/channel-info.yaml",
-        "events/testival-2026/communications/general/welcome.md",
-    ]
-
-    static func sourceURL(bundle: Bundle = .module) throws -> URL {
-        let fileManager = FileManager.default
-        let sourceURL = fileManager.temporaryDirectory
-            .appendingPathComponent("OMEUIAutomation", isDirectory: true)
-            .appendingPathComponent("TestivalSource", isDirectory: true)
-
-        if fileManager.fileExists(atPath: sourceURL.path) {
-            try fileManager.removeItem(at: sourceURL)
+    static let canonicalMainProgramID = Program.ID(
+        "at://did:web:example.com/events.openmusic.program/3mrdbziccpcai"
+    )!
+    static let canonicalWorkshopProgramID = Program.ID(
+        "at://did:web:example.com/events.openmusic.program/3mrdbziccpcaj"
+    )!
+    static let canonicalSaturdayID = Schedule.ID(
+        "at://did:web:example.com/events.openmusic.schedule/3mrdbziccpcak"
+    )!
+    static let canonicalSundayID = Schedule.ID(
+        "at://did:web:example.com/events.openmusic.schedule/3mrdbziccpcal"
+    )!
+    static let canonicalMeadowID = EventPlace.ID(
+        "at://did:web:example.com/events.openmusic.eventPlace/3mrdbziccpcam"
+    )!
+    static let canonicalCanopyID = EventPlace.ID(
+        "at://did:web:example.com/events.openmusic.eventPlace/3mrdbziccpcan"
+    )!
+    static let canonicalWorkshopGroveID = EventPlace.ID(
+        "at://did:web:example.com/events.openmusic.eventPlace/3mrdbziccpcao"
+    )!
+    static let canonicalArtistOneID = Contributor.ID(
+        "at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcap"
+    )!
+    static let canonicalArtistTwoID = Contributor.ID(
+        "at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcaq"
+    )!
+    static let canonicalArtistThreeID = Contributor.ID(
+        "at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcar"
+    )!
+    static let canonicalFacilitatorFourID = Contributor.ID(
+        "at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcas"
+    )!
+    static let canonicalOpeningSetID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt"
+    )!
+    static let canonicalSunsetSessionID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcru"
+    )!
+    static let canonicalCollaborativeSetID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv"
+    )!
+    static let canonicalLateNightSetID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrw"
+    )!
+    static let canonicalMovementWorkshopID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrx"
+    )!
+    static let canonicalMorningSetID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcry"
+    )!
+    static let canonicalClosingSetID = ProgramItem.ID(
+        "at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrz"
+    )!
+    static let canonicalGeneralCategoryID = Social.Category.ID(
+        "at://did:web:example.com/social.ome.category/3mrdbziccpcah"
+    )!
+    static let canonicalSafetyCategoryID = Social.Category.ID(
+        "at://did:web:example.com/social.ome.category/3mrdbziccpcai"
+    )!
+    static let canonicalWelcomePostID = Social.Post.ID(
+        "at://did:web:example.com/social.ome.post/3mrdbziccpcah"
+    )!
+    static func prepareCanonicalRecords(into database: any DatabaseWriter) async throws {
+        guard let publicMapURL = Bundle.module.url(forResource: "public-map", withExtension: "png"),
+              let safetyMapURL = Bundle.module.url(forResource: "safety-map", withExtension: "png")
+        else {
+            throw URLError(.fileDoesNotExist)
         }
-        try fileManager.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-
-        // Android exposes package resources as asset URLs, while SwiftPM flattens
-        // processed resources in the iOS bundle. Materialize the bundled source into
-        // a real directory so the normal source validator can traverse it.
-        for relativePath in bundledFiles {
-            try materializeBundledFile(
-                at: "UIAutomation/TestivalSource/\(relativePath)",
-                as: relativePath,
-                in: sourceURL,
-                bundle: bundle,
-                fileManager: fileManager
-            )
-        }
-
-        return sourceURL
-    }
-
-    static func refreshArtifactData(bundle: Bundle = .module) throws -> Data {
-        // Keep the already-gzipped bytes behind an opaque resource extension. Android's
-        // resource pipeline otherwise expands `.gz` files before placing them in the APK,
-        // which would no longer match the AppView-advertised size and checksum.
-        guard let artifactURL = bundle.url(
-            forResource: "testival-refresh-b-gzip",
-            withExtension: "fixture",
-            subdirectory: "UIAutomation"
-        ) ?? bundle.url(
-            forResource: "testival-refresh-b-gzip",
-            withExtension: "fixture"
-        ) else {
-            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
-        }
-        return try Data(contentsOf: artifactURL)
-    }
-
-    /// Installs the two responses a real AppView owns: the catalog projection and the immutable
-    /// source artifact it advertises. Everything after this raw HTTP boundary is production code.
-    static func prepareServerResponses(
-        _ dependencies: inout DependencyValues,
-        appViewHost: ATProto.PDSHost
-    ) {
-        let liveDataForURL = dependencies.dataForURL
-        dependencies.dataForURL = { request, body in
-            if isRefreshCatalogRequest(request) {
-                return (
-                    try refreshCalendarEventData(appViewHost: appViewHost),
-                    HTTPResponse(status: .ok)
-                )
-            }
-            if isRefreshArtifactRequest(request) {
-                return (
-                    try refreshArtifactData(),
-                    HTTPResponse(status: .ok)
-                )
-            }
-            return try await liveDataForURL(request, body)
-        }
-    }
-
-    static func refreshCalendarEvent(appViewHost: ATProto.PDSHost) -> OME.CalendarEvent {
-        OME.CalendarEvent(
-            uri: OME.Event.reference(id: eventID).uri,
+        let publicMapBlob = try stageLocalImageBlob(
+            Data(contentsOf: publicMapURL), mimeType: .png
+        )
+        let safetyMapBlob = try stageLocalImageBlob(
+            Data(contentsOf: safetyMapURL), mimeType: .png
+        )
+        let event = try Event(
+            id: canonicalEventID,
             name: "Testival 2026",
-            description: "A compact, deterministic festival that exercises attendee refresh.",
-            organizer: OME.CalendarEvent.Organizer(id: organizerID),
-            source: OME.CalendarEvent.Source(
-                collection: OME.Event.nsid,
-                appViewHost: appViewHost,
-                sourceRecord: OME.SourceRecord(
-                    kind: .tangled,
-                    reference: sourceReference,
-                    ref: refreshRevision
+            createdAt: "2026-07-01T12:00:00Z",
+            timeZone: TimeZone(identifier: "America/Denver")!,
+            description: "A compact, deterministic festival that exercises the attendee experience without network content.",
+            start: .known(.day(.init(value: LocalDate("2026-08-01")!))),
+            end: .known(.day(.init(value: LocalDate("2026-08-02")!))),
+            status: .known(.scheduled),
+            mode: .known(.inPerson),
+            locations: [
+                .init(
+                    name: "1 Fixture Road, Denver, CO 80202",
+                    description: "Enter through the blue gate beside the community garden.",
+                    locators: [
+                        .known(.address(.init(
+                            country: "US", postalCode: "80202", region: "CO",
+                            locality: "Denver", street: "1 Fixture Road"
+                        ))),
+                        .known(.geo(.init(latitude: "39.7392", longitude: "-104.9903"))),
+                    ]
                 ),
-                resolvedArtifact: OME.CalendarEvent.Source.Artifact(
-                    url: refreshArtifactURL,
-                    revision: refreshRevision,
-                    checksumSHA256: refreshArtifactSHA256,
-                    byteCount: refreshArtifactByteCount
+            ],
+            links: [
+                .init(
+                    url: URL(string: "https://example.com/testival")!,
+                    title: "Testival Website",
+                    role: .known(.website(.init()))
                 ),
-                resolvedRepository: OME.CalendarEvent.Source.Repository(
-                    reference: refreshArtifactRepository,
-                    ref: refreshRevision
-                )
-            ),
-            timeZoneIdentifier: "America/Denver"
-        )
-    }
-
-    static func refreshCalendarEventData(appViewHost: ATProto.PDSHost) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(refreshCalendarEvent(appViewHost: appViewHost))
-    }
-
-    static func isRefreshCatalogRequest(_ request: HTTPRequest) -> Bool {
-        guard request.method == .get,
-              let url = request.url,
-              url.path == calendarEventPath
-        else { return false }
-        let requestedEventURI = URLComponents(
-            url: url,
-            resolvingAgainstBaseURL: false
-        )?
-        .queryItems?
-        .first(where: { $0.name == "uri" })?
-        .value
-        return requestedEventURI == OME.Event.reference(id: eventID).uri.description
-    }
-
-    static func isRefreshArtifactRequest(_ request: HTTPRequest) -> Bool {
-        guard request.method == .get,
-              let url = request.url
-        else { return false }
-
-        // swift-foundation's Android URL equality and absent-query representation do not
-        // currently agree with Darwin's for this HTTPS URL. The fixture owns this synthetic
-        // host, so matching its exact archive path remains specific without relying on either.
-        return url.host?.lowercased() == refreshArtifactURL.host?.lowercased()
-            && url.path == refreshArtifactURL.path
-    }
-
-    static func materializeBundledFile(
-        at bundledPath: String,
-        as sourcePath: String,
-        in sourceURL: URL,
-        bundle: Bundle,
-        fileManager: FileManager
-    ) throws {
-        let pathComponents = bundledPath.split(separator: "/").map(String.init)
-        guard let fileName = pathComponents.last else {
-            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
-        }
-        let fileURL = URL(fileURLWithPath: fileName)
-        let extensionName = fileURL.pathExtension
-        let resourceName = fileURL.deletingPathExtension().lastPathComponent
-        let relativeDirectory = pathComponents.dropLast().joined(separator: "/")
-
-        guard let bundledURL = bundle.url(
-            forResource: resourceName,
-            withExtension: extensionName,
-            subdirectory: relativeDirectory
-        ) ?? bundle.url(
-            forResource: resourceName,
-            withExtension: extensionName
-        ) else {
-            throw OpenMusicEventUIAutomationFixtureError.missingBundledSource
-        }
-
-        let destinationURL = sourceURL.appendingPathComponent(sourcePath)
-        try fileManager.createDirectory(
-            at: destinationURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(contentsOf: bundledURL).write(to: destinationURL, options: .atomic)
-    }
-
-    @discardableResult
-    static func importSource(
-        into database: any DatabaseWriter,
-        sourceURL: URL? = nil
-    ) async throws -> OpenMusicEventSourceValidationResult {
-        let sourceURL = try sourceURL ?? self.sourceURL()
-        return try await OpenMusicEventSourceValidator(
-            OpenMusicEventSourceValidationRequest(
-                source: sourceURL.path,
-                organizerID: organizerID,
-                sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance(
-                    kind: .tangled,
-                    reference: sourceReference,
-                    ref: sourceRef
+                .init(
+                    url: URL(string: "tel:555-0100")!,
+                    title: "Event Information",
+                    description: "Attendee information and accessibility support.",
+                    role: .known(.contact(.init()))
                 ),
-                ref: sourceRef
+                .init(
+                    url: URL(string: "https://example.com/testival/report")!,
+                    title: "Report an Incident",
+                    description: "Contact the Testival safety team.",
+                    role: .known(.reporting(.init()))
+                ),
+            ],
+            programs: [canonicalMainProgramID, canonicalWorkshopProgramID],
+            schedules: [canonicalSaturdayID, canonicalSundayID],
+            categories: [canonicalGeneralCategoryID, canonicalSafetyCategoryID],
+            siteMap: .init(
+                title: "Testival Grounds",
+                styles: [
+                    .init(
+                        id: "public", title: "Public",
+                        image: .init(
+                            source: .known(.blob(publicMapBlob)),
+                            role: .known(.siteMap)
+                        )
+                    ),
+                    .init(
+                        id: "safety", title: "Safety",
+                        image: .init(
+                            source: .known(.blob(safetyMapBlob)),
+                            role: .known(.siteMap)
+                        )
+                    ),
+                ],
+                defaultStyleID: "public"
             )
         )
-        .validateAndInsert(into: database)
+        let mainProgram = try Program(
+            id: canonicalMainProgramID,
+            event: canonicalEventID,
+            title: "Music",
+            createdAt: "2026-07-01T12:00:00Z",
+            eventPlaces: [canonicalMeadowID, canonicalCanopyID]
+        )
+        let workshopProgram = try Program(
+            id: canonicalWorkshopProgramID,
+            event: canonicalEventID,
+            title: "Workshops",
+            createdAt: "2026-07-01T12:00:00Z",
+            eventPlaces: [canonicalWorkshopGroveID]
+        )
+        let saturday = try Schedule(
+            id: canonicalSaturdayID,
+            event: canonicalEventID,
+            date: LocalDate("2026-08-01")!,
+            createdAt: "2026-07-01T12:00:00Z",
+            title: "Saturday"
+        )
+        let sunday = try Schedule(
+            id: canonicalSundayID,
+            event: canonicalEventID,
+            date: LocalDate("2026-08-02")!,
+            createdAt: "2026-07-01T12:00:00Z",
+            title: "Sunday"
+        )
+        var meadow = try EventPlace(
+            id: canonicalMeadowID,
+            event: canonicalEventID,
+            name: "Meadow",
+            createdAt: "2026-07-01T12:00:00Z"
+        )
+        var meadowStage = EventPlace.Kind.Stage()
+        meadowStage.color = OME.Color(rawValue: 0x00aaee)
+        meadowStage.sortIndex = 0
+        meadowStage.lineup = [canonicalArtistOneID, canonicalArtistTwoID]
+        meadow.kind = .known(.stage(meadowStage))
+
+        var canopy = try EventPlace(
+            id: canonicalCanopyID,
+            event: canonicalEventID,
+            name: "Canopy",
+            createdAt: "2026-07-01T12:00:00Z"
+        )
+        var canopyStage = EventPlace.Kind.Stage()
+        canopyStage.color = OME.Color(rawValue: 0x8b5cf6)
+        canopyStage.sortIndex = 1
+        canopyStage.lineup = [canonicalArtistTwoID, canonicalArtistThreeID]
+        canopy.kind = .known(.stage(canopyStage))
+
+        var workshopGrove = try EventPlace(
+            id: canonicalWorkshopGroveID,
+            event: canonicalEventID,
+            name: "Workshop Grove",
+            createdAt: "2026-07-01T12:00:00Z"
+        )
+        var workshopStage = EventPlace.Kind.Stage()
+        workshopStage.color = OME.Color(rawValue: 0xf59e0b)
+        workshopStage.category = "workshop"
+        workshopStage.sortIndex = 2
+        workshopStage.lineup = [canonicalFacilitatorFourID]
+        workshopGrove.kind = .known(.stage(workshopStage))
+
+        let artistOne = try Contributor(
+            id: canonicalArtistOneID,
+            event: canonicalEventID,
+            name: "Artist One",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Artist One opens Testival in the Meadow and returns for the closing collaboration.",
+            roles: [.known(.performer)],
+            links: [.init(
+                url: URL(string: "https://example.com/artists/artist-one")!,
+                platform: .known(.website)
+            )]
+        )
+        let artistTwo = try Contributor(
+            id: canonicalArtistTwoID,
+            event: canonicalEventID,
+            name: "Artist Two",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Artist Two performs at both music stages and contributes visuals to the collaborative set.",
+            roles: [.known(.performer)],
+            links: [
+                .init(
+                    url: URL(string: "https://open.spotify.com/artist/testival-artist-two")!,
+                    platform: .known(.spotify)
+                ),
+                .init(
+                    url: URL(string: "https://example.com/artists/artist-two")!,
+                    platform: .known(.website)
+                ),
+            ]
+        )
+        let artistThree = try Contributor(
+            id: canonicalArtistThreeID,
+            event: canonicalEventID,
+            name: "Artist Three",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Artist Three plays the late-night set and joins the Testival closing set.",
+            roles: [.known(.performer)],
+            links: [.init(
+                url: URL(string: "https://example.com/artists/artist-three")!,
+                platform: .known(.website)
+            )]
+        )
+        let facilitatorFour = try Contributor(
+            id: canonicalFacilitatorFourID,
+            event: canonicalEventID,
+            name: "Facilitator Four",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Facilitator Four leads Testival's attendee workshop in Workshop Grove.",
+            roles: [.known(.facilitator)],
+            links: [.init(
+                url: URL(string: "https://example.com/workshops/facilitator-four")!,
+                platform: .known(.website)
+            )]
+        )
+
+        let movementWorkshop = try ProgramItem(
+            id: canonicalMovementWorkshopID,
+            event: canonicalEventID,
+            program: canonicalWorkshopProgramID,
+            title: "Movement Workshop",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "A guided arrival practice for Testival attendees.",
+            schedule: canonicalSaturdayID,
+            eventPlace: canonicalWorkshopGroveID,
+            startsAt: "2026-08-01T23:00:00Z",
+            endsAt: "2026-08-02T00:30:00Z",
+            credits: [.init(
+                name: "Facilitator Four", contributor: canonicalFacilitatorFourID,
+                role: "facilitator"
+            )]
+        )
+        let openingSet = try ProgramItem(
+            id: canonicalOpeningSetID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Opening Set",
+            createdAt: "2026-07-01T12:00:00Z",
+            schedule: canonicalSaturdayID,
+            eventPlace: canonicalMeadowID,
+            startsAt: "2026-08-02T00:00:00Z",
+            endsAt: "2026-08-02T01:00:00Z",
+            credits: [.init(
+                name: "Artist One", contributor: canonicalArtistOneID,
+                role: "musician"
+            )]
+        )
+        let sunsetSession = try ProgramItem(
+            id: canonicalSunsetSessionID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Sunset Session",
+            createdAt: "2026-07-01T12:00:00Z",
+            schedule: canonicalSaturdayID,
+            eventPlace: canonicalCanopyID,
+            startsAt: "2026-08-02T00:30:00Z",
+            endsAt: "2026-08-02T02:00:00Z",
+            credits: [.init(
+                name: "Artist Two", contributor: canonicalArtistTwoID,
+                role: "dj"
+            )]
+        )
+        let collaborativeSet = try ProgramItem(
+            id: canonicalCollaborativeSetID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Collaborative Set",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Music and live visuals meet in the Meadow.",
+            schedule: canonicalSaturdayID,
+            eventPlace: canonicalMeadowID,
+            startsAt: "2026-08-02T02:00:00Z",
+            endsAt: "2026-08-02T03:30:00Z",
+            credits: [
+                .init(name: "Artist One", contributor: canonicalArtistOneID, role: "musician"),
+                .init(
+                    name: "Artist Two", contributor: canonicalArtistTwoID,
+                    billing: .known(.supporting), role: "visual-artist"
+                ),
+            ]
+        )
+        let lateNightSet = try ProgramItem(
+            id: canonicalLateNightSetID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Late Night Set",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "A cross-midnight performance under the Canopy.",
+            schedule: canonicalSaturdayID,
+            eventPlace: canonicalCanopyID,
+            startsAt: "2026-08-02T05:30:00Z",
+            endsAt: "2026-08-02T07:00:00Z",
+            credits: [.init(
+                name: "Artist Three", contributor: canonicalArtistThreeID,
+                role: "musician"
+            )]
+        )
+        let morningSet = try ProgramItem(
+            id: canonicalMorningSetID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Morning Set",
+            createdAt: "2026-07-01T12:00:00Z",
+            schedule: canonicalSundayID,
+            eventPlace: canonicalMeadowID,
+            startsAt: "2026-08-02T16:00:00Z",
+            endsAt: "2026-08-02T17:00:00Z",
+            credits: [.init(
+                name: "Artist Two", contributor: canonicalArtistTwoID,
+                role: "dj"
+            )]
+        )
+        let closingSet = try ProgramItem(
+            id: canonicalClosingSetID,
+            event: canonicalEventID,
+            program: canonicalMainProgramID,
+            title: "Closing Set",
+            createdAt: "2026-07-01T12:00:00Z",
+            schedule: canonicalSundayID,
+            eventPlace: canonicalCanopyID,
+            startsAt: "2026-08-03T01:00:00Z",
+            endsAt: "2026-08-03T02:30:00Z",
+            credits: [
+                .init(name: "Artist Three", contributor: canonicalArtistThreeID, role: "musician"),
+                .init(
+                    name: "Artist One", contributor: canonicalArtistOneID,
+                    billing: .known(.supporting), role: "musician"
+                ),
+            ]
+        )
+        let generalCategory = try Social.Category(
+            id: canonicalGeneralCategoryID,
+            event: canonicalEventID,
+            name: "General",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Official Testival announcements and attendee updates.",
+            pinnedPosts: [canonicalWelcomePostID],
+            defaultNotificationState: .known(.subscribed),
+            notificationsRequired: false
+        )
+        let safetyCategory = try Social.Category(
+            id: canonicalSafetyCategoryID,
+            event: canonicalEventID,
+            name: "Safety",
+            createdAt: "2026-07-01T12:00:00Z",
+            description: "Time-sensitive safety information for attendees.",
+            defaultNotificationState: .known(.subscribed),
+            notificationsRequired: true
+        )
+        let welcomePost = try Social.Post(
+            id: canonicalWelcomePostID,
+            title: "Welcome to Testival",
+            text: "Testival is ready. Check the schedule, find your stage, and review safety information before the first set.",
+            event: canonicalEventID,
+            category: canonicalGeneralCategoryID,
+            createdAt: "2026-07-01T12:00:00Z"
+        )
+
+        let graph = EventRecordGraph(
+            event: event,
+            programs: [mainProgram, workshopProgram],
+            schedules: [saturday, sunday],
+            places: [meadow, canopy, workshopGrove],
+            contributors: [artistOne, artistTwo, artistThree, facilitatorFour],
+            items: [
+                movementWorkshop, openingSet, sunsetSession, collaborativeSet,
+                lateNightSet, morningSet, closingSet,
+            ],
+            categories: [generalCategory, safetyCategory]
+        )
+        try welcomePost.validateGraph(event: event, category: generalCategory)
+        try await database.write { db in
+            guard try Event.find(canonicalEventID).fetchOne(db) == nil else { return }
+            try graph.upsert(in: db)
+            try Social.Post.upsert { welcomePost }.execute(db)
+        }
     }
 }
 
@@ -262,8 +456,8 @@ enum OpenMusicEventApplicationPreparation: Equatable {
 }
 
 /// The platform entry view keeps ordinary launches immediate while giving UI automation one
-/// deterministic preparation gate. The existing application root is unchanged after the fixture
-/// has crossed the same validator and database insertion boundary as a real event source.
+/// deterministic preparation gate. The existing application root is unchanged after canonical
+/// records have been inserted into its isolated automation database.
 /* SKIP @bridge */@MainActor public struct OpenMusicEventApplicationEntryView: View {
     let uiAutomation: OpenMusicEventUIAutomation
     @State var preparation: OpenMusicEventApplicationPreparation
@@ -307,7 +501,7 @@ enum OpenMusicEventApplicationPreparation: Equatable {
         guard uiAutomation == .attendee, preparation == .preparing else { return }
         @Dependency(\.defaultDatabase) var database
         do {
-            try await OpenMusicEventUIAutomationFixture.importSource(into: database)
+            try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
             preparation = .ready
         } catch {
             preparation = .failed(String(describing: error))

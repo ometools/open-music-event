@@ -1,8 +1,10 @@
+import ATProtoTypes
 import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -16,32 +18,31 @@ public struct ImageAssetPicker {
     public struct State: Sendable {
         public init(
             configuration: ImportImages.Configuration,
-            cacheContext: LocalImageCacheContext? = nil,
+            recordID: Event.ID? = nil,
             images: [ImageValue] = []
         ) {
-            self.cacheContext = cacheContext
             self.configuration = configuration
+            self.recordID = recordID
             self.images = images
         }
 
         public init(
             configuration: ImportImages.Configuration,
-            assets: [OMERecord.ImageAsset]?,
-            cacheContext: LocalImageCacheContext? = nil
+            recordImages: [OME.Image]?,
+            recordID: Event.ID? = nil
         ) {
             self.init(
                 configuration: configuration,
-                cacheContext: cacheContext,
+                recordID: recordID,
                 images: Self.imageValues(
-                    for: assets,
-                    configuration: configuration,
-                    cacheContext: cacheContext
+                    for: recordImages,
+                    configuration: configuration
                 )
             )
         }
 
-        public var cacheContext: LocalImageCacheContext?
         public var configuration: ImportImages.Configuration
+        public var recordID: Event.ID?
         public var images: [ImageValue]
 
         var addButtonTitle: String {
@@ -67,12 +68,7 @@ public struct ImageAssetPicker {
         }
 
         mutating func append(_ importedImages: [ImportImages.ImportedImage]) {
-            let imageValues = importedImages.map {
-                ImageValue(
-                    importedImage: $0,
-                    usesUniqueAssetKey: configuration.cardinality == .multiple
-                )
-            }
+            let imageValues = importedImages.map { ImageValue(importedImage: $0) }
 
             switch configuration.cardinality {
             case .single:
@@ -93,60 +89,23 @@ public struct ImageAssetPicker {
 
             return ImageInfo.State(
                 id: image.id,
-                asset: image.asset,
+                image: image.image,
                 configuration: configuration.imageInfoConfiguration,
                 sourceLabel: image.displaySource,
-                cacheContext: cacheContext,
+                recordID: recordID,
                 previewData: image.importedImage?.data
             )
         }
 
         mutating func updateImageInfo(
             imageID: ImageValue.ID,
-            asset: OMERecord.ImageAsset
+            image: OME.Image
         ) {
             guard let index = images.firstIndex(where: { $0.id == imageID }) else {
                 return
             }
-            images[index].asset = asset
-            images[index].importedImage?.asset = asset
-        }
-
-        public func materializedImages(
-            context: LocalImageCacheContext
-        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
-            try Self.materializedImages(images, context: context)
-        }
-
-        static func materializedImages(
-            _ imageValues: [ImageValue],
-            context: LocalImageCacheContext
-        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
-            let imageValues = imageValues.normalizingIncompleteAppearancePairs()
-            var assets: [OMERecord.ImageAsset] = []
-            var blobs: [LocalImageBlob] = []
-
-            for image in imageValues {
-                if let importedImage = image.importedImage {
-                    var request = importedImage.localImageImportRequest
-                    request.assetKeyDiscriminator = image.assetKeyDiscriminator
-                    let materializedImage = try materializeImportedLocalImage(
-                        request,
-                        context: context
-                    )
-                    assets.append(materializedImage.image)
-                    blobs.append(materializedImage.blob)
-                } else {
-                    assets.append(
-                        image.asset.resolvingAssetKey(
-                            context: context,
-                            discriminator: image.assetKeyDiscriminator
-                        )
-                    )
-                }
-            }
-
-            return (assets, blobs)
+            images[index].image = image
+            images[index].importedImage?.image = image
         }
 
         mutating func replaceURLString(_ urlString: String) {
@@ -156,10 +115,7 @@ public struct ImageAssetPicker {
                 return
             }
 
-            let image = ImageValue(
-                asset: configuration.imageAsset(url: url),
-                usesUniqueAssetKey: configuration.cardinality == .multiple
-            )
+            let image = ImageValue(image: configuration.image(url: url))
 
             switch configuration.cardinality {
             case .single:
@@ -170,66 +126,51 @@ public struct ImageAssetPicker {
         }
 
         var firstURLString: String {
-            images.first?.asset.url?.absoluteString ?? ""
+            guard let image = images.first?.image,
+                  case let .known(.url(url)) = image.source else { return "" }
+            return url.absoluteString
         }
 
         private static func imageValues(
-            for assets: [OMERecord.ImageAsset]?,
-            configuration: ImportImages.Configuration,
-            cacheContext: LocalImageCacheContext?
+            for images: [OME.Image]?,
+            configuration: ImportImages.Configuration
         ) -> [ImageValue] {
-            (assets ?? [])
-                .filter { $0.role == configuration.role }
-                .map { asset in
-                    var image = ImageValue(
-                        asset: asset,
-                        usesUniqueAssetKey: configuration.cardinality == .multiple
-                    )
-                    if let cacheContext {
-                        image.asset = image.asset.resolvingAssetKey(
-                            context: cacheContext,
-                            discriminator: image.assetKeyDiscriminator
-                        )
-                    }
-                    return image
+            (images ?? [])
+                .filter {
+                    $0.role == .known(configuration.role)
+                        || (configuration.role == .photo && $0.role == nil)
                 }
+                .map { ImageValue(image: $0) }
         }
     }
 
     public struct ImageValue: Equatable, Identifiable, Sendable {
         public init(
             id: UUID? = nil,
-            asset: OMERecord.ImageAsset,
+            image: OME.Image,
             importedImage: ImportImages.ImportedImage? = nil,
-            sourceLabel: String? = nil,
-            usesUniqueAssetKey: Bool = false
+            sourceLabel: String? = nil
         ) {
             @Dependency(\.uuid) var uuid
             let id = id ?? uuid()
-            self.asset = asset
-            self.assetKeyDiscriminator = usesUniqueAssetKey && asset.assetKey == nil
-                ? id.uuidString.lowercased()
-                : nil
+            self.image = image
             self.id = id
             self.importedImage = importedImage
             self.sourceLabel = sourceLabel
         }
 
-        public init(
-            importedImage: ImportImages.ImportedImage,
-            usesUniqueAssetKey: Bool = false
-        ) {
+        public init(importedImage: ImportImages.ImportedImage) {
+            var importedImage = importedImage
+            importedImage.image.title = importedImage.trimmedTitle.nilIfEmpty
             self.init(
                 id: importedImage.id,
-                asset: importedImage.asset,
+                image: importedImage.image,
                 importedImage: importedImage,
-                sourceLabel: importedImage.sourceLabel,
-                usesUniqueAssetKey: usesUniqueAssetKey
+                sourceLabel: importedImage.sourceLabel
             )
         }
 
-        public var asset: OMERecord.ImageAsset
-        public var assetKeyDiscriminator: String?
+        public var image: OME.Image
         public var id: UUID
         public var importedImage: ImportImages.ImportedImage?
         public var sourceLabel: String?
@@ -237,12 +178,11 @@ public struct ImageAssetPicker {
         var displaySource: String {
             sourceLabel
                 ?? importedImage?.sourceLabel
-                ?? asset.url.flatMap { url in
-                    url.isFileURL
-                        ? url.lastPathComponent.nilIfEmpty
-                        : url.absoluteString
+                ?? image.sourceURL.map { url in
+                    url.isFileURL ? url.lastPathComponent : url.absoluteString
                 }
-                ?? asset.role.imageAssetPickerTitle
+                ?? image.role?.knownRole?.imageAssetPickerTitle
+                ?? "Image"
         }
     }
 
@@ -268,18 +208,6 @@ public struct ImageAssetPicker {
     }
 }
 
-private extension Array where Element == ImageAssetPicker.ImageValue {
-    func normalizingIncompleteAppearancePairs() -> Self {
-        zip(self, map(\.asset).normalizingIncompleteAppearancePairs())
-            .map { imageValue, asset in
-                var imageValue = imageValue
-                imageValue.asset = asset
-                imageValue.importedImage?.asset = asset
-                return imageValue
-            }
-    }
-}
-
 public struct ImageAssetPickerSection: View {
     @Bindable var store: StoreOf<ImageAssetPicker>
 
@@ -291,7 +219,7 @@ public struct ImageAssetPickerSection: View {
         Section(store.sectionTitle) {
             ForEach(store.images) { image in
                 ImageAssetPickerRowView(
-                    cacheContext: store.cacheContext,
+                    recordID: store.recordID,
                     image: image
                 ) {
                     store.send(.imageInfoButtonTapped(image.id))
@@ -312,7 +240,7 @@ public struct ImageAssetPickerSection: View {
 }
 
 struct ImageAssetPickerRowView: View {
-    let cacheContext: LocalImageCacheContext?
+    let recordID: Event.ID?
     let image: ImageAssetPicker.ImageValue
     let onEditInfo: () -> Void
     let onRemove: () -> Void
@@ -324,7 +252,7 @@ struct ImageAssetPickerRowView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(image.asset.role.imageAssetPickerTitle)
+                Text(image.image.role?.knownRole?.imageAssetPickerTitle ?? "Image")
                     .font(.headline)
 
                 Text(image.displaySource)
@@ -360,8 +288,7 @@ struct ImageAssetPickerRowView: View {
             ImportedImageThumbnail(data: importedImage.data)
         } else {
             ImageAssetAsyncImage(
-                asset: image.asset,
-                cacheContext: cacheContext,
+                image: recordID.flatMap { image.image.displayImageAsset(recordID: $0) },
                 contentMode: .fit
             ) {
                 ImageAssetPickerThumbnailPlaceholder()
@@ -382,37 +309,31 @@ struct ImageAssetPickerThumbnailPlaceholder: View {
 }
 
 private extension ImportImages.Configuration {
-    func imageAsset(url: URL) -> OMERecord.ImageAsset {
-        OMERecord.ImageAsset(
-            source: .url(url),
-            role: role,
-            renderKind: renderKind,
-            appearance: appearance,
-            materializationPolicy: materializationPolicy
+    func image(url: URL) -> OME.Image {
+        OME.Image(
+            source: .known(.url(url)),
+            role: .known(role),
+            renderingMode: .known(renderingMode),
+            appearance: appearance.map(Open.known)
         )
     }
 }
 
-private extension OMERecord.ImageAsset {
-    func resolvingAssetKey(
-        context: LocalImageCacheContext,
-        discriminator: String?
-    ) -> Self {
-        guard assetKey == nil else { return self }
-        var image = self
-        image.assetKey = LocalImageBlob.assetKey(
-            organizerID: context.organizerID,
-            eventID: context.eventID,
-            parentKind: context.parentKind,
-            parentLocalID: context.parentLocalID,
-            role: role,
-            discriminator: discriminator
-        )
-        return image
+private extension OME.Image {
+    var sourceURL: URL? {
+        guard case let .known(.url(url)) = source else { return nil }
+        return url
     }
 }
 
-private extension OMERecord.ImageAsset.Role {
+private extension Open<OME.Image.Role> {
+    var knownRole: OME.Image.Role? {
+        guard case let .known(role) = self else { return nil }
+        return role
+    }
+}
+
+private extension OME.Image.Role {
     var imageAssetPickerPluralTitle: String {
         switch self {
         case .hero:

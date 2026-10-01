@@ -1,3 +1,5 @@
+import OpenMusicEventLexicon
+import ATProtoTypes
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -19,14 +21,12 @@ public struct LocationViewer {
     public init() {}
 
     public struct State {
-        public let eventID: OMERecord.Event.ID
-        @FetchOne public var event: OMERecord.Event?
+        public let eventID: Event.ID
+        @FetchOne public var event: Event?
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
-            )
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
         }
     }
 
@@ -65,68 +65,83 @@ public struct LocationViewerView: View {
 
     public var body: some View {
         Group {
-            if let locations = store.event?.locations?.displayLocations, !locations.isEmpty {
+            if let locations = store.event?.locations, !locations.isEmpty {
                 List {
                     ForEach(locations.indices, id: \.self) { index in
                         let location = locations[index]
                         Section {
                             #if !os(Android) && canImport(MapKit)
-                            if let coordinates = location.coordinates {
+                            if let coordinates = location.displayCoordinates {
                                 LocationMapView(coordinates: coordinates)
                                     .frame(minHeight: 320)
                                     .listRowInsets(EdgeInsets())
                             }
                             #endif
 
-                            if let address = location.displayAddress {
-                                LocationInfoRow(
-                                    title: "Address",
-                                    value: address,
-                                    systemImage: "mappin.and.ellipse"
-                                )
-                            }
-
-                            if let coordinates = location.coordinates, location.displayAddress == nil {
-                                LocationInfoRow(
-                                    title: "Coordinates",
-                                    value: coordinates.displayText,
-                                    systemImage: "location"
-                                )
-                            }
-
-                            #if !os(Android)
-                            if let appleMapsURL = location.appleMapsURL {
-                                Link(destination: appleMapsURL) {
-                                    Label("Apple Maps", systemImage: "location")
-                                }
-                            }
-                            #endif
-
-                            if let googleMapsURL = location.googleMapsURL {
-                                Link(destination: googleMapsURL) {
-                                    Label(
-                                        "Google Maps",
-                                        mappedSystemImage: "map"
+                            let locators = location.locators ?? []
+                            ForEach(locators.indices, id: \.self) { locatorIndex in
+                                switch locators[locatorIndex] {
+                                case let .known(.address(address)):
+                                    LocationInfoRow(
+                                        title: "Address",
+                                        value: address.displayText,
+                                        systemImage: "mappin.and.ellipse"
                                     )
+                                case let .known(.geo(geo)):
+                                    LocationInfoRow(
+                                        title: "Coordinates",
+                                        value: "\(geo.latitude), \(geo.longitude)",
+                                        systemImage: "location"
+                                    )
+                                case let .known(.foursquare(place)):
+                                    LocationInfoRow(
+                                        title: "Foursquare Place",
+                                        value: place.fsqPlaceID,
+                                        systemImage: "mappin.and.ellipse"
+                                    )
+                                case let .known(.hthree(cell)):
+                                    LocationInfoRow(
+                                        title: "H3 Cell",
+                                        value: cell.value,
+                                        systemImage: "location"
+                                    )
+                                case .unknown:
+                                    EmptyView()
                                 }
                             }
 
-                            if let directions = location.displayDirections {
+                            let links = location.links ?? []
+                            ForEach(links.indices, id: \.self) { linkIndex in
+                                let link = links[linkIndex]
+                                Link(destination: link.url) {
+                                    Label(link.title ?? "Open Map", mappedSystemImage: "map")
+                                }
+                            }
+
+                            if let mapURL = location.mapURL {
+                                Link(destination: mapURL) {
+                                    #if os(Android)
+                                    Label("Open in Google Maps", mappedSystemImage: "map")
+                                    #else
+                                    Label("Open in Apple Maps", mappedSystemImage: "map")
+                                    #endif
+                                }
+                            }
+
+                            if let details = location.displayDescription {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Label(
-                                        "Directions",
+                                        "Details",
                                         mappedSystemImage: "arrow.triangle.turn.up.right.diamond"
                                     )
                                         .font(.headline)
-                                    Text(directions)
+                                    Text(details)
                                         .foregroundStyle(.secondary)
                                 }
                                 .padding(.vertical, 4)
                             }
                         } header: {
-                            if locations.count > 1 {
-                                Text("Location \(index + 1)")
-                            }
+                            Text(location.name)
                         }
                     }
                 }
@@ -187,18 +202,18 @@ public struct EditLocation {
     public init() {}
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
         }
 
-        let eventID: OMERecord.Event.ID
-        var draft: OMERecord.Event.Draft = .placeholder
+        let eventID: Event.ID
+        var event: Event?
         var locations: [EditableLocation] = []
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
 
-        var preparedLocations: [OMERecord.Event.Location] {
+        var preparedLocations: [Event.Location] {
             locations.compactMap(\.preparedLocation)
         }
 
@@ -218,18 +233,16 @@ public struct EditLocation {
             hasLoadedDraft && !isSaving && validationMessage == nil
         }
 
-        var preparedDraft: OMERecord.Event.Draft {
-            var draft = draft
-            let locations = preparedLocations
-            draft.locations = locations.isEmpty ? nil : locations
-            return draft
-        }
     }
 
     public enum Action {
         case addLocationButtonTapped
+        case addLocatorButtonTapped(UUID, EditableLocator.Kind)
+        case addLinkButtonTapped(UUID)
         case cancelButtonTapped
         case removeLocationButtonTapped(UUID)
+        case removeLocatorButtonTapped(UUID, UUID)
+        case removeLinkButtonTapped(UUID, UUID)
         case saveButtonTapped
     }
 
@@ -241,6 +254,14 @@ public struct EditLocation {
             case .addLocationButtonTapped:
                 state.locations.append(EditableLocation())
 
+            case let .addLocatorButtonTapped(locationID, kind):
+                guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
+                state.locations[index].locators.append(EditableLocator(kind: kind))
+
+            case let .addLinkButtonTapped(locationID):
+                guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
+                state.locations[index].links.append(EditableLocationLink())
+
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
@@ -248,6 +269,14 @@ public struct EditLocation {
 
             case .removeLocationButtonTapped(let id):
                 state.locations.removeAll { $0.id == id }
+
+            case let .removeLocatorButtonTapped(locationID, locatorID):
+                guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
+                state.locations[index].locators.removeAll { $0.id == locatorID }
+
+            case let .removeLinkButtonTapped(locationID, linkID):
+                guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
+                state.locations[index].links.removeAll { $0.id == linkID }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -257,23 +286,35 @@ public struct EditLocation {
                 }
 
                 guard let validationMessage = state.validationMessage else {
+                    guard let original = state.event else {
+                        state.errorMessage = "This event could not be loaded."
+                        return
+                    }
+                    let locations = state.preparedLocations
                     state.errorMessage = nil
                     state.isSaving = true
-                    let draft = state.preparedDraft
 
                     store.addTask {
                         do {
                             try database.write { db in
-                                try OMERecord.Event.upsert {
-                                    draft
+                                guard var current = try Event.find(original.id).fetchOne(db),
+                                      current.locations == original.locations else {
+                                    throw LocationChangedError()
                                 }
-                                .execute(db)
+                                current.locations = locations.isEmpty ? nil : locations
+                                try current.validateReferences()
+                                try Event.upsert { current }.execute(db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
                                 $0.isSaving = false
                             }
                             try store.dismiss()
+                        } catch is LocationChangedError {
+                            try store.modify {
+                                $0.errorMessage = "Locations changed. Reopen the editor to see the latest values."
+                                $0.isSaving = false
+                            }
                         } catch {
                             try store.modify {
                                 $0.errorMessage = "Unable to save location."
@@ -292,9 +333,9 @@ public struct EditLocation {
 
             do {
                 if let event = try database.read({ db in
-                    try OMERecord.Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
+                    try Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
                 }) {
-                    state.draft = .init(event)
+                    state.event = event
                     state.locations = (event.locations ?? []).map(EditableLocation.init)
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
@@ -307,6 +348,8 @@ public struct EditLocation {
         }
     }
 }
+
+private struct LocationChangedError: Error {}
 
 public struct EditLocationView: View {
     @Bindable var store: StoreOf<EditLocation>
@@ -321,40 +364,70 @@ public struct EditLocationView: View {
                 Form {
                     ForEach($store.locations) { $location in
                         Section {
-                            PortableTextField("Address", text: $location.address, axis: .vertical)
-                                .portableLineLimit(2...4)
-
-                            PortableTextField("Directions", text: $location.directions, axis: .vertical)
+                            TextField("Name", text: $location.name)
+                            PortableTextField("Details and directions", text: $location.description, axis: .vertical)
                                 .portableLineLimit(2...6)
-
-                            Toggle("Coordinates", isOn: $location.hasCoordinates.portableAnimation())
-
-                            if location.hasCoordinates {
-                                TextField("Latitude", text: $location.latitude)
-                                    #if os(iOS)
-                                    .keyboardType(.decimalPad)
-                                    #endif
-                                TextField("Longitude", text: $location.longitude)
-                                    #if os(iOS)
-                                    .keyboardType(.decimalPad)
-                                    #endif
+                        } header: {
+                            HStack {
+                                Text(location.name.isEmpty ? "Location" : location.name)
+                                Spacer()
+                                Menu("Actions") {
+                                    Button("Delete Location", role: .destructive) {
+                                        store.send(.removeLocationButtonTapped(location.id))
+                                    }
+                                }
                             }
+                        }
 
-                            TextField("Apple Maps Link", text: $location.appleMapsLink)
-                                #if os(iOS)
-                                .keyboardType(.URL)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                #endif
-                            TextField("Google Maps Link", text: $location.googleMapsLink)
-                                #if os(iOS)
-                                .keyboardType(.URL)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                #endif
+                        ForEach($location.locators) { $locator in
+                            Section {
+                                EditableLocatorFields(locator: $locator)
+                            } header: {
+                                HStack {
+                                    Text(locator.kind.title)
+                                    Spacer()
+                                    Menu("Actions") {
+                                        Button("Delete Locator", role: .destructive) {
+                                            store.send(.removeLocatorButtonTapped(location.id, locator.id))
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                            Button("Remove Location", role: .destructive) {
-                                store.send(.removeLocationButtonTapped(location.id))
+                        ForEach($location.links) { $link in
+                            Section {
+                                TextField("Link Title", text: $link.title)
+                                TextField("URL", text: $link.urlString)
+                                    #if os(iOS)
+                                    .keyboardType(.URL)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    #endif
+                                PortableTextField("Description", text: $link.description, axis: .vertical)
+                                    .portableLineLimit(2...4)
+                            } header: {
+                                HStack {
+                                    Text(link.title.isEmpty ? "Location Link" : link.title)
+                                    Spacer()
+                                    Menu("Actions") {
+                                        Button("Delete Link", role: .destructive) {
+                                            store.send(.removeLinkButtonTapped(location.id, link.id))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Section {
+                            Menu("Add Locator") {
+                                Button("Address") { store.send(.addLocatorButtonTapped(location.id, .address)) }
+                                Button("Coordinates") { store.send(.addLocatorButtonTapped(location.id, .geo)) }
+                                Button("Foursquare Place") { store.send(.addLocatorButtonTapped(location.id, .foursquare)) }
+                                Button("H3 Cell") { store.send(.addLocatorButtonTapped(location.id, .hthree)) }
+                            }
+                            Button("Add Link") {
+                                store.send(.addLinkButtonTapped(location.id))
                             }
                         }
                     }
@@ -406,7 +479,7 @@ public struct EditLocationView: View {
 
 #if !os(Android) && canImport(MapKit)
 struct LocationMapView: View {
-    let coordinates: OMERecord.Event.Location.Coordinates
+    let coordinates: LocationCoordinates
 
     var body: some View {
         let coordinate = CLLocationCoordinate2D(
@@ -427,203 +500,284 @@ struct LocationMapView: View {
 }
 #endif
 
+struct LocationCoordinates: Equatable {
+    let latitude: Double
+    let longitude: Double
+}
+
 public struct EditableLocation: Identifiable, Equatable {
     public var id = UUID()
-    var address = ""
-    var directions = ""
-    var hasCoordinates = false
-    var latitude = ""
-    var longitude = ""
-    var appleMapsLink = ""
-    var googleMapsLink = ""
+    var original: Event.Location?
+    var name = ""
+    var description = ""
+    var locators: [EditableLocator] = []
+    var links: [EditableLocationLink] = []
 
     init() {}
 
-    init(_ location: OMERecord.Event.Location) {
-        self.address = location.address ?? ""
-        self.directions = location.directions ?? ""
-        if let coordinates = location.coordinates {
-            self.hasCoordinates = true
-            self.latitude = "\(coordinates.latitude)"
-            self.longitude = "\(coordinates.longitude)"
-        }
-        self.appleMapsLink = location.appleMapsLink?.absoluteString ?? ""
-        self.googleMapsLink = location.googleMapsLink?.absoluteString ?? ""
+    init(_ location: Event.Location) {
+        original = location
+        name = location.name
+        description = location.description ?? ""
+        locators = (location.locators ?? []).map(EditableLocator.init)
+        links = (location.links ?? []).map(EditableLocationLink.init)
     }
 
     var validationMessage: String? {
-        if hasCoordinates {
-            guard parsedLatitude != nil, parsedLongitude != nil else {
-                return "Enter valid latitude and longitude values."
+        if name.trimmed.isEmpty { return "Enter a location name." }
+        return locators.compactMap(\.validationMessage).first
+            ?? links.compactMap(\.validationMessage).first
+    }
+
+    var preparedLocation: Event.Location? {
+        guard validationMessage == nil else { return nil }
+        var value = original ?? Event.Location(name: name.trimmed)
+        value.name = name.trimmed
+        value.description = description.trimmed.nilIfEmpty
+        value.locators = locators.isEmpty ? nil : locators.compactMap(\.preparedLocator)
+        value.links = links.isEmpty ? nil : links.compactMap(\.preparedLink)
+        return value
+    }
+}
+
+public struct EditableLocator: Identifiable, Equatable {
+    public enum Kind: Equatable {
+        case address, geo, foursquare, hthree, unknown
+
+        var title: String {
+            switch self {
+            case .address: "Address"
+            case .geo: "Coordinates"
+            case .foursquare: "Foursquare Place"
+            case .hthree: "H3 Cell"
+            case .unknown: "Other Locator"
             }
         }
+    }
 
-        if !trimmedAppleMapsLink.isEmpty, URL(string: trimmedAppleMapsLink) == nil {
-            return "Enter a valid Apple Maps link."
+    public var id = UUID()
+    var original: Open<Event.Locator>?
+    var kind: Kind
+    var name = ""
+    var country = ""
+    var postalCode = ""
+    var region = ""
+    var locality = ""
+    var street = ""
+    var latitude = ""
+    var longitude = ""
+    var altitude = ""
+    var fsqPlaceID = ""
+    var hthreeValue = ""
+
+    init(kind: Kind) { self.kind = kind }
+
+    init(_ locator: Open<Event.Locator>) {
+        original = locator
+        switch locator {
+        case let .known(.address(value)):
+            kind = .address
+            name = value.name ?? ""
+            country = value.country
+            postalCode = value.postalCode ?? ""
+            region = value.region ?? ""
+            locality = value.locality ?? ""
+            street = value.street ?? ""
+        case let .known(.geo(value)):
+            kind = .geo
+            name = value.name ?? ""
+            latitude = value.latitude
+            longitude = value.longitude
+            altitude = value.altitude ?? ""
+        case let .known(.foursquare(value)):
+            kind = .foursquare
+            name = value.name ?? ""
+            fsqPlaceID = value.fsqPlaceID
+            latitude = value.latitude ?? ""
+            longitude = value.longitude ?? ""
+        case let .known(.hthree(value)):
+            kind = .hthree
+            name = value.name ?? ""
+            hthreeValue = value.value
+        case .unknown:
+            kind = .unknown
         }
+    }
 
-        if !trimmedGoogleMapsLink.isEmpty, URL(string: trimmedGoogleMapsLink) == nil {
-            return "Enter a valid Google Maps link."
+    var validationMessage: String? {
+        switch kind {
+        case .address:
+            return country.trimmed.count >= 2 ? nil : "Enter the address country code."
+        case .geo:
+            return coordinatesValid(required: true) ? nil : "Enter valid latitude and longitude values."
+        case .foursquare:
+            if fsqPlaceID.trimmed.isEmpty { return "Enter the Foursquare place ID." }
+            return coordinatesValid(required: false) ? nil : "Enter valid Foursquare coordinates."
+        case .hthree:
+            return hthreeValue.trimmed.isEmpty ? "Enter the H3 cell value." : nil
+        case .unknown:
+            return nil
         }
+    }
 
+    var preparedLocator: Open<Event.Locator>? {
+        guard validationMessage == nil else { return nil }
+        switch kind {
+        case .address:
+            var value = Event.Address(country: country.trimmed)
+            value.name = name.trimmed.nilIfEmpty
+            value.postalCode = postalCode.trimmed.nilIfEmpty
+            value.region = region.trimmed.nilIfEmpty
+            value.locality = locality.trimmed.nilIfEmpty
+            value.street = street.trimmed.nilIfEmpty
+            return .known(.address(value))
+        case .geo:
+            var value = Event.Geo(latitude: latitude.trimmed, longitude: longitude.trimmed)
+            value.name = name.trimmed.nilIfEmpty
+            value.altitude = altitude.trimmed.nilIfEmpty
+            return .known(.geo(value))
+        case .foursquare:
+            var value = Event.Foursquare(fsqPlaceID: fsqPlaceID.trimmed)
+            value.name = name.trimmed.nilIfEmpty
+            value.latitude = latitude.trimmed.nilIfEmpty
+            value.longitude = longitude.trimmed.nilIfEmpty
+            return .known(.foursquare(value))
+        case .hthree:
+            var value = Event.HThree(value: hthreeValue.trimmed)
+            value.name = name.trimmed.nilIfEmpty
+            return .known(.hthree(value))
+        case .unknown:
+            return original
+        }
+    }
+
+    func coordinatesValid(required: Bool) -> Bool {
+        let lat = latitude.trimmed
+        let lon = longitude.trimmed
+        if !required && lat.isEmpty && lon.isEmpty { return true }
+        guard let latitude = Double(lat), let longitude = Double(lon) else { return false }
+        return (-90...90).contains(latitude) && (-180...180).contains(longitude)
+    }
+}
+
+public struct EditableLocationLink: Identifiable, Equatable {
+    public var id = UUID()
+    var original: OME.Link?
+    var title = ""
+    var urlString = ""
+    var description = ""
+
+    init() {}
+
+    init(_ link: OME.Link) {
+        original = link
+        title = link.title ?? ""
+        urlString = link.url.absoluteString
+        description = link.description ?? ""
+    }
+
+    var validationMessage: String? {
+        guard let url = URL(string: urlString.trimmed),
+              url.scheme == "https" || url.scheme == "http",
+              url.host != nil else { return "Enter a valid location link URL." }
         return nil
     }
 
-    var preparedLocation: OMERecord.Event.Location? {
-        let address = address.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        let directions = directions.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        let coordinates = preparedCoordinates
-        let appleMapsLink = trimmedAppleMapsLink.nilIfEmpty.flatMap { URL(string: $0) }
-        let googleMapsLink = trimmedGoogleMapsLink.nilIfEmpty.flatMap { URL(string: $0) }
-
-        guard address != nil
-            || directions != nil
-            || coordinates != nil
-            || appleMapsLink != nil
-            || googleMapsLink != nil
-        else { return nil }
-
-        return OMERecord.Event.Location(
-            address: address,
-            directions: directions,
-            coordinates: coordinates,
-            appleMapsLink: appleMapsLink,
-            googleMapsLink: googleMapsLink
-        )
-    }
-
-    private var preparedCoordinates: OMERecord.Event.Location.Coordinates? {
-        guard hasCoordinates, let latitude = parsedLatitude, let longitude = parsedLongitude else {
-            return nil
-        }
-
-        return OMERecord.Event.Location.Coordinates(latitude: latitude, longitude: longitude)
-    }
-
-    private var parsedLatitude: Double? {
-        guard let latitude = Double(latitude.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (-90...90).contains(latitude)
-        else { return nil }
-        return latitude
-    }
-
-    private var parsedLongitude: Double? {
-        guard let longitude = Double(longitude.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (-180...180).contains(longitude)
-        else { return nil }
-        return longitude
-    }
-
-    private var trimmedAppleMapsLink: String {
-        appleMapsLink.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedGoogleMapsLink: String {
-        googleMapsLink.trimmingCharacters(in: .whitespacesAndNewlines)
+    var preparedLink: OME.Link? {
+        guard validationMessage == nil, let url = URL(string: urlString.trimmed) else { return nil }
+        var link = original ?? OME.Link(url: url)
+        link.url = url
+        link.title = title.trimmed.nilIfEmpty
+        link.description = description.trimmed.nilIfEmpty
+        return link
     }
 }
 
-private extension Array where Element == OMERecord.Event.Location {
-    var displayLocations: Self {
-        filter(\.hasDisplayContent)
-    }
-}
+struct EditableLocatorFields: View {
+    @Binding var locator: EditableLocator
 
-private extension OMERecord.Event.Location {
-    var hasDisplayContent: Bool {
-        #if os(Android)
-        displayAddress != nil
-            || displayDirections != nil
-            || coordinates != nil
-            || googleMapsLink != nil
-        #else
-        displayAddress != nil
-            || displayDirections != nil
-            || coordinates != nil
-            || appleMapsLink != nil
-            || googleMapsLink != nil
-        #endif
-    }
-
-    var displayAddress: String? {
-        let address = address?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return address?.isEmpty == false ? address : nil
-    }
-
-    var displayDirections: String? {
-        let directions = directions?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return directions?.isEmpty == false ? directions : nil
-    }
-
-    var appleMapsURL: URL? {
-        if let appleMapsLink {
-            return appleMapsLink
-        }
-
-        if let coordinates {
-            return URL(string: "http://maps.apple.com/?daddr=\(coordinates.latitude),\(coordinates.longitude)")
-        }
-
-        return displayAddress.flatMap { address in
-            var components = URLComponents(string: "http://maps.apple.com/")
-            components?.queryItems = [
-                URLQueryItem(name: "daddr", value: address)
-            ]
-            return components?.url
-        }
-    }
-
-    var googleMapsURL: URL? {
-        if let googleMapsLink {
-            return googleMapsLink
-        }
-
-        if let coordinates {
-            return URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinates.latitude),\(coordinates.longitude)")
-        }
-
-        return displayAddress.flatMap { address in
-            var components = URLComponents(string: "https://www.google.com/maps/dir/")
-            components?.queryItems = [
-                URLQueryItem(name: "api", value: "1"),
-                URLQueryItem(name: "destination", value: address),
-            ]
-            return components?.url
+    var body: some View {
+        switch locator.kind {
+        case .address:
+            TextField("Name", text: $locator.name)
+            TextField("Street", text: $locator.street)
+            TextField("City or locality", text: $locator.locality)
+            TextField("Region", text: $locator.region)
+            TextField("Postal code", text: $locator.postalCode)
+            TextField("Country code", text: $locator.country)
+        case .geo:
+            TextField("Name", text: $locator.name)
+            TextField("Latitude", text: $locator.latitude)
+            TextField("Longitude", text: $locator.longitude)
+            TextField("Altitude", text: $locator.altitude)
+        case .foursquare:
+            TextField("Name", text: $locator.name)
+            TextField("Foursquare place ID", text: $locator.fsqPlaceID)
+            TextField("Latitude", text: $locator.latitude)
+            TextField("Longitude", text: $locator.longitude)
+        case .hthree:
+            TextField("Name", text: $locator.name)
+            TextField("H3 cell", text: $locator.hthreeValue)
+        case .unknown:
+            Text("This locator is preserved without changes.")
+                .foregroundStyle(.secondary)
         }
     }
 }
 
-private extension OMERecord.Event.Draft {
-    static var placeholder: Self {
-        .init(
-            id: .init(
-                organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                eventID: .init("-1")
-            ),
-            name: "",
-            description: nil,
-            startDate: nil,
-            endDate: nil,
-            status: nil,
-            mode: nil,
-            locations: nil,
-            uris: nil,
-            timeZone: TimeZone.current,
-            imageURL: nil,
-            iconImageURL: nil,
-            siteMapImageURL: nil,
-            contactNumbers: nil
-        )
-    }
-}
-
-private extension OMERecord.Event.Location.Coordinates {
+private extension Event.Address {
     var displayText: String {
-        "\(latitude), \(longitude)"
+        [name, street, locality, region, postalCode, country]
+            .compactMap { $0?.trimmed.nilIfEmpty }
+            .joined(separator: ", ")
+    }
+}
+
+private extension Event.Location {
+    var displayDescription: String? { description?.trimmed.nilIfEmpty }
+
+    var mapURL: URL? {
+        let destination = displayCoordinates.map { "\($0.latitude),\($0.longitude)" }
+            ?? (locators ?? []).compactMap { locator -> String? in
+                if case let .known(.address(address)) = locator { return address.displayText }
+                return nil
+            }.first
+        guard let destination else { return nil }
+        #if os(Android)
+        var components = URLComponents(string: "https://www.google.com/maps/dir/")
+        components?.queryItems = [
+            URLQueryItem(name: "api", value: "1"),
+            URLQueryItem(name: "destination", value: destination),
+        ]
+        #else
+        var components = URLComponents(string: "https://maps.apple.com/")
+        components?.queryItems = [URLQueryItem(name: "daddr", value: destination)]
+        #endif
+        return components?.url
+    }
+
+    var displayCoordinates: LocationCoordinates? {
+        for locator in locators ?? [] {
+            switch locator {
+            case let .known(.geo(geo)):
+                if let latitude = Double(geo.latitude), let longitude = Double(geo.longitude) {
+                    return LocationCoordinates(latitude: latitude, longitude: longitude)
+                }
+            case let .known(.foursquare(place)):
+                if let latitude = place.latitude.flatMap(Double.init),
+                   let longitude = place.longitude.flatMap(Double.init) {
+                    return LocationCoordinates(latitude: latitude, longitude: longitude)
+                }
+            default:
+                break
+            }
+        }
+        return nil
     }
 }
 
 private extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }

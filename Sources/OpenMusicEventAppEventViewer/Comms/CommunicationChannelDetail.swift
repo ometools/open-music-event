@@ -17,102 +17,87 @@ public struct CommunicationChannelDetail {
 
     public struct State: Identifiable {
         public init(
-            channelID: OMERecord.ID<OMERecord.Channel>,
-            eventID: OMERecord.Event.ID,
+            channelID: Social.Category.ID,
+            eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
+            self._authoringGrant = .authoringGrant(for: eventID)
             self.channelID = channelID
             self.eventID = eventID
             self.destination = destination
             _channel = FetchOne(
-                CommunicationChannelDetail.channelQuery(
-                    channelID: channelID,
-                    eventID: eventID
-                )
+                CommunicationChannelDetail.channelQuery(channelID: channelID)
             )
             _preference = FetchOne(
-                CommunicationChannelDetail.preferenceQuery(
-                    channelID: channelID,
-                    eventID: eventID
-                )
+                CommunicationChannelDetail.preferenceQuery(channelID: channelID)
             )
             _posts = FetchAll(
-                CommunicationChannelDetail.postsQuery(
-                    channelID: channelID,
-                    eventID: eventID
-                )
+                CommunicationChannelDetail.postsQuery(channelID: channelID)
             )
             _postReads = FetchAll(
-                CommunicationChannelDetail.postReadsQuery(
-                    channelID: channelID,
-                    eventID: eventID
-                )
+                CommunicationChannelDetail.postReadsQuery()
             )
         }
 
-        public let channelID: OMERecord.ID<OMERecord.Channel>
-        public let eventID: OMERecord.Event.ID
-        @SharedReader(.defaultAuthoringGrant)
+        public let channelID: Social.Category.ID
+        public let eventID: Event.ID
+        @SharedReader
         public var authoringGrant: AuthoringGrant?
         public var destination: Destination.State?
         public var errorMessage: String?
 
-        @FetchOne public var channel: OMERecord.Channel?
+        @FetchOne public var channel: Social.Category?
         @FetchOne public var preference: ChannelPreferences?
-        @FetchAll public var posts: [CommsPost]
+        @FetchAll public var posts: [Social.Post]
         @FetchAll public var postReads: [CommsPostRead]
 
-        public var id: OMERecord.ID<OMERecord.Channel> { channelID }
-
-        var channelRecordID: OMERecord.Channel.ID {
-            OMERecord.Channel.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                channelID: channelID
-            )
-        }
+        public var id: Social.Category.ID { channelID }
 
         var canChangeNotificationState: Bool {
-            channel?.notificationsRequired == false
+            channel?.notificationsRequired != true
         }
 
         public var canEditChannel: Bool {
             authoringGrant?.access.canEditContent == true
         }
 
-        var effectiveNotificationState: OMERecord.Channel.NotificationState? {
-            if channel?.notificationsRequired == true {
-                return .subscribed
-            }
-            return preference?.notificationState ?? channel?.defaultNotificationState
+        func canEditPost(_ post: Social.Post) -> Bool {
+            guard let authoringGrant else { return false }
+            return canEditChannel && post.id.authority == .did(authoringGrant.principal.actorID)
         }
 
-        var pinnedPosts: [CommsPost] {
-            posts.filter(\.isPinned)
+        var effectiveNotificationState: Social.Category.NotificationState? {
+            channel?.effectiveNotificationState(preference: preference)
         }
 
-        var recentPosts: [CommsPost] {
-            posts.filter { !$0.isPinned }
+        var pinnedPosts: [Social.Post] {
+            let postsByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+            return (channel?.pinnedPosts ?? []).compactMap { postsByID[$0] }
+        }
+
+        var recentPosts: [Social.Post] {
+            let pinnedIDs = Set(channel?.pinnedPosts ?? [])
+            return posts.filter { !pinnedIDs.contains($0.id) }
         }
 
         var shouldShowEmptyPostsFooter: Bool {
             posts.isEmpty
         }
 
-        var readPostIDs: Set<CommsPost.ID> {
+        var readPostIDs: Set<Social.Post.ID> {
             Set(postReads.map(\.id))
         }
     }
 
     public enum Action {
         case deleteChannelButtonTapped
-        case editChannelButtonTapped(OMERecord.Channel)
-        case markPostReadButtonTapped(CommsPost.ID)
-        case markPostUnreadButtonTapped(CommsPost.ID)
-        case deletePostButtonTapped(CommsPost.ID)
+        case editChannelButtonTapped(Social.Category)
+        case markPostReadButtonTapped(Social.Post.ID)
+        case markPostUnreadButtonTapped(Social.Post.ID)
+        case deletePostButtonTapped(Social.Post.ID)
         case newPostButtonTapped
-        case notificationStateButtonTapped(OMERecord.Channel.NotificationState)
-        case postButtonTapped(CommsPost.ID)
+        case notificationStateButtonTapped(Social.Category.NotificationState)
+        case postButtonTapped(Social.Post.ID)
         case destination(Destination.Action)
     }
 
@@ -128,44 +113,27 @@ public struct CommunicationChannelDetail {
     @Dependency(\.defaultDatabase) var database
 
     static func channelQuery(
-        channelID: OMERecord.ID<OMERecord.Channel>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Channel> {
-        OMERecord.Channel
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.channelID.eq(channelID) }
+        channelID: Social.Category.ID
+    ) -> some SelectStatementOf<Social.Category> {
+        Social.Category.where { $0.id.eq(channelID) }
     }
 
     static func preferenceQuery(
-        channelID: OMERecord.ID<OMERecord.Channel>,
-        eventID: OMERecord.Event.ID
+        channelID: Social.Category.ID
     ) -> some SelectStatementOf<ChannelPreferences> {
-        ChannelPreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.channelID.eq(channelID) }
+        ChannelPreferences.where { $0.id.eq(channelID) }
     }
 
     static func postsQuery(
-        channelID: OMERecord.ID<OMERecord.Channel>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<CommsPost> {
-        CommsPost
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.channelID.eq(channelID) }
-            .order { ($0.timestamp.desc(), $0.sortIndex, $0.title.collate(.nocase)) }
+        channelID: Social.Category.ID
+    ) -> some SelectStatementOf<Social.Post> {
+        Social.Post
+            .where { $0.category.eq(channelID) }
+            .order { $0.createdAt.desc() }
     }
 
-    static func postReadsQuery(
-        channelID: OMERecord.ID<OMERecord.Channel>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<CommsPostRead> {
-        CommsPostRead
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.channelID.eq(channelID) }
+    static func postReadsQuery() -> some SelectStatementOf<CommsPostRead> {
+        CommsPostRead.all
     }
 
     public var body: some Feature {
@@ -177,7 +145,7 @@ public struct CommunicationChannelDetail {
                 )
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(ChannelForm.State(channel: channel))
+                state.destination = .channelForm(ChannelForm.State(category: channel))
 
             case let .markPostReadButtonTapped(postID):
                 updateReadState(true, postID: postID)
@@ -186,16 +154,20 @@ public struct CommunicationChannelDetail {
                 updateReadState(false, postID: postID)
 
             case let .deletePostButtonTapped(postID):
-                guard state.canEditChannel else { return }
+                guard let post = state.posts.first(where: { $0.id == postID }),
+                      state.canEditPost(post) else { return }
                 state.destination = .postDeleteConfirmation(
                     PostDeleteConfirmation.State(postID: postID)
                 )
 
             case .newPostButtonTapped:
-                guard state.canEditChannel else { return }
+                guard state.canEditChannel,
+                      let author = state.authoringGrant?.principal.actorID else { return }
                 state.destination = .composer(
                     CommsPostComposer.State(
-                        channelID: state.channelRecordID
+                        eventID: state.eventID,
+                        categoryID: state.channelID,
+                        author: author
                     )
                 )
 
@@ -207,23 +179,28 @@ public struct CommunicationChannelDetail {
                 updateNotificationState(notificationState, state: state)
 
             case let .postButtonTapped(postID):
-                state.destination = .postDetail(CommsPostDetail.State(postID: postID))
+                state.destination = .postDetail(
+                    CommsPostDetail.State(postID: postID, eventID: state.eventID)
+                )
 
             case .destination(.postDetail(.deleteButtonTapped)):
                 guard case let .postDetail(detail) = state.destination,
-                      state.canEditChannel else { return }
+                      let post = state.posts.first(where: { $0.id == detail.postID }),
+                      state.canEditPost(post) else { return }
                 state.destination = .postDeleteConfirmation(
                     PostDeleteConfirmation.State(postID: detail.postID)
                 )
 
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }
-                let recordID = state.channelRecordID
+                let eventID = state.eventID
                 state.destination = nil
                 store.addTask {
                     do {
                         try await database.write { db in
-                            try OMERecord.Channel.find(recordID).delete().execute(db)
+                            try SocialCategoryRecordEditing.delete(
+                                channelID, eventID: eventID, in: db
+                            )
                         }
                         try store.dismiss()
                     } catch {
@@ -234,24 +211,15 @@ public struct CommunicationChannelDetail {
                 }
 
             case let .destination(.postDeleteConfirmation(.deleteButtonTapped(postID))):
-                guard state.canEditChannel,
-                      postID.channelID == state.channelID else { return }
+                guard let post = state.posts.first(where: { $0.id == postID }),
+                      state.canEditPost(post),
+                      let author = state.authoringGrant?.principal.actorID else { return }
                 state.destination = nil
                 store.addTask {
                     do {
                         try await database.write { db in
-                            guard try CommsPost.find(postID).fetchOne(db) != nil else {
-                                throw PostDeleteError()
-                            }
+                            try SocialPostRecordEditing.delete(postID, author: author, in: db)
                             try CommsPostRead.find(postID).delete().execute(db)
-                            try CommsPost.find(postID).delete().execute(db)
-                            try LocalImageBlob
-                                .where { $0.organizerID.eq(postID.organizerID) }
-                                .where { $0.eventID.eq(postID.eventID) }
-                                .where { $0.parentKind.eq(LocalImageBlob.ParentKind.communicationPost) }
-                                .where { $0.parentLocalID.eq(postID.postID.rawValue) }
-                                .delete()
-                                .execute(db)
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -273,13 +241,13 @@ public struct CommunicationChannelDetail {
     }
 
     private func updateNotificationState(
-        _ notificationState: OMERecord.Channel.NotificationState,
+        _ notificationState: Social.Category.NotificationState,
         state: CommunicationChannelDetail.State
     ) {
         guard state.channel != nil else { return }
 
         let channelPreference = ChannelPreferences(
-            id: state.channelRecordID,
+            id: state.channelID,
             notificationState: notificationState
         )
         store.addTask {
@@ -302,7 +270,7 @@ public struct CommunicationChannelDetail {
         }
     }
 
-    func updateReadState(_ isRead: Bool, postID: CommsPost.ID) {
+    func updateReadState(_ isRead: Bool, postID: Social.Post.ID) {
         store.addTask {
             do {
                 try await database.write { database in
@@ -326,16 +294,16 @@ public struct CommunicationChannelDetail {
 @Feature
 public struct PostDeleteConfirmation: Prompt {
     public struct State: Identifiable {
-        public init(postID: CommsPost.ID) {
+        public init(postID: Social.Post.ID) {
             self.postID = postID
         }
 
-        public let postID: CommsPost.ID
-        public var id: CommsPost.ID { postID }
+        public let postID: Social.Post.ID
+        public var id: Social.Post.ID { postID }
     }
 
     public enum Action {
-        case deleteButtonTapped(CommsPost.ID)
+        case deleteButtonTapped(Social.Post.ID)
     }
 }
 
@@ -366,18 +334,18 @@ public struct CommunicationChannelDetailView: View {
             }
         }
         .accessibilityIdentifier(
-            "view.channel-detail.\(store.channelID.rawValue.rawValue)"
+            "view.channel-detail.\(store.channelID.description)"
         )
     }
 }
 
 struct CommunicationChannelControlsView: View {
     @Bindable var store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     init(
         store: StoreOf<CommunicationChannelDetail>,
-        channel: OMERecord.Channel
+        channel: Social.Category
     ) {
         self.store = store
         self.channel = channel
@@ -418,7 +386,7 @@ struct CommunicationChannelControlsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This removes the channel. Posts already published in it are not changed.")
+                Text("Move or delete this channel's posts before deleting it.")
             }
             .confirmationDialog(
                 "Delete Post?",
@@ -446,11 +414,11 @@ struct CommunicationChannelControlsView: View {
 
 struct CommunicationChannelFormSheetView: View {
     @Bindable var store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     init(
         store: StoreOf<CommunicationChannelDetail>,
-        channel: OMERecord.Channel
+        channel: Social.Category
     ) {
         self.store = store
         self.channel = channel
@@ -470,11 +438,11 @@ struct CommunicationChannelFormSheetView: View {
 
 struct CommunicationChannelComposerSheetView: View {
     @Bindable var store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     init(
         store: StoreOf<CommunicationChannelDetail>,
-        channel: OMERecord.Channel
+        channel: Social.Category
     ) {
         self.store = store
         self.channel = channel
@@ -487,11 +455,11 @@ struct CommunicationChannelComposerSheetView: View {
 
 struct CommunicationChannelPostDestinationView: View {
     @Bindable var store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     init(
         store: StoreOf<CommunicationChannelDetail>,
-        channel: OMERecord.Channel
+        channel: Social.Category
     ) {
         self.store = store
         self.channel = channel
@@ -510,12 +478,12 @@ struct CommunicationChannelPostDestinationView: View {
 
 struct CommunicationChannelDetailList: View {
     let store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     var body: some View {
         List {
             Section {
-                Text(channel.description)
+                Text(channel.description ?? "")
                     .font(.subheadline)
             } footer: {
                 if store.shouldShowEmptyPostsFooter {
@@ -539,9 +507,9 @@ struct CommunicationChannelDetailList: View {
                 }
             }
 
-            if channel.notificationsRequired || store.errorMessage != nil {
+            if channel.notificationsRequired == true || store.errorMessage != nil {
                 Section("Notifications") {
-                    if channel.notificationsRequired {
+                    if channel.notificationsRequired == true {
                         Label(
                             "Notifications are required for this channel.",
                             mappedSystemImage: "bell.badge"
@@ -562,7 +530,7 @@ struct CommunicationChannelDetailList: View {
 
 struct CommunicationChannelPostRow: View {
     let store: StoreOf<CommunicationChannelDetail>
-    let post: CommsPost
+    let post: Social.Post
 
     var body: some View {
         let isRead = store.readPostIDs.contains(post.id)
@@ -573,7 +541,7 @@ struct CommunicationChannelPostRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("button.communication-post.\(post.id.postID.rawValue)")
+        .accessibilityIdentifier("button.communication-post.\(post.id.description)")
         .contextMenu {
             Button {
                 store.send(.markPostReadButtonTapped(post.id))
@@ -595,7 +563,7 @@ struct CommunicationChannelPostRow: View {
             }
             .disabled(!isRead)
 
-            if store.canEditChannel {
+            if store.state.canEditPost(post) {
                 Button(role: .destructive) {
                     store.send(.deletePostButtonTapped(post.id))
                 } label: {
@@ -604,7 +572,7 @@ struct CommunicationChannelPostRow: View {
             }
         }
         .swipeActions {
-            if store.canEditChannel {
+            if store.state.canEditPost(post) {
                 Button(role: .destructive) {
                     store.send(.deletePostButtonTapped(post.id))
                 } label: {
@@ -615,10 +583,8 @@ struct CommunicationChannelPostRow: View {
     }
 }
 
-struct PostDeleteError: Error {}
-
 struct CommsPostRowView: View {
-    let post: CommsPost
+    let post: Social.Post
     let isRead: Bool
 
     var body: some View {
@@ -632,7 +598,7 @@ struct CommsPostRowView: View {
                             .accessibilityHidden(true)
                     }
 
-                    Text(post.title)
+                    Text(post.title ?? "Post")
                         .font(.headline)
                         .fontWeight(isRead ? .regular : .semibold)
                         .foregroundStyle(.primary)
@@ -640,14 +606,14 @@ struct CommsPostRowView: View {
                     Spacer()
                 }
 
-                if let timestamp = post.timestamp {
+                if let timestamp = ISO8601DateFormatter().date(from: post.createdAt.rawValue) {
                     Text(timestamp, format: .relative(presentation: .named))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            CommsMarkdownText(post.contents)
+            CommsMarkdownText(post.text)
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.leading)
@@ -660,7 +626,7 @@ struct CommsPostRowView: View {
 
 struct CommunicationChannelSettingsMenu: View {
     let store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
     var body: some View {
         Menu {
@@ -689,10 +655,10 @@ struct CommunicationChannelSettingsMenu: View {
 
 struct CommunicationChannelNotificationMenu: View {
     let store: StoreOf<CommunicationChannelDetail>
-    let channel: OMERecord.Channel
+    let channel: Social.Category
 
-    private var notificationState: OMERecord.Channel.NotificationState {
-        store.effectiveNotificationState ?? channel.defaultNotificationState
+    private var notificationState: Social.Category.NotificationState {
+        store.effectiveNotificationState ?? channel.effectiveNotificationState(preference: store.preference)
     }
 
     private var isSubscribed: Bool {
@@ -712,13 +678,13 @@ struct CommunicationChannelNotificationMenu: View {
     }
 
     private var menuTitle: String {
-        channel.notificationsRequired
+        channel.notificationsRequired == true
             ? "Notifications Required"
             : "Notifications: \(notificationState.menuTitle)"
     }
 
     private var menuSystemImage: String {
-        channel.notificationsRequired
+        channel.notificationsRequired == true
             ? "bell.badge"
             : notificationState.systemImage
     }
@@ -746,7 +712,7 @@ struct CommunicationChannelNotificationMenu: View {
                     MappedSystemImage(systemName: unsubscribeSystemImage)
                 }
             }
-            .disabled(channel.notificationsRequired || isUnsubscribed)
+            .disabled(channel.notificationsRequired == true || isUnsubscribed)
             .accessibilityIdentifier("button.channel-notifications.unsubscribe")
         } label: {
             Label {
@@ -756,7 +722,7 @@ struct CommunicationChannelNotificationMenu: View {
             }
         }
         .accessibilityIdentifier(
-            "menu.channel-notifications.\(channel.id.channelID.rawValue.rawValue)"
+            "menu.channel-notifications.\(channel.id.description)"
         )
     }
 }

@@ -259,7 +259,12 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         do {
             let taskID = resolutionTaskID
             let resolvedAsset: OME.ImageAsset
-            if let recordID, case let .blob(blob) = asset.source {
+            if case let .blob(blob) = asset.source,
+               let fileURL = try stagedLocalImageBlobURL(for: blob) {
+                var image = asset
+                image.source = .url(fileURL)
+                resolvedAsset = image
+            } else if let recordID, case let .blob(blob) = asset.source {
                 let host = try await pdsHosts.pdsHost(forRecordURI: recordID)
                 var image = asset
                 image.source = .url(try Self.blobURL(recordID: recordID, blob: blob, host: host))

@@ -7,6 +7,8 @@ import SQLiteData
 @Table("events.openmusic.schedule")
 @Lexicon("events.openmusic.schedule", type: .record(key: .tid), description: "One organizer-defined festival day shared across an event's programs. Its date names the day attendees use, even when assigned items continue past midnight.")
 public struct Schedule: RecordCodable, Equatable {
+    public typealias ID = ATProto.URI
+
     @LexiconIgnored
     @Column(primaryKey: true)
     public let id: ATProto.URI

@@ -46,56 +46,6 @@ public struct HeroImage<Placeholder: View, ChromeTrailingContent: View>: View {
         self.chromeTrailingContent = chromeTrailingContent
     }
 
-    public init(
-        title: Text,
-        asset: OME.ImageAsset?,
-        cacheContext: LocalImageCacheContext?,
-        logoAsset: OME.ImageAsset? = nil,
-        logoCacheContext: LocalImageCacheContext? = nil,
-        titleSources: [HeroImageTitleSource],
-        tint: Color = .accentColor,
-        @ViewBuilder placeholder: @escaping () -> Placeholder
-    ) where ChromeTrailingContent == EmptyView {
-        self.init(
-            title: title,
-            asset: asset,
-            cacheContext: cacheContext,
-            logoAsset: logoAsset,
-            logoCacheContext: logoCacheContext,
-            titleSources: titleSources,
-            tint: tint,
-            placeholder: placeholder,
-            chromeTrailingContent: { EmptyView() }
-        )
-    }
-
-    public init(
-        title: Text,
-        asset: OME.ImageAsset?,
-        cacheContext: LocalImageCacheContext?,
-        logoAsset: OME.ImageAsset? = nil,
-        logoCacheContext: LocalImageCacheContext? = nil,
-        titleSources: [HeroImageTitleSource],
-        tint: Color = .accentColor,
-        @ViewBuilder placeholder: @escaping () -> Placeholder,
-        @ViewBuilder chromeTrailingContent: @escaping () -> ChromeTrailingContent
-    ) {
-        let logoImage = logoAsset.map {
-            DisplayImageAsset(asset: $0, cacheContext: logoCacheContext ?? cacheContext)
-        }
-        self.title = title
-        self.sources = [
-            asset.map {
-                .primaryImage(DisplayImageAsset(asset: $0, cacheContext: cacheContext))
-            },
-            logoImage.map(HeroImageSource.logo),
-        ].compactMap { $0 }
-        self.titleSources = titleSources
-        self.tint = tint
-        self.placeholder = placeholder
-        self.chromeTrailingContent = chromeTrailingContent
-    }
-
     public var body: some View {
         GeometryReader { geometry in
             HeroImageBackground(

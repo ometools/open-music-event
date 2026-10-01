@@ -12,18 +12,18 @@ import SwiftUI
 import Tagged
 
 struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
-    let channel: OMERecord.Channel
+    let channel: Social.Category
     let preference: ChannelPreferences?
     let unreadPostCount: Int
 
-    var id: OMERecord.Channel.ID { channel.id }
+    var id: Social.Category.ID { channel.id }
 
-    var effectiveNotificationState: OMERecord.Channel.NotificationState {
+    var effectiveNotificationState: Social.Category.NotificationState {
         channel.effectiveNotificationState(preference: preference)
     }
 
     var notificationSystemImage: String {
-        channel.notificationsRequired
+        channel.notificationsRequired == true
             ? "bell.badge"
             : effectiveNotificationState.systemImage
     }
@@ -32,16 +32,16 @@ struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
 @Feature
 public struct ChannelDeleteConfirmation: Prompt {
     public struct State: Identifiable {
-        public init(channelID: OMERecord.ID<OMERecord.Channel>) {
+        public init(channelID: Social.Category.ID) {
             self.channelID = channelID
         }
 
-        public let channelID: OMERecord.ID<OMERecord.Channel>
-        public var id: OMERecord.ID<OMERecord.Channel> { channelID }
+        public let channelID: Social.Category.ID
+        public var id: Social.Category.ID { channelID }
     }
 
     public enum Action {
-        case deleteButtonTapped(OMERecord.ID<OMERecord.Channel>)
+        case deleteButtonTapped(Social.Category.ID)
     }
 }
 
@@ -50,28 +50,29 @@ public struct CommunicationsViewer {
     public init() {}
 
     public struct State {
-        public let eventID: OMERecord.Event.ID
-        @SharedReader(.defaultAuthoringGrant)
+        public let eventID: Event.ID
+        @SharedReader
         public var authoringGrant: AuthoringGrant?
         @SharedReader(.devicePermissions)
         public var permissions: DevicePermissions
         public var destination: Destination.State?
         public var errorMessage: String?
 
-        @FetchAll public var channels: [OMERecord.Channel]
+        @FetchAll public var channels: [Social.Category]
         @FetchAll public var channelPreferences: [ChannelPreferences]
-        @FetchOne public var event: OMERecord.Event?
+        @FetchOne public var event: Event?
         @Fetch public var unreadPostCounts: CommsUnreadPostCounts
 
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
+            self._authoringGrant = .authoringGrant(for: eventID)
             self.eventID = eventID
             self.destination = destination
             _channels = FetchAll(CommunicationsViewer.channelsQuery(eventID: eventID))
             _channelPreferences = FetchAll(CommunicationsViewer.channelPreferencesQuery(eventID: eventID))
-            _event = FetchOne(OMERecord.Event.where { $0.id.eq(eventID) })
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
             _unreadPostCounts = Fetch(
                 wrappedValue: CommsUnreadPostCounts(),
                 CommsUnreadPostCountsRequest(eventIDs: [eventID])
@@ -86,7 +87,7 @@ public struct CommunicationsViewer {
                 CommunicationChannelRow(
                     channel: channel,
                     preference: preferencesByID[channel.id],
-                    unreadPostCount: unreadPostCounts.count(for: channel.id)
+                    unreadPostCount: unreadPostCounts.count(forCategory: channel.id)
                 )
             }
         }
@@ -114,23 +115,23 @@ public struct CommunicationsViewer {
         }
 
         public var unreadPostCount: Int {
-            unreadPostCounts.count(for: eventID)
+            unreadPostCounts.count(forEvent: eventID)
         }
     }
 
     public enum Action {
         case addChannelButtonTapped
-        case channelButtonTapped(OMERecord.ID<OMERecord.Channel>)
+        case channelButtonTapped(Social.Category.ID)
         case criticalAlertPermissionButtonTapped
-        case deleteChannelButtonTapped(OMERecord.ID<OMERecord.Channel>)
+        case deleteChannelButtonTapped(Social.Category.ID)
         case destination(Destination.Action)
-        case editChannelButtonTapped(OMERecord.Channel)
-        case markAllPostsReadButtonTapped(OMERecord.Channel.ID)
-        case markAllPostsUnreadButtonTapped(OMERecord.Channel.ID)
+        case editChannelButtonTapped(Social.Category)
+        case markAllPostsReadButtonTapped(Social.Category.ID)
+        case markAllPostsUnreadButtonTapped(Social.Category.ID)
         case notificationPermissionButtonTapped
         case notificationStateButtonTapped(
-            OMERecord.Channel.ID,
-            OMERecord.Channel.NotificationState
+            Social.Category.ID,
+            Social.Category.NotificationState
         )
         case openNotificationSettingsButtonTapped
     }
@@ -146,20 +147,17 @@ public struct CommunicationsViewer {
     @Dependency(\.devicePermissions) var devicePermissions
 
     static func channelsQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Channel> {
-        OMERecord.Channel
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+        eventID: Event.ID
+    ) -> some SelectStatementOf<Social.Category> {
+        Social.Category
+            .where { $0.event.eq(eventID) }
+            .order { $0.name.collate(.nocase) }
     }
 
     static func channelPreferencesQuery(
-        eventID: OMERecord.Event.ID
+        eventID: Event.ID
     ) -> some SelectStatementOf<ChannelPreferences> {
-        ChannelPreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
+        ChannelPreferences.all
     }
 
     public var body: some Feature {
@@ -198,16 +196,14 @@ public struct CommunicationsViewer {
                 )
 
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
-                let recordID = OMERecord.Channel.ID(
-                    organizerID: state.eventID.organizerID,
-                    eventID: state.eventID.eventID,
-                    channelID: channelID
-                )
+                let eventID = state.eventID
                 state.destination = nil
                 store.addTask {
                     do {
                         try await database.write { db in
-                            try OMERecord.Channel.find(recordID).delete().execute(db)
+                            try SocialCategoryRecordEditing.delete(
+                                channelID, eventID: eventID, in: db
+                            )
                         }
                         try store.modify { $0.errorMessage = nil }
                     } catch {
@@ -218,7 +214,7 @@ public struct CommunicationsViewer {
                 }
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(ChannelForm.State(channel: channel))
+                state.destination = .channelForm(ChannelForm.State(category: channel))
 
             case let .markAllPostsReadButtonTapped(channelID):
                 store.addTask {
@@ -272,7 +268,7 @@ public struct CommunicationsViewer {
             case let .notificationStateButtonTapped(channelID, notificationState):
                 guard
                     let channel = state.channels.first(where: { $0.id == channelID }),
-                    notificationState != .unsubscribed || !channel.notificationsRequired
+                    notificationState != .unsubscribed || channel.notificationsRequired != true
                 else { return }
 
                 let channelPreference = ChannelPreferences(
@@ -392,18 +388,7 @@ public struct CommunicationsViewerView: View {
                         }
                     }
 
-                    if store.channelRows.isEmpty {
-                        Section {
-                            Text("No communication channels have been added to this event yet.")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Section("Channels") {
-                            ForEach(store.channelRows) { row in
-                                CommunicationChannelListRow(store: store, row: row)
-                            }
-                        }
-                    }
+                    channelsSection
 
                     if let errorMessage = store.errorMessage {
                         Section {
@@ -464,8 +449,24 @@ public struct CommunicationsViewerView: View {
             Text("This removes the channel. Posts already published in it are not changed.")
         }
         .accessibilityIdentifier(
-            "view.communications.\(store.eventID.eventID.rawValue.rawValue)"
+            "view.communications.\(store.eventID.description)"
         )
+    }
+
+    @ViewBuilder
+    private var channelsSection: some View {
+        if store.channelRows.isEmpty {
+            Section {
+                Text("No communication channels have been added to this event yet.")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Section("Channels") {
+                ForEach(store.channelRows) { row in
+                    CommunicationChannelListRow(store: store, row: row)
+                }
+            }
+        }
     }
 }
 
@@ -475,7 +476,7 @@ struct CommunicationChannelListRow: View {
 
     var body: some View {
         Button {
-            store.send(.channelButtonTapped(row.channel.id.channelID))
+            store.send(.channelButtonTapped(row.channel.id))
         } label: {
             CommunicationChannelRowView(row: row)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -483,7 +484,7 @@ struct CommunicationChannelListRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(
-            "button.channel.\(row.channel.id.channelID.rawValue.rawValue)"
+            "button.channel.\(row.channel.id.description)"
         )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             CommunicationChannelNotificationSwipeActions(store: store, row: row)
@@ -503,7 +504,7 @@ struct CommunicationChannelNotificationSwipeActions: View {
 
     var body: some View {
         Group {
-            if !row.channel.notificationsRequired {
+            if row.channel.notificationsRequired != true {
                 if row.effectiveNotificationState == .subscribed {
                     Button {
                         store.send(
@@ -553,7 +554,7 @@ struct CommunicationChannelAuthoringSwipeActions: View {
 
                 Button(role: .destructive) {
                     store.send(
-                        .deleteChannelButtonTapped(row.channel.id.channelID)
+                        .deleteChannelButtonTapped(row.channel.id)
                     )
                 } label: {
                     Label("Delete", systemImage: "trash")
@@ -621,7 +622,7 @@ struct CommunicationChannelContextActions: View {
                     )
                 }
                 .disabled(
-                    row.channel.notificationsRequired
+                    row.channel.notificationsRequired == true
                         || row.effectiveNotificationState == .unsubscribed
                 )
             } label: {
@@ -642,7 +643,7 @@ struct CommunicationChannelContextActions: View {
 
                 Button(role: .destructive) {
                     store.send(
-                        .deleteChannelButtonTapped(row.channel.id.channelID)
+                        .deleteChannelButtonTapped(row.channel.id)
                     )
                 } label: {
                     Label("Delete", systemImage: "trash")
@@ -695,7 +696,7 @@ struct CommunicationChannelRowView: View {
 
     @ViewBuilder
     var notificationImage: some View {
-        if row.channel.notificationsRequired {
+        if row.channel.notificationsRequired == true {
             MappedSystemImage(systemName: "bell.badge")
                 .frame(width: 20, height: 20)
                 .accessibilityLabel("Notifications required")
@@ -707,9 +708,9 @@ struct CommunicationChannelRowView: View {
     }
 }
 
-private extension OMERecord.Channel {
+private extension Social.Category {
     var displayDescription: String? {
-        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 }

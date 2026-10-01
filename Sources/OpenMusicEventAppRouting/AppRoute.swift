@@ -7,7 +7,7 @@ import OpenMusicEventViewers
 public typealias BrandedEventRouteClaim = OpenMusicEventRouting.BrandedEventRouteClaim
 
 public enum AppRoute: Equatable, NotificationRoute, Sendable {
-    case event(OMERecord.Event.ID, EventTarget?)
+    case event(Event.ID, EventTarget?)
 
     public init?(notificationRoute: String) {
         guard
@@ -27,19 +27,16 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
         url: URL,
         brandedClaims: [BrandedEventRouteClaim]
     ) {
-        let segments = url.path.split(separator: "/").map(String.init)
-        if segments.count >= 4,
-           segments[0] == "orgs",
-           segments[2] == "events",
-           let organizerID = OMERecord.Organizer.ID(segments[1].decodedPathSegment) {
+        let segments = url.path(percentEncoded: true).split(separator: "/").map(String.init)
+        if segments.count >= 3,
+           segments[0] == "records",
+           let eventID = Event.ID(
+               "at://\(segments[1].decodedPathSegment)/\(Event.lexiconID.rawValue)/\(segments[2].decodedPathSegment)"
+           ),
+           case .did = eventID.authority {
             self.init(
-                eventID: OMERecord.Event.ID(
-                    organizerID: organizerID,
-                    eventID: OMERecord.ID<OMERecord.Event>(
-                        .init(segments[3].decodedPathSegment)
-                    )
-                ),
-                tail: Array(segments.dropFirst(4))
+                eventID: eventID,
+                tail: Array(segments.dropFirst(3))
             )
             return
         }
@@ -62,45 +59,51 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
         )
     }
 
-    private init?(eventID: OMERecord.Event.ID, tail: [String]) {
+    private init?(eventID: Event.ID, tail: [String]) {
         if tail.isEmpty {
             self = .event(eventID, nil)
         } else if tail == ["schedule"] {
             self = .event(eventID, .schedule)
         } else if tail == ["contributors"] {
             self = .event(eventID, .contributors)
-        } else if tail.count == 2, tail[0] == "contributors" {
+        } else if tail.count == 2, tail[0] == "contributors",
+                  let contributorID = Contributor.ID(tail[1].decodedPathSegment) {
             self = .event(
                 eventID,
-                .contributor(.init(.init(tail[1].decodedPathSegment)))
+                .contributor(contributorID)
             )
         } else if tail == ["stages"] {
             self = .event(eventID, .stages)
-        } else if tail.count == 2, tail[0] == "stages" {
+        } else if tail.count == 2, tail[0] == "stages",
+                  let stageID = EventPlace.ID(tail[1].decodedPathSegment) {
             self = .event(
                 eventID,
-                .stage(.init(.init(tail[1].decodedPathSegment)))
+                .stage(stageID)
             )
-        } else if tail.count == 2, tail[0] == "performances" {
+        } else if tail.count == 2, tail[0] == "performances",
+                  let performanceID = ProgramItem.ID(tail[1].decodedPathSegment) {
             self = .event(
                 eventID,
-                .performance(.init(.init(tail[1].decodedPathSegment)))
+                .performance(performanceID)
             )
         } else if tail == ["communications"] {
             self = .event(eventID, .communications)
-        } else if tail.count == 2, tail[0] == "communications" {
+        } else if tail.count == 2, tail[0] == "communications",
+                  let channelID = Social.Category.ID(tail[1].decodedPathSegment) {
             self = .event(
                 eventID,
-                .channel(.init(.init(tail[1].decodedPathSegment)))
+                .channel(channelID)
             )
         } else if tail.count == 4,
                   tail[0] == "communications",
-                  tail[2] == "posts" {
+                  tail[2] == "posts",
+                  let channelID = Social.Category.ID(tail[1].decodedPathSegment),
+                  let postID = Social.Post.ID(tail[3].decodedPathSegment) {
             self = .event(
                 eventID,
                 .post(
-                    channelID: .init(.init(tail[1].decodedPathSegment)),
-                    postID: CommsPost.PostID(tail[3].decodedPathSegment)
+                    channelID: channelID,
+                    postID: postID
                 )
             )
         } else if tail == ["contact-info"] {
@@ -138,13 +141,13 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
             case .contributors:
                 return "\(base)/contributors"
             case let .contributor(contributorID):
-                return "\(base)/contributors/\(contributorID.rawValue.rawValue.encodedPathSegment)"
+                return "\(base)/contributors/\(contributorID.description.encodedPathSegment)"
             case .stages:
                 return "\(base)/stages"
             case let .stage(stageID):
-                return "\(base)/stages/\(stageID.rawValue.rawValue.encodedPathSegment)"
+                return "\(base)/stages/\(stageID.description.encodedPathSegment)"
             case let .performance(performanceID):
-                return "\(base)/performances/\(performanceID.rawValue.rawValue.encodedPathSegment)"
+                return "\(base)/performances/\(performanceID.description.encodedPathSegment)"
             case .communications:
                 return "\(base)/communications"
             case let .channel(channelID):
@@ -156,7 +159,7 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
                 return openMusicEventEventPathRouter.communicationPostPath(
                     eventID: eventID,
                     channelID: channelID,
-                    postID: postID.rawValue
+                    postID: postID
                 )
             case .contactInfo:
                 return "\(base)/contact-info"

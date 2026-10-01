@@ -59,7 +59,6 @@ where
 {
     static var openMusicEvent: Self {
         @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-        @Dependency(\.omeEventInstallation) var eventInstallation
 
         return Self(
             admission: { workspace in
@@ -91,7 +90,6 @@ where
                 guard grant.workspaceID == workspace.id else {
                     throw OpenMusicEventAuthoringClientError.grantWorkspaceMismatch
                 }
-                try await eventInstallation.restorePublishedEvents(workspace)
             },
             restore: { workspace in
                 guard let activation = try activations.current(workspace.id) else {

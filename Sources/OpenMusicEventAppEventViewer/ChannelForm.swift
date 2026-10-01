@@ -1,3 +1,5 @@
+import OpenMusicEventLexicon
+import ATProto
 import ComposableArchitecture2
 import ComposableForms
 import Dependencies
@@ -15,7 +17,7 @@ public struct ChannelForm {
         public init(
             name: String = "",
             description: String = "",
-            defaultNotificationState: OMERecord.Channel.NotificationState = .subscribed,
+            defaultNotificationState: Social.Category.NotificationState = .subscribed,
             notificationsRequired: Bool = false
         ) {
             self.name = name
@@ -24,7 +26,7 @@ public struct ChannelForm {
             self.notificationsRequired = notificationsRequired
         }
 
-        public var defaultNotificationState: OMERecord.Channel.NotificationState
+        public var defaultNotificationState: Social.Category.NotificationState
         public var description: String
         public var name: String
         public var notificationsRequired: Bool {
@@ -49,102 +51,43 @@ public struct ChannelForm {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
-            channelID: OMERecord.ID<OMERecord.Channel>? = nil,
+            eventID: Event.ID,
+            categoryID: Social.Category.ID? = nil,
             formValue: FormValue = FormValue()
         ) {
-            self.channelID = channelID
+            self.categoryID = categoryID
             self.eventID = eventID
             self.form = FormFeature.State(value: formValue)
         }
 
-        public init(channel: OMERecord.Channel) {
+        public init(category: Social.Category) {
             self.init(
-                eventID: OMERecord.Event.ID(
-                    organizerID: channel.id.organizerID,
-                    eventID: channel.id.eventID
-                ),
-                channelID: channel.id.channelID,
+                eventID: category.event,
+                categoryID: category.id,
                 formValue: FormValue(
-                    name: channel.name,
-                    description: channel.description,
-                    defaultNotificationState: channel.defaultNotificationState,
-                    notificationsRequired: channel.notificationsRequired
+                    name: category.name,
+                    description: category.description ?? "",
+                    defaultNotificationState: category.defaultNotificationState == .known(.unsubscribed)
+                        ? .unsubscribed : .subscribed,
+                    notificationsRequired: category.notificationsRequired == true
                 )
             )
         }
 
-        public let channelID: OMERecord.ID<OMERecord.Channel>?
-        public let eventID: OMERecord.Event.ID
+        public let categoryID: Social.Category.ID?
+        public let eventID: Event.ID
         public var errorMessage: String?
         public var form: FormFeature.State
         public var isSaving = false
 
         var isEditing: Bool {
-            channelID != nil
+            categoryID != nil
         }
 
         var canSubmit: Bool {
             !isSaving && form.canSubmit
         }
 
-        func newChannel(
-            value: FormValue,
-            in db: Database
-        ) throws -> OMERecord.Channel.Draft {
-            let channels = try CommunicationsViewer.channelsQuery(eventID: eventID).fetchAll(db)
-            let channelID = Self.nextChannelID(value: value, existingChannels: channels)
-            let sortIndex = (channels.compactMap(\.sortIndex).max() ?? -1) + 1
-
-            return OMERecord.Channel.Draft(
-                id: OMERecord.Channel.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    channelID: channelID
-                ),
-                name: value.trimmedName,
-                description: value.trimmedDescription,
-                iconImageURL: nil,
-                headerImageURL: nil,
-                sortIndex: sortIndex,
-                defaultNotificationState: value.notificationsRequired
-                    ? .subscribed
-                    : value.defaultNotificationState,
-                notificationsRequired: value.notificationsRequired
-            )
-        }
-
-        private static func nextChannelID(
-            value: FormValue,
-            existingChannels: [OMERecord.Channel]
-        ) -> OMERecord.ID<OMERecord.Channel> {
-            let base = Self.channelIDBase(for: value.trimmedName)
-            let existingIDs = Set(existingChannels.map(\.id.channelID))
-            var candidate = base
-            var suffix = 2
-
-            while existingIDs.contains(Self.localID(candidate)) {
-                candidate = "\(base)-\(suffix)"
-                suffix += 1
-            }
-
-            return Self.localID(candidate)
-        }
-
-        private static func channelIDBase(for name: String) -> String {
-            let normalized = name
-                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-                .lowercased()
-            let words = normalized
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { !$0.isEmpty }
-
-            return words.isEmpty ? "channel" : words.joined(separator: "-")
-        }
-
-        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Channel> {
-            OMERecord.ID<OMERecord.Channel>(.init(string))
-        }
     }
 
     public enum Action {
@@ -155,6 +98,7 @@ public struct ChannelForm {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
 
     public var body: some Feature {
         Scope(\.form) {
@@ -178,36 +122,35 @@ public struct ChannelForm {
                     return
                 }
 
-                let channelID = state.channelID
+                let categoryID = state.categoryID
                 let eventID = state.eventID
+                let createdAt = now
+                let fields = SocialCategoryRecordEditing.Fields(
+                    name: value.trimmedName,
+                    description: value.trimmedDescription.isEmpty ? nil : value.trimmedDescription,
+                    defaultNotificationState: value.defaultNotificationState,
+                    notificationsRequired: value.notificationsRequired
+                )
                 state.errorMessage = nil
                 state.isSaving = true
 
                 store.addTask {
                     do {
                         try await database.write { db in
-                            if let channelID {
-                                let recordID = OMERecord.Channel.ID(
-                                    organizerID: eventID.organizerID,
-                                    eventID: eventID.eventID,
-                                    channelID: channelID
+                            if let categoryID {
+                                try SocialCategoryRecordEditing.update(
+                                    categoryID,
+                                    eventID: eventID,
+                                    fields: fields,
+                                    in: db
                                 )
-                                try OMERecord.Channel.find(recordID).update {
-                                    $0.name = value.trimmedName
-                                    $0.description = value.trimmedDescription
-                                    $0.defaultNotificationState = value.notificationsRequired
-                                        ? .subscribed
-                                        : value.defaultNotificationState
-                                    $0.notificationsRequired = value.notificationsRequired
-                                }
-                                .execute(db)
                             } else {
-                                let formState = State(eventID: eventID, formValue: value)
-                                let channel = try formState.newChannel(value: value, in: db)
-                                try OMERecord.Channel.insert {
-                                    channel
-                                }
-                                .execute(db)
+                                _ = try SocialCategoryRecordEditing.create(
+                                    eventID: eventID,
+                                    fields: fields,
+                                    createdAt: createdAt,
+                                    in: db
+                                )
                             }
                         }
                         try store.modify {
@@ -341,7 +284,7 @@ private extension ChannelForm.FormFeature {
     }
 }
 
-private extension OMERecord.Channel.NotificationState {
+private extension Social.Category.NotificationState {
     var isSubscribed: Bool {
         get { self == .subscribed }
         set { self = newValue ? .subscribed : .unsubscribed }

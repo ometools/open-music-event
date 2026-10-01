@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoSQLite
 import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
@@ -7,7 +8,7 @@ import SQLiteData
 public struct PerformanceReaction: Equatable, Sendable, Identifiable {
     public init(
         id: UUID,
-        performanceID: OME.Performance.ID,
+        performanceID: ProgramItem.ID,
         emoji: Emoji,
         reactedAt: Date,
         userDID: DID? = nil
@@ -20,7 +21,7 @@ public struct PerformanceReaction: Equatable, Sendable, Identifiable {
     }
 
     @Column(primaryKey: true) public var id: UUID
-    public var performanceID: OME.Performance.ID
+    public var performanceID: ProgramItem.ID
     public var emoji: Emoji
     public var reactedAt: Date
     public var userDID: DID?
@@ -62,16 +63,28 @@ extension PerformanceReaction {
     }
 
     public static func forEvent(
-        eventID: OME.Event.ID
+        eventID: Event.ID
     ) -> some SelectStatementOf<Self> {
-        Self
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
+        let itemTable = ProgramItem.tableName
+        let reactionTable = Self.tableName
+        return Self
+            .where { _ in
+                #sql(
+                    """
+                    EXISTS (
+                      SELECT 1 FROM \(quote: itemTable) AS "item"
+                      WHERE "item"."id" = \(quote: reactionTable)."performanceID"
+                        AND "item"."event" = \(eventID)
+                    )
+                    """,
+                    as: Bool.self
+                )
+            }
             .order { $0.reactedAt }
     }
 
     public static func forPerformance(
-        performanceID: OME.Performance.ID
+        performanceID: ProgramItem.ID
     ) -> some SelectStatementOf<Self> {
         Self
             .where { $0.performanceID.eq(performanceID) }
@@ -79,7 +92,7 @@ extension PerformanceReaction {
     }
 
     public static func toggle(
-        performanceID: OME.Performance.ID,
+        performanceID: ProgramItem.ID,
         emoji: Emoji,
         id: UUID,
         date: Date,
@@ -106,7 +119,7 @@ extension PerformanceReaction {
     }
 
     public static func add(
-        performanceID: OME.Performance.ID,
+        performanceID: ProgramItem.ID,
         emoji: Emoji,
         id: UUID,
         date: Date,

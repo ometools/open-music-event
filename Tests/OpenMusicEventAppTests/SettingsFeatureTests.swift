@@ -16,6 +16,7 @@ import IssueReporting
 import ATProtoTypes
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
@@ -132,9 +133,7 @@ struct TechnicalDetailsTests {
 
     @Test
     func `performance editor does not turn an account identifier into a display name`() throws {
-        let actor = try #require(
-            OMERecord.Contributor.Actor("did:plc:alice123")
-        )
+        let actor = try #require(DID("did:plc:alice123"))
         let state = ContributorRelationshipPicker.State()
         let selection = ContributorRelationshipPicker.Selection.identityOnly(
             actor: actor,
@@ -156,7 +155,7 @@ struct TechnicalDetailsTests {
 }
 
 @MainActor
-@Suite(.tcaExhaustivity(.off))
+@Suite(.serialized, .tcaExhaustivity(.off))
 struct SettingsFeatureTests {
     @Test
     func `Wicked Woods supports Critical Alerts without exposing them in generic OME`() {
@@ -230,7 +229,7 @@ struct SettingsFeatureTests {
         #expect(store.destination == nil)
         #expect(fixture.grant.wrappedValue != nil)
         let eventName = try await fixture.database.read { db in
-            try OMERecord.Event.find(fixture.eventID).fetchOne(db)?.name
+            try Event.find(fixture.eventID).fetchOne(db)?.name
         }
         expectNoDifference(eventName, "Unpublished Event Name")
     }
@@ -375,7 +374,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -418,7 +417,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -469,7 +468,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -541,7 +540,7 @@ struct SettingsFeatureTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            EventSettings.State(eventID: testEventID())
+            EventSettings.State(eventID: canonicalSettingsEventID)
         }
         expectNoDifference(settings.notificationIndicatorValue, 1)
 
@@ -574,7 +573,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -610,7 +609,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -651,7 +650,7 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: EventSettings.State(eventID: testEventID())) {
+            TestStore(initialState: EventSettings.State(eventID: canonicalSettingsEventID)) {
                 EventSettings()
             }
         }
@@ -718,7 +717,7 @@ struct SettingsFeatureTests {
 
 private struct EventSettingsAuthoringExitFixture {
     let database: any DatabaseWriter
-    let eventID: OMERecord.Event.ID
+    let eventID: Event.ID
     let grant: Shared<AuthoringGrant?>
     let source: SourceWorkspaceResource
     let store: TestStore<AnyFeature<EventSettings.State, EventSettings.Action>>
@@ -731,49 +730,36 @@ private func makeEventSettingsAuthoringExitFixture(
     let database = try makePreparedDatabase()
     let referenceDatabase = try defaultBaselineDatabase()
     let organizerID = try #require(OMERecord.Organizer.ID("did:plc:eventsettingsowner"))
-    let eventID = OMERecord.Event.ID(
-        organizerID: organizerID,
-        eventID: OMERecord.ID<OMERecord.Event>(rawValue: "event-settings")
-    )
+    let eventID = try #require(Event.ID(
+        "at://did:plc:eventsettingsowner/events.openmusic.event/3mrdbziccpcah"
+    ))
     let workspace = SourceWorkspace(
         organizerID: organizerID,
         repository: "tangled.org/eventsettingsowner/events",
         branch: "main"
     )
-    let actorID = try #require(DID(organizerID.description))
+    let actorID = organizerID
 
     var referenceMigrator = DatabaseMigrator()
-    OMERecord.DatabaseMigrations.register(into: &referenceMigrator)
+    OME.DatabaseMigrations.register(into: &referenceMigrator)
     try referenceMigrator.migrate(referenceDatabase.database)
+    let event = try Event(
+        id: eventID,
+        name: "Published Event Name",
+        createdAt: "2026-09-01T12:00:00Z",
+        timeZone: try #require(TimeZone(identifier: "America/Denver"))
+    )
     for targetDatabase in [database, referenceDatabase.database as any DatabaseWriter] {
         try await targetDatabase.write { db in
-            try OMERecord.Organizer.insert {
-                OMERecord.Organizer.Draft(id: organizerID)
-            }
-            .execute(db)
-            try OMERecord.Event.insert {
-                testEventDraft(id: eventID, name: "Published Event Name")
-            }
-            .execute(db)
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: workspace.repository,
-                    ref: workspace.defaultBranch,
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "event-settings"
-                )
-            }
-            .execute(db)
+            try Event.insert { event }.execute(db)
         }
     }
     if isDirty {
         try await database.write { db in
-            try OMERecord.Event.find(eventID).update {
-                $0.name = "Unpublished Event Name"
-            }
-            .execute(db)
+            var changed = try #require(try Event.find(eventID).fetchOne(db))
+            changed.name = "Unpublished Event Name"
+            let saved = changed
+            try Event.upsert { saved }.execute(db)
         }
     }
 
@@ -901,25 +887,24 @@ struct AboutOpenMusicEventTests {
         await store.send(.aboutOpenMusicEventButtonTapped)?.value
 
         #expect(store.state.destination?.aboutOpenMusicEvent?.eventID == nil)
-        #expect(store.state.destination?.aboutOpenMusicEvent?.sourceProvenance == nil)
+        #expect(
+            store.state.destination?.aboutOpenMusicEvent?
+                .eventInformationProviderDescription.contains("event organizers") == true
+        )
     }
 
     @Test
-    func eventAboutPresentsAboutWithEventProvenance() async throws {
+    func eventAboutPresentsAboutWithCanonicalEventContext() async throws {
         let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        let provenance = EventSourceProvenanceRecord(
+        let eventID = canonicalSettingsEventID
+        let event = try Event(
             id: eventID,
-            sourceKind: .tangled,
-            sourceReference: "tangled.org/woody.fm/open-music-event",
-            ref: "main",
-            eventIDOrigin: .explicit,
-            sourceEventDirectory: "event-1"
+            name: "Event One",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
-        try await insertEvent(eventID, into: database)
         try await database.write { db in
-            try EventSourceProvenanceRecord.insert { provenance }
-                .execute(db)
+            try Event.insert { event }.execute(db)
         }
         let store = withDependencies {
             $0.context = .test
@@ -934,9 +919,9 @@ struct AboutOpenMusicEventTests {
         await store.send(.aboutOpenMusicEventButtonTapped)?.value
 
         #expect(store.state.destination?.aboutOpenMusicEvent?.eventID == eventID)
-        expectNoDifference(
-            store.state.destination?.aboutOpenMusicEvent?.sourceProvenance,
-            provenance
+        #expect(
+            store.state.destination?.aboutOpenMusicEvent?
+                .eventInformationProviderDescription.contains("AT Protocol repository") == true
         )
     }
 
@@ -1156,39 +1141,15 @@ struct AboutOpenMusicEventTests {
     }
 
     @Test
-    func provenanceDescriptionsCoverGlobalTangledLocalAndMissingSources() throws {
-        let eventID = testEventID()
+    func eventInformationDescriptionUsesPublishedRecordAttribution() throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
         let global = AboutOpenMusicEvent.State()
-        let missing = AboutOpenMusicEvent.State(eventID: eventID)
-        let tangled = AboutOpenMusicEvent.State(
-            eventID: eventID,
-            sourceProvenance: EventSourceProvenanceRecord(
-                id: eventID,
-                sourceKind: .tangled,
-                sourceReference: "tangled.org/woody.fm/open-music-event",
-                ref: "main",
-                eventIDOrigin: .explicit,
-                sourceEventDirectory: "event-1"
-            )
-        )
-        let localPath = "/Users/woody/private/local-event"
-        let local = AboutOpenMusicEvent.State(
-            eventID: eventID,
-            sourceProvenance: EventSourceProvenanceRecord(
-                id: eventID,
-                sourceKind: .local,
-                sourceReference: localPath,
-                ref: nil,
-                eventIDOrigin: .explicit,
-                sourceEventDirectory: "event-1"
-            )
-        )
+        let event = AboutOpenMusicEvent.State(eventID: eventID)
 
         #expect(global.eventInformationProviderDescription.contains("event organizers"))
-        #expect(missing.eventInformationProviderDescription.contains("No external source"))
-        #expect(tangled.eventInformationProviderDescription.contains("tangled.org/woody.fm/open-music-event"))
-        #expect(local.eventInformationProviderDescription.contains("created or imported locally"))
-        #expect(!local.eventInformationProviderDescription.contains(localPath))
+        #expect(event.eventInformationProviderDescription.contains("AT Protocol repository"))
     }
 
     private func contribution() throws -> AppContribution {
@@ -1316,7 +1277,7 @@ private struct EventSettingsErrorHost {
     struct State {
         var errorNotifications = Spawn(ErrorNotifications.State())
         @DebugSnapshotIgnored
-        var eventSettings = Spawn(EventSettings.State(eventID: testEventID()))
+        var eventSettings = Spawn(EventSettings.State(eventID: canonicalSettingsEventID))
     }
 
     enum Action {}
@@ -1335,12 +1296,10 @@ private struct EventSettingsErrorHost {
     }
 }
 
-private func testEventID() -> OMERecord.Event.ID {
-    OMERecord.Event.ID(
-        organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-        eventID: .init("event-1")
-    )
-}
+private let canonicalSettingsEventID = Event.ID(
+    "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+)!
+
 
 private func makePreparedDatabase() throws -> any DatabaseWriter {
     try withDependencies {
@@ -1349,79 +1308,5 @@ private func makePreparedDatabase() throws -> any DatabaseWriter {
     } operation: {
         @Dependency(\.defaultDatabase) var database
         return database
-    }
-}
-
-private func insertEvent(
-    _ eventID: OMERecord.Event.ID,
-    into database: any DatabaseWriter
-) async throws {
-    try await database.write { db in
-        try OMERecord.Organizer.insert {
-            OMERecord.Organizer.Draft(id: eventID.organizerID)
-        }
-        .execute(db)
-        try OMERecord.Event.insert {
-            OMERecord.Event.Draft(
-                id: eventID,
-                name: "Event One",
-                description: nil,
-                startDate: nil,
-                endDate: nil,
-                status: nil,
-                mode: nil,
-                locations: nil,
-                uris: nil,
-                timeZone: TimeZone(identifier: "UTC")!,
-                images: nil,
-                contactNumbers: nil
-            )
-        }
-        .execute(db)
-    }
-}
-
-private func insertDefaultCalendarEntry(
-    eventID: OMERecord.Event.ID,
-    into database: any DatabaseWriter
-) async throws {
-    let calendarID = OMERecord.Calendar.ID(
-        ownerID: eventID.organizerID,
-        calendarID: OMERecord.Calendar.defaultID
-    )
-    try await database.write { db in
-        try OMERecord.Calendar.insert {
-            OMERecord.Calendar.Draft(
-                id: calendarID,
-                name: "Default"
-            )
-        }
-        .execute(db)
-        try OMERecord.CalendarEntry.insert {
-            OMERecord.CalendarEntry.Draft(
-                id: OMERecord.CalendarEntry.ID(
-                    calendarOwnerID: calendarID.ownerID,
-                    calendarID: calendarID.calendarID,
-                    entryID: OMERecord.ID<OMERecord.CalendarEntry>("entry-1")
-                ),
-                event: OMERecord.Event.reference(id: eventID),
-                createdAt: Date(timeIntervalSince1970: 0),
-                pinned: false
-            )
-        }
-        .execute(db)
-    }
-}
-
-private func fetchEvent(
-    _ eventID: OMERecord.Event.ID,
-    from database: any DatabaseWriter
-) async throws -> OMERecord.Event {
-    try await database.read { db in
-        try #require(
-            try OMERecord.Event
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db)
-        )
     }
 }

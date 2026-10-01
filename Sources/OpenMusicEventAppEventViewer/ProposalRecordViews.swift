@@ -333,15 +333,39 @@ struct ProposalRecordRow: View {
         case let .stage(stage):
             StageRowView(stage: stage)
         case let .contributor(contributor):
-            ContributorsRowView(contributor: contributor, subtitle: snapshot.subtitle)
-        case let .channel(channel):
-            CommunicationChannelRowView(
-                row: CommunicationChannelRow(
-                    channel: channel,
-                    preference: nil,
-                    unreadPostCount: 0
-                )
+            ProposalArtworkRow(
+                title: snapshot.title,
+                subtitle: snapshot.subtitle,
+                asset: contributor.images?.imageAsset(role: .photo)
+                    ?? contributor.images?.imageAsset(role: .logo),
+                cacheContext: .init(contributorID: contributor.id),
+                systemImage: "person.crop.square"
             )
+        case let .channel(channel):
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(channel.name)
+                        .font(.headline)
+                        .fontWeight(.medium)
+                    if let description = channel.description.proposalNonempty {
+                        Text(description)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+                if channel.notificationsRequired {
+                    MappedSystemImage(systemName: "bell.badge")
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Notifications required")
+                } else if channel.defaultNotificationState == .subscribed {
+                    MappedSystemImage(systemName: "bell.fill")
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Notifications enabled")
+                }
+            }
+            .padding(.vertical, 4)
         case let .communicationPost(post):
             ProposalCommsPostRow(post: post)
         case let .poster(poster):
@@ -709,20 +733,37 @@ struct ProposalContributorDetailView: View {
     let snapshot: ProposalRecordSnapshot
     let contributor: OME.Contributor
 
-    var profile: ContributorProfile {
-        ContributorProfile(contributor: contributor)
-    }
-
     var body: some View {
         ProposalHeroDetailView(
             snapshot: snapshot,
-            sources: profile.heroImageSources,
-            titleSources: profile.heroImageTitleSources
+            sources: [
+                contributor.images?.imageAsset(role: .photo).map {
+                    .primaryImage(DisplayImageAsset(
+                        asset: $0,
+                        cacheContext: .init(contributorID: contributor.id)
+                    ))
+                },
+                contributor.images?.imageAsset(role: .logo).map {
+                    .logo(DisplayImageAsset(
+                        asset: $0,
+                        cacheContext: .init(contributorID: contributor.id)
+                    ))
+                },
+            ].compactMap { $0 },
+            titleSources: [
+                contributor.images?.imageAsset(role: .logo).map {
+                    .logo(DisplayImageAsset(
+                        asset: $0,
+                        cacheContext: .init(contributorID: contributor.id)
+                    ))
+                },
+                .title,
+            ].compactMap { $0 }
         ) {
             MappedSystemImage(systemName: "person.crop.square")
                 .frame(width: 82, height: 82)
         } content: {
-            if let bio = profile.bio {
+            if let bio = contributor.bio?.proposalNonempty {
                 Section("About") {
                     Text(bio)
                 }
@@ -731,7 +772,17 @@ struct ProposalContributorDetailView: View {
             if let links = contributor.links, !links.isEmpty {
                 Section("Links") {
                     ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                        ContributorLinkRow(link: link)
+                        Link(destination: link.url) {
+                            HStack(spacing: 12) {
+                                Text(link.platform?.name ?? "Website")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                MappedSystemImage(systemName: "arrow.up.right")
+                                    .frame(width: 14, height: 14)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .portableContentShape(Rectangle())
+                        }
                     }
                 }
             }

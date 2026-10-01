@@ -5,7 +5,9 @@
 //  Created by Woodrow Melling on 7/1/26.
 //
 
+import OpenMusicEventLexicon
 import ATProto
+import ATProtoTypes
 import Bluesky
 import ComposableForms
 import ComposableArchitecture2
@@ -32,26 +34,24 @@ public struct ContributorDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public let contributorID: OMERecord.ID<OMERecord.Contributor>
-        public let eventID: OMERecord.Event.ID
+        public let contributorID: Contributor.ID
+        public let eventID: Event.ID
 
-        @FetchOne var event: OMERecord.Event?
+        @FetchOne var event: Event?
         @FetchOne var profile: ContributorProfile?
 
         public init(
-            contributorID: OMERecord.ID<OMERecord.Contributor>,
-            eventID: OMERecord.Event.ID? = nil
+            contributorID: Contributor.ID,
+            eventID: Event.ID? = nil
         ) {
             @Dependency(EventViewerContext.self) var eventViewer
 
             self.contributorID = contributorID
             self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+                Event.timeZoneQuery(eventID: self.eventID)
             )
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(self.eventID) }
-            )
+            _event = FetchOne(Event.where { $0.id.eq(self.eventID) })
             _profile = FetchOne(
                 ContributorProfile.one(
                     contributorID: contributorID,
@@ -73,17 +73,17 @@ public struct ContributorDetail {
             )
         }
 
-        public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
+        public var id: Contributor.ID { contributorID }
 
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
         public var destination: Destination.State?
-        @FetchAll public var lineupStages: [OMERecord.Stage]
+        @FetchAll public var lineupStages: [EventPlace]
         @FetchAll var performanceRows: [PerformanceRow]
 
-        var contributor: OMERecord.Contributor? {
+        var contributor: Contributor? {
             profile?.contributor
         }
 
@@ -103,7 +103,7 @@ public struct ContributorDetail {
             profile?.actorProfileLoadRequest
         }
 
-        var contributorActor: OMERecord.Contributor.Actor? {
+        var contributorActor: DID? {
             profile?.contributorActor
         }
 
@@ -115,7 +115,7 @@ public struct ContributorDetail {
     public enum Action {
         case destination(Destination.Action)
         case editButtonTapped
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case performanceButtonTapped(ProgramItem.ID)
     }
 
     @Feature
@@ -126,37 +126,35 @@ public struct ContributorDetail {
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
 
     static func contributorQuery(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Contributor> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.contributorID.eq(contributorID) }
+        contributorID: Contributor.ID,
+        eventID: Event.ID
+    ) -> some SelectStatementOf<Contributor> {
+        Contributor
+            .where { $0.id.eq(contributorID) }
+            .where { $0.event.eq(eventID) }
     }
 
     static func lineupStagesQuery(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Stage> {
-        let contributorIDValue = contributorID.rawValue.rawValue
-        let stageTableName = OMERecord.Stage.tableName
-        return OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
+        contributorID: Contributor.ID,
+        eventID: Event.ID
+    ) -> some SelectStatementOf<EventPlace> {
+        let placeTable = EventPlace.tableName
+        return EventPlace
+            .where { $0.event.eq(eventID) }
             .where { _ in
                 #sql(
                     """
                     EXISTS (
-                      SELECT 1
-                      FROM json_each(\(quote: stageTableName)."lineup")
-                      WHERE json_each.value = \(bind: contributorIDValue)
+                      SELECT 1 FROM json_each(
+                        json_extract(\(quote: placeTable)."kind", '$.lineup')
+                      ) AS "entry"
+                      WHERE "entry"."value" = \(contributorID.description)
                     )
                     """,
                     as: Bool.self
                 )
             }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+            .order { $0.name.collate(.nocase) }
     }
 
     public var body: some Feature {
@@ -253,7 +251,7 @@ public struct ContributorDetailView: View {
                         ContentUnavailableView(
                             "Contributor",
                             systemImage: "person.crop.circle",
-                            description: Text(verbatim: store.contributorID.rawValue.rawValue)
+                            description: Text(verbatim: store.contributorID.description)
                         )
                     } else {
                         ContentUnavailableView("Contributor unavailable", systemImage: "person.crop.circle")
@@ -269,7 +267,7 @@ public struct ContributorDetailView: View {
             )
         }
         .accessibilityIdentifier(
-            "view.contributor-detail.\(store.contributorID.rawValue.rawValue)"
+            "view.contributor-detail.\(store.contributorID.description)"
         )
     }
 }

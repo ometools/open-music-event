@@ -9,7 +9,13 @@ import DebugSnapshots
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import Observation
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
+import SwiftUI
+#endif
 import Testing
 
 @testable import OpenMusicEventApp
@@ -129,6 +135,255 @@ struct CanonicalEventEditingTests {
                 uri: try #require(URL(string: "https://wickedwoods.example/current-tickets"))
             )
         ])
+    }
+
+    @Test
+    func locationEditorUpdatesCanonicalLocationsWithoutOverwritingOtherEventFields() async throws {
+        let database = try database()
+        var record = try event()
+        var address = Event.Address(country: "US")
+        address.street = "Old Road"
+        var location = Event.Location(name: "Main Gate")
+        location.description = "Old arrival instructions"
+        location.locators = [.known(.address(address))]
+        location.links = [OME.Link(url: try #require(URL(string: "https://example.org/old-map")))]
+        record.locations = [location]
+        let originalRecord = record
+        try await database.write { try Event.insert { originalRecord }.execute($0) }
+        let recordID = record.id
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditLocation.State(eventID: record.id)) { EditLocation() }
+        }
+        #expect(store.hasLoadedDraft)
+        #expect(store.locations.count == 1)
+        $store.locations[0].name.wrappedValue = "  North Gate  "
+        $store.locations[0].description.wrappedValue = "  Follow the signs.  "
+        $store.locations[0].locators[0].street.wrappedValue = "Forest Road"
+        let locationID = store.locations[0].id
+        await store.send(.addLocatorButtonTapped(locationID, .geo))?.value
+        $store.locations[0].locators[1].latitude.wrappedValue = "39.0"
+        $store.locations[0].locators[1].longitude.wrappedValue = "-105.0"
+        let oldLinkID = store.locations[0].links[0].id
+        await store.send(.removeLinkButtonTapped(locationID, oldLinkID))?.value
+        await store.send(.addLinkButtonTapped(locationID))?.value
+        $store.locations[0].links[0].title.wrappedValue = "Map"
+        $store.locations[0].links[0].urlString.wrappedValue = "https://example.org/new-map"
+
+        try await database.write { db in
+            var latest = try #require(try Event.find(recordID).fetchOne(db))
+            latest.name = "Renamed while editing"
+            try Event.upsert { latest }.execute(db)
+        }
+        await store.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { try #require(try Event.find(recordID).fetchOne($0)) }
+        #expect(saved.name == "Renamed while editing")
+        #expect(saved.locations?.count == 1)
+        #expect(saved.locations?[0].name == "North Gate")
+        #expect(saved.locations?[0].description == "Follow the signs.")
+        #expect(saved.locations?[0].links?.first?.url.absoluteString == "https://example.org/new-map")
+        let savedLocators = try #require(saved.locations?.first?.locators)
+        if let first = savedLocators.first,
+           case let .known(.address(savedAddress)) = first {
+            #expect(savedAddress.country == "US")
+            #expect(savedAddress.street == "Forest Road")
+        } else {
+            Issue.record("Address locator was lost")
+        }
+        if let last = savedLocators.last,
+           case let .known(.geo(savedGeo)) = last {
+            #expect(savedGeo.latitude == "39.0")
+            #expect(savedGeo.longitude == "-105.0")
+        } else {
+            Issue.record("Coordinate locator was lost")
+        }
+    }
+
+    @Test
+    func locationEditorRejectsIncompleteRowsBeforeWriting() async throws {
+        let database = try database()
+        let record = try event()
+        try await database.write { try Event.insert { record }.execute($0) }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditLocation.State(eventID: record.id)) { EditLocation() }
+        }
+        await store.send(.addLocationButtonTapped)?.value
+        #expect(!store.canSubmit)
+        $store.locations[0].name.wrappedValue = "Camp"
+        let locationID = store.locations[0].id
+        await store.send(.addLocatorButtonTapped(locationID, .geo))?.value
+        $store.locations[0].locators[0].latitude.wrappedValue = "91"
+        $store.locations[0].locators[0].longitude.wrappedValue = "-105"
+        #expect(!store.canSubmit)
+        await store.send(.saveButtonTapped)?.value
+        let unchanged = try await database.read { try #require(try Event.find(record.id).fetchOne($0)) }
+        #expect(unchanged.locations == nil)
+
+        $store.locations[0].locators[0].latitude.wrappedValue = "39"
+        #expect(store.canSubmit)
+    }
+
+    @Test
+    func creatingScheduleStoresCanonicalRecordAndUpdatesEventOrder() async throws {
+        let database = try database()
+        let record = try event()
+        try await database.write { try Event.insert { record }.execute($0) }
+        let now = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
+        let day = try #require(LocalDate("2026-09-05"))
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date.now = now
+        } operation: {
+            Store(initialState: EditSchedule.State(
+                eventID: record.id, initialDate: day, timeZone: record.timeZone
+            )) { EditSchedule() }
+        }
+        $store.customTitle.wrappedValue = "  Saturday Music  "
+        await store.send(.saveButtonTapped)?.value
+
+        let savedEvent = try await database.read { try #require(try Event.find(record.id).fetchOne($0)) }
+        let schedules = try await database.read { try Schedule.all.fetchAll($0) }
+        let savedSchedule = try #require(schedules.first)
+        #expect(schedules.count == 1)
+        #expect(savedSchedule.event == record.id)
+        #expect(savedSchedule.date == day)
+        #expect(savedSchedule.title == "Saturday Music")
+        #expect(savedEvent.schedules == [savedSchedule.id])
+        #expect(savedEvent.name == record.name)
+        try savedSchedule.validateReferences()
+    }
+
+    @Test
+    func editingAndDeletingScheduleKeepsTheEventGraphConsistent() async throws {
+        let database = try database()
+        let record = try event()
+        let originalDay = try #require(LocalDate("2026-09-05"))
+        let revisedDay = try #require(LocalDate("2026-09-06"))
+        let createdAt = ATProto.DateTime(rawValue: "2026-09-01T12:00:00Z")
+        let scheduleID = try CanonicalRecordID.next(
+            collection: Schedule.lexiconID,
+            in: record.id.authority,
+            at: try Date("2026-09-01T12:00:00Z", strategy: .iso8601),
+            clockID: 1
+        )
+        let schedule = try Schedule(
+            id: scheduleID,
+            event: record.id,
+            date: originalDay,
+            createdAt: createdAt,
+            title: "Saturday"
+        )
+        var eventWithSchedule = record
+        eventWithSchedule.schedules = [scheduleID]
+        let originalEventWithSchedule = eventWithSchedule
+        try await database.write { db in
+            try Event.insert { originalEventWithSchedule }.execute(db)
+            try Schedule.insert { schedule }.execute(db)
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+        } operation: {
+            Store(initialState: EditSchedule.State(
+                schedule: schedule,
+                timeZone: record.timeZone
+            )) { EditSchedule() }
+        }
+        #expect(store.customTitle == "Saturday")
+        $store.customTitle.wrappedValue = "  Sunday Music  "
+        $store.dateSelection.wrappedValue = revisedDay.atStartOfDay(in: record.timeZone)
+        await store.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { try #require(try Schedule.find(scheduleID).fetchOne($0)) }
+        let savedEvent = try await database.read { try #require(try Event.find(record.id).fetchOne($0)) }
+        #expect(saved.id == scheduleID)
+        #expect(saved.createdAt == createdAt)
+        #expect(saved.date == revisedDay)
+        #expect(saved.title == "Sunday Music")
+        #expect(savedEvent.schedules == [scheduleID])
+        let scheduleCount = try await database.read { try Schedule.all.fetchAll($0).count }
+        #expect(scheduleCount == 1)
+
+        let deleteStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditSchedule.State(
+                schedule: saved,
+                timeZone: record.timeZone
+            )) { EditSchedule() }
+        }
+        await deleteStore.send(.deleteButtonTapped)?.value
+        let eventAfterDelete = try await database.read { try #require(try Event.find(record.id).fetchOne($0)) }
+        let deletedSchedule = try await database.read { try Schedule.find(scheduleID).fetchOne($0) }
+        #expect(deletedSchedule == nil)
+        #expect(eventAfterDelete.schedules == nil)
+    }
+
+    @Test
+    func deletingAnAssignedSchedulePreservesTheDayAndItsProgramItem() async throws {
+        let database = try database()
+        var record = try event()
+        let scheduleID = try #require(Schedule.ID(
+            "at://did:plc:organizer/events.openmusic.schedule/3mrdbziccpcaj"
+        ))
+        let schedule = try Schedule(
+            id: scheduleID,
+            event: record.id,
+            date: try #require(LocalDate("2026-09-05")),
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        record.schedules = [scheduleID]
+        let originalEventWithSchedule = record
+        let item = try ProgramItem(
+            id: #require(ATProto.URI(
+                "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcak"
+            )),
+            event: record.id,
+            program: #require(ATProto.URI(
+                "at://did:plc:organizer/events.openmusic.program/3mrdbziccpcal"
+            )),
+            title: "Main stage set",
+            createdAt: "2026-09-01T12:00:00Z",
+            schedule: scheduleID
+        )
+        try await database.write { db in
+            try Event.insert { originalEventWithSchedule }.execute(db)
+            try Schedule.insert { schedule }.execute(db)
+            try ProgramItem.insert { item }.execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditSchedule.State(
+                schedule: schedule,
+                timeZone: record.timeZone
+            )) { EditSchedule() }
+        }
+        await store.send(.deleteButtonTapped)?.value
+
+        #expect(store.errorMessage == "Move or delete scheduled items before deleting this schedule.")
+        let savedSchedule = try await database.read { try Schedule.find(scheduleID).fetchOne($0) }
+        let savedItem = try await database.read { try ProgramItem.find(item.id).fetchOne($0) }
+        let savedEvent = try await database.read {
+            try #require(try Event.find(originalEventWithSchedule.id).fetchOne($0))
+        }
+        #expect(savedSchedule == schedule)
+        #expect(savedItem == item)
+        #expect(savedEvent.schedules == [scheduleID])
     }
 
     @Test(arguments: [false, true])

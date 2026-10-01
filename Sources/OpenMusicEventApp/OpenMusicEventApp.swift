@@ -258,21 +258,15 @@ extension OME {
         dependencies.openMusicEventUIAutomation = uiAutomation
         if uiAutomation == .attendee {
             dependencies.date = .constant(OpenMusicEventUIAutomationFixture.now)
-            OpenMusicEventUIAutomationFixture.prepareServerResponses(
-                &dependencies,
-                appViewHost: environment.appViewHost
-            )
         }
         dependencies.calendarEvents = uiAutomation != .normal
             ? .uiAutomation(database: database)
             : .openMusicEventAndAtmo(
-                database: database,
                 appViewHost: environment.appViewHost
             )
         dependencies.workspaceProposalClient = .openMusicEvent(
             appViewHost: environment.appViewHost
         )
-        dependencies.omeEventInstallation = .live(database: database)
         if uiAutomation == .authentication {
             OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)
         }
@@ -433,11 +427,11 @@ public struct OpenMusicEventApp {
 }
 
 struct SelectedEventRestoration {
-    var eventID: OMERecord.Event.ID?
+    var eventID: Event.ID?
     var error: (any Error)?
 
     init(
-        eventID: OMERecord.Event.ID? = nil,
+        eventID: Event.ID? = nil,
         error: (any Error)? = nil
     ) {
         self.eventID = eventID

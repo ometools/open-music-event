@@ -1,3 +1,6 @@
+import OpenMusicEventLexicon
+import ATProto
+import ATProtoTypes
 import HeroImageList
 import Bluesky
 import ComposableForms
@@ -26,44 +29,56 @@ public struct StagesViewer {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
             self.eventID = eventID
             self.destination = destination
-            _stages = FetchAll(
+            _eventPlaces = FetchAll(
                 StagesViewer.stagesQuery(eventID: eventID)
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public var destination: Destination.State?
         public var errorMessage: String?
         public var searchText = ""
 
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var eventPlaces: [EventPlace]
 
-        public var canCopyStagesFromOtherEvent: Bool {
-            stages.isEmpty || StagesViewer.hasOnlyReplaceableSingletonStage(stages)
+        public var stages: [EventPlace] {
+            eventPlaces
+                .filter { $0.stageUse != nil }
+                .sorted { lhs, rhs in
+                    let left = lhs.stageUse?.sortIndex ?? Int.max
+                    let right = rhs.stageUse?.sortIndex ?? Int.max
+                    return left == right
+                        ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                        : left < right
+                }
         }
 
-        public var filteredStages: [OMERecord.Stage] {
+        public var canCopyStagesFromOtherEvent: Bool {
+            stages.isEmpty
+        }
+
+        public var filteredStages: [EventPlace] {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return stages }
 
             return stages.filter { stage in
                 stage.name.localizedStandardContains(query)
-                    || stage.category?.rawValue.localizedStandardContains(query) == true
+                    || stage.stageUse?.category?.localizedStandardContains(query) == true
             }
         }
     }
 
     public enum Action {
         case addButtonTapped
-        case deleteStages([OMERecord.ID<OMERecord.Stage>])
+        case deleteStages([EventPlace.ID])
         case destination(Destination.Action)
         case fromOtherEventButtonTapped
-        case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
+        case stageButtonTapped(EventPlace.ID)
     }
 
     @Feature
@@ -74,25 +89,9 @@ public struct StagesViewer {
     @Dependency(\.defaultDatabase) var database
 
     static func stagesQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Stage> {
-        OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
-    }
-
-    static func hasOnlyReplaceableSingletonStage(_ stages: [OMERecord.Stage]) -> Bool {
-        guard stages.count == 1, let stage = stages.first else { return false }
-        return stage.id.stageID == OMERecord.Stage.singletonID
-            && stage.name == OMERecord.Stage.singletonName
-            && stage.color == OMERecord.Stage.singletonColor
-            && stage.category == nil
-            && stage.sortIndex == nil
-            && stage.images == nil
-            && stage.systemIconName == nil
-            && stage.iconShortCode == nil
-            && stage.lineup == nil
+        eventID: Event.ID
+    ) -> some SelectStatementOf<EventPlace> {
+        EventPlace.where { $0.event.eq(eventID) }
     }
 
     public var body: some Feature {
@@ -114,12 +113,11 @@ public struct StagesViewer {
                     do {
                         try database.write { db in
                             for stageID in stageIDs {
-                                try OMERecord.Stage
-                                    .where { $0.id.organizerID.eq(eventID.organizerID) }
-                                    .where { $0.id.eventID.eq(eventID.eventID) }
-                                    .where { $0.id.stageID.eq(stageID) }
-                                    .delete()
-                                    .execute(db)
+                                try EventPlaceRecordEditing.delete(
+                                    stageID,
+                                    eventID: eventID,
+                                    in: db
+                                )
                             }
                         }
                         try store.modify {
@@ -164,41 +162,6 @@ public struct StagesViewer {
         }
     }
 
-    static func duplicateStageDraft(
-        _ stage: OMERecord.Stage,
-        to eventID: OMERecord.Event.ID
-    ) -> OMERecord.Stage.Draft {
-        OMERecord.Stage.Draft(
-            id: OMERecord.Stage.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                stageID: stage.id.stageID
-            ),
-            name: stage.name,
-            color: stage.color,
-            category: stage.category,
-            sortIndex: stage.sortIndex,
-            images: duplicateStageImages(stage.images),
-            systemIconName: stage.systemIconName,
-            iconShortCode: stage.iconShortCode,
-            lineup: nil
-        )
-    }
-
-    private static func duplicateStageImages(
-        _ images: [OMERecord.ImageAsset]?
-    ) -> [OMERecord.ImageAsset]? {
-        let images = images?.compactMap { image -> OMERecord.ImageAsset? in
-            if case let .url(url) = image.source, url.isFileURL {
-                return nil
-            }
-
-            var image = image
-            image.assetKey = nil
-            return image
-        }
-        return images?.isEmpty == false ? images : nil
-    }
 }
 
 @Feature
@@ -207,7 +170,7 @@ public struct CopyStagesFromEvent {
 
     public struct SourceEventOption: Equatable, Identifiable, Sendable {
         public var endDate: LocalDate?
-        public var id: OMERecord.Event.ID
+        public var id: Event.ID
         public var name: String
         public var stageCount: Int
         public var startDate: LocalDate?
@@ -233,18 +196,18 @@ public struct CopyStagesFromEvent {
     }
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public var errorMessage: String?
         public var isCopying = false
         public var isLoading = false
-        public var selectedSourceEventID: OMERecord.Event.ID?
-        public var selectedStageIDs: Set<OMERecord.ID<OMERecord.Stage>> = []
+        public var selectedSourceEventID: Event.ID?
+        public var selectedStageIDs: Set<EventPlace.ID> = []
         public var sourceEvents: [SourceEventOption] = []
-        public var sourceStages: [OMERecord.Stage] = []
+        public var sourceStages: [EventPlace] = []
 
         var canCopy: Bool {
             !isCopying
@@ -255,7 +218,7 @@ public struct CopyStagesFromEvent {
 
         var isEveryStageSelected: Bool {
             !sourceStages.isEmpty
-                && selectedStageIDs == Set(sourceStages.map(\.id.stageID))
+                && selectedStageIDs == Set(sourceStages.map(\.id))
         }
 
         var selectAllButtonTitle: String {
@@ -266,12 +229,13 @@ public struct CopyStagesFromEvent {
     public enum Action {
         case copyButtonTapped
         case selectAllStagesButtonTapped
-        case sourceEventButtonTapped(OMERecord.Event.ID)
-        case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
+        case sourceEventButtonTapped(Event.ID)
+        case stageButtonTapped(EventPlace.ID)
         case task
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
 
     public var body: some Feature {
         Update { state, action in
@@ -289,6 +253,7 @@ public struct CopyStagesFromEvent {
 
                 let destinationEventID = state.eventID
                 let selectedStageIDs = state.selectedStageIDs
+                let createdAt = now
                 state.errorMessage = nil
                 state.isCopying = true
                 store.addTask {
@@ -298,6 +263,7 @@ public struct CopyStagesFromEvent {
                                 from: selectedSourceEventID,
                                 stageIDs: selectedStageIDs,
                                 to: destinationEventID,
+                                createdAt: createdAt,
                                 in: db
                             )
                         }
@@ -323,7 +289,7 @@ public struct CopyStagesFromEvent {
                 if state.isEveryStageSelected {
                     state.selectedStageIDs = []
                 } else {
-                    state.selectedStageIDs = Set(state.sourceStages.map(\.id.stageID))
+                    state.selectedStageIDs = Set(state.sourceStages.map(\.id))
                 }
                 state.errorMessage = nil
 
@@ -349,7 +315,7 @@ public struct CopyStagesFromEvent {
                         try store.modify {
                             $0.errorMessage = nil
                             $0.isLoading = false
-                            $0.selectedStageIDs = Set(sourceStages.map(\.id.stageID))
+                            $0.selectedStageIDs = Set(sourceStages.map(\.id))
                             $0.sourceStages = sourceStages
                         }
                     } catch {
@@ -361,7 +327,7 @@ public struct CopyStagesFromEvent {
                 }
 
             case let .stageButtonTapped(stageID):
-                guard state.sourceStages.contains(where: { $0.id.stageID == stageID }) else {
+                guard state.sourceStages.contains(where: { $0.id == stageID }) else {
                     return
                 }
                 if state.selectedStageIDs.contains(stageID) {
@@ -397,7 +363,7 @@ public struct CopyStagesFromEvent {
                                 : nil
                             $0.isLoading = false
                             $0.selectedSourceEventID = selectedSourceEventID
-                            $0.selectedStageIDs = Set(sourceStages.map(\.id.stageID))
+                            $0.selectedStageIDs = Set(sourceStages.map(\.id))
                             $0.sourceEvents = sourceEvents
                             $0.sourceStages = sourceStages
                         }
@@ -413,13 +379,10 @@ public struct CopyStagesFromEvent {
     }
 
     enum CopyStagesFromEventError: Error, Equatable, Sendable {
-        case selectedStagesAlreadyExist
         case selectedStagesNotFound
 
         var message: String {
             switch self {
-            case .selectedStagesAlreadyExist:
-                "One or more selected stages already exist in this event."
             case .selectedStagesNotFound:
                 "Choose at least one stage."
             }
@@ -427,95 +390,85 @@ public struct CopyStagesFromEvent {
     }
 
     static func copyStages(
-        from sourceEventID: OMERecord.Event.ID,
-        stageIDs: Set<OMERecord.ID<OMERecord.Stage>>,
-        to destinationEventID: OMERecord.Event.ID,
+        from sourceEventID: Event.ID,
+        stageIDs: Set<EventPlace.ID>,
+        to destinationEventID: Event.ID,
+        createdAt: Date,
         in db: Database
     ) throws -> Int {
         let sourceStages = try sourceStages(eventID: sourceEventID, in: db)
-            .filter { stageIDs.contains($0.id.stageID) }
+            .filter { stageIDs.contains($0.id) }
         guard !sourceStages.isEmpty else {
             throw CopyStagesFromEventError.selectedStagesNotFound
         }
 
-        let destinationStages = try StagesViewer
-            .stagesQuery(eventID: destinationEventID)
-            .fetchAll(db)
-        let destinationStageIDs = Set(destinationStages.map(\.id.stageID))
-        let isReplacingSingletonStage = StagesViewer
-            .hasOnlyReplaceableSingletonStage(destinationStages)
-
-        if !isReplacingSingletonStage {
-            guard !sourceStages.contains(where: { destinationStageIDs.contains($0.id.stageID) }) else {
-                throw CopyStagesFromEventError.selectedStagesAlreadyExist
+        for stage in sourceStages {
+            var fields = EventPlaceRecordEditing.Fields(stage)
+            if case var .known(.stage(use)) = fields.kind {
+                use.lineup = nil
+                fields.kind = .known(.stage(use))
             }
+            _ = try EventPlaceRecordEditing.create(
+                eventID: destinationEventID,
+                fields: fields,
+                createdAt: createdAt,
+                in: db
+            )
         }
-
-        if isReplacingSingletonStage {
-            try deleteSingletonStage(eventID: destinationEventID, in: db)
-        }
-
-        try OMERecord.Stage.insert {
-            sourceStages.map { stage in
-                StagesViewer.duplicateStageDraft(stage, to: destinationEventID)
-            }
-        }
-        .execute(db)
 
         return sourceStages.count
     }
 
-    static func deleteSingletonStage(
-        eventID: OMERecord.Event.ID,
-        in db: Database
-    ) throws {
-        try OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.stageID.eq(OMERecord.Stage.singletonID) }
-            .delete()
-            .execute(db)
-    }
-
     static func sourceEventOptions(
-        for eventID: OMERecord.Event.ID,
+        for eventID: Event.ID,
         in db: Database
     ) throws -> [SourceEventOption] {
-        let events = try OMERecord.Event
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .fetchAll(db)
-        let stages = try OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .fetchAll(db)
+        let events = try Event.all.fetchAll(db)
+            .filter { $0.id.authority == eventID.authority }
+        let stages = try EventPlace.all.fetchAll(db)
+            .filter { $0.id.authority == eventID.authority && $0.stageUse != nil }
         let stageCounts = Dictionary(
             grouping: stages,
-            by: \.id.eventID
+            by: \.event
         )
         .mapValues(\.count)
 
         return events
             .filter { $0.id != eventID }
             .compactMap { event -> SourceEventOption? in
-                let stageCount = stageCounts[event.id.eventID] ?? 0
+                let stageCount = stageCounts[event.id] ?? 0
                 guard stageCount > 0 else { return nil }
                 return SourceEventOption(
-                    endDate: event.endDate,
+                    endDate: localDay(event.end),
                     id: event.id,
                     name: event.name,
                     stageCount: stageCount,
-                    startDate: event.startDate
+                    startDate: localDay(event.start)
                 )
             }
             .sorted(by: SourceEventOption.sort)
     }
 
     static func sourceStages(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         in db: Database
-    ) throws -> [OMERecord.Stage] {
+    ) throws -> [EventPlace] {
         try StagesViewer
             .stagesQuery(eventID: eventID)
             .fetchAll(db)
+            .filter { $0.stageUse != nil }
+            .sorted { lhs, rhs in
+                let left = lhs.stageUse?.sortIndex ?? Int.max
+                let right = rhs.stageUse?.sortIndex ?? Int.max
+                return left == right
+                    ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                    : left < right
+            }
+    }
+
+    private static func localDay(_ value: Open<Event.Time>?) -> LocalDate? {
+        guard case let .some(.known(.day(day))) = value else { return nil }
+        return day.value
     }
 }
 
@@ -577,13 +530,13 @@ public struct StagesViewerView: View {
 
                     ForEach(store.filteredStages) { stage in
                         Button {
-                            store.send(.stageButtonTapped(stage.id.stageID))
+                            store.send(.stageButtonTapped(stage.id))
                         } label: {
-                            StageRowView(stage: stage)
+                            EventPlaceStageRowView(place: stage)
                         }
                         .navigationLinkListRowStyle()
                         .accessibilityIdentifier(
-                            "button.stage.\(stage.id.stageID.rawValue.rawValue)"
+                            "button.stage.\(stage.id.description)"
                         )
                     }
                     .onDelete { offsets in
@@ -630,14 +583,14 @@ public struct StagesViewerView: View {
             )
         }
         .accessibilityIdentifier(
-            "view.stages.\(store.eventID.eventID.rawValue.rawValue)"
+            "view.stages.\(store.eventID.description)"
         )
     }
 
     func deleteStages(at offsets: IndexSet) {
         let stageIDs = offsets.compactMap { offset in
             store.filteredStages.indices.contains(offset)
-                ? store.filteredStages[offset].id.stageID
+                ? store.filteredStages[offset].id
                 : nil
         }
         store.send(.deleteStages(stageIDs))
@@ -759,17 +712,17 @@ public struct CopyStagesFromEventView: View {
                 Section {
                     ForEach(store.sourceStages) { stage in
                         Button {
-                            store.send(.stageButtonTapped(stage.id.stageID))
+                            store.send(.stageButtonTapped(stage.id))
                         } label: {
                             HStack(spacing: 12) {
-                                StageArtworkView(stage: stage, size: 34)
+                                EventPlaceStageArtworkView(place: stage, size: 34)
 
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(stage.name)
                                         .lineLimit(1)
 
-                                    if let category = stage.category?.displayName {
-                                        Text(category)
+                                    if let category = stage.stageUse?.category {
+                                        Text(category.scheduleDivisionTitle)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
@@ -779,12 +732,12 @@ public struct CopyStagesFromEventView: View {
                                 Spacer()
 
                                 Image(
-                                    systemName: store.selectedStageIDs.contains(stage.id.stageID)
+                                    systemName: store.selectedStageIDs.contains(stage.id)
                                         ? "checkmark.circle.fill"
                                         : "circle"
                                 )
                                 .foregroundStyle(
-                                    store.selectedStageIDs.contains(stage.id.stageID)
+                                    store.selectedStageIDs.contains(stage.id)
                                         ? Color.accentColor
                                         : Color.secondary
                                 )
@@ -837,8 +790,8 @@ public struct StageDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public let stageID: OMERecord.ID<OMERecord.Stage>
-        public let eventID: OMERecord.Event.ID
+        public let stageID: EventPlace.ID
+        public let eventID: Event.ID
 
         public var destination: Destination.State?
         @FetchOne public var timeZone: TimeZone?
@@ -847,21 +800,21 @@ public struct StageDetail {
         }
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
-        @FetchOne public var stage: OMERecord.Stage?
+        @FetchOne public var stage: EventPlace?
         @FetchAll var contributors: [ContributorProfile]
         @FetchAll public var performanceRows: [PerformanceRow]
-        @FetchAll public var schedules: [OMERecord.Schedule]
+        @FetchAll public var schedules: [Schedule]
 
         public init(
-            stageID: OMERecord.ID<OMERecord.Stage>,
-            eventID: OMERecord.Event.ID? = nil
+            stageID: EventPlace.ID,
+            eventID: Event.ID? = nil
         ) {
             @Dependency(EventViewerContext.self) var eventViewer
 
             self.stageID = stageID
             self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+                Event.timeZoneQuery(eventID: self.eventID)
             )
             eventViewerState = EventViewerState(id: self.eventID)
             _persistedEventViewerState = FetchOne(
@@ -884,10 +837,10 @@ public struct StageDetail {
             _schedules = FetchAll(ScheduleViewer.schedulesQuery(eventID: self.eventID))
         }
 
-        public var id: OMERecord.ID<OMERecord.Stage> { stageID }
+        public var id: EventPlace.ID { stageID }
 
         var lineupContributors: [ContributorProfile] {
-            guard let lineup = stage?.lineup, !lineup.isEmpty else { return [] }
+            guard let lineup = stage?.stageUse?.lineup, !lineup.isEmpty else { return [] }
             let contributorsByID = Dictionary(
                 uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
             )
@@ -898,7 +851,7 @@ public struct StageDetail {
             lineupContributors.actorProfileLoadRequests
         }
 
-        var resolvedSelectedScheduleID: OMERecord.ID<OMERecord.Schedule>? {
+        var resolvedSelectedScheduleID: Schedule.ID? {
             ScheduleViewer.resolvedSelectedScheduleID(
                 eventViewerState.selectedScheduleID,
                 schedules: schedules
@@ -908,20 +861,20 @@ public struct StageDetail {
         var selectedScheduleTitle: String {
             guard let resolvedSelectedScheduleID,
                   let schedule = schedules.first(where: {
-                      $0.id.scheduleID == resolvedSelectedScheduleID
+                      $0.id == resolvedSelectedScheduleID
                   }),
                   let timeZone
             else { return "Select Schedule" }
             return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
         }
 
-        var selectedSchedulePerformances: [OMERecord.Performance] {
+        var selectedSchedulePerformances: [ProgramItem] {
             guard let selectedScheduleID = resolvedSelectedScheduleID else { return [] }
             return performanceRows
                 .map(\.performance)
                 .filter {
-                    $0.scheduleID == selectedScheduleID
-                        && $0.stageID == stageID
+                    $0.schedule == selectedScheduleID
+                        && $0.eventPlace == stageID
                 }
         }
     }
@@ -929,7 +882,7 @@ public struct StageDetail {
     public enum Action {
         case destination(Destination.Action)
         case editButtonTapped
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case performanceButtonTapped(ProgramItem.ID)
     }
 
     @Feature
@@ -941,13 +894,12 @@ public struct StageDetail {
     @Dependency(\.defaultDatabase) var database
 
     static func stageQuery(
-        stageID: OMERecord.ID<OMERecord.Stage>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Stage> {
-        OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.stageID.eq(stageID) }
+        stageID: EventPlace.ID,
+        eventID: Event.ID
+    ) -> some SelectStatementOf<EventPlace> {
+        EventPlace
+            .where { $0.event.eq(eventID) }
+            .where { $0.id.eq(stageID) }
     }
 
     public var body: some Feature {
@@ -972,7 +924,7 @@ public struct StageDetail {
 
             case let .performanceButtonTapped(performanceID):
                 guard state.selectedSchedulePerformances.contains(where: {
-                    $0.id.performanceID == performanceID
+                    $0.id == performanceID
                 }) else { return }
                 store.withDependencies {
                     state.destination = .performanceDetail(
@@ -1068,9 +1020,9 @@ public struct StageDetailView: View {
                         title: Text(stage.name),
                         sources: heroImageSources,
                         titleSources: heroImageTitleSources,
-                        tint: stage.color.swiftUIColor
+                        tint: stage.stageUIColor
                     ) {
-                        StageIconFallback(stage: stage, size: 150)
+                        EventPlaceStageIconFallback(place: stage, size: 150)
                     }
                 } content: {
                     if !store.schedules.isEmpty {
@@ -1085,11 +1037,11 @@ public struct StageDetailView: View {
 
                     if stage.hasDisplayDetails {
                         Section("Details") {
-                            if let category = stage.category?.displayName {
-                                LabeledContent("Category", value: category)
+                            if let category = stage.stageUse?.category {
+                                LabeledContent("Category", value: category.scheduleDivisionTitle)
                             }
 
-                            if showsTechnicalDetails, let sortIndex = stage.sortIndex {
+                            if showsTechnicalDetails, let sortIndex = stage.stageUse?.sortIndex {
                                 LabeledContent("Sort Index", value: sortIndex.formatted())
                             }
                         }
@@ -1130,7 +1082,7 @@ public struct StageDetailView: View {
                                 mappedSystemImage: "square.grid.2x2"
                             )
                         } description: {
-                            Text(verbatim: store.stageID.rawValue.rawValue)
+                            Text(verbatim: store.stageID.description)
                         }
                     } else {
                         ContentUnavailableView("Stage unavailable", systemImage: "square.grid.2x2")
@@ -1140,24 +1092,24 @@ public struct StageDetailView: View {
             }
         }
         .accessibilityIdentifier(
-            "view.stage-detail.\(store.stageID.rawValue.rawValue)"
+            "view.stage-detail.\(store.stageID.description)"
         )
     }
 }
 
 struct StageScheduleView: View {
-    let stage: OMERecord.Stage
+    let stage: EventPlace
     @Bindable var store: StoreOf<StageDetail>
-    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: Schedule.ID?
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Environment(\.eventTimePresentation) var eventTimePresentation
 
     init(
-        stage: OMERecord.Stage,
+        stage: EventPlace,
         store: StoreOf<StageDetail>,
-        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>
+        selectedScheduleID: Binding<Schedule.ID?>
     ) {
         self.stage = stage
         self.store = store
@@ -1189,7 +1141,7 @@ struct StageScheduleView: View {
                         selectedScheduleID: nil
                     ),
                     emptyTitle: ScheduleViewer.emptyStageTitle(
-                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.category),
+                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.stageUse?.category),
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
                     ),
@@ -1205,7 +1157,7 @@ struct StageScheduleView: View {
             } else {
                 ScheduleEmptyView(
                     title: ScheduleViewer.emptyStageTitle(
-                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.category),
+                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.stageUse?.category),
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
                     ),
@@ -1232,14 +1184,14 @@ struct StageScheduleView: View {
 }
 
 struct StageScheduleDaySelector: View {
-    let schedules: [OMERecord.Schedule]
+    let schedules: [Schedule]
     let timeZone: TimeZone
-    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: Schedule.ID?
 
     init(
-        schedules: [OMERecord.Schedule],
+        schedules: [Schedule],
         timeZone: TimeZone,
-        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>
+        selectedScheduleID: Binding<Schedule.ID?>
     ) {
         self.schedules = schedules
         self.timeZone = timeZone
@@ -1251,7 +1203,7 @@ struct StageScheduleDaySelector: View {
             HStack(spacing: 8) {
                 ForEach(schedules) { schedule in
                     Button {
-                        selectedScheduleID = schedule.id.scheduleID
+                        selectedScheduleID = schedule.id
                     } label: {
                         Text(ScheduleViewer.scheduleTitle(schedule, in: timeZone))
                             .font(.subheadline.weight(.medium))
@@ -1259,14 +1211,14 @@ struct StageScheduleDaySelector: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .foregroundStyle(
-                                resolvedSelectedScheduleID == schedule.id.scheduleID
+                                resolvedSelectedScheduleID == schedule.id
                                     ? Color.white
                                     : Color.primary
                             )
                             .background {
                                 Capsule()
                                     .fill(
-                                        resolvedSelectedScheduleID == schedule.id.scheduleID
+                                        resolvedSelectedScheduleID == schedule.id
                                             ? stageSelectionColor
                                             : Color.secondary.opacity(0.12)
                                     )
@@ -1284,7 +1236,7 @@ struct StageScheduleDaySelector: View {
         }
     }
 
-    var resolvedSelectedScheduleID: OMERecord.ID<OMERecord.Schedule>? {
+    var resolvedSelectedScheduleID: Schedule.ID? {
         ScheduleViewer.resolvedSelectedScheduleID(
             selectedScheduleID,
             schedules: schedules
@@ -1307,32 +1259,32 @@ public struct EditStage {
 
     public struct FormValue: Equatable {
         var category = ""
-        var color: OMEColor = 0x336699
-        var iconShortCode = ""
+        var color = OME.Color(rawValue: 0x336699)!
+        var shortLabel = ""
         var name = ""
         var sortIndex = ""
-        var systemIconName = ""
+        var iconName = ""
 
         init() {}
 
-        init(draft: OMERecord.Stage.Draft) {
-            category = draft.category?.rawValue ?? ""
-            color = draft.color
-            iconShortCode = draft.iconShortCode ?? ""
-            name = draft.name
-            sortIndex = draft.sortIndex.map(String.init) ?? ""
-            systemIconName = draft.systemIconName ?? ""
+        init(place: EventPlace) {
+            category = place.stageUse?.category ?? ""
+            color = place.stageUse?.color ?? Self().color
+            shortLabel = place.stageUse?.shortLabel ?? ""
+            name = place.name
+            sortIndex = place.stageUse?.sortIndex.map(String.init) ?? ""
+            iconName = place.stageUse?.icon?.rawValue ?? ""
         }
     }
 
     public typealias FormFeature = ComposableForms.Form<FormValue>
 
     public struct State {
-        public enum Mode: Equatable {
+        public enum Mode: Equatable, Sendable {
             case create
-            case edit(OMERecord.ID<OMERecord.Stage>)
+            case edit(EventPlace.ID)
 
-            var stageID: OMERecord.ID<OMERecord.Stage>? {
+            var stageID: EventPlace.ID? {
                 switch self {
                 case .create:
                     return nil
@@ -1342,60 +1294,49 @@ public struct EditStage {
             }
         }
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
             self.mode = .create
-            let draft = Self.emptyDraft(stageID: nil, eventID: eventID)
-            self.draft = draft
-            self.form = FormFeature.State(value: FormValue(draft: draft))
-            self.heroImagePicker = ImageAssetPicker.State(configuration: .stageHero, assets: draft.images)
-            self.logoImagePicker = ImageAssetPicker.State(configuration: .stageLogo, assets: draft.images)
-            self.posterImagePicker = ImageAssetPicker.State(configuration: .stagePoster, assets: draft.images)
+            self.form = FormFeature.State(value: FormValue())
+            self.heroImagePicker = ImageAssetPicker.State(
+                configuration: .stageHero, recordImages: nil, recordID: eventID
+            )
+            self.logoImagePicker = ImageAssetPicker.State(
+                configuration: .stageLogo, recordImages: nil, recordID: eventID
+            )
+            self.posterImagePicker = ImageAssetPicker.State(
+                configuration: .stagePoster, recordImages: nil, recordID: eventID
+            )
             self.hasLoadedDraft = true
         }
 
         public init(
-            stageID: OMERecord.ID<OMERecord.Stage>,
-            eventID: OMERecord.Event.ID
+            stageID: EventPlace.ID,
+            eventID: Event.ID
         ) {
             self.eventID = eventID
             self.mode = .edit(stageID)
-            let draft = Self.emptyDraft(stageID: stageID, eventID: eventID)
-            self.draft = draft
-            self.form = FormFeature.State(value: FormValue(draft: draft))
-            let cacheContext = LocalImageCacheContext(
-                stageID: OMERecord.Stage.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    stageID: stageID
-                )
-            )
+            self.form = FormFeature.State(value: FormValue())
             self.heroImagePicker = ImageAssetPicker.State(
                 configuration: .stageHero,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: nil,
+                recordID: eventID
             )
             self.logoImagePicker = ImageAssetPicker.State(
                 configuration: .stageLogo,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: nil,
+                recordID: eventID
             )
             self.posterImagePicker = ImageAssetPicker.State(
                 configuration: .stagePoster,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: nil,
+                recordID: eventID
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public let mode: Mode
 
-        var draft: OMERecord.Stage.Draft {
-            didSet {
-                form.value = FormValue(draft: draft)
-                resetImagePickers()
-            }
-        }
         var errorMessage: String?
         var destination: Destination.State?
         var form: FormFeature.State
@@ -1403,6 +1344,8 @@ public struct EditStage {
         var heroImagePicker: ImageAssetPicker.State
         var isSaving = false
         var logoImagePicker: ImageAssetPicker.State
+        var originalPlace: EventPlace?
+        var originalImages: [OME.Image] = []
         var posterImagePicker: ImageAssetPicker.State
 
         var category: String {
@@ -1410,7 +1353,7 @@ public struct EditStage {
             set { form.value.category = newValue }
         }
 
-        var color: OMEColor {
+        var color: OME.Color {
             get { form.value.color }
             set { form.value.color = newValue }
         }
@@ -1430,9 +1373,9 @@ public struct EditStage {
             set { heroImagePicker.replaceURLString(newValue) }
         }
 
-        var iconShortCode: String {
-            get { form.value.iconShortCode }
-            set { form.value.iconShortCode = newValue }
+        var shortLabel: String {
+            get { form.value.shortLabel }
+            set { form.value.shortLabel = newValue }
         }
 
         var logoURL: String {
@@ -1445,12 +1388,12 @@ public struct EditStage {
             set { form.value.sortIndex = newValue }
         }
 
-        var systemIconName: String {
-            get { form.value.systemIconName }
-            set { form.value.systemIconName = newValue }
+        var iconName: String {
+            get { form.value.iconName }
+            set { form.value.iconName = newValue }
         }
 
-        public var stageID: OMERecord.ID<OMERecord.Stage>? {
+        public var stageID: EventPlace.ID? {
             mode.stageID
         }
 
@@ -1476,23 +1419,97 @@ public struct EditStage {
             }
         }
 
-        func preparedDraft(
-            stageID: OMERecord.ID<OMERecord.Stage>
-        ) throws -> (draft: OMERecord.Stage.Draft, blobs: [LocalImageBlob]) {
-            var draft = draft
-            let stageRecordID = stageRecordID(stageID: stageID)
-            let preparedImages = try preparedImages(
-                context: .init(stageID: stageRecordID)
-            )
-            draft.id = stageRecordID
-            draft.name = trimmedName
-            draft.category = trimmedCategory.nilIfEmpty.map { OMERecord.Stage.Category($0) }
-            draft.color = color
-            draft.iconShortCode = trimmedIconShortCode.nilIfEmpty
-            draft.sortIndex = parsedSortIndex
-            draft.systemIconName = trimmedSystemIconName.nilIfEmpty
-            draft.images = preparedImages.images.isEmpty ? nil : preparedImages.images
-            return (draft, preparedImages.blobs)
+        fileprivate struct SaveRequest: Sendable {
+            let eventID: Event.ID
+            let mode: Mode
+            let name: String
+            let category: String?
+            let color: OME.Color
+            let sortIndex: Int?
+            let icon: OME.SemanticIcon?
+            let shortLabel: String?
+            let originalPlace: EventPlace?
+            let logoImages: [ImageAssetPicker.ImageValue]
+            let heroImages: [ImageAssetPicker.ImageValue]
+            let posterImages: [ImageAssetPicker.ImageValue]
+
+            init(state: State) {
+                self.eventID = state.eventID
+                self.mode = state.mode
+                self.name = state.trimmedName
+                self.category = state.trimmedCategory.nilIfEmpty
+                self.color = state.color
+                self.sortIndex = state.parsedSortIndex
+                self.icon = state.trimmedIconName.nilIfEmpty.map(OME.SemanticIcon.init(rawValue:))
+                self.shortLabel = state.trimmedShortLabel.nilIfEmpty
+                self.originalPlace = state.originalPlace
+                self.logoImages = state.logoImagePicker.images
+                self.heroImages = state.heroImagePicker.images
+                self.posterImages = state.posterImagePicker.images
+            }
+
+            func fields() throws -> EventPlaceRecordEditing.Fields {
+                var fields = originalPlace.map(EventPlaceRecordEditing.Fields.init)
+                    ?? EventPlaceRecordEditing.Fields(name: name)
+                fields.name = name
+                fields.kind = .known(.stage(.init(
+                    stage: originalPlace?.stageUse?.stage,
+                    color: color,
+                    category: category,
+                    sortIndex: sortIndex,
+                    icon: icon,
+                    shortLabel: shortLabel,
+                    lineup: originalPlace?.stageUse?.lineup
+                )))
+                fields.media = try preparedMedia()
+                return fields
+            }
+
+            private func preparedMedia() throws -> [Open<OME.Media>]? {
+                var logos = try logoImages.map { try preparedImage($0, role: .logo) }
+                var heroes = try heroImages.map { try preparedImage($0, role: .hero) }
+                var posters = try posterImages.map { try preparedImage($0, role: .poster) }
+                var media: [Open<OME.Media>] = []
+
+                for existing in originalPlace?.media ?? [] {
+                    switch existing {
+                    case let .known(.image(image))
+                        where image.role == .known(.logo)
+                            && image.displayImageAsset(recordID: eventID) != nil:
+                        if !logos.isEmpty { media.append(.known(.image(logos.removeFirst()))) }
+                    case let .known(.image(image))
+                        where image.role == .known(.hero)
+                            && image.displayImageAsset(recordID: eventID) != nil:
+                        if !heroes.isEmpty { media.append(.known(.image(heroes.removeFirst()))) }
+                    case let .known(.image(image))
+                        where image.role == .known(.poster)
+                            && image.displayImageAsset(recordID: eventID) != nil:
+                        if !posters.isEmpty { media.append(.known(.image(posters.removeFirst()))) }
+                    default:
+                        media.append(existing)
+                    }
+                }
+                media.append(contentsOf: logos.map { .known(.image($0)) })
+                media.append(contentsOf: heroes.map { .known(.image($0)) })
+                media.append(contentsOf: posters.map { .known(.image($0)) })
+                return media.isEmpty ? nil : media
+            }
+
+            private func preparedImage(
+                _ value: ImageAssetPicker.ImageValue,
+                role: OME.Image.Role
+            ) throws -> OME.Image {
+                var image = value.image
+                if let importedImage = value.importedImage {
+                    let blob = try stageLocalImageBlob(
+                        importedImage.data,
+                        mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
+                    )
+                    image.source = .known(.blob(blob))
+                }
+                image.role = .known(role)
+                return image
+            }
         }
 
         var validationMessage: String? {
@@ -1509,93 +1526,52 @@ public struct EditStage {
             return nil
         }
 
-        func stageID(in db: Database) throws -> OMERecord.ID<OMERecord.Stage> {
-            if let stageID = mode.stageID {
-                return stageID
-            }
-
-            let base = Self.stageIDBase(for: trimmedName)
-            var candidate = base
-            var suffix = 2
-
-            while try StageDetail.stageQuery(
-                stageID: Self.localID(candidate),
-                eventID: eventID
-            )
-            .fetchOne(db) != nil {
-                candidate = "\(base)-\(suffix)"
-                suffix += 1
-            }
-
-            return Self.localID(candidate)
-        }
-
-        func stageRecordID(
-            stageID: OMERecord.ID<OMERecord.Stage>
-        ) -> OMERecord.Stage.ID {
-            OMERecord.Stage.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                stageID: stageID
-            )
-        }
-
         mutating func resetImagePickers() {
-            let cacheContext = imageCacheContext
             heroImagePicker = ImageAssetPicker.State(
                 configuration: .stageHero,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: originalImages,
+                recordID: eventID
             )
             logoImagePicker = ImageAssetPicker.State(
                 configuration: .stageLogo,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: originalImages,
+                recordID: eventID
             )
             posterImagePicker = ImageAssetPicker.State(
                 configuration: .stagePoster,
-                assets: draft.images,
-                cacheContext: cacheContext
+                recordImages: originalImages,
+                recordID: eventID
             )
         }
 
-        private var imageCacheContext: LocalImageCacheContext? {
-            if let id = draft.id {
-                return LocalImageCacheContext(stageID: id)
+        mutating func load(_ place: EventPlace) {
+            form = FormFeature.State(value: FormValue(place: place))
+            originalPlace = place
+            let editableImages = (place.media ?? []).compactMap { medium -> OME.Image? in
+                guard case let .known(.image(image)) = medium,
+                      image.role == .known(.logo)
+                        || image.role == .known(.hero)
+                        || image.role == .known(.poster),
+                      image.displayImageAsset(recordID: eventID) != nil
+                else { return nil }
+                return image
             }
-            if let stageID = mode.stageID {
-                return LocalImageCacheContext(stageID: stageRecordID(stageID: stageID))
-            }
-            return nil
+            originalImages = editableImages
+            resetImagePickers()
+            hasLoadedDraft = true
+            errorMessage = nil
         }
 
         private var parsedSortIndex: Int? {
             trimmedSortIndex.isEmpty ? nil : Int(trimmedSortIndex)
         }
 
-        private func preparedImages(
-            context: LocalImageCacheContext
-        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
-            var images = (draft.images ?? []).filter {
-                $0.role != .logo && $0.role != .hero && $0.role != .poster
-            }
-            var blobs: [LocalImageBlob] = []
-
-            for picker in [logoImagePicker, heroImagePicker, posterImagePicker] {
-                let preparedImages = try picker.materializedImages(context: context)
-                images.append(contentsOf: preparedImages.images)
-                blobs.append(contentsOf: preparedImages.blobs)
-            }
-
-            return (images, blobs)
-        }
-
         private var trimmedCategory: String {
             category.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private var trimmedIconShortCode: String {
-            iconShortCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        private var trimmedShortLabel: String {
+            shortLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         private var trimmedName: String {
@@ -1606,38 +1582,11 @@ public struct EditStage {
             sortIndex.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private var trimmedSystemIconName: String {
-            systemIconName.trimmingCharacters(in: .whitespacesAndNewlines)
+        private var trimmedIconName: String {
+            iconName.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private static func emptyDraft(
-            stageID: OMERecord.ID<OMERecord.Stage>?,
-            eventID: OMERecord.Event.ID
-        ) -> OMERecord.Stage.Draft {
-            OMERecord.Stage.Draft(
-                id: stageID.map {
-                    OMERecord.Stage.ID(
-                        organizerID: eventID.organizerID,
-                        eventID: eventID.eventID,
-                        stageID: $0
-                    )
-                },
-                name: "",
-                color: 0x336699,
-                category: nil,
-                sortIndex: nil,
-                images: nil,
-                systemIconName: nil,
-                iconShortCode: nil,
-                lineup: nil
-            )
-        }
-
-        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
-            OMERecord.ID<OMERecord.Stage>(.init(string))
-        }
-
-        fileprivate static func parseHexColor(_ string: String) -> OMEColor? {
+        fileprivate static func parseHexColor(_ string: String) -> OME.Color? {
             var value = string
 
             if value.hasPrefix("#") {
@@ -1652,20 +1601,7 @@ public struct EditStage {
                 return nil
             }
 
-            return OMEColor(rawValue)
-        }
-
-        private static func stageIDBase(for name: String) -> String {
-            let normalized = name
-                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-                .lowercased()
-            let words = normalized
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { !$0.isEmpty }
-
-            return words.isEmpty
-                ? "stage-\(UUID().uuidString.lowercased())"
-                : words.joined(separator: "-")
+            return OME.Color(rawValue: rawValue)
         }
     }
 
@@ -1691,6 +1627,7 @@ public struct EditStage {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
 
     public var body: some Feature {
         Scope(\.form) {
@@ -1730,30 +1667,28 @@ public struct EditStage {
 
                 state.errorMessage = nil
                 state.isSaving = true
-                let draftState = state
+                let saveRequest = State.SaveRequest(state: state)
+                let createdAt = now
 
                 store.addTask {
                     do {
-                        try database.write { db in
-                            if case .create = draftState.mode {
-                                let stages = try StagesViewer
-                                    .stagesQuery(eventID: draftState.eventID)
-                                    .fetchAll(db)
-                                if StagesViewer.hasOnlyReplaceableSingletonStage(stages) {
-                                    try CopyStagesFromEvent.deleteSingletonStage(
-                                        eventID: draftState.eventID,
-                                        in: db
-                                    )
-                                }
-                            }
-                            let stageID = try draftState.stageID(in: db)
-                            let preparedDraft = try draftState.preparedDraft(stageID: stageID)
-                            try OMERecord.Stage.upsert {
-                                preparedDraft.draft
-                            }
-                            .execute(db)
-                            if !preparedDraft.blobs.isEmpty {
-                                try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                        let fields = try saveRequest.fields()
+                        try await database.write { db in
+                            switch saveRequest.mode {
+                            case .create:
+                                _ = try EventPlaceRecordEditing.create(
+                                    eventID: saveRequest.eventID,
+                                    fields: fields,
+                                    createdAt: createdAt,
+                                    in: db
+                                )
+                            case let .edit(stageID):
+                                try EventPlaceRecordEditing.update(
+                                    stageID,
+                                    eventID: saveRequest.eventID,
+                                    fields: fields,
+                                    in: db
+                                )
                             }
                         }
                         try store.modify {
@@ -1829,11 +1764,11 @@ public struct EditStage {
                     ImportImages()
                 }
                 .ifCaseLet(\.heroImageInfo) {
-                    ImageInfo { imageID, asset in
+                    ImageInfo { imageID, image in
                         try store.modify {
                             $0.heroImagePicker.updateImageInfo(
                                 imageID: imageID,
-                                asset: asset
+                                image: image
                             )
                         }
                     }
@@ -1842,11 +1777,11 @@ public struct EditStage {
                     ImportImages()
                 }
                 .ifCaseLet(\.logoImageInfo) {
-                    ImageInfo { imageID, asset in
+                    ImageInfo { imageID, image in
                         try store.modify {
                             $0.logoImagePicker.updateImageInfo(
                                 imageID: imageID,
-                                asset: asset
+                                image: image
                             )
                         }
                     }
@@ -1855,11 +1790,11 @@ public struct EditStage {
                     ImportImages()
                 }
                 .ifCaseLet(\.posterImageInfo) {
-                    ImageInfo { imageID, asset in
+                    ImageInfo { imageID, image in
                         try store.modify {
                             $0.posterImagePicker.updateImageInfo(
                                 imageID: imageID,
-                                asset: asset
+                                image: image
                             )
                         }
                     }
@@ -1893,10 +1828,7 @@ public struct EditStage {
                     )
                     .fetchOne(db)
                 }) {
-                    state.draft = stage.editDraft
-                    state.form = FormFeature.State(value: FormValue(draft: state.draft))
-                    state.hasLoadedDraft = true
-                    state.errorMessage = nil
+                    state.load(stage)
                 } else {
                     state.errorMessage = "This event stage could not be loaded."
                 }
@@ -2047,12 +1979,12 @@ struct EditStageLoadedForm: View {
 
     private var iconSection: some View {
         Section("Icon") {
-            TextField("SF Symbol", text: $store.form.value.systemIconName)
+            TextField("Icon", text: $store.form.value.iconName)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 #endif
-            TextField("Short Code", text: $store.form.value.iconShortCode)
+            TextField("Short Code", text: $store.form.value.shortLabel)
                 #if os(iOS)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
@@ -2250,25 +2182,13 @@ struct StageIconFallback: View {
     }
 }
 
-private extension OMERecord.Stage {
-    var editDraft: OMERecord.Stage.Draft {
-        OMERecord.Stage.Draft(
-            id: id,
-            name: name,
-            color: color,
-            category: category,
-            sortIndex: sortIndex,
-            images: images,
-            systemIconName: systemIconName,
-            iconShortCode: iconShortCode,
-            lineup: lineup
-        )
-    }
-
+private extension EventPlace {
     var hasDisplayDetails: Bool {
-        category?.displayName != nil || sortIndex != nil
+        stageUse?.category != nil || stageUse?.sortIndex != nil
     }
+}
 
+private extension OMERecord.Stage {
     var initials: String {
         let initials = name
             .split(separator: " ")
@@ -2301,16 +2221,22 @@ private extension String {
 }
 
 private extension EditStage.State {
-    static func formatHexColor(_ color: OMEColor) -> String {
+    static func formatHexColor(_ color: OME.Color) -> String {
         String(format: "#%06X", color.rawValue & 0xFFFFFF)
     }
 }
 
-private extension OMEColor {
+private extension OME.Color {
     var editStageColor: Color {
-        get { swiftUIColor }
+        get {
+            Color(
+                red: Double((rawValue >> 16) & 0xFF) / 255.0,
+                green: Double((rawValue >> 8) & 0xFF) / 255.0,
+                blue: Double(rawValue & 0xFF) / 255.0
+            )
+        }
         set {
-            guard let color = OMEColor(newValue) else { return }
+            guard let color = OME.Color(newValue) else { return }
             self = color
         }
     }
@@ -2340,8 +2266,8 @@ private extension OMEColor {
         #endif
     }
 
-    init(red: CGFloat, green: CGFloat, blue: CGFloat) {
-        self.init(
+    init?(red: CGFloat, green: CGFloat, blue: CGFloat) {
+        self.init(rawValue:
             (Int((red * 255).rounded()) << 16)
                 | (Int((green * 255).rounded()) << 8)
                 | Int((blue * 255).rounded())

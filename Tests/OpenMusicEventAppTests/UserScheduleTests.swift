@@ -5,6 +5,7 @@ import DependenciesTestSupport
 import Foundation
 import GRDB
 import OpenMusicEventAuthentication
+import OpenMusicEventLexicon
 import SQLiteData
 import Testing
 
@@ -13,10 +14,81 @@ import Testing
 
 @Suite(.serialized, .tcaExhaustivity(.off))
 struct UserScheduleTests {
-    let organizerID = OMERecord.Organizer.ID("did:web:user-schedule-tests.example")!
+    let organizerID = DID("did:web:user-schedule-tests.example")!
 
     @Test
-    func migrationPreservesShippedStateWhileApplyingAttendeeMigrations() async throws {
+    func canonicalScheduleMigrationKeepsRowsAndMemberships() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Use canonical Event IDs for viewer state")
+
+        let eventID = eventID("festival")
+        let scheduleID = UUID(0)
+        let otherScheduleID = UUID(1)
+        let canonicalScheduleID = UUID(2)
+        let otherOrganizerID = DID("did:web:another-user-schedule-tests.example")!
+        let performanceID = programItemID("opening")
+        try await database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO "userSchedules" ("id", "organizerID", "eventID", "title")
+                    VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    scheduleID.uuidString,
+                    organizerID.description,
+                    "festival",
+                    "My Schedule",
+                    otherScheduleID.uuidString,
+                    otherOrganizerID.description,
+                    "festival",
+                    "My Schedule",
+                    canonicalScheduleID.uuidString,
+                    organizerID.description,
+                    eventID.description,
+                    "My Schedule",
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO "userSchedulePerformances" ("scheduleID", "performanceID")
+                    VALUES (?, ?), (?, ?)
+                    """,
+                arguments: [
+                    scheduleID.uuidString, performanceID.description,
+                    otherScheduleID.uuidString, performanceID.description,
+                ]
+            )
+        }
+
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            let columns = try String.fetchAll(
+                db, sql: #"SELECT "name" FROM pragma_table_info('userSchedules')"#
+            )
+            #expect(!columns.contains("organizerID"))
+            #expect(
+                try UserSchedule.find(scheduleID).fetchOne(db)?.eventID.description
+                    == "at://\(organizerID)/app.openmusicevent.event/festival"
+            )
+            #expect(
+                try UserSchedule.find(otherScheduleID).fetchOne(db)?.eventID.description
+                    == "at://\(otherOrganizerID)/app.openmusicevent.event/festival"
+            )
+            #expect(try UserSchedule.find(canonicalScheduleID).fetchOne(db)?.eventID == eventID)
+            #expect(try UserSchedule.Performance.fetchAll(db).count == 2)
+            #expect(
+                try UserSchedule.Performance.fetchAll(db).allSatisfy {
+                    $0.id.performanceID == performanceID
+                }
+            )
+        }
+    }
+
+    @Test
+    func migrationReplacesLegacyViewerSelectionWhileApplyingAttendeeMigrations() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
@@ -88,7 +160,7 @@ struct UserScheduleTests {
                 db,
                 sql: #"SELECT "selectedScheduleID" FROM "eventViewerState""#
             )
-            #expect(selectedScheduleID == "published-friday")
+            #expect(selectedScheduleID == nil)
 
             #expect(!(try db.tableExists("performancePreferences")))
 
@@ -153,7 +225,7 @@ struct UserScheduleTests {
         let otherEventID = self.eventID("another-festival")
         let scheduleID = UUID(0)
         let secondScheduleID = UUID(1)
-        let performanceID = performanceLocalID("opening")
+        let performanceID = programItemID("opening")
         let userDID = try #require(DID("did:plc:attendee"))
 
         try await database.write { db in
@@ -249,7 +321,7 @@ struct UserScheduleTests {
     func duplicateMembershipIsPreventedAndRemovalIsIdempotent() async throws {
         let database = try makePreparedDatabase()
         let scheduleID = UUID(0)
-        let performanceID = performanceLocalID("opening")
+        let performanceID = programItemID("opening")
         let membership = UserSchedule.Performance(
             scheduleID: scheduleID,
             performanceID: performanceID
@@ -289,7 +361,7 @@ struct UserScheduleTests {
         let database = try makePreparedDatabase()
         let firstID = UUID(0)
         let secondID = UUID(1)
-        let performanceID = performanceLocalID("opening")
+        let performanceID = programItemID("opening")
 
         try await database.write { db in
             try UserSchedule.insert {
@@ -317,8 +389,8 @@ struct UserScheduleTests {
 
     @Test
     func overlayKeepsFullPerformanceSetAndClassifiesMembershipWithoutGeometryChanges() {
-        let includedID = performanceLocalID("included")
-        let excludedID = performanceLocalID("excluded")
+        let includedID = programItemID("included")
+        let excludedID = programItemID("excluded")
         let scheduleID = UUID(0)
         let eventScheduleOverlay = UserScheduleOverlay(
             schedules: [
@@ -418,20 +490,28 @@ struct UserScheduleTests {
         }
     }
 
-    func eventID(_ value: String) -> OMERecord.Event.ID {
-        OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: OMERecord.ID<OMERecord.Event>(
-                rawValue: ATProto.Record.Key(rawValue: value)
-            )
-        )
+    func eventID(_ value: String) -> Event.ID {
+        let rkey: String
+        switch value {
+        case "festival": rkey = "3mrdbziccpcah"
+        case "another-festival": rkey = "3mrdbziccpcai"
+        default: preconditionFailure("Unexpected test event")
+        }
+        return Event.ID(
+            "at://\(organizerID)/events.openmusic.event/\(rkey)"
+        )!
     }
 
-    func performanceLocalID(
-        _ value: String
-    ) -> OMERecord.ID<OMERecord.Performance> {
-        OMERecord.ID<OMERecord.Performance>(
-            rawValue: ATProto.Record.Key(rawValue: value)
-        )
+    func programItemID(_ value: String) -> ProgramItem.ID {
+        let rkey: String
+        switch value {
+        case "opening": rkey = "3mrdbziccpcak"
+        case "included": rkey = "3mrdbziccpcam"
+        case "excluded": rkey = "3mrdbziccpcan"
+        default: preconditionFailure("Unexpected test program item")
+        }
+        return ProgramItem.ID(
+            "at://\(organizerID)/events.openmusic.programItem/\(rkey)"
+        )!
     }
 }

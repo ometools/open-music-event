@@ -7,6 +7,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
+import Tagged
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -20,8 +21,8 @@ public struct OrganizationDetail {
 
     public struct State: Identifiable {
         public init(
-            organizerID: OME.Organizer.ID,
-            collection: ATProto.NSID = OME.Event.nsid
+            organizerID: DID,
+            collection: ATProto.NSID = ATProto.NSID(Event.lexiconID.rawValue)
         ) {
             self.organizerID = organizerID
             self.collection = collection
@@ -34,9 +35,9 @@ public struct OrganizationDetail {
         public var events: [CalendarEvent] = []
         public var isLoading = false
         public var organizer: CalendarEvent.Organizer?
-        public let organizerID: OME.Organizer.ID
+        public let organizerID: DID
 
-        public var id: OME.Organizer.ID { organizerID }
+        public var id: DID { organizerID }
     }
 
     public enum Action {

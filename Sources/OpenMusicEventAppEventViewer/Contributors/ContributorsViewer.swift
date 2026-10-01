@@ -1,4 +1,6 @@
+import OpenMusicEventLexicon
 import ATProto
+import ATProtoTypes
 import Bluesky
 import ComposableForms
 import ComposableArchitecture2
@@ -20,7 +22,7 @@ public struct ContributorsViewer {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
             self.eventID = eventID
@@ -31,15 +33,21 @@ public struct ContributorsViewer {
                     hydration: .bskyActorProfile
                 )
             )
+            _performanceRows = FetchAll(PerformanceRow.all(eventID: eventID))
+            _eventPlaces = FetchAll(EventPlace.where { $0.event.eq(eventID) })
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public var destination: Destination.State?
         public var errorMessage: String?
         public var searchText = ""
 
         @DebugSnapshotIgnored
         @FetchAll var contributorRows: [ContributorListRow]
+        @DebugSnapshotIgnored
+        @FetchAll var performanceRows: [PerformanceRow]
+        @DebugSnapshotIgnored
+        @FetchAll var eventPlaces: [EventPlace]
 
         var filteredContributorRows: [ContributorListRow] {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -51,13 +59,30 @@ public struct ContributorsViewer {
         var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
             contributorRows.map(\.profile).actorProfileLoadRequests
         }
+
+        func stageContext(for row: ContributorListRow) -> ContributorStageContext {
+            let creditedRows = performanceRows.filter { item in
+                item.performance.credits?.contains {
+                    $0.contributor == row.contributorID
+                } == true
+            }
+            let lineupPlaces = eventPlaces.filter { place in
+                guard case let .known(.stage(use)) = place.kind else { return false }
+                return use.lineup?.contains(row.contributorID) == true
+            }
+            return ContributorStageContext(
+                contributorID: row.contributorID,
+                performanceRows: creditedRows,
+                lineupStages: lineupPlaces
+            )
+        }
     }
 
     public enum Action {
         case addButtonTapped
-        case deleteContributors([OMERecord.ID<OMERecord.Contributor>])
+        case deleteContributors([Contributor.ID])
         case destination(Destination.Action)
-        case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
+        case contributorButtonTapped(Contributor.ID)
     }
 
     @Feature
@@ -69,25 +94,17 @@ public struct ContributorsViewer {
     @Dependency(\.defaultDatabase) var database
 
     static func contributorProfilesQuery(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         hydration: ContributorProfile.Hydration = .none
     ) -> some Statement<ContributorProfile> {
         ContributorProfile.all(eventID: eventID, hydration: hydration)
     }
 
     static func contributorRowsQuery(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         hydration: ContributorProfile.Hydration = .none
     ) -> some Statement<ContributorListRow> {
         ContributorListRow.all(eventID: eventID, hydration: hydration)
-    }
-
-    static func performanceContributorsQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
-        OMERecord.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
     }
 
     public var body: some Feature {
@@ -109,39 +126,11 @@ public struct ContributorsViewer {
                     do {
                         try database.write { db in
                             for contributorID in contributorIDs {
-                                let contributorRecordID = OMERecord.Contributor.ID(
-                                    organizerID: eventID.organizerID,
-                                    eventID: eventID.eventID,
-                                    contributorID: contributorID
+                                try ContributorRecordEditing.delete(
+                                    contributorID,
+                                    eventID: eventID,
+                                    in: db
                                 )
-                                let recordURI = OMERecord.Relationship.RecordReference(
-                                    contributorID: contributorRecordID
-                                )
-                                .uri.description
-
-                                try db.execute(
-                                    sql: #"""
-                                    DELETE FROM "app.openmusicevent.relationship"
-                                    WHERE json_extract("subject", '$.uri') = ?
-                                       OR json_extract("object", '$.uri') = ?
-                                    """#,
-                                    arguments: [recordURI, recordURI]
-                                )
-
-                                try OMERecord.Contributor
-                                    .where { $0.id.organizerID.eq(eventID.organizerID) }
-                                    .where { $0.id.eventID.eq(eventID.eventID) }
-                                    .where { $0.id.contributorID.eq(contributorID) }
-                                    .delete()
-                                    .execute(db)
-
-                                try LocalImageBlob
-                                    .where { $0.organizerID.eq(eventID.organizerID) }
-                                    .where { $0.eventID.eq(eventID.eventID) }
-                                    .where { $0.parentKind.eq(LocalImageBlob.ParentKind.contributor) }
-                                    .where { $0.parentLocalID.eq(contributorID.rawValue.rawValue) }
-                                    .delete()
-                                    .execute(db)
                             }
                         }
                         try store.modify {
@@ -226,7 +215,10 @@ public struct ContributorsViewerView: View {
                     }
 
                     ForEach(store.filteredContributorRows) { row in
-                        ContributorListButton(row: row) { contributorID in
+                        ContributorListButton(
+                            row: row,
+                            stageContext: store.state.stageContext(for: row)
+                        ) { contributorID in
                             store.send(.contributorButtonTapped(contributorID))
                         }
                     }
@@ -263,7 +255,7 @@ public struct ContributorsViewerView: View {
             )
         }
         .accessibilityIdentifier(
-            "view.contributors.\(store.eventID.eventID.rawValue.rawValue)"
+            "view.contributors.\(store.eventID.description)"
         )
     }
 
@@ -279,7 +271,8 @@ public struct ContributorsViewerView: View {
 
 struct ContributorListButton: View {
     let row: ContributorListRow
-    let contributorButtonTapped: (OMERecord.ID<OMERecord.Contributor>) -> Void
+    let stageContext: ContributorStageContext
+    let contributorButtonTapped: (Contributor.ID) -> Void
 
     var body: some View {
         Button {
@@ -287,12 +280,12 @@ struct ContributorListButton: View {
         } label: {
             ContributorsRowView(
                 profile: row.profile,
-                stageContext: row.stageContext
+                stageContext: stageContext
             )
         }
         .navigationLinkListRowStyle()
         .accessibilityIdentifier(
-            "button.contributor.\(row.contributorID.rawValue.rawValue)"
+            "button.contributor.\(row.contributorID.description)"
         )
     }
 }
@@ -314,7 +307,7 @@ struct ContributorsRowView: View {
     }
 
     init(
-        contributor: OMERecord.Contributor,
+        contributor: Contributor,
         stageContext: ContributorStageContext? = nil,
         subtitle: String? = nil
     ) {
@@ -336,7 +329,7 @@ struct ContributorsRowView: View {
                     Group {
                         if let stageContext, !stageContext.stages.isEmpty {
                             ContributorStageIndicatorView(
-                                colors: stageContext.stages.map { $0.color.swiftUIColor }
+                                colors: stageContext.stages.map(\.stageUIColor)
                             )
                         } else {
                             Rectangle()
@@ -377,8 +370,8 @@ public struct EditContributor {
 
         init() {}
 
-        init(contributor: OMERecord.Contributor) {
-            bio = contributor.bio ?? ""
+        init(contributor: Contributor) {
+            bio = contributor.description ?? ""
             links = (contributor.links ?? []).map(EditableContributorLink.init)
             name = contributor.name
         }
@@ -389,9 +382,9 @@ public struct EditContributor {
     public struct State {
         public enum Mode: Equatable, Sendable {
             case create
-            case edit(OMERecord.ID<OMERecord.Contributor>)
+            case edit(Contributor.ID)
 
-            var contributorID: OMERecord.ID<OMERecord.Contributor>? {
+            var contributorID: Contributor.ID? {
                 switch self {
                 case .create:
                     return nil
@@ -401,42 +394,39 @@ public struct EditContributor {
             }
         }
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
             self.form = FormFeature.State(value: FormValue())
             self.hasLoadedDraft = true
-            self.logoImagePicker = ImageAssetPicker.State(configuration: .contributorLogo, assets: nil)
+            self.logoImagePicker = ImageAssetPicker.State(
+                configuration: .contributorLogo, recordImages: nil, recordID: eventID
+            )
             self.mode = .create
-            self.photoImagePicker = ImageAssetPicker.State(configuration: .contributorPhoto, assets: nil)
+            self.photoImagePicker = ImageAssetPicker.State(
+                configuration: .contributorPhoto, recordImages: nil, recordID: eventID
+            )
         }
 
         public init(
-            contributorID: OMERecord.ID<OMERecord.Contributor>,
-            eventID: OMERecord.Event.ID
+            contributorID: Contributor.ID,
+            eventID: Event.ID
         ) {
             self.eventID = eventID
             self.form = FormFeature.State(value: FormValue())
-            let cacheContext = LocalImageCacheContext(
-                contributorID: OMERecord.Contributor.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    contributorID: contributorID
-                )
-            )
             self.logoImagePicker = ImageAssetPicker.State(
                 configuration: .contributorLogo,
-                assets: nil,
-                cacheContext: cacheContext
+                recordImages: nil,
+                recordID: eventID
             )
             self.mode = .edit(contributorID)
             self.photoImagePicker = ImageAssetPicker.State(
                 configuration: .contributorPhoto,
-                assets: nil,
-                cacheContext: cacheContext
+                recordImages: nil,
+                recordID: eventID
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         let mode: Mode
 
         public var actorSearchErrorMessage: String?
@@ -452,7 +442,8 @@ public struct EditContributor {
         @DebugSnapshotTracked var isSaving: Bool = false
         public var isSavingActor = false
         var logoImagePicker: ImageAssetPicker.State
-        var originalImages: [OMERecord.ImageAsset] = []
+        var originalContributor: Contributor?
+        var originalImages: [OME.Image] = []
         var photoImagePicker: ImageAssetPicker.State
 
         var imageURL: String {
@@ -469,13 +460,7 @@ public struct EditContributor {
             hasLoadedDraft && !isSaving && !isSavingActor && form.canSubmit
         }
 
-        var contributorActor: OMERecord.Contributor.Actor? {
-            if let contributorDID,
-               let actor = OMERecord.Contributor.Actor(contributorDID.description) {
-                return actor
-            }
-            return nil
-        }
+        var contributorActor: DID? { contributorDID }
 
         var navigationTitle: String {
             switch mode {
@@ -498,13 +483,13 @@ public struct EditContributor {
         fileprivate struct SaveRequest: Sendable {
             let bio: String?
             let did: DID?
-            let eventID: OMERecord.Event.ID
-            let links: [ExternalPlatform.Link]?
+            let eventID: Event.ID
+            let links: [OME.Link]?
             let logoImages: [ImageAssetPicker.ImageValue]
             let mode: Mode
             let name: String
+            let originalContributor: Contributor?
             let photoImages: [ImageAssetPicker.ImageValue]
-            let preservedImages: [OMERecord.ImageAsset]
 
             init(state: State) {
                 self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -514,119 +499,91 @@ public struct EditContributor {
                 self.logoImages = state.logoImagePicker.images
                 self.mode = state.mode
                 self.name = state.trimmedName
+                self.originalContributor = state.originalContributor
                 self.photoImages = state.photoImagePicker.images
-                self.preservedImages = state.originalImages.filter {
-                    $0.role != .photo && $0.role != .logo
+            }
+
+            func fields() throws -> ContributorRecordEditing.Fields {
+                var fields = originalContributor.map(ContributorRecordEditing.Fields.init)
+                    ?? ContributorRecordEditing.Fields(name: name)
+                fields.name = name
+                fields.subject = did
+                fields.description = bio
+                fields.links = links
+                fields.media = try preparedMedia()
+                return fields
+            }
+
+            private func preparedMedia() throws -> [Open<OME.Media>]? {
+                var photos = try photoImages.map { try preparedImage($0, role: .photo) }
+                var logos = try logoImages.map { try preparedImage($0, role: .logo) }
+                var media: [Open<OME.Media>] = []
+
+                for existing in originalContributor?.media ?? [] {
+                    switch existing {
+                    case let .known(.image(image))
+                        where image.role == .known(.logo)
+                            && image.displayImageAsset(recordID: eventID) != nil:
+                        if !logos.isEmpty { media.append(.known(.image(logos.removeFirst()))) }
+                    case let .known(.image(image))
+                        where (image.role == nil || image.role == .known(.photo))
+                            && image.displayImageAsset(recordID: eventID) != nil:
+                        if !photos.isEmpty { media.append(.known(.image(photos.removeFirst()))) }
+                    default:
+                        media.append(existing)
+                    }
                 }
+                media.append(contentsOf: photos.map { .known(.image($0)) })
+                media.append(contentsOf: logos.map { .known(.image($0)) })
+                return media.isEmpty ? nil : media
             }
 
-            func contributorID(in db: Database) throws -> OMERecord.ID<OMERecord.Contributor> {
-                if let contributorID = mode.contributorID {
-                    return contributorID
+            private func preparedImage(
+                _ value: ImageAssetPicker.ImageValue,
+                role: OME.Image.Role
+            ) throws -> OME.Image {
+                var image = value.image
+                if let importedImage = value.importedImage {
+                    let blob = try stageLocalImageBlob(
+                        importedImage.data,
+                        mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
+                    )
+                    image.source = .known(.blob(blob))
                 }
-
-                let base = State.contributorIDBase(for: name)
-                var candidate = base
-                var suffix = 2
-
-                while try ContributorDetail.contributorQuery(
-                    contributorID: State.localID(candidate),
-                    eventID: eventID
-                )
-                .fetchOne(db) != nil {
-                    candidate = "\(base)-\(suffix)"
-                    suffix += 1
-                }
-
-                return State.localID(candidate)
-            }
-
-            func contributorRecordID(
-                contributorID: OMERecord.ID<OMERecord.Contributor>
-            ) -> OMERecord.Contributor.ID {
-                OMERecord.Contributor.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    contributorID: contributorID
-                )
-            }
-
-            func preparedDraft(
-                contributorID: OMERecord.ID<OMERecord.Contributor>
-            ) throws -> (draft: OMERecord.Contributor.Draft, blobs: [LocalImageBlob]) {
-                let contributorRecordID = contributorRecordID(contributorID: contributorID)
-                let preparedImages = try preparedImages(
-                    context: .init(contributorID: contributorRecordID)
-                )
-                return (
-                    OMERecord.Contributor.Draft(
-                        id: contributorRecordID,
-                        name: name,
-                        did: did,
-                        bio: bio,
-                        images: preparedImages.images.isEmpty ? nil : preparedImages.images,
-                        links: links
-                    ),
-                    preparedImages.blobs
-                )
-            }
-
-            func clearLinkedPerformanceActors(
-                contributorID: OMERecord.ID<OMERecord.Contributor>,
-                in db: Database
-            ) throws {
-                guard did != nil else { return }
-
-                try #sql("""
-                    UPDATE "performanceContributors"
-                    SET "contributorActor" = NULL
-                    WHERE "organizerID" = \(eventID.organizerID)
-                      AND "eventID" = \(eventID.eventID)
-                      AND "contributorID" = \(contributorID)
-                    """)
-                    .execute(db)
-            }
-
-            private func preparedImages(
-                context: LocalImageCacheContext
-            ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
-                let photos = try ImageAssetPicker.State.materializedImages(
-                    photoImages,
-                    context: context
-                )
-                let logos = try ImageAssetPicker.State.materializedImages(
-                    logoImages,
-                    context: context
-                )
-                return (
-                    preservedImages + photos.images + logos.images,
-                    photos.blobs + logos.blobs
-                )
+                image.role = .known(role)
+                return image
             }
         }
 
-        var preparedLinks: [ExternalPlatform.Link] {
+        var preparedLinks: [OME.Link] {
             form.value.links.compactMap(\.preparedLink)
         }
 
         mutating func resetImagePickers() {
-            let cacheContext = imageCacheContext
             logoImagePicker = ImageAssetPicker.State(
                 configuration: .contributorLogo,
-                assets: originalImages,
-                cacheContext: cacheContext
+                recordImages: originalImages,
+                recordID: eventID
             )
             photoImagePicker = ImageAssetPicker.State(
                 configuration: .contributorPhoto,
-                assets: originalImages,
-                cacheContext: cacheContext
+                recordImages: originalImages,
+                recordID: eventID
             )
         }
 
-        mutating func load(_ contributor: OMERecord.Contributor) {
+        mutating func load(_ contributor: Contributor) {
             form = FormFeature.State(value: FormValue(contributor: contributor))
-            contributorDID = contributor.did
-            originalImages = contributor.images ?? []
+            contributorDID = contributor.subject
+            originalContributor = contributor
+            let editableImages = (contributor.media ?? []).compactMap { medium -> OME.Image? in
+                guard case let .known(.image(image)) = medium,
+                      image.role == nil || image.role == .known(.photo) || image.role == .known(.logo),
+                      image.displayImageAsset(recordID: eventID) != nil
+                else { return nil }
+                return image
+            }
+            originalImages = editableImages
             resetImagePickers()
             hasLoadedDraft = true
             errorMessage = nil
@@ -679,38 +636,8 @@ public struct EditContributor {
             photoImagePicker.replaceURLString(url.absoluteString)
         }
 
-        private var imageCacheContext: LocalImageCacheContext? {
-            if let contributorID = mode.contributorID {
-                return LocalImageCacheContext(
-                    contributorID: OMERecord.Contributor.ID(
-                        organizerID: eventID.organizerID,
-                        eventID: eventID.eventID,
-                        contributorID: contributorID
-                    )
-                )
-            }
-            return nil
-        }
-
         private var trimmedName: String {
             form.value.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
-            OMERecord.ID<OMERecord.Contributor>(.init(string))
-        }
-
-        private static func contributorIDBase(for name: String) -> String {
-            let normalized = name
-                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-                .lowercased()
-            let words = normalized
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { !$0.isEmpty }
-
-            return words.isEmpty
-                ? "contributor-\(UUID().uuidString.lowercased())"
-                : words.joined(separator: "-")
         }
     }
 
@@ -743,6 +670,7 @@ public struct EditContributor {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @StoreTaskID var actorSearchTask
 
@@ -766,11 +694,6 @@ public struct EditContributor {
                 state.form.value.links.append(EditableContributorLink())
 
             case let .actorIdentityTapped(identity):
-                guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorSearchErrorMessage = "The selected account is not a valid contributor identity."
-                    return
-                }
-
                 state.contributorDID = identity.did
                 state.prefillFromActorIdentity(identity)
                 state.resetActorSearch()
@@ -781,10 +704,10 @@ public struct EditContributor {
                         operation: .contributorProfileLookup
                     ) {
                         let cachedProfile = try await blueskyActorProfileCache.cachedProfile(
-                            actor.description
+                            identity.did.description
                         )
                         let refreshedProfile = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                            actor.description,
+                            identity.did.description,
                             24 * 60 * 60,
                             15 * 60
                         )
@@ -830,14 +753,14 @@ public struct EditContributor {
                 guard case let .logoImageInfo(imageInfo) = state.destination else { return }
                 state.logoImagePicker.updateImageInfo(
                     imageID: imageInfo.id,
-                    asset: imageInfo.asset
+                    image: imageInfo.image
                 )
 
             case .destination(.photoImageInfo(.saveButtonTapped)):
                 guard case let .photoImageInfo(imageInfo) = state.destination else { return }
                 state.photoImagePicker.updateImageInfo(
                     imageID: imageInfo.id,
-                    asset: imageInfo.asset
+                    image: imageInfo.image
                 )
 
             case .destination:
@@ -863,22 +786,27 @@ public struct EditContributor {
                 state.errorMessage = nil
                 state.isSaving = true
                 let saveRequest = State.SaveRequest(state: state)
+                let createdAt = now
 
                 store.addTask {
                     do {
+                        let fields = try saveRequest.fields()
                         try await database.write { db in
-                            let contributorID = try saveRequest.contributorID(in: db)
-                            let preparedDraft = try saveRequest.preparedDraft(contributorID: contributorID)
-                            try OMERecord.Contributor.upsert {
-                                preparedDraft.draft
-                            }
-                            .execute(db)
-                            try saveRequest.clearLinkedPerformanceActors(
-                                contributorID: contributorID,
-                                in: db
-                            )
-                            if !preparedDraft.blobs.isEmpty {
-                                try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                            switch saveRequest.mode {
+                            case .create:
+                                _ = try ContributorRecordEditing.create(
+                                    eventID: saveRequest.eventID,
+                                    fields: fields,
+                                    createdAt: createdAt,
+                                    in: db
+                                )
+                            case let .edit(contributorID):
+                                try ContributorRecordEditing.update(
+                                    contributorID,
+                                    eventID: saveRequest.eventID,
+                                    fields: fields,
+                                    in: db
+                                )
                             }
                         }
                         try store.send(.saveSucceeded)
@@ -1272,7 +1200,7 @@ struct EditContributorSaveButton: View {
 struct EditContributorActorProfileSection: View {
     @Binding var query: String
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    let actor: OMERecord.Contributor.Actor?
+    let actor: DID?
     let sections: [PredictiveSearchSection<ActorIdentity>]
     let failures: [PredictiveSearchFailure]
     let isLoading: Bool
@@ -1502,22 +1430,28 @@ struct ContributorActorAvatarPlaceholder: View {
 
 public struct EditableContributorLink: Identifiable, Equatable {
     public var id = UUID()
+    var original: OME.Link?
     var platformRawValue = ""
     var url = ""
 
     init() {}
 
-    init(_ link: ExternalPlatform.Link) {
-        self.platformRawValue = link.platform?.rawValue ?? ""
+    init(_ link: OME.Link) {
+        self.original = link
+        self.platformRawValue = link.platformIdentifier ?? ""
         self.url = link.url.absoluteString
     }
 
-    var preparedLink: ExternalPlatform.Link? {
+    var preparedLink: OME.Link? {
         guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else { return nil }
-        return ExternalPlatform.Link(
-            url: url,
-            platform: trimmedPlatformRawValue.nilIfEmpty.flatMap(ExternalPlatform.init(rawValue:))
-        )
+        var link = original ?? OME.Link(url: url)
+        link.url = url
+        if let platform = ExternalPlatform(rawValue: trimmedPlatformRawValue) {
+            link.platform = .known(platform)
+        } else if trimmedPlatformRawValue.isEmpty {
+            link.platform = nil
+        }
+        return link
     }
 
     var validationMessage: String? {
@@ -1527,7 +1461,9 @@ public struct EditableContributorLink: Identifiable, Equatable {
             return "Enter a valid link URL."
         }
 
-        if !trimmedPlatformRawValue.isEmpty, ExternalPlatform(rawValue: trimmedPlatformRawValue) == nil {
+        if !trimmedPlatformRawValue.isEmpty,
+           ExternalPlatform(rawValue: trimmedPlatformRawValue) == nil,
+           original?.platformIdentifier != trimmedPlatformRawValue {
             return "Choose a valid link platform."
         }
 
@@ -1573,7 +1509,7 @@ struct ContributorArtworkView: View {
 }
 
 struct ContributorLinkRow: View {
-    let link: ExternalPlatform.Link
+    let link: OME.Link
 
     var body: some View {
         Link(destination: link.destinationURL) {
@@ -1589,36 +1525,6 @@ struct ContributorLinkRow: View {
             }
             .portableContentShape(Rectangle())
         }
-    }
-}
-
-extension OMERecord.Contributor {
-    var preferredArtworkAsset: OMERecord.ImageAsset? {
-        images?.imageAsset(role: .photo)
-        ?? images?.imageAsset(role: .logo)
-    }
-
-    var displayBio: String? {
-        let bio = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return bio?.isEmpty == false ? bio : nil
-    }
-
-    func isGeneratedScheduleActorContributor(
-        actor: OMERecord.Contributor.Actor,
-        actorProfileHandle: String? = nil
-    ) -> Bool {
-        let hasImages = images?.isEmpty == false
-        let hasLinks = links?.isEmpty == false
-        let normalizedName = name.normalizedGeneratedActorIdentity
-        let actorProfileHandleMatchesName = actorProfileHandle
-            .map { $0.normalizedGeneratedActorIdentity == normalizedName } == true
-        let matchesActor = actor.description.normalizedGeneratedActorIdentity == normalizedName
-            || actorProfileHandleMatchesName
-        return id.contributorID.rawValue.rawValue.hasPrefix("schedule-actor-")
-            && matchesActor
-            && displayBio == nil
-            && !hasImages
-            && !hasLinks
     }
 }
 
@@ -1650,7 +1556,7 @@ extension ActorIdentity {
     }
 }
 
-private extension Array where Element == ExternalPlatform.Link {
+private extension Array where Element == OME.Link {
     var nilIfEmpty: Self? {
         isEmpty ? nil : self
     }
@@ -1665,9 +1571,6 @@ private extension String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var normalizedGeneratedActorIdentity: String {
-        trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
 }
 
 private extension Error {
@@ -1688,13 +1591,13 @@ private extension ErrorOperation {
     static let contributorProfileLookup = Self("contributor.profile.lookup")
 }
 
-private extension ExternalPlatform.Link {
+private extension OME.Link {
     var destinationURL: URL {
         guard url.scheme == nil else { return url }
         return URL(string: "https://\(url.absoluteString)") ?? url
     }
 
     var displayName: String {
-        platform?.name ?? url.host ?? url.absoluteString
+        title ?? detectedPlatform.name
     }
 }

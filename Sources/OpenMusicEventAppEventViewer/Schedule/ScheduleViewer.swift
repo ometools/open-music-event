@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import Bluesky
 import ComposableArchitecture2
 import Dependencies
@@ -57,15 +58,15 @@ struct EventTimePresentation: Equatable, Sendable {
             .timeZone(.specificName(.long))
     }
 
-    func performanceRowTimeRange(
-        for performance: OMERecord.Performance,
+    func programItemRowTimeRange(
+        for item: ProgramItem,
         disclosure: Disclosure = .never
     ) -> String {
-        formattedTimeRange(
-            start: performance.startTime,
-            end: performance.endTime,
-            disclosure: disclosure
-        )
+        guard let start = item.startDate else { return "Time TBA" }
+        guard let end = item.endDate else {
+            return formattedTime(for: start, disclosure: disclosure)
+        }
+        return formattedTimeRange(start: start, end: end, disclosure: disclosure)
     }
 
     func formattedTimeRange(
@@ -184,11 +185,11 @@ extension EnvironmentValues {
     }
 }
 
-extension OMERecord.Event {
+extension Event {
     static func timeZoneQuery(
-        eventID: OMERecord.Event.ID
+        eventID: Event.ID
     ) -> some PartialSelectStatement<TimeZone> {
-        OMERecord.Event
+        Event
             .where { $0.id.eq(eventID) }
             .select(\.timeZone)
     }
@@ -202,18 +203,18 @@ public struct ScheduleViewer {
     public typealias ScheduleKind = ScheduleViewerState.ScheduleKind
 
     struct CurrentTimeDestination: Equatable, Sendable {
-        let scheduleID: OMERecord.ID<OMERecord.Schedule>
-        let performanceID: OMERecord.ID<OMERecord.Performance>
+        let scheduleID: Schedule.ID
+        let performanceID: ProgramItem.ID
     }
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             scheduleDivision: ScheduleDivision = .schedule
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: eventID)
+                Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
             let scheduleViewerState = ScheduleViewerState(
@@ -250,7 +251,7 @@ public struct ScheduleViewer {
                 )
             )
             _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
+                Event.where { $0.id.eq(eventID) }
             )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
@@ -275,7 +276,7 @@ public struct ScheduleViewer {
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
@@ -291,7 +292,7 @@ public struct ScheduleViewer {
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
 
-        @FetchOne public var event: OMERecord.Event?
+        @FetchOne public var event: Event?
         public var scheduleKind: ScheduleKind {
             get { scheduleViewerState.scheduleKind }
             set {
@@ -301,10 +302,11 @@ public struct ScheduleViewer {
         }
 
         public var showStageNameLabels: Bool {
-            visibleStages.count > 1
+            let identifiers = visibleStages.map(\.stageVisualIdentifier)
+            return Set(identifiers).count < identifiers.count
         }
 
-        public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
+        public var selectedStageID: EventPlace.ID? {
             get {
                 ScheduleViewer.normalizedSelectedStageID(
                     selectedStageID: scheduleViewerState.selectedStageID,
@@ -321,8 +323,8 @@ public struct ScheduleViewer {
         }
 
         @FetchAll public var performanceRows: [PerformanceRow]
-        @FetchAll public var schedules: [OMERecord.Schedule]
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var schedules: [Schedule]
+        @FetchAll public var stages: [EventPlace]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         @FetchAll public var userSchedules: [UserSchedule]
@@ -336,33 +338,28 @@ public struct ScheduleViewer {
             )
         }
 
-        public var performances: [OMERecord.Performance] {
+        public var performances: [ProgramItem] {
             performanceRows.map(\.performance)
         }
 
-        var usesSingletonSchedule: Bool {
-            schedules.count == 1
-                && schedules.first?.id.scheduleID == OMERecord.Schedule.singletonID
-        }
-
         public func selectedSchedule(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> OMERecord.Schedule? {
+            selectedScheduleID: Schedule.ID?
+        ) -> Schedule? {
             guard let selectedScheduleID = resolvedSelectedScheduleID(selectedScheduleID) else {
                 return nil
             }
-            return schedules.first { $0.id.scheduleID == selectedScheduleID }
+            return schedules.first { $0.id == selectedScheduleID }
         }
 
         public func visiblePerformances(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> [OMERecord.Performance] {
+            selectedScheduleID: Schedule.ID?
+        ) -> [ProgramItem] {
             visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
                 .map(\.performance)
         }
 
         func visiblePerformanceRows(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+            selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
             ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
@@ -372,16 +369,16 @@ public struct ScheduleViewer {
         }
 
         public func visiblePerformancesForSelectedStage(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> [OMERecord.Performance] {
+            selectedScheduleID: Schedule.ID?
+        ) -> [ProgramItem] {
             guard let selectedStageID = resolvedSelectedStageID else { return [] }
             return visiblePerformances(selectedScheduleID: selectedScheduleID)
-                .filter { $0.stageID == selectedStageID }
+                .filter { $0.eventPlace == selectedStageID }
         }
 
         func currentTimeDestination(
             currentDate: Date?,
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+            selectedScheduleID: Schedule.ID?,
             buffer: TimeInterval
         ) -> CurrentTimeDestination? {
             ScheduleViewer.currentTimeDestination(
@@ -395,16 +392,16 @@ public struct ScheduleViewer {
         }
 
         func resolvedSelectedScheduleID(
-            _ selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-        ) -> OMERecord.ID<OMERecord.Schedule>? {
+            _ selectedScheduleID: Schedule.ID?
+        ) -> Schedule.ID? {
             if let selectedScheduleID,
-               schedules.contains(where: { $0.id.scheduleID == selectedScheduleID }) {
+               schedules.contains(where: { $0.id == selectedScheduleID }) {
                 return selectedScheduleID
             }
-            return schedules.first?.id.scheduleID
+            return schedules.first?.id
         }
 
-        var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
+        var resolvedSelectedStageID: EventPlace.ID? {
             ScheduleViewer.resolvedSelectedStageID(
                 selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
@@ -412,7 +409,7 @@ public struct ScheduleViewer {
         }
 
         func selectedScheduleTitle(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+            selectedScheduleID: Schedule.ID?
         ) -> String {
             guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
                   let timeZone
@@ -420,16 +417,16 @@ public struct ScheduleViewer {
             return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
         }
 
-        var selectedStage: OMERecord.Stage? {
+        var selectedStage: EventPlace? {
             guard let resolvedSelectedStageID else { return nil }
-            return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
+            return visibleStages.first { $0.id == resolvedSelectedStageID }
         }
 
-        var stagesByID: [OMERecord.ID<OMERecord.Stage>: OMERecord.Stage] {
-            Dictionary(uniqueKeysWithValues: stages.map { ($0.id.stageID, $0) })
+        var stagesByID: [EventPlace.ID: EventPlace] {
+            Dictionary(uniqueKeysWithValues: stages.map { ($0.id, $0) })
         }
 
-        var visibleStages: [OMERecord.Stage] {
+        var visibleStages: [EventPlace] {
             ScheduleViewer.visibleStages(
                 stages: stages,
                 division: scheduleDivision
@@ -438,18 +435,18 @@ public struct ScheduleViewer {
     }
 
     public enum Action {
-        case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
+        case addPerformanceButtonTapped(Schedule.ID?)
         case addScheduleButtonTapped
-        case addToNewUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case addToNewUserScheduleButtonTapped(ProgramItem.ID)
         case destination(Destination.Action)
-        case otherReactionButtonTapped(OMERecord.Performance.ID)
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
+        case otherReactionButtonTapped(ProgramItem.ID)
+        case performanceButtonTapped(ProgramItem.ID)
+        case reactionButtonTapped(ProgramItem.ID, PerformanceReaction.Emoji)
         case scheduleKindButtonTapped(ScheduleKind)
         case schedulesButtonTapped
         case userScheduleButtonTapped(UserSchedule.ID?)
         case userScheduleMembershipButtonTapped(
-            performanceID: OMERecord.ID<OMERecord.Performance>,
+            performanceID: ProgramItem.ID,
             scheduleID: UserSchedule.ID
         )
     }
@@ -466,16 +463,16 @@ public struct ScheduleViewer {
     @Feature
     public struct DeletePerformanceConfirmation: Prompt {
         public struct State: Identifiable {
-            public init(performanceID: OMERecord.ID<OMERecord.Performance>) {
+            public init(performanceID: ProgramItem.ID) {
                 self.performanceID = performanceID
             }
 
-            public var performanceID: OMERecord.ID<OMERecord.Performance>
-            public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
+            public var performanceID: ProgramItem.ID
+            public var id: ProgramItem.ID { performanceID }
         }
 
         public enum Action {
-            case deleteButtonTapped(OMERecord.ID<OMERecord.Performance>)
+            case deleteButtonTapped(ProgramItem.ID)
         }
     }
 
@@ -485,48 +482,42 @@ public struct ScheduleViewer {
     @Dependency(\.uuid) var uuid
 
     static func eventPerformancesQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance> {
-        OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.startTime, $0.title.collate(.nocase)) }
+        eventID: Event.ID
+    ) -> some SelectStatementOf<ProgramItem> {
+        ProgramItem
+            .where { $0.event.eq(eventID) }
+            .order { ($0.startsAt.asc(nulls: .last), $0.title.collate(.nocase)) }
     }
 
     static func performancesQuery(
-        eventID: OMERecord.Event.ID,
-        scheduleID: OMERecord.ID<OMERecord.Schedule>
-    ) -> some SelectStatementOf<OMERecord.Performance> {
-        OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.scheduleID.eq(scheduleID) }
-            .order { ($0.startTime, $0.title.collate(.nocase)) }
+        eventID: Event.ID,
+        scheduleID: Schedule.ID
+    ) -> some SelectStatementOf<ProgramItem> {
+        ProgramItem
+            .where { $0.event.eq(eventID) }
+            .where { $0.schedule.eq(scheduleID) }
+            .order { ($0.startsAt.asc(nulls: .last), $0.title.collate(.nocase)) }
     }
 
     static func schedulesQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Schedule> {
-        OMERecord.Schedule
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.date, $0.startsAt.asc(nulls: .last), $0.customTitle.asc(nulls: .last)) }
+        eventID: Event.ID
+    ) -> some SelectStatementOf<Schedule> {
+        Schedule
+            .where { $0.event.eq(eventID) }
+            .order { ($0.date, $0.title.asc(nulls: .last)) }
     }
 
     static func stagesQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Stage> {
-        OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+        eventID: Event.ID
+    ) -> some SelectStatementOf<EventPlace> {
+        EventPlace.where { $0.event.eq(eventID) }
     }
 
     static func scheduleTitle(
-        _ schedule: OMERecord.Schedule,
+        _ schedule: Schedule,
         in timeZone: TimeZone
     ) -> String {
-        if let customTitle = schedule.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let customTitle = schedule.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !customTitle.isEmpty {
             return customTitle
         }
@@ -536,7 +527,7 @@ public struct ScheduleViewer {
     static func emptyStageTitle(
         scheduleDivision: ScheduleDivision,
         scheduleTitle: String,
-        stage: OMERecord.Stage
+        stage: EventPlace
     ) -> String {
         "\(emptyScheduleTitle(scheduleDivision: scheduleDivision, scheduleTitle: scheduleTitle)) at \(stage.name)"
     }
@@ -549,20 +540,26 @@ public struct ScheduleViewer {
     }
 
     static func resolvedSelectedStageID(
-        selectedStageID: OMERecord.ID<OMERecord.Stage>?,
-        stages: [OMERecord.Stage]
-    ) -> OMERecord.ID<OMERecord.Stage>? {
+        selectedStageID: EventPlace.ID?,
+        stages: [EventPlace]
+    ) -> EventPlace.ID? {
         if let selectedStageID,
-           stages.contains(where: { $0.id.stageID == selectedStageID }) {
+           stages.contains(where: { $0.id == selectedStageID }) {
             return selectedStageID
         }
-        return stages.first?.id.stageID
+        return stages.sorted { lhs, rhs in
+            let left = lhs.stageUse?.sortIndex ?? Int.max
+            let right = rhs.stageUse?.sortIndex ?? Int.max
+            return left == right
+                ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                : left < right
+        }.first?.id
     }
 
     static func normalizedSelectedStageID(
-        selectedStageID: OMERecord.ID<OMERecord.Stage>?,
-        stages: [OMERecord.Stage]
-    ) -> OMERecord.ID<OMERecord.Stage>? {
+        selectedStageID: EventPlace.ID?,
+        stages: [EventPlace]
+    ) -> EventPlace.ID? {
         guard !stages.isEmpty else { return selectedStageID }
         return resolvedSelectedStageID(
             selectedStageID: selectedStageID,
@@ -570,13 +567,14 @@ public struct ScheduleViewer {
         )
     }
 
-    static func scheduleDivisions(stages: [OMERecord.Stage]) -> [ScheduleDivision] {
+    static func scheduleDivisions(stages: [EventPlace]) -> [ScheduleDivision] {
         guard !stages.isEmpty else { return [] }
 
         var divisions: [ScheduleDivision] = [.schedule]
-        var seenCategories = Set<OMERecord.Stage.Category>()
+        var seenCategories = Set<String>()
         for stage in stages {
-            guard let category = stage.category, seenCategories.insert(category).inserted else {
+            guard let category = stage.stageUse?.category,
+                  seenCategories.insert(category).inserted else {
                 continue
             }
             divisions.append(ScheduleDivision(category: category))
@@ -586,23 +584,23 @@ public struct ScheduleViewer {
 
     static func visiblePerformances(
         performanceRows: [PerformanceRow],
-        scheduleID: OMERecord.ID<OMERecord.Schedule>?,
-        stages: [OMERecord.Stage]
+        scheduleID: Schedule.ID?,
+        stages: [EventPlace]
     ) -> [PerformanceRow] {
         guard let scheduleID else { return [] }
-        let visibleStageIDs = Set(stages.map(\.id.stageID))
+        let visibleStageIDs = Set(stages.map(\.id))
         return performanceRows.filter {
-            $0.performance.scheduleID == scheduleID
-                && visibleStageIDs.contains($0.performance.stageID)
+            $0.performance.schedule == scheduleID
+                && ($0.performance.eventPlace.map(visibleStageIDs.contains) ?? true)
         }
     }
 
     static func currentTimeDestination(
         currentDate: Date?,
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
-        schedules: [OMERecord.Schedule],
+        selectedScheduleID: Schedule.ID?,
+        schedules: [Schedule],
         performanceRows: [PerformanceRow],
-        stages: [OMERecord.Stage],
+        stages: [EventPlace],
         buffer: TimeInterval
     ) -> CurrentTimeDestination? {
         guard let currentDate else { return nil }
@@ -610,12 +608,13 @@ public struct ScheduleViewer {
         let candidates = schedules.compactMap { schedule -> CurrentTimeDestination? in
             let rows = visiblePerformances(
                 performanceRows: performanceRows,
-                scheduleID: schedule.id.scheduleID,
+                scheduleID: schedule.id,
                 stages: stages
             )
+            .filter { $0.performance.startDate != nil && $0.performance.endDate != nil }
             guard
-                let firstStart = rows.map(\.performance.startTime).min(),
-                let lastEnd = rows.map(\.performance.endTime).max()
+                let firstStart = rows.compactMap(\.performance.startDate).min(),
+                let lastEnd = rows.compactMap(\.performance.endDate).max()
             else { return nil }
 
             let renderedRange = DateInterval(
@@ -624,16 +623,18 @@ public struct ScheduleViewer {
             )
             guard renderedRange.contains(currentDate) else { return nil }
 
-            let row = rows.first {
-                $0.performance.startTime <= currentDate
-                    && currentDate < $0.performance.endTime
-            } ?? rows.first {
-                currentDate < $0.performance.startTime
+            let row = rows.first { row in
+                guard let start = row.performance.startDate,
+                      let end = row.performance.endDate else { return false }
+                return start <= currentDate && currentDate < end
+            } ?? rows.first { row in
+                guard let start = row.performance.startDate else { return false }
+                return currentDate < start
             } ?? rows.last
             guard let row else { return nil }
 
             return CurrentTimeDestination(
-                scheduleID: schedule.id.scheduleID,
+                scheduleID: schedule.id,
                 performanceID: row.performanceID
             )
         }
@@ -648,34 +649,42 @@ public struct ScheduleViewer {
     }
 
     static func visibleStages(
-        stages: [OMERecord.Stage],
+        stages: [EventPlace],
         division: ScheduleDivision
-    ) -> [OMERecord.Stage] {
-        stages.filter { $0.category == division.category }
+    ) -> [EventPlace] {
+        stages
+            .filter { $0.stageUse != nil && $0.stageUse?.category == division.category }
+            .sorted { lhs, rhs in
+                let left = lhs.stageUse?.sortIndex ?? Int.max
+                let right = rhs.stageUse?.sortIndex ?? Int.max
+                return left == right
+                    ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                    : left < right
+            }
     }
 
     static func orderedStages(
-        _ stages: [OMERecord.Stage],
-        performances: [OMERecord.Performance]
-    ) -> [OMERecord.Stage] {
-        let stageIDsWithPerformances = Set(performances.map(\.stageID))
-        return stages.filter { stageIDsWithPerformances.contains($0.id.stageID) }
-            + stages.filter { !stageIDsWithPerformances.contains($0.id.stageID) }
+        _ stages: [EventPlace],
+        performances: [ProgramItem]
+    ) -> [EventPlace] {
+        let stageIDsWithPerformances = Set(performances.compactMap(\.eventPlace))
+        return stages.filter { stageIDsWithPerformances.contains($0.id) }
+            + stages.filter { !stageIDsWithPerformances.contains($0.id) }
     }
 
     static func unavailableStageIDs(
-        stages: [OMERecord.Stage],
-        performances: [OMERecord.Performance]
-    ) -> Set<OMERecord.ID<OMERecord.Stage>> {
-        let stageIDsWithPerformances = Set(performances.map(\.stageID))
-        return Set(stages.map(\.id.stageID)).subtracting(stageIDsWithPerformances)
+        stages: [EventPlace],
+        performances: [ProgramItem]
+    ) -> Set<EventPlace.ID> {
+        let stageIDsWithPerformances = Set(performances.compactMap(\.eventPlace))
+        return Set(stages.map(\.id)).subtracting(stageIDsWithPerformances)
     }
 
     static func canAddPerformance(
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
-        schedules: [OMERecord.Schedule],
-        stages: [OMERecord.Stage],
-        event: OMERecord.Event?
+        selectedScheduleID: Schedule.ID?,
+        schedules: [Schedule],
+        stages: [EventPlace],
+        event: Event?
     ) -> Bool {
         guard !stages.isEmpty else { return false }
         if Self.resolvedSelectedScheduleID(
@@ -684,18 +693,18 @@ public struct ScheduleViewer {
         ) != nil {
             return true
         }
-        return schedules.isEmpty && (event == nil || event?.startDate != nil)
+        return schedules.isEmpty && (event.map { $0.start?.date(in: $0.timeZone) != nil } ?? true)
     }
 
     static func resolvedSelectedScheduleID(
-        _ selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
-        schedules: [OMERecord.Schedule]
-    ) -> OMERecord.ID<OMERecord.Schedule>? {
+        _ selectedScheduleID: Schedule.ID?,
+        schedules: [Schedule]
+    ) -> Schedule.ID? {
         if let selectedScheduleID,
-           schedules.contains(where: { $0.id.scheduleID == selectedScheduleID }) {
+           schedules.contains(where: { $0.id == selectedScheduleID }) {
             return selectedScheduleID
         }
-        return schedules.first?.id.scheduleID
+        return schedules.first?.id
     }
 
     public var body: some Feature {
@@ -1038,30 +1047,17 @@ public struct ScheduleViewer {
 
 
     private static func deletePerformance(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
+        performanceID: ProgramItem.ID,
+        eventID: Event.ID,
         database: any DatabaseWriter
     ) async throws {
         try await database.write { db in
-            let id = OMERecord.Performance.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                performanceID: performanceID
-            )
-            guard try OMERecord.Performance.find(id).fetchOne(db) != nil else {
-                throw DeletePerformanceError()
-            }
-            try OMERecord.Performance
-                .find(id)
-                .delete()
-                .execute(db)
+            try ProgramItemRecordEditing.delete(performanceID, eventID: eventID, in: db)
         }
     }
 }
 
-private struct DeletePerformanceError: Error {}
-
-extension OMERecord.Performance {
+extension ProgramItem {
     var displayDescription: String? {
         let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
         return description?.isEmpty == false ? description : nil

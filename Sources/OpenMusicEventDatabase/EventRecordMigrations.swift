@@ -133,5 +133,9 @@ public enum EventRecordMigrations {
                 """).execute(db)
             try #sql(#"CREATE INDEX "social.ome.post.event" ON "social.ome.post" ("event")"#).execute(db)
         }
+        migrator.registerMigration("Add canonical category pinned posts") { db in
+            try #sql(#"ALTER TABLE "social.ome.category" ADD COLUMN "pinnedPosts" TEXT"#)
+                .execute(db)
+        }
     }
 }

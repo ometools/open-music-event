@@ -1090,6 +1090,20 @@ public extension OME {
                     """).execute(db)
             }
 
+            migrator.registerMigration("Create canonical persistent Stage storage") { db in
+                try #sql("""
+                    CREATE TABLE "events.openmusic.stage" (
+                      "id" TEXT PRIMARY KEY NOT NULL,
+                      "cid" TEXT,
+                      "name" TEXT NOT NULL,
+                      "createdAt" TEXT NOT NULL,
+                      "description" TEXT,
+                      "links" TEXT,
+                      "media" TEXT
+                    ) STRICT
+                    """).execute(db)
+            }
+
         }
     }
 }

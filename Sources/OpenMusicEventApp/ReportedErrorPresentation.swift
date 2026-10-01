@@ -45,7 +45,6 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
         content
             .onEvent(OpenMusicEventSelectedAccountChanged.self) { _, state in
                 let invalidation = state.content.destination?.eventViewer?
-                    .authoring.content.content
                     .authoringAuthorizationInvalidated
                 store.addTask {
                     let reaction = try invalidation?()
@@ -54,7 +53,6 @@ struct AuthoringAuthorizationDeliveryModifier: FeatureModifier {
             }
             .onEvent(OAuthAuthorizationInvalidated.self) { _, state in
                 let invalidation = state.content.destination?.eventViewer?
-                    .authoring.content.content
                     .authoringAuthorizationInvalidated
                 store.addTask {
                     let reaction = try invalidation?()

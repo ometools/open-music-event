@@ -267,20 +267,6 @@ private extension Optional where Wrapped == Open<Event.Time> {
     }
 }
 
-extension Open where Known == Event.Time {
-    public func date(in timeZone: TimeZone) -> Date? {
-        switch self {
-        case let .known(.day(day)):
-            day.value.atStartOfDay(in: timeZone)
-        case let .known(.time(instant)):
-            (try? Date(instant.value.rawValue, strategy: .iso8601.time(includingFractionalSeconds: true)))
-                ?? (try? Date(instant.value.rawValue, strategy: .iso8601))
-        case .unknown:
-            nil
-        }
-    }
-}
-
 public enum EditEventInfoStatus: String, CaseIterable, Hashable, Sendable {
     case unspecified
     case planned

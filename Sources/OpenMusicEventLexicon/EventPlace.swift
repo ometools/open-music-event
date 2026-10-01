@@ -53,6 +53,24 @@ public struct EventPlace: RecordCodable, Equatable {
         if case let .known(.stage(use)) = kind, let stage = use.stage {
             try LexiconCoding.validateRecordURI(stage, type: OpenMusicEventLexicon.Stage.self)
         }
+        if case let .known(.stage(use)) = kind {
+            var seen: Set<ATProto.URI> = []
+            for (index, contributor) in (use.lineup ?? []).enumerated() {
+                try LexiconCoding.validateRecordURI(contributor, type: Contributor.self)
+                guard contributor.authority == event.authority else {
+                    throw ValidationError(
+                        "A stage lineup contributor must be published in its event's repository",
+                        path: ["kind", "lineup", String(index)]
+                    )
+                }
+                guard seen.insert(contributor).inserted else {
+                    throw ValidationError(
+                        "A stage lineup contributor cannot be repeated",
+                        path: ["kind", "lineup", String(index)]
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -74,6 +92,21 @@ extension EventPlace.Kind {
 
         @LexiconField(description: "The organizer's presentation color for this stage use. Missing means unspecified, without inheritance from a persistent stage.")
         public var color: OME.Color? = nil
+
+        @LexiconField(description: "The organizer-defined stage group used to divide the event schedule. Missing means the main schedule group.", maxLength: 500, maxGraphemes: 50)
+        public var category: String? = nil
+
+        @LexiconField(description: "The event-wide stage display order. A program's eventPlaces array separately controls its lane order.")
+        public var sortIndex: Int? = nil
+
+        @LexiconField(description: "A platform-neutral fallback icon for this stage when no logo is available.")
+        public var icon: OME.SemanticIcon? = nil
+
+        @LexiconField(description: "Short fallback text for this stage when no logo or icon is available.", maxLength: 20, maxGraphemes: 10)
+        public var shortLabel: String? = nil
+
+        @LexiconField(description: "Ordered organizer-authored contributor records in this event place's stage lineup, including performers without a scheduled program item.")
+        public var lineup: [ATProto.URI]? = nil
     }
 
     @Lexicon("events.openmusic.defs#eventPlaceEntrance", description: "An entrance or gate within an event.")

@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Foundation
 import ScheduleComponents
@@ -10,12 +11,12 @@ public struct ScheduleManyStagesAtOnce {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             scheduleDivision: ScheduleViewer.ScheduleDivision
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: eventID)
+                Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
             _performanceRows = FetchAll(
@@ -29,7 +30,7 @@ public struct ScheduleManyStagesAtOnce {
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
@@ -37,11 +38,11 @@ public struct ScheduleManyStagesAtOnce {
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
 
         @FetchAll public var performanceRows: [PerformanceRow]
-        @FetchAll public var schedules: [OMERecord.Schedule]
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var schedules: [Schedule]
+        @FetchAll public var stages: [EventPlace]
 
         public func visiblePerformanceRows(
-            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+            selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
             ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
@@ -53,7 +54,7 @@ public struct ScheduleManyStagesAtOnce {
             )
         }
 
-        public var visibleStages: [OMERecord.Stage] {
+        public var visibleStages: [EventPlace] {
             ScheduleViewer.visibleStages(
                 stages: stages,
                 division: scheduleDivision
@@ -62,12 +63,12 @@ public struct ScheduleManyStagesAtOnce {
     }
 
     public enum Action {
-        case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case deletePerformanceButtonTapped(ProgramItem.ID)
+        case editPerformanceButtonTapped(ProgramItem.ID)
+        case newUserScheduleButtonTapped(ProgramItem.ID)
         case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
-            OMERecord.ID<OMERecord.Performance>,
+            ProgramItem.ID,
             UserSchedule.ID
         )
     }
@@ -130,10 +131,10 @@ public struct ScheduleManyStagesAtOnce {
 public struct ScheduleManyStagesAtOnceView: View {
     @Bindable var store: StoreOf<ScheduleManyStagesAtOnce>
     let orientation: ScheduleViewerState.ScheduleKind.Orientation
-    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: Schedule.ID?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
-    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let performanceButtonTapped: (ProgramItem.ID) -> Void
 
     let minimumStageLaneWidth: CGFloat = 132
     let compactVisibleStageLaneCount: CGFloat = 2.5
@@ -152,10 +153,10 @@ public struct ScheduleManyStagesAtOnceView: View {
     public init(
         store: StoreOf<ScheduleManyStagesAtOnce>,
         orientation: ScheduleViewerState.ScheduleKind.Orientation,
-        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
+        selectedScheduleID: Binding<Schedule.ID?>,
         userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool,
-        performanceButtonTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void
+        performanceButtonTapped: @escaping (ProgramItem.ID) -> Void
     ) {
         self.store = store
         self.orientation = orientation
@@ -521,7 +522,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                     ScheduleTimelineCardView(
                         performance: card.performance,
                         stage: card.stage,
-                        timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                        timeRangeText: eventTimePresentation.programItemRowTimeRange(
                             for: card.performance
                         ),
                         userScheduleOverlay: userScheduleOverlay,
@@ -650,18 +651,18 @@ public struct ScheduleManyStagesAtOnceView: View {
         store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
     }
 
-    var visiblePerformances: [OMERecord.Performance] {
+    var visiblePerformances: [ProgramItem] {
         visiblePerformanceRows.map(\.performance)
     }
 
-    var visibleStages: [OMERecord.Stage] {
+    var visibleStages: [EventPlace] {
         ScheduleViewer.orderedStages(
             store.visibleStages,
             performances: visiblePerformances
         )
     }
 
-    var unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>> {
+    var unavailableStageIDs: Set<EventPlace.ID> {
         ScheduleViewer.unavailableStageIDs(
             stages: visibleStages,
             performances: visiblePerformances
@@ -678,7 +679,7 @@ public struct ScheduleManyStagesAtOnceView: View {
             selectedScheduleID,
             schedules: store.schedules
         ),
-            let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID }),
+            let schedule = store.schedules.first(where: { $0.id == scheduleID }),
             let timeZone = store.timeZone
         else { return "Select Schedule" }
         return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
@@ -789,44 +790,46 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     static func timelineCards(
         performanceRows: [PerformanceRow],
-        stages: [OMERecord.Stage]
+        stages: [EventPlace]
     ) -> [ScheduleManyStagesTimelineCard] {
         let stagesByID = Dictionary(
             uniqueKeysWithValues: stages.map { stage in
-                (stage.id.stageID, stage)
+                (stage.id, stage)
             }
         )
         let stageLaneIndices = Dictionary(
             uniqueKeysWithValues: stages.enumerated().map { index, stage in
-                (stage.id.stageID, index)
+                (stage.id, index)
             }
         )
 
         return performanceRows.compactMap { row in
-            guard let stage = stagesByID[row.performance.stageID],
-                  let laneIndex = stageLaneIndices[row.performance.stageID]
+            guard let placeID = row.performance.eventPlace,
+                  let stage = stagesByID[placeID],
+                  let laneIndex = stageLaneIndices[placeID],
+                  let start = row.performance.startDate,
+                  let end = row.performance.endDate,
+                  end > start
             else { return nil }
 
             return ScheduleManyStagesTimelineCard(
                 performance: row.performance,
                 stage: stage,
-                laneIndex: laneIndex
+                laneIndex: laneIndex,
+                dateInterval: DateInterval(start: start, end: end)
             )
         }
     }
 }
 
 struct ScheduleManyStagesTimelineCard: TimelineCard {
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage
+    let performance: ProgramItem
+    let stage: EventPlace
     let laneIndex: Int
+    let dateInterval: DateInterval
 
-    var id: OMERecord.ID<OMERecord.Performance> {
-        performance.id.performanceID
-    }
-
-    var dateInterval: DateInterval {
-        DateInterval(start: performance.startTime, end: performance.endTime)
+    var id: ProgramItem.ID {
+        performance.id
     }
 
     var groupWidth: Range<Int> {
@@ -835,8 +838,8 @@ struct ScheduleManyStagesTimelineCard: TimelineCard {
 }
 
 struct ScheduleManyStagesLaneHeader: View {
-    let stages: [OMERecord.Stage]
-    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
+    let stages: [EventPlace]
+    let unavailableStageIDs: Set<EventPlace.ID>
     let contentWidth: CGFloat
     let height: CGFloat
     let minimumStageLaneWidth: CGFloat
@@ -852,14 +855,14 @@ struct ScheduleManyStagesLaneHeader: View {
                 stageHeaderCell(for: stage)
                     .frame(width: stageSelectorCellWidth)
                     .frame(width: stageLaneWidth)
-                    .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
+                    .opacity(unavailableStageIDs.contains(stage.id) ? 0.45 : 1)
             }
         }
         .padding(.vertical, 8)
         .frame(width: contentWidth, height: height, alignment: .topLeading)
     }
 
-    func stageHeaderCell(for stage: OMERecord.Stage) -> some View {
+    func stageHeaderCell(for stage: EventPlace) -> some View {
         VStack(spacing: 6) {
             ScheduleManyStagesStageBubble(stage: stage)
 
@@ -892,8 +895,8 @@ struct ScheduleManyStagesLaneHeader: View {
 }
 
 struct ScheduleManyStagesStageRail: View {
-    let stages: [OMERecord.Stage]
-    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
+    let stages: [EventPlace]
+    let unavailableStageIDs: Set<EventPlace.ID>
     let width: CGFloat
     let laneHeight: CGFloat
 
@@ -907,13 +910,13 @@ struct ScheduleManyStagesStageRail: View {
             ForEach(stages) { stage in
                 stageRailCell(for: stage)
                     .frame(width: width, height: laneHeight)
-                    .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
+                    .opacity(unavailableStageIDs.contains(stage.id) ? 0.45 : 1)
             }
         }
         .frame(width: width, alignment: .top)
     }
 
-    func stageRailCell(for stage: OMERecord.Stage) -> some View {
+    func stageRailCell(for stage: EventPlace) -> some View {
         VStack(spacing: 6) {
             ScheduleManyStagesStageBubble(stage: stage)
 
@@ -936,7 +939,7 @@ struct ScheduleManyStagesStageRail: View {
 }
 
 struct ScheduleManyStagesStageBubble: View {
-    let stage: OMERecord.Stage
+    let stage: EventPlace
 
     @ViewBuilder
     var body: some View {
@@ -958,7 +961,7 @@ struct ScheduleManyStagesStageBubble: View {
             .padding(4)
             .frame(width: 70, height: 70)
             .foregroundStyle(.white)
-            .glassEffect(.clear.tint(stage.color.swiftUIColor).interactive(), in: .capsule)
+            .glassEffect(.clear.tint(stage.stageUIColor).interactive(), in: .capsule)
     }
     #endif
 
@@ -969,11 +972,11 @@ struct ScheduleManyStagesStageBubble: View {
             .foregroundStyle(.white)
             .background {
                 Circle()
-                    .fill(stage.color.swiftUIColor.opacity(0.85))
+                    .fill(stage.stageUIColor.opacity(0.85))
                     .overlay {
                         Circle()
                             .stroke(
-                                stage.color.swiftUIColor.opacity(0.28),
+                                stage.stageUIColor.opacity(0.28),
                                 lineWidth: 1
                             )
                     }

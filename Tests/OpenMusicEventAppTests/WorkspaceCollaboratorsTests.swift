@@ -26,14 +26,12 @@ struct WorkspaceCollaboratorsTests {
     func `default authoring grant resolves the scoped shared reader`() throws {
         let ownerID = try #require(DID("did:plc:owner"))
         let workspace = workspace(ownerID: ownerID)
-        let firstEventID = OME.Event.ID(
-            organizerID: ownerID,
-            eventID: OME.ID<OME.Event>(rawValue: "first")
-        )
-        let secondEventID = OME.Event.ID(
-            organizerID: ownerID,
-            eventID: OME.ID<OME.Event>(rawValue: "second")
-        )
+        let firstEventID = Event.ID(
+            "at://\(ownerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
+        let secondEventID = Event.ID(
+            "at://\(ownerID)/events.openmusic.event/3mrdbziccpcai"
+        )!
         let ownerGrant = AuthoringGrant(
             principal: AuthoringPrincipal(actorID: ownerID),
             role: .owner,
@@ -79,10 +77,9 @@ struct WorkspaceCollaboratorsTests {
                 role: .collaborator([.propose]),
                 workspaceID: workspace.id
             )
-            let eventID = OME.Event.ID(
-                organizerID: ownerID,
-                eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
-            )
+            let eventID = Event.ID(
+                "at://\(ownerID)/events.openmusic.event/3mrdbziccpcah"
+            )!
             var state = withDependencies {
                 $0.defaultEventID = eventID
             } operation: {
@@ -124,10 +121,9 @@ struct WorkspaceCollaboratorsTests {
                 repository: "tangled.org/owner/other-events",
                 branch: "main"
             )
-            let eventID = OME.Event.ID(
-                organizerID: ownerID,
-                eventID: OME.ID<OME.Event>(rawValue: "empty-workspace")
-            )
+            let eventID = Event.ID(
+                "at://\(ownerID)/events.openmusic.event/3mrdbziccpcah"
+            )!
             let state = withDependencies {
                 $0.defaultEventID = eventID
             } operation: {
@@ -361,10 +357,9 @@ struct WorkspaceCollaboratorsTests {
         role: OME.WorkspaceRole,
         operation: () -> Value
     ) -> Value {
-        let eventID = OME.Event.ID(
-            organizerID: workspace.organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "workspace-collaborators")
-        )
+        let eventID = Event.ID(
+            "at://\(workspace.organizerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
         return withDependencies {
             $0.defaultEventID = eventID
         } operation: {

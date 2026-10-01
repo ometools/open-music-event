@@ -158,6 +158,14 @@ public struct ProgramItem: RecordCodable, Equatable {
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: value.rawValue)
     }
+
+    public var startDate: Date? {
+        startsAt.flatMap(Self.date)
+    }
+
+    public var endDate: Date? {
+        endsAt.flatMap(Self.date)
+    }
 }
 
 extension ProgramItem {

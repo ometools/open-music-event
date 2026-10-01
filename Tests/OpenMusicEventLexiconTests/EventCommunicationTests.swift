@@ -29,10 +29,13 @@ struct EventCommunicationTests {
             defaultNotificationState: .known(.subscribed),
             notificationsRequired: true
         )
+        let pinnedPostURI = try #require(ATProto.URI("at://did:plc:contributor/social.ome.post/3mrdbziccpcaj"))
+        category.pinnedPosts = [pinnedPostURI]
         try category.validateGraph(event: event)
         let payload = try category.encodeLexicon()
         #expect(payload.object?["defaultNotificationState"] == "subscribed")
         #expect(payload.object?["notificationsRequired"] == true)
+        #expect(payload.object?["pinnedPosts"] == .array([.string(pinnedPostURI.description)]))
         #expect(payload.object?["id"] == nil)
         #expect(payload.object?["subscriber"] == nil)
         expectNoDifference(try Category.decodeLexicon(payload, metadata: .init(uri: categoryURI)), category)
@@ -44,7 +47,7 @@ struct EventCommunicationTests {
                 CREATE TABLE \(quote: Category.tableName) (
                     id TEXT PRIMARY KEY NOT NULL, cid TEXT, event TEXT NOT NULL,
                     name TEXT NOT NULL, createdAt TEXT NOT NULL, description TEXT,
-                    media TEXT, defaultNotificationState TEXT, notificationsRequired INTEGER
+                    media TEXT, pinnedPosts TEXT, defaultNotificationState TEXT, notificationsRequired INTEGER
                 ) STRICT
                 """).execute(db)
             try Category.insert { category }.execute(db)
@@ -65,6 +68,7 @@ struct EventCommunicationTests {
         expectNoDifference(reopened, category)
         #expect(try reopened.encodeLexicon().object?["defaultNotificationState"] == "digest")
         #expect(try reopened.encodeLexicon().object?["media"] == nil)
+        #expect(reopened.pinnedPosts == [pinnedPostURI])
 
         // Deleting the category leaves removal from Event.categories to the graph operation.
         try database.write { try Category.find(categoryURI).delete().execute($0) }

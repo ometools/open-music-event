@@ -9,7 +9,6 @@ import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import ErrorHandling
-import FileTree
 import Foundation
 import HTTPClient
 import HTTPTypes
@@ -21,36 +20,58 @@ import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
-import OpenMusicEventSource
-import OpenMusicEventSourceClone
-import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import OpenMusicEventWhiteLabel
 import Sharing
-import SourceControlClient
 import SQLiteData
 import Synchronization
 import ComposableAtmosphere
 import Testing
 
+private struct UnexpectedEventBrowseGraphLoad: Error {}
+
 @Suite(.serialized)
 struct EventBrowseStoryTests {
     @Test @MainActor
-    func `an empty app browses and refreshes from a delivered notification`() async throws {
+    func `an empty app browses canonical AppView records and refreshes after another record is indexed`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
-        let appViewRequests = TestMutex<[String]>([])
 
+        let appViewDatabase = try SQLiteData.defaultDatabase()
+        let appViewStore = try OpenMusicEventAppViewStore(database: appViewDatabase)
+        let firstID = try #require(Event.ID(
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let secondID = try #require(Event.ID(
+            "at://did:plc:gothnight/events.openmusic.event/3mrdbziccpcaq"
+        ))
+        let firstEvent = try Event(
+            id: firstID,
+            name: "Wicked Woods 2026",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
+        )
+        let secondEvent = try Event(
+            id: secondID,
+            name: "Goth Night",
+            createdAt: "2026-09-02T12:00:00Z",
+            timeZone: .gmt
+        )
+        try await appViewDatabase.write { db in
+            try Event.insert { firstEvent }.execute(db)
+        }
+
+        let appViewRequests = TestMutex<[String]>([])
         let app = try OpenMusicEventAppViewServer.application(
-            configuration: AppViewConfiguration(port: 0)
+            configuration: AppViewConfiguration(port: 0),
+            store: appViewStore
         )
         let getEventsRequestCount: @Sendable () -> Int = {
             appViewRequests.withLock {
-                $0.filter {
-                    $0.hasPrefix("/xrpc/app.openmusicevent.calendar.getEvents")
-                }.count
+                $0.count { $0.hasPrefix("/xrpc/events.openmusic.getEvents") }
             }
         }
         try await app.test(.router) { server in
@@ -94,79 +115,46 @@ struct EventBrowseStoryTests {
                     store.scope(\.browser).spawn(\.browse)
                 }
 
-                let browseTask = await MainActor.run {
-                    browse.send(.task)
-                }
-                await browseTask?.value
-                expectNoDifference(getEventsRequestCount(), 1)
-
-                // APNs delivers the background update as JSON. The app root lets the
-                // notifications feature decode it before deciding that Browse should refresh.
-                let notificationJSON = #"""
-                {
-                  "aps": {
-                    "content-available": 1
-                  },
-                  "kind": "source_available",
-                  "source": "openmusicevent.app",
-                  "version": "1"
-                }
-                """#
-                let refreshTask = try await MainActor.run {
-                    try store.state.notificationEvent(
-                        NotificationEvent(
-                            json: notificationJSON,
-                            delivery: .contentAvailable
-                        )
-                    )
-                }
-                await refreshTask?.value
-
+                let firstLoad = await MainActor.run { browse.send(.task) }
+                await firstLoad?.value
                 await MainActor.run {
                     expectNoDifference(browse.catalog, .openMusicEvent)
-                    expectNoDifference(browse.events.count, 20)
-                    expectNoDifference(browse.events.first?.name, "Wicked Woods 2026")
-                    expectNoDifference(
-                        browse.events.first?.uri.description,
-                        "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026"
-                    )
-                    expectNoDifference(browse.events.last?.name, "Goth Night")
-                    expectNoDifference(
-                        browse.events.last?.uri.description,
-                        "at://did:web:gallatinlabortemple.org/app.openmusicevent.event/gallatin-labor-temple-ome-2026-10-24-goth-night"
-                    )
+                    expectNoDifference(browse.events.map(\.uri), [firstID])
+                    expectNoDifference(browse.events.map(\.name), ["Wicked Woods 2026"])
                     expectNoDifference(browse.errorMessage, nil)
-                    expectNoDifference(browse.isLoading, false)
-                    expectNoDifference(
-                        browse.events.first?.source.appViewHost,
-                        "openmusicevent.app"
-                    )
-                    expectNoDifference(
-                        getEventsRequestCount(),
-                        2
-                    )
-                    withExtendedLifetime(store) {}
+                    expectNoDifference(getEventsRequestCount(), 1)
                 }
 
-                let firstEventURI = await MainActor.run { browse.events.first?.uri }
-                let eventURI = try #require(firstEventURI)
-                let event = try await CalendarEventsClient
-                    .openMusicEventAndAtmo(database: database)
-                    .event(eventURI)
-                expectNoDifference(event.name, "Wicked Woods 2026")
-                expectNoDifference(event.uri, eventURI)
+                try await appViewDatabase.write { db in
+                    try Event.insert { secondEvent }.execute(db)
+                }
+                let refresh = await MainActor.run { browse.send(.didPullToRefresh) }
+                await refresh?.value
+                await MainActor.run {
+                    expectNoDifference(
+                        Set(browse.events.map(\.uri)),
+                        Set([firstID, secondID])
+                    )
+                    expectNoDifference(getEventsRequestCount(), 2)
+                    expectNoDifference(browse.errorMessage, nil)
+                }
+
+                let detail = try await CalendarEventsClient
+                    .openMusicEventAndAtmo()
+                    .event(firstID)
+                expectNoDifference(detail.name, "Wicked Woods 2026")
+                expectNoDifference(detail.uri, firstID)
                 #expect(
                     appViewRequests.withLock { $0.last }?.hasPrefix(
-                        "/xrpc/app.openmusicevent.calendar.getEvent?uri="
+                        "/xrpc/events.openmusic.getEvent?uri="
                     ) == true
                 )
             }
         }
-
     }
 
     @Test @MainActor
-    func `resuming the app synchronizes installed event data`() async throws {
+    func `resuming the app retains an installed canonical event and its local edit`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -174,19 +162,20 @@ struct EventBrowseStoryTests {
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
-        let organizerID = try #require(DID("did:plc:wickedwoods"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "2026")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:wickedwoods/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let event = try Event(
+            id: eventID,
+            name: "Wicked Woods 2026 — Local edit",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
-        try await database.write { database in
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: eventID)
-            }
-            .execute(database)
+        try await database.write { db in
+            try Event.insert { event }.execute(db)
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
         }
 
-        let synchronizedEventIDs = TestMutex<[OME.Event.ID]>([])
         let storage = OAuthSessionStorage(
             sessionStore: Shared(value: OAuth.SessionStore()),
             authFailureMessage: Shared(value: nil),
@@ -200,12 +189,6 @@ struct EventBrowseStoryTests {
                 replaceSubscriptions: { _ in },
                 synchronize: {},
                 signals: { AsyncStream { $0.finish() } }
-            )
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { _ in eventID },
-                synchronizeInstalledEvent: { eventID in
-                    synchronizedEventIDs.withLock { $0.append(eventID) }
-                }
             )
         } operation: {
             TestStore(
@@ -230,13 +213,16 @@ struct EventBrowseStoryTests {
             }
         }
 
-        // Launching alone does not synchronize installed event data.
         await store.send(.lifecycle(.launched))?.value
-        expectNoDifference(synchronizedEventIDs.withLock { $0 }, [])
-
-        // Returning to the foreground synchronizes every installed event through the app delegate.
         await store.send(.lifecycle(.resumed))?.value
-        expectNoDifference(synchronizedEventIDs.withLock { $0 }, [eventID])
+        let saved = try await database.read { db in
+            (
+                try Event.find(eventID).fetchOne(db)?.name,
+                try InstalledEvent.find(eventID).fetchOne(db)?.id
+            )
+        }
+        expectNoDifference(saved.0, "Wicked Woods 2026 — Local edit")
+        expectNoDifference(saved.1, eventID)
 
         await store.dismount()
     }
@@ -251,41 +237,22 @@ struct EventBrowseStoryTests {
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
-        let organizerID = try #require(DID("did:plc:wickedwoods"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "2026")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:wickedwoods/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let event = try Event(
+            id: eventID,
+            name: "Wicked Woods 2026",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
         try await database.write { database in
-            try OME.Organizer.insert {
-                OME.Organizer.Draft(id: organizerID)
-            }
-            .execute(database)
-            try OME.Event.insert {
-                testEventDraft(id: eventID, name: "Wicked Woods 2026")
-            }
-            .execute(database)
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: eventID)
-            }
-            .execute(database)
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/woody.fm/wicked-woods",
-                    ref: "main",
-                    eventIDOrigin: .explicit,
-                    sourceEventDirectory: "wicked-woods-2026"
-                )
-            }
-            .execute(database)
+            try Event.insert { event }.execute(database)
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(database)
         }
 
         let expectedSubscription = NotificationSubscription(
-            sourceID: .init(
-                rawValue: "at://did:plc:wickedwoods/app.openmusicevent.event/2026"
-            )
+            sourceID: .init(rawValue: eventID.description)
         )
         let (replacements, replacementContinuation) =
             AsyncStream<Set<NotificationSubscription>>.makeStream()
@@ -295,8 +262,7 @@ struct EventBrowseStoryTests {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.uuid = .incrementing
-            OME.prepareDependencies(&$0, database: database)
-            $0.defaultEventID = eventID
+            $0.defaultDatabase = database
             $0.notificationsClient = NotificationsClient(
                 registerDestination: { _ in },
                 replaceSubscriptions: { replacementContinuation.yield($0) },
@@ -320,7 +286,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `a silent source update refreshes the entered event without remounting it`() async throws {
+    func `a canonical record update refreshes the mounted event without remounting it`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -328,512 +294,84 @@ struct EventBrowseStoryTests {
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
-        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+        ))
+        var event = try Event(
+            id: eventID,
+            name: "Wicked Woods 2026",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
-        try await database.write { database in
-            try OME.Organizer.insert {
-                OME.Organizer.Draft(id: organizerID)
-            }
-            .execute(database)
-            try OME.Event.insert {
-                testEventDraft(id: eventID, name: "Wicked Woods 2026")
-            }
-            .execute(database)
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: eventID)
-            }
-            .execute(database)
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/wickedwoods.ca/ome-workspace",
-                    ref: "main",
-                    eventIDOrigin: .inferred,
-                    sourceEventDirectory: "2026"
-                )
-            }
-            .execute(database)
+        let initialEvent = event
+        try await database.write { db in
+            try Event.insert { initialEvent }.execute(db)
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
         }
-
-        let notificationVersion = "manual-wicked-woods-1"
-        let checkoutRequests = TestMutex<[TangledSourceCheckoutRequest]>([])
-        let checkoutPause = EventBrowseCheckoutPause()
 
         try await withDependencies {
             $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.uuid = .incrementing
-            OME.prepareDependencies(&$0, database: database)
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = .liveValue
-            $0.requestInterceptors = []
-            $0.dataForURL = eventBrowsePublishedEventNetwork(eventID: eventID)
+            $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.calendarEvents = CalendarEventsClient(
-                browse: { _ in CalendarEvent.Page(events: []) },
-                event: { _ in throw CalendarEventsClientError.unimplemented },
-                organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
-            $0.notificationsClient = NotificationsClient(
-                registerDestination: { _ in },
-                replaceSubscriptions: { _ in },
-                synchronize: {},
-                signals: { AsyncStream { $0.finish() } }
-            )
-            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                let checkoutNumber = checkoutRequests.withLock { requests in
-                    requests.append(request)
-                    return requests.count
-                }
-                if checkoutNumber == 1 {
-                    await checkoutPause.pause()
-                }
-                try FileManager.default.createDirectory(
-                    at: request.outputURL,
-                    withIntermediateDirectories: true
-                )
-                if checkoutNumber <= 2 {
-                    try writeWickedWoodsSourceWithTwoEvents(
-                        to: request.outputURL,
-                        event2026Name: "Wicked Woods 2026 — Updated"
-                    )
-                } else {
-                    try writeWickedWoodsSourceWithout2026(to: request.outputURL)
-                }
-                return TangledSourceCheckout(repositoryURL: request.outputURL)
-            }
+            $0.uuid = .incrementing
+            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
         } operation: {
-            var initialState = OpenMusicEventAppRoot.State(
-                variant: .whiteLabel(
-                    WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
-                ),
-                selectedEventIDAtLaunch: eventID
-            )
-            if case var .eventViewer(eventViewer) = initialState.destination {
-                eventViewer.authoring.content.content.selectedFeature = .communications
-                initialState.destination = .eventViewer(eventViewer)
+            let store = Store(initialState: EventViewer.State(eventID: eventID)) {
+                EventViewer()
             }
-            let mountedWorkspaceID = initialState.destination?.eventViewer?.authoring.context.id
-            let store = Store(initialState: initialState) {
-                OpenMusicEventAppRoot()
+            let mountedID = store.id
+            let selectedFeature = store.selectedFeature
+            expectNoDifference(store.event?.name, "Wicked Woods 2026")
+
+            event.name = "Wicked Woods 2026 — Updated"
+            let updatedEvent = event
+            try await database.write { db in
+                try Event.upsert { updatedEvent }.execute(db)
             }
-
-            // A source update for some other subscription must not touch the installed event.
-            // Keeping this as provider JSON proves that filtering happens after the same
-            // notification decoding boundary used by the app delegate.
-            let unrelatedNotificationJSON = """
-            {
-              "aps": {
-                "content-available": 1
-              },
-              "kind": "source_available",
-              "source": "at://did:plc:somebody-else/app.openmusicevent.event/other-event",
-              "version": "manual-other-event-1"
-            }
-            """
-            let unrelatedNotificationTask = try store.state.notificationEvent(
-                NotificationEvent(
-                    json: unrelatedNotificationJSON,
-                    delivery: .contentAvailable
-                )
-            )
-            await unrelatedNotificationTask?.value
-
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026"
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.context.id,
-                mountedWorkspaceID
-            )
-            expectNoDifference(checkoutRequests.withLock { $0 }, [])
-
-            // This is the exact provider JSON delivered through the app delegate. Its version is
-            // opaque notification metadata, while the source ID matches the subscription
-            // published by the installed-event library.
-            let notificationJSON = """
-            {
-              "aps": {
-                "content-available": 1
-              },
-              "kind": "source_available",
-              "source": "\(OME.Event.reference(id: eventID).uri.description)",
-              "version": "\(notificationVersion)"
-            }
-            """
-            let notificationTask = try store.state.notificationEvent(
-                NotificationEvent(
-                    json: notificationJSON,
-                    delivery: .contentAvailable
-                )
-            )
-            let notificationDidReturn = TestMutex(false)
-            let notificationCompletion = Task { @MainActor in
-                await notificationTask?.value
-                notificationDidReturn.withLock { $0 = true }
-            }
-            await checkoutPause.waitUntilStarted()
-
-            // The provider callback cannot observe new content before the published checkout has
-            // produced a validated insertion.
-            expectNoDifference(notificationDidReturn.withLock { $0 }, false)
-            let eventNameBeforeCheckoutCompletes = try await database.read { database in
-                try OME.Event.find(eventID).fetchOne(database)?.name
-            }
-            expectNoDifference(eventNameBeforeCheckoutCompletes, "Wicked Woods 2026")
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026"
-            )
-
-            // Once the external checkout completes, notification handling must not return until
-            // the event-scoped transaction has committed.
-            await checkoutPause.continueCheckout()
-            await notificationCompletion.value
-            expectNoDifference(notificationDidReturn.withLock { $0 }, true)
-
-            let committedEventName = try await database.read { database in
-                try OME.Event.find(eventID).fetchOne(database)?.name
-            }
-            expectNoDifference(committedEventName, "Wicked Woods 2026 — Updated")
-
-            // SQLite observation, rather than a remount or a timing loop, updates the mounted
-            // viewer after the committed transaction.
             await waitForEventBrowseObservation {
-                store.destination?.eventViewer?
-                    .authoring.content.content.event?.name == "Wicked Woods 2026 — Updated"
+                store.event?.name == "Wicked Woods 2026 — Updated"
             }
 
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026 — Updated"
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.selectedFeature,
-                .communications
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.context.id,
-                mountedWorkspaceID
-            )
-            expectNoDifference(
-                checkoutRequests.withLock { $0.map(\.ref) },
-                ["3cc283a5d07218f4dfc55652513e9191d2040a06"]
-            )
-            expectNoDifference(
-                checkoutRequests.withLock {
-                    $0.map(\.repository.normalizedReference)
-                },
-                ["tangled.org/wickedwoods.ca/ome-workspace"]
-            )
-            expectNoDifference(
-                checkoutRequests.withLock { $0.map(\.archive) },
-                [
-                    SourceArchiveReference(
-                        url: try #require(
-                            URL(
-                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
-                            )
-                        ),
-                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-                        byteCount: 403_521
-                    )
-                ]
-            )
-
-            // Refresh remains event-scoped even though the published repository also contains
-            // Wicked Woods 2025.
-            let installedEventIDs = try await database.read { database in
-                try OME.Event.fetchAll(database).map(\.id)
+            expectNoDifference(store.id, mountedID)
+            expectNoDifference(store.selectedFeature, selectedFeature)
+            expectNoDifference(store.event, updatedEvent)
+            let installed = try await database.read { db in
+                try InstalledEvent.find(eventID).fetchOne(db)
             }
-            expectNoDifference(installedEventIDs, [eventID])
-
-            // APNs may redeliver the same opaque notification version. Repeating the provider
-            // message revalidates published source but converges on the same mounted read model.
-            let repeatedNotificationTask = try store.state.notificationEvent(
-                NotificationEvent(
-                    json: notificationJSON,
-                    delivery: .contentAvailable
-                )
-            )
-            await repeatedNotificationTask?.value
-            expectNoDifference(checkoutRequests.withLock { $0.count }, 2)
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026 — Updated"
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.context.id,
-                mountedWorkspaceID
-            )
-
-            // A later published checkout that no longer contains this installed event is a
-            // failed refresh, not permission to delete or remount the attendee's live content.
-            let invalidNotificationJSON = """
-            {
-              "aps": {
-                "content-available": 1
-              },
-              "kind": "source_available",
-              "source": "\(OME.Event.reference(id: eventID).uri.description)",
-              "version": "manual-wicked-woods-invalid-source-1"
-            }
-            """
-            try await expectReportedIssue(containing: "eventNotFound") {
-                let invalidNotificationTask = try store.state.notificationEvent(
-                    NotificationEvent(
-                        json: invalidNotificationJSON,
-                        delivery: .contentAvailable
-                    )
-                )
-                await invalidNotificationTask?.value
-            }
-
-            let eventNameAfterFailedRefresh = try await database.read { database in
-                try OME.Event.find(eventID).fetchOne(database)?.name
-            }
-            expectNoDifference(eventNameAfterFailedRefresh, "Wicked Woods 2026 — Updated")
-            expectNoDifference(checkoutRequests.withLock { $0.count }, 3)
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026 — Updated"
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.context.id,
-                mountedWorkspaceID
-            )
+            expectNoDifference(installed, InstalledEvent(id: eventID))
             withExtendedLifetime(store) {}
         }
     }
 
-    @Test @MainActor
-    func `a non-authoring viewer cannot replace an installed authoring workspace`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        BlueskyActorCacheMigrations.register(into: &migrator)
-        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
-
-        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
-        )
-        let workspaceID = SourceWorkspace(
-            organizerID: organizerID,
-            repository: "tangled.org/wickedwoods.ca/ome-workspace",
-            branch: "main"
-        ).id
-        try await database.write { database in
-            try OME.Organizer.insert {
-                OME.Organizer.Draft(id: organizerID)
-            }
-            .execute(database)
-            try OME.Event.insert {
-                testEventDraft(id: eventID, name: "Wicked Woods 2026")
-            }
-            .execute(database)
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceKind: .tangled,
-                    sourceReference: "tangled.org/wickedwoods.ca/ome-workspace",
-                    ref: "main",
-                    eventIDOrigin: .inferred,
-                    sourceEventDirectory: "2026"
-                )
-            }
-            .execute(database)
-            try InstalledEventRecord.insert {
-                InstalledEventRecord(id: eventID)
-            }
-            .execute(database)
-            try SourceWorkspaceInstallationRecord.insert {
-                SourceWorkspaceInstallationRecord(
-                    id: workspaceID,
-                    revision: "historical-authoring-revision"
-                )
-            }
-            .execute(database)
-        }
-
-        let checkoutRequests = TestMutex<[TangledSourceCheckoutRequest]>([])
-
-        try await withDependencies {
-            $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.uuid = .incrementing
-            OME.prepareDependencies(&$0, database: database)
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = .liveValue
-            $0.requestInterceptors = []
-            $0.dataForURL = eventBrowsePublishedEventNetwork(eventID: eventID)
-            $0.defaultEventID = eventID
-            $0.calendarEvents = CalendarEventsClient(
-                browse: { _ in CalendarEvent.Page(events: []) },
-                event: { _ in throw CalendarEventsClientError.unimplemented },
-                organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
-            $0.notificationsClient = NotificationsClient(
-                registerDestination: { _ in },
-                replaceSubscriptions: { _ in },
-                synchronize: {},
-                signals: { AsyncStream { $0.finish() } }
-            )
-            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                checkoutRequests.withLock { $0.append(request) }
-                try FileManager.default.createDirectory(
-                    at: request.outputURL,
-                    withIntermediateDirectories: true
-                )
-                try writeWickedWoodsSourceWithTwoEvents(
-                    to: request.outputURL,
-                    event2026Name: "Wicked Woods 2026 — Downloaded"
-                )
-                return TangledSourceCheckout(repositoryURL: request.outputURL)
-            }
-        } operation: {
-            let storage = OAuthSessionStorage(
-                sessionStore: Shared(value: OAuth.SessionStore()),
-                authFailureMessage: Shared(value: nil),
-                selectedSessionID: Shared(value: nil)
-            )
-            let appStore = Store(
-                initialState: OpenMusicEventApp.State(
-                    content: OpenMusicEventApplication.State(storage: storage) {
-                        OpenMusicEventAppRoot.State(
-                            variant: .whiteLabel(
-                                WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
-                            ),
-                            selectedEventIDAtLaunch: eventID
-                        )
-                    }
-                )
-            ) {
-                OpenMusicEventApp(
-                    eventTrigger:
-                        \OpenMusicEventApplication.State.content.appDelegateEvent,
-                    notificationDestinationTrigger:
-                        \OpenMusicEventApplication.State.content.notificationDestination,
-                    notificationEventTrigger:
-                        \OpenMusicEventApplication.State.content.notificationEvent
-                ) {
-                    OpenMusicEventApplication(storage: storage) {
-                        OpenMusicEventAppRoot()
-                    }
-                }
-            }
-            let store = appStore
-                .scope(\.content)
-                .scope(\.content)
-            let mountTask = appStore.send(.content(.content(.task)))
-            await mountTask?.value
-            let mountedWorkspaceID = store.destination?.eventViewer?.authoring.context.id
-            #expect(store.destination?.eventViewer?.authoring.grant == nil)
-
-            // A previous authoring session may leave workspace metadata behind. That row is not
-            // active authoring state and must not prevent acquisition of current published source.
-            let notificationJSON = """
-            {
-              "aps": {
-                "content-available": 1
-              },
-              "kind": "source_available",
-              "source": "\(OME.Event.reference(id: eventID).uri.description)",
-              "version": "manual-wicked-woods-prepared-workspace-1"
-            }
-            """
-            try await expectReportedIssue(containing: "preparedWorkspace") {
-                let notificationTask = appStore.send(
-                    .notification(
-                        NotificationEvent(
-                            json: notificationJSON,
-                            delivery: .contentAvailable
-                        )
-                    )
-                )
-                await notificationTask?.value
-            }
-
-            expectNoDifference(
-                checkoutRequests.withLock { $0.map(\.ref) },
-                ["3cc283a5d07218f4dfc55652513e9191d2040a06"]
-            )
-            expectNoDifference(
-                checkoutRequests.withLock {
-                    $0.map(\.repository.normalizedReference)
-                },
-                ["tangled.org/wickedwoods.ca/ome-workspace"]
-            )
-            expectNoDifference(
-                checkoutRequests.withLock { $0.map(\.archive) },
-                [
-                    SourceArchiveReference(
-                        url: try #require(
-                            URL(
-                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
-                            )
-                        ),
-                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-                        byteCount: 403_521
-                    )
-                ]
-            )
-
-            // Context replacement is not part of the attendee slice. The transaction preserves
-            // both the installed event and the historical authoring reference.
-            let preservedInstallation = try await database.read { database in
-                (
-                    eventName: try OME.Event.find(eventID).fetchOne(database)?.name,
-                    revision: try SourceWorkspaceInstallationRecord
-                        .find(workspaceID)
-                        .fetchOne(database)?
-                        .revision
-                )
-            }
-            expectNoDifference(preservedInstallation.eventName, "Wicked Woods 2026")
-            expectNoDifference(
-                preservedInstallation.revision,
-                "historical-authoring-revision"
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.context.id,
-                mountedWorkspaceID
-            )
-            expectNoDifference(
-                store.destination?.eventViewer?.authoring.content.content.event?.name,
-                "Wicked Woods 2026"
-            )
-            withExtendedLifetime(appStore) {}
-        }
-    }
-
     @Test
-    func `the OME AppView client preserves pagination through XRPC`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
+    func `the canonical AppView client preserves pagination through XRPC`() async throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let event = try Event(
+            id: eventID,
+            name: "Network Festival",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
+        )
+        let response = try JSONEncoder().encode(Event.Page(
+            events: [.init(uri: eventID, cid: nil, value: event.encodeLexicon())],
+            cursor: "page-3"
+        ))
         let requests = TestMutex<[HTTPRequest]>([])
 
         let page = try await withDependencies {
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { request, _ in
                 requests.withLock { $0.append(request) }
-                return Data(Self.omeAppViewPageResponse.utf8)
+                return response
             }
         } operation: {
             try await CalendarEventsClient
-                .openMusicEventAndAtmo(database: database)
+                .openMusicEventAndAtmo()
                 .browse(
                     CalendarEvent.PageRequest(
-                        collection: OME.Event.nsid,
+                        collection: ATProto.NSID(Event.lexiconID.rawValue),
                         cursor: "page-2",
                         limit: 12
                     )
@@ -845,20 +383,19 @@ struct EventBrowseStoryTests {
         expectNoDifference(request.url?.host(), "openmusicevent.app")
         expectNoDifference(
             request.url?.path(),
-            "/xrpc/app.openmusicevent.calendar.getEvents"
+            "/xrpc/events.openmusic.getEvents"
         )
         expectNoDifference(
             Set(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
                 .queryItems ?? []),
             [
-                URLQueryItem(name: "catalog", value: OME.Event.nsid.rawValue),
                 URLQueryItem(name: "cursor", value: "page-2"),
                 URLQueryItem(name: "limit", value: "12"),
             ]
         )
         expectNoDifference(page.events.map(\.name), ["Network Festival"])
         expectNoDifference(page.cursor, "page-3")
-        expectNoDifference(page.events.first?.source.appViewHost, "openmusicevent.app")
+        expectNoDifference(page.events.first?.uri, eventID)
     }
 
     @Test
@@ -930,90 +467,47 @@ struct EventBrowseStoryTests {
     }
 
     @Test
-    func `an installed OME poster is the first browse image`() async throws {
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
-
-        let organizerID = try #require(DID("did:plc:artfestival"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "summer-art-festival")
-        )
+    func `canonical Event media puts the poster first in browse artwork`() async throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:artfestival/events.openmusic.event/3mrdbziccpcah"
+        ))
         let posterURL = try #require(URL(string: "https://example.com/poster.jpg"))
         let heroURL = try #require(URL(string: "https://example.com/hero.jpg"))
         let iconURL = try #require(URL(string: "https://example.com/icon.png"))
-
-        try await database.write { db in
-            try OME.Organizer.insert {
-                OME.Organizer.Draft(id: organizerID)
-            }
-            .execute(db)
-            try OME.Event.insert {
-                OME.Event.Draft(
-                    id: eventID,
-                    name: "Summer Art Festival",
-                    description: nil,
-                    startDate: nil,
-                    endDate: nil,
-                    status: nil,
-                    mode: nil,
-                    locations: nil,
-                    uris: nil,
-                    timeZone: TimeZone.current,
-                    images: [
-                        OME.ImageAsset(
-                            source: .url(iconURL),
-                            role: .icon,
-                            renderKind: .transparent,
-                            materializationPolicy: .lazy
-                        ),
-                        OME.ImageAsset(
-                            source: .url(heroURL),
-                            role: .hero,
-                            renderKind: .fullImage,
-                            materializationPolicy: .lazy
-                        ),
-                    ],
-                    contactNumbers: nil
-                )
-            }
-            .execute(db)
-            try OME.Poster.insert {
-                OME.Poster.Draft(
-                    id: OME.Poster.ID(
-                        organizerID: organizerID,
-                        eventID: eventID.eventID,
-                        posterID: OME.ID<OME.Poster>(rawValue: "main-poster")
-                    ),
-                    title: "Summer Art Festival poster",
-                    image: OME.ImageAsset(
-                        source: .url(posterURL),
-                        role: .poster,
-                        renderKind: .fullImage,
-                        materializationPolicy: .lazy
-                    )
-                )
-            }
-            .execute(db)
-        }
+        var event = try Event(
+            id: eventID,
+            name: "Summer Art Festival",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
+        )
+        let icon = OME.Image(source: .known(.url(iconURL)), role: .known(.icon(.init())))
+        let hero = OME.Image(source: .known(.url(heroURL)), role: .known(.hero))
+        let poster = OME.Image(source: .known(.url(posterURL)), role: .known(.poster))
+        event.media = [
+            .known(.image(icon)),
+            .known(.image(hero)),
+            .known(.image(poster)),
+        ]
+        let response = try JSONEncoder().encode(Event.Page(events: [
+            .init(uri: eventID, cid: nil, value: event.encodeLexicon())
+        ]))
 
         let page = try await withDependencies {
             $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = HTTPClient { _, _ in
-                Data(Self.installedEventAppViewPageResponse.utf8)
-            }
+            $0.httpClient = HTTPClient { _, _ in response }
         } operation: {
             try await CalendarEventsClient
-                .openMusicEventAndAtmo(database: database)
-                .browse(CalendarEvent.PageRequest(collection: OME.Event.nsid))
+                .openMusicEventAndAtmo()
+                .browse(CalendarEvent.PageRequest(
+                    collection: ATProto.NSID(Event.lexiconID.rawValue)
+                ))
         }
-        let event = try #require(page.events.first { $0.name == "Summer Art Festival" })
-
-        // Poster is the primary visual; hero and icon remain useful failure fallbacks.
-        expectNoDifference(event.media.map(\.role), ["poster", "hero", "icon"])
-        expectNoDifference(event.media.map(\.url), [posterURL, heroURL, iconURL])
+        let browsedEvent = try #require(page.events.first)
+        expectNoDifference(browsedEvent.uri, eventID)
+        expectNoDifference(
+            browsedEvent.artworkSources.map(\.image.asset.url),
+            [posterURL, heroURL, iconURL]
+        )
     }
 
     @Test
@@ -1026,7 +520,7 @@ struct EventBrowseStoryTests {
         let organizerURL = try #require(URL(string: "https://example.com/organizer.png"))
         let calendarEvent = CalendarEvent(
             uri: try #require(
-                ATProto.URI("at://did:plc:organizer/app.openmusicevent.event/festival")
+                ATProto.URI("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah")
             ),
             name: "Summer Festival",
             startsAt: nil,
@@ -1040,7 +534,7 @@ struct EventBrowseStoryTests {
                 id: organizerID,
                 avatarURL: organizerURL
             ),
-            source: CalendarEvent.Source(collection: OME.Event.nsid)
+            source: CalendarEvent.Source(collection: ATProto.NSID(Event.lexiconID.rawValue))
         )
 
         // The renderer tries event-specific art first and organizer identity last.
@@ -1068,27 +562,27 @@ struct EventBrowseStoryTests {
     func `browse starts with happening now and keeps later events upcoming`() throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let happeningNow = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/happening",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
             name: "Happening Now",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 100),
             endsAt: Date(timeIntervalSince1970: 300),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let upcoming = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/upcoming",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai",
             name: "Upcoming",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 400),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let past = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/past",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcaj",
             name: "Past",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 10),
             endsAt: Date(timeIntervalSince1970: 90),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
 
         let browse = Browse.State(
@@ -1102,14 +596,14 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `the browser opens on OME and can switch to community calendar events`() async throws {
+    func `the browser opens on canonical Events and can switch to community calendar events`() async throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let omeEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/festival",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
             name: "Summer Festival",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 100),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let calendarEvent = try event(
             uri: "at://did:plc:organizer/community.lexicon.calendar.event/dance",
@@ -1124,7 +618,7 @@ struct EventBrowseStoryTests {
             $0.calendarEvents = CalendarEventsClient(
                 browse: { request in
                     switch request.collection {
-                    case OME.Event.nsid:
+                    case ATProto.NSID(Event.lexiconID.rawValue):
                         CalendarEvent.Page(events: [omeEvent])
                     case "community.lexicon.calendar.event":
                         CalendarEvent.Page(events: [calendarEvent])
@@ -1162,66 +656,74 @@ struct EventBrowseStoryTests {
 
     @Test @MainActor
     func `browse opens organization detail by organizer identity`() throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
         let organizerID = try #require(DID("did:plc:organizer"))
         let currentEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/current",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
             name: "Current Festival",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 200),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
-        let store = Store(
-            initialState: EventBrowseDetail.State(event: currentEvent)
-        ) {
-            EventBrowseDetail()
+        try withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            let store = Store(
+                initialState: EventBrowseDetail.State(event: currentEvent)
+            ) {
+                EventBrowseDetail()
+            }
+
+            store.send(.organizerButtonTapped)
+
+            let organizationDetail = try #require(store.organizationDetail)
+            expectNoDifference(organizationDetail.organizerID, organizerID)
+            expectNoDifference(
+                organizationDetail.collection,
+                ATProto.NSID(Event.lexiconID.rawValue)
+            )
+            expectNoDifference(organizationDetail.events, [])
         }
-
-        store.send(.organizerButtonTapped)
-
-        let organizationDetail = try #require(store.organizationDetail)
-        expectNoDifference(organizationDetail.organizerID, organizerID)
-        expectNoDifference(organizationDetail.collection, OME.Event.nsid)
-        expectNoDifference(organizationDetail.events, [])
     }
 
     @Test @MainActor
     func `organization detail opens selected event detail without entering it`() async throws {
         let organizerID = try #require(DID("did:plc:organizer"))
         let previousEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/2025",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcak",
             name: "Wicked Woods 2025",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 100),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let selectedEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/2026",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcam",
             name: "Wicked Woods 2026",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 200),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let organizerEvents = [previousEvent, selectedEvent]
-        let selectedEventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "2026")
-        )
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
         let installations = TestMutex<[ATProto.URI]>([])
         let store = withDependencies {
+            $0.defaultDatabase = database
             $0.calendarEvents = CalendarEventsClient(
                 browse: { _ in CalendarEvent.Page(events: organizerEvents) },
                 event: { _ in selectedEvent },
                 organizer: { _ in selectedEvent.organizer }
             )
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { uri in
-                    installations.withLock { $0.append(uri) }
-                    return selectedEventID
-                },
-                synchronizeInstalledEvent: { _ in
-                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
-                }
-            )
+            $0.eventRecords = EventRecordClient { uri in
+                installations.withLock { $0.append(uri) }
+                throw UnexpectedEventBrowseGraphLoad()
+            }
         } operation: {
             TestStore(
                 initialState: OrganizationDetailStory.State(organizerID: organizerID)
@@ -1358,9 +860,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `entering Wicked Woods downloads the advertised artifact under its canonical identity`() async throws {
-        struct UnexpectedGitOperation: Error {}
-
+    func enteringWickedWoodsInstallsTheCanonicalRecordGraph() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -1369,12 +869,11 @@ struct EventBrowseStoryTests {
         try migrator.migrate(database)
 
         let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
-        )
+        let eventID = try #require(Event.ID(
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+        ))
         let wickedWoods = CalendarEvent(
-            uri: OME.Event.reference(id: eventID).uri,
+            uri: eventID,
             name: "Wicked Woods 2026",
             startsAt: nil,
             organizer: CalendarEvent.Organizer(
@@ -1382,140 +881,51 @@ struct EventBrowseStoryTests {
                 displayName: "Wicked Woods"
             ),
             source: CalendarEvent.Source(
-                collection: OME.Event.nsid,
+                collection: ATProto.NSID(Event.lexiconID.rawValue),
                 appViewHost: "openmusicevent.app"
             )
         )
-        let downloadUUID = try #require(
-            UUID(uuidString: "00000000-0000-0000-0000-000000000026")
+        let event = try Event(
+            id: eventID,
+            name: "Wicked Woods 2026",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: #require(TimeZone(identifier: "America/Denver"))
         )
-        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let now = try #require(LocalDate("2026-08-13")).atStartOfDay(in: eventTimeZone)
-        let eventEndDate = try #require(LocalDate("2026-08-10"))
-        let gitOperations = TestMutex<[String]>([])
+        let graph = EventRecordGraph(event: event)
+        let requestedIDs = TestMutex<[Event.ID]>([])
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = HTTPClient { _, _ in
-                Data(Self.wickedWoodsAppViewEventResponse.utf8)
-            }
-            $0.omeEventInstallation = .live(database: database)
-            $0.date.now = now
-            $0.uuid = .constant(downloadUUID)
-            $0.sourceControl.clone = { _ in
-                gitOperations.withLock { $0.append("clone") }
-                throw UnexpectedGitOperation()
-            }
-            $0.sourceControl.open = { _ in
-                gitOperations.withLock { $0.append("open") }
-                throw UnexpectedGitOperation()
-            }
-            $0.sourceControl.fetch = { _ in
-                gitOperations.withLock { $0.append("fetch") }
-                throw UnexpectedGitOperation()
-            }
-            $0.sourceControl.checkout = { _ in
-                gitOperations.withLock { $0.append("checkout") }
-                throw UnexpectedGitOperation()
-            }
-            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                expectNoDifference(
-                    request.repository.normalizedReference,
-                    "tangled.org/wickedwoods.ca/ome-workspace"
-                )
-                expectNoDifference(
-                    request.ref,
-                    "3cc283a5d07218f4dfc55652513e9191d2040a06"
-                )
-                expectNoDifference(
-                    request.archive,
-                    SourceArchiveReference(
-                        url: try #require(
-                            URL(
-                                string: "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz"
-                            )
-                        ),
-                        checksumSHA256: "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-                        byteCount: 403_521
-                    )
-                )
-                try FileManager.default.createDirectory(
-                    at: request.outputURL,
-                    withIntermediateDirectories: true
-                )
-                try writeWickedWoodsSourceWithTwoEvents(
-                    to: request.outputURL,
-                    event2026EndDate: eventEndDate,
-                    includes2026CommunicationPost: true
-                )
-                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            $0.eventRecords = EventRecordClient { requestedID in
+                requestedIDs.withLock { $0.append(requestedID) }
+                return graph
             }
         } operation: {
-            Store(
-                initialState: EnterEventStory.State(event: wickedWoods)
-            ) {
+            Store(initialState: EnterEventStory.State(event: wickedWoods)) {
                 EnterEventStory()
             }
         }
 
-        // Entering starts from the AppView browse identity and uses the existing viewer route.
         let enterEventTask = store.send(.detail(.enterEventButtonTapped))
         #expect(store.detail.isEnteringEvent)
         await enterEventTask?.value
+        expectNoDifference(requestedIDs.withLock { $0 }, [eventID])
         expectNoDifference(store.lastRequest, .event(eventID, nil))
         #expect(!store.detail.isEnteringEvent)
 
-        // The downloaded source contained 2025 and 2026, but this installation is event-scoped.
-        let installedEvents = try await database.read { db in
-            try OME.Event.fetchAll(db)
-        }
-        expectNoDifference(installedEvents.map(\.id), [eventID])
-        expectNoDifference(installedEvents.map(\.name), ["Wicked Woods 2026"])
-        expectNoDifference(gitOperations.withLock { $0 }, [])
-
-        // The first download of an event that has already ended treats its existing posts as
-        // history, so entering the event does not create a backlog badge.
-        let communicationReadState = try await database.read { db in
+        let saved = try await database.read { db in
             (
-                postIDs: Set(try CommsPost.fetchAll(db).map(\.id)),
-                readPostIDs: Set(try CommsPostRead.fetchAll(db).map(\.id))
+                event: try Event.find(eventID).fetchOne(db),
+                installation: try InstalledEvent.find(eventID).fetchOne(db)
             )
         }
-        #expect(!communicationReadState.postIDs.isEmpty)
-        expectNoDifference(
-            communicationReadState.readPostIDs,
-            communicationReadState.postIDs
-        )
-
-        // Browse preserves the exact published revision as event provenance while installed-event
-        // intent resolves the same repository to its editable main branch. Neither record prepares
-        // a repository, installs an organization source, or manufactures publication state.
-        let browseState = try await database.read { db in
-            (
-                provenance: try EventSourceProvenanceRecord.find(eventID).fetchOne(db),
-                installedEvent: try InstalledEventRecord.find(eventID).fetchOne(db),
-                installations: try SourceWorkspaceInstallationRecord.fetchCount(db)
-            )
-        }
-        let workspace = try #require(browseState.provenance?.workspace)
-        let installedWorkspace = try #require(browseState.installedEvent?.workspace)
-        expectNoDifference(workspace.organizerID, organizerID)
-        expectNoDifference(workspace.repository, "tangled.org/wickedwoods.ca/ome-workspace")
-        expectNoDifference(workspace.defaultBranch, "main")
-        expectNoDifference(
-            browseState.provenance?.ref,
-            "3cc283a5d07218f4dfc55652513e9191d2040a06"
-        )
-        expectNoDifference(browseState.installedEvent?.ref, "main")
-        expectNoDifference(installedWorkspace, workspace)
-        expectNoDifference(browseState.installations, 0)
-        #expect(try SourceWorkspaceBaselineStore(database: database).load(workspace.id) == nil)
+        #expect(saved.event?.name == "Wicked Woods 2026")
+        #expect(saved.installation == InstalledEvent(id: eventID))
     }
 
     @Test
-    func `refreshing Wicked Woods migrates its legacy source and revision without losing attendee data`() async throws {
+    func `replacing a canonical event record preserves attendee schedules and selection`() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -1523,159 +933,52 @@ struct EventBrowseStoryTests {
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
-        let organizerID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
-        let eventID = OME.Event.ID(
-            organizerID: organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "ome-workspace-2026")
+        let eventID = try #require(Event.ID(
+            "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
+        ))
+        var event = try Event(
+            id: eventID,
+            name: "Wicked Woods before refresh",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
         )
-        let legacySourceReference = "tangled.org/wickedwoods.ca/ome-workspace"
-        let publishedSourceReference =
-            "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
-        let installedRevision = "d8048ab9d0ba54d6266e23d7b2e6c65de595ac7b"
-        let publishedRevision = "3cc283a5d07218f4dfc55652513e9191d2040a06"
-        let installedSource = OME.SourceDatabaseInsertion.SourceProvenance(
-            kind: .tangled,
-            reference: legacySourceReference,
-            ref: installedRevision
-        )
-        let installedWorkspace = SourceWorkspace(
-            organizerID: organizerID,
-            repository: legacySourceReference,
-            branch: "main"
-        )
-        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let installedInsertion = try OME.SourceDatabaseInsertion(
-            .init(
-                source: OpenMusicEventSourceRepository(
-                    events: [
-                        try wickedWoodsSourceEvent(
-                            directoryName: "2026",
-                            name: "Wicked Woods before refresh",
-                            timeZone: timeZone,
-                            includesCommunicationPost: true,
-                            communicationPostContents: "The earlier published update."
-                        )
-                    ]
-                ),
-                organizerID: organizerID,
-                sourceProvenance: installedSource
-            )
-        )
-        try await installedInsertion.installPublishedEvent(
-            eventID,
-            from: installedWorkspace,
-            in: database
-        )
-
-        // This is an already-shipped attendee database: its selected schedule and read state are
-        // user data, while its source provenance still points at the previously published commit.
         let userSchedule = UserSchedule(
             id: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000026")),
             eventID: eventID,
             title: "My Schedule"
         )
-        let installedPostID = try await database.read { db in
-            try #require(CommsPost.fetchOne(db)?.id)
-        }
+        let viewerState = EventViewerState(
+            id: eventID,
+            selectedUserScheduleID: userSchedule.id,
+            didInitializeUserSchedules: true
+        )
+        let initialEvent = event
         try await database.write { db in
+            try EventRecordGraph(event: initialEvent).upsert(in: db)
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
             try UserSchedule.insert { userSchedule }.execute(db)
-            try CommsPostRead.insert { CommsPostRead(id: installedPostID) }.execute(db)
-            try db.execute(
-                sql: """
-                    INSERT INTO "contributorPreferences" (
-                      "organizerID", "eventID", "contributorID", "isFavorite"
-                    ) VALUES (?, ?, 'favorite-artist', 1)
-                    """,
-                arguments: [organizerID.description, eventID.eventID.rawValue.rawValue]
-            )
+            try EventViewerState.insert { viewerState }.execute(db)
         }
 
-        try await withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0[Atmosphere.Account.Client.self].resolveHandle = { handle in
-                #expect(handle.rawValue == "wickedwoods.ca")
-                let document = try JSONDecoder().decode(
-                    DID.Document.self,
-                    from: Data("""
-                    {
-                      "id": "\(organizerID)",
-                      "alsoKnownAs": ["at://wickedwoods.ca"],
-                      "verificationMethod": [],
-                      "service": []
-                    }
-                    """.utf8)
-                )
-                return (Atmosphere.Account(id: .init(organizerID), handle: handle), document)
-            }
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = HTTPClient { _, _ in
-                Data(Self.wickedWoodsRevisionRefreshResponse.utf8)
-            }
-            $0.uuid = .constant(
-                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000027"))
-            )
-            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                expectNoDifference(
-                    request.repository.normalizedReference,
-                    "tangled.org/did:plc:5df2u7ief6m6tn77jznicxob/ome-workspace"
-                )
-                expectNoDifference(request.ref, publishedRevision)
-                try FileManager.default.createDirectory(
-                    at: request.outputURL,
-                    withIntermediateDirectories: true
-                )
-                try writeWickedWoodsSourceWithTwoEvents(
-                    to: request.outputURL,
-                    event2026Name: "Wicked Woods after refresh",
-                    includes2026CommunicationPost: true,
-                    communicationPostContents: "The emergency update arrived."
-                )
-                return TangledSourceCheckout(repositoryURL: request.outputURL)
-            }
-        } operation: {
-            try await OMEEventInstallationClient.liveValue.synchronizeInstalledEvent(eventID)
+        event.name = "Wicked Woods after refresh"
+        let refreshed = event
+        try await database.write { db in
+            try EventRecordGraph(event: refreshed).upsert(in: db)
         }
 
         try await database.read { db in
+            expectNoDifference(try Event.find(eventID).fetchOne(db), refreshed)
             expectNoDifference(
-                try OME.Event.find(eventID).fetchOne(db)?.name,
-                "Wicked Woods after refresh"
+                try InstalledEvent.find(eventID).fetchOne(db),
+                InstalledEvent(id: eventID)
             )
             expectNoDifference(
-                try CommsPost.fetchOne(db)?.contents,
-                "The emergency update arrived."
+                try UserSchedule.find(userSchedule.id).fetchOne(db),
+                userSchedule
             )
             expectNoDifference(
-                try EventSourceProvenanceRecord.find(eventID).fetchOne(db)?.sourceProvenance,
-                OME.SourceDatabaseInsertion.SourceProvenance(
-                    kind: .tangled,
-                    reference: publishedSourceReference,
-                    ref: publishedRevision
-                )
-            )
-            expectNoDifference(
-                try InstalledEventRecord.find(eventID).fetchOne(db),
-                InstalledEventRecord(
-                    id: eventID,
-                    sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance(
-                        kind: .tangled,
-                        reference: publishedSourceReference,
-                        ref: "main"
-                    )
-                )
-            )
-            expectNoDifference(try UserSchedule.find(userSchedule.id).fetchOne(db), userSchedule)
-            expectNoDifference(
-                try CommsPostRead.fetchAll(db).map(\.id),
-                [installedPostID]
-            )
-            expectNoDifference(
-                try Int.fetchOne(
-                    db,
-                    sql: #"SELECT "isFavorite" FROM "contributorPreferences" WHERE "contributorID" = 'favorite-artist'"#
-                ),
-                1
+                try EventViewerState.find(eventID).fetchOne(db),
+                viewerState
             )
         }
     }
@@ -1684,24 +987,22 @@ struct EventBrowseStoryTests {
     func `a failed event installation is reported without becoming detail state`() async throws {
         struct InstallationFailure: Error {}
 
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
         let organizerID = try #require(DID("did:plc:organizer"))
         let omeEvent = try event(
-            uri: "at://did:plc:organizer/app.openmusicevent.event/festival",
+            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
             name: "Summer Festival",
             organizerID: organizerID,
             startsAt: Date(timeIntervalSince1970: 100),
-            collection: OME.Event.nsid
+            collection: ATProto.NSID(Event.lexiconID.rawValue)
         )
         let store = withDependencies {
             $0.context = .test
-            $0.omeEventInstallation = OMEEventInstallationClient(
-                ensureInstalled: { _ in
-                    throw InstallationFailure()
-                },
-                synchronizeInstalledEvent: { _ in
-                    unimplemented("OMEEventInstallationClient.synchronizeInstalledEvent")
-                }
-            )
+            $0.defaultDatabase = database
+            $0.eventRecords = EventRecordClient { _ in throw InstallationFailure() }
         } operation: {
             Store(initialState: EnterEventStory.State(event: omeEvent)) {
                 EnterEventStory()
@@ -1737,144 +1038,6 @@ struct EventBrowseStoryTests {
             timeZoneIdentifier: "America/Denver"
         )
     }
-}
-
-extension EventBrowseStoryTests {
-    static let omeAppViewPageResponse = #"""
-        {
-          "events": [
-            {
-              "uri": "at://did:plc:organizer/app.openmusicevent.event/network-festival",
-              "name": "Network Festival",
-              "startsAt": "2026-09-04T06:00:00Z",
-              "locations": [],
-              "links": [],
-              "media": [],
-              "organizer": {
-                "id": "did:plc:organizer",
-                "displayName": "Network Organizer"
-              },
-              "attendance": {
-                "going": 0,
-                "interested": 0,
-                "notGoing": 0
-              },
-              "source": {
-                "collection": "app.openmusicevent.event",
-                "appViewHost": "openmusicevent.app",
-                "sourceRecord": {
-                  "$type": "app.openmusicevent.source",
-                  "kind": "tangled",
-                  "reference": "https://tangled.org/example.com/network-festival",
-                  "ref": "main"
-                }
-              },
-              "timeZoneIdentifier": "America/Denver"
-            }
-          ],
-          "cursor": "page-3"
-        }
-        """#
-
-    static let installedEventAppViewPageResponse = #"""
-        {
-          "events": [
-            {
-              "uri": "at://did:plc:artfestival/app.openmusicevent.event/summer-art-festival",
-              "name": "Summer Art Festival",
-              "locations": [],
-              "links": [],
-              "media": [],
-              "organizer": {
-                "id": "did:plc:artfestival"
-              },
-              "attendance": {
-                "going": 0,
-                "interested": 0,
-                "notGoing": 0
-              },
-              "source": {
-                "collection": "app.openmusicevent.event",
-                "appViewHost": "openmusicevent.app"
-              }
-            }
-          ]
-        }
-        """#
-
-    static let wickedWoodsAppViewEventResponse = #"""
-        {
-          "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
-          "name": "Wicked Woods 2026",
-          "locations": [],
-          "links": [],
-          "media": [],
-          "organizer": {
-            "id": "did:plc:5df2u7ief6m6tn77jznicxob",
-            "displayName": "Wicked Woods"
-          },
-          "attendance": {
-            "going": 0,
-            "interested": 0,
-            "notGoing": 0
-          },
-          "source": {
-            "collection": "app.openmusicevent.event",
-            "appViewHost": "openmusicevent.app",
-            "sourceRecord": {
-              "$type": "app.openmusicevent.source",
-              "kind": "tangled",
-              "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
-              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
-            },
-            "resolvedArtifact": {
-              "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
-              "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
-              "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-              "byteCount": 403521
-            },
-            "resolvedRepository": {
-              "reference": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/wicked-woods-ome-stg",
-              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
-            }
-          }
-        }
-        """#
-
-    static let wickedWoodsRevisionRefreshResponse = #"""
-        {
-          "uri": "at://did:plc:5df2u7ief6m6tn77jznicxob/app.openmusicevent.event/ome-workspace-2026",
-          "name": "Wicked Woods 2026",
-          "locations": [],
-          "links": [],
-          "media": [],
-          "organizer": {
-            "id": "did:plc:5df2u7ief6m6tn77jznicxob",
-            "displayName": "Wicked Woods"
-          },
-          "attendance": {
-            "going": 0,
-            "interested": 0,
-            "notGoing": 0
-          },
-          "source": {
-            "collection": "app.openmusicevent.event",
-            "appViewHost": "stg.openmusicevent.app",
-            "sourceRecord": {
-              "$type": "app.openmusicevent.source",
-              "kind": "tangled",
-              "reference": "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace",
-              "ref": "3cc283a5d07218f4dfc55652513e9191d2040a06"
-            },
-            "resolvedArtifact": {
-              "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
-              "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
-              "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-              "byteCount": 403521
-            }
-          }
-        }
-        """#
 }
 
 @Feature
@@ -1931,37 +1094,6 @@ struct OrganizationDetailStory {
     }
 }
 
-actor EventBrowseCheckoutPause {
-    var continuation: CheckedContinuation<Void, Never>?
-    var started = false
-    var startWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func continueCheckout() {
-        precondition(started, "The source checkout has not started.")
-        continuation?.resume()
-        continuation = nil
-    }
-
-    func pause() async {
-        precondition(!started, "The source checkout unexpectedly started more than once.")
-        started = true
-        for waiter in startWaiters {
-            waiter.resume()
-        }
-        startWaiters.removeAll()
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
-    }
-
-    func waitUntilStarted() async {
-        guard !started else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-}
-
 @MainActor
 func waitForEventBrowseObservation(
     _ condition: @escaping @MainActor () -> Bool
@@ -1977,164 +1109,4 @@ func waitForEventBrowseObservation(
     }
 }
 
-private func eventBrowsePublishedEventNetwork(
-    eventID: OME.Event.ID
-) -> RunHTTPRequest {
-    { request, body in
-        #expect(body == nil)
-        let url = try #require(request.url)
-        #expect(url.path.hasSuffix("/app.openmusicevent.calendar.getEvent"))
-        let components = try #require(
-            URLComponents(url: url, resolvingAgainstBaseURL: false)
-        )
-        #expect(
-            components.queryItems?.first(where: { $0.name == "uri" })?.value
-                == OME.Event.reference(id: eventID).uri.description
-        )
-        return (
-            Data(
-                """
-                {
-                  "uri": "\(OME.Event.reference(id: eventID).uri)",
-                  "name": "Wicked Woods 2026",
-                  "locations": [],
-                  "links": [],
-                  "media": [],
-                  "organizer": {
-                    "id": "\(eventID.organizerID)"
-                  },
-                  "attendance": {
-                    "going": 0,
-                    "interested": 0,
-                    "notGoing": 0
-                  },
-                  "source": {
-                    "collection": "app.openmusicevent.event",
-                    "appViewHost": "openmusicevent.app",
-                    "sourceRecord": {
-                      "$type": "app.openmusicevent.source",
-                      "kind": "tangled",
-                      "reference": "https://tangled.org/wickedwoods.ca/ome-workspace",
-                      "ref": "main"
-                    },
-                    "resolvedArtifact": {
-                      "url": "https://stg-resources.openmusicevent.app/woody.fm/wicked-woods-ome-stg/archive/3cc283a5d07218f4dfc55652513e9191d2040a06.tar.gz",
-                      "revision": "3cc283a5d07218f4dfc55652513e9191d2040a06",
-                      "checksumSHA256": "i4TTx/Zwf5nNgcBrov1+ixEHEn0sGMLSLlSkRNPur0A=",
-                      "byteCount": 403521
-                    }
-                  }
-                }
-                """.utf8
-            ),
-            HTTPResponse(status: .ok)
-        )
-    }
-}
-
-private func writeWickedWoodsSourceWithTwoEvents(
-    to repositoryURL: URL,
-    event2026Name: String = "Wicked Woods 2026",
-    event2026EndDate: LocalDate? = nil,
-    includes2026CommunicationPost: Bool = false,
-    communicationPostContents: String = "Welcome to Wicked Woods."
-) throws {
-    let timeZone = try #require(TimeZone(identifier: "America/Denver"))
-    let source = OpenMusicEventSourceRepository(
-        events: [
-            try wickedWoodsSourceEvent(
-                directoryName: "2025",
-                name: "Wicked Woods 2025",
-                timeZone: timeZone
-            ),
-            try wickedWoodsSourceEvent(
-                directoryName: "2026",
-                name: event2026Name,
-                timeZone: timeZone,
-                endDate: event2026EndDate,
-                includesCommunicationPost: includes2026CommunicationPost,
-                communicationPostContents: communicationPostContents
-            ),
-        ]
-    )
-    _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
-}
-
-private func writeWickedWoodsSourceWithout2026(to repositoryURL: URL) throws {
-    let timeZone = try #require(TimeZone(identifier: "America/Denver"))
-    let source = OpenMusicEventSourceRepository(
-        events: [
-            try wickedWoodsSourceEvent(
-                directoryName: "2025",
-                name: "Wicked Woods 2025",
-                timeZone: timeZone
-            )
-        ]
-    )
-    _ = try OpenMusicEventSourceRepositoryFileTree().write(source, to: repositoryURL)
-}
-
-private func wickedWoodsSourceEvent(
-    directoryName: String,
-    name: String,
-    timeZone: TimeZone,
-    endDate: LocalDate? = nil,
-    includesCommunicationPost: Bool = false,
-    communicationPostContents: String = "Welcome to Wicked Woods."
-) throws -> DirectoryContent<OpenMusicEventSourceEvent> {
-    DirectoryContent(
-        directoryName: directoryName,
-        components: OpenMusicEventSourceEvent(
-            event: EventDTO(
-                id: nil,
-                name: name,
-                description: nil,
-                startDate: nil,
-                endDate: endDate,
-                status: nil,
-                mode: nil,
-                locations: nil,
-                uris: nil,
-                timeZone: timeZone,
-                images: nil,
-                contactNumbers: nil
-            ),
-            channels: includesCommunicationPost
-                ? [
-                    try FileContent(
-                        fileName: "general",
-                        fileType: "yml",
-                        data: OME.Channel.Draft(
-                            id: nil,
-                            name: "General",
-                            description: "Official updates.",
-                            iconImageURL: nil,
-                            headerImageURL: nil,
-                            sortIndex: nil,
-                            defaultNotificationState: .subscribed,
-                            notificationsRequired: false
-                        )
-                    )
-                ]
-                : nil,
-            communicationPosts: includesCommunicationPost
-                ? [
-                    DirectoryContent(
-                        directoryName: "general",
-                        components: [
-                            try FileContent(
-                                fileName: "welcome",
-                                fileType: "md",
-                                data: CommunicationPostDTO(
-                                    title: "Welcome",
-                                    contents: communicationPostContents
-                                )
-                            )
-                        ]
-                    )
-                ]
-                : nil
-        )
-    )
-}
 #endif

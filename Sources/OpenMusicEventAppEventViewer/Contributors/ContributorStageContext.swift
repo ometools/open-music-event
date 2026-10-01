@@ -1,5 +1,5 @@
 import Foundation
-import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -7,86 +7,104 @@ import SwiftUI
 #endif
 
 struct ContributorStageContext {
-    let contributorID: OMERecord.ID<OMERecord.Contributor>
-    let scheduledPerformances: [OMERecord.Performance]
-    let scheduledStages: [OMERecord.Stage]
-    let eventStages: [OMERecord.Stage]
+    let contributorID: Contributor.ID
+    let scheduledItems: [ProgramItem]
+    let scheduledStages: [EventPlace]
+    let lineupStages: [EventPlace]
 
     init(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
+        contributorID: Contributor.ID,
         performanceRows: [PerformanceRow],
-        lineupStages: [OMERecord.Stage]
+        lineupStages: [EventPlace]
     ) {
         self.contributorID = contributorID
-        self.scheduledPerformances = performanceRows.map(\.performance)
+        self.scheduledItems = performanceRows.map(\.performance)
         self.scheduledStages = Self.orderedStages(performanceRows.compactMap(\.stage))
-        self.eventStages = Self.orderedStages(scheduledStages + lineupStages)
+        self.lineupStages = Self.orderedStages(lineupStages)
     }
 
     init(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        scheduledStages: [OMERecord.Stage],
-        stages: [OMERecord.Stage]
+        contributorID: Contributor.ID,
+        scheduledStages: [EventPlace],
+        stages: [EventPlace]
     ) {
         self.contributorID = contributorID
-        self.scheduledPerformances = []
+        self.scheduledItems = []
         self.scheduledStages = Self.orderedStages(scheduledStages)
-        self.eventStages = Self.orderedStages(stages)
+        self.lineupStages = Self.orderedStages(stages)
     }
 
-    var primaryStage: OMERecord.Stage? {
+    var primaryStage: EventPlace? {
         stages.first
     }
 
-    var lineupOnlyStages: [OMERecord.Stage] {
-        let scheduledStageIDs = Set(scheduledStages.map(\.id.stageID))
-        return lineupStages.filter { !scheduledStageIDs.contains($0.id.stageID) }
+    var lineupOnlyStages: [EventPlace] {
+        let scheduledStageIDs = Set(scheduledStages.map(\.id))
+        return lineupStages.filter { !scheduledStageIDs.contains($0.id) }
     }
 
-    var stages: [OMERecord.Stage] {
-        let stageIDs = Set(scheduledStages.map(\.id.stageID)).union(lineupStageIDs)
-        return eventStages.filter { stageIDs.contains($0.id.stageID) }
+    var stages: [EventPlace] {
+        Self.orderedStages(scheduledStages + lineupStages)
     }
 
-    func stage(for performance: OMERecord.Performance) -> OMERecord.Stage? {
-        eventStages.first { $0.id.stageID == performance.stageID }
+    func stage(for item: ProgramItem) -> EventPlace? {
+        stages.first { $0.id == item.eventPlace }
     }
 
-    private var lineupStageIDs: Set<OMERecord.ID<OMERecord.Stage>> {
-        Set(lineupStages.map(\.id.stageID))
-    }
-
-    private var lineupStages: [OMERecord.Stage] {
-        eventStages.filter { stage in
-            stage.lineup?.contains(contributorID) == true
-        }
-    }
-
-    private static func orderedStages(_ stages: [OMERecord.Stage]) -> [OMERecord.Stage] {
-        var seen: Set<OMERecord.ID<OMERecord.Stage>> = []
+    private static func orderedStages(_ stages: [EventPlace]) -> [EventPlace] {
+        var seen: Set<EventPlace.ID> = []
         return stages
             .filter { stage in
-                seen.insert(stage.id.stageID).inserted
+                seen.insert(stage.id).inserted
             }
             .sorted { lhs, rhs in
-                switch (lhs.sortIndex, rhs.sortIndex) {
-                case let (lhs?, rhs?) where lhs != rhs:
-                    return lhs < rhs
-                case (_?, nil):
-                    return true
-                case (nil, _?):
-                    return false
-                default:
-                    break
+                let leftOrder = lhs.stageUse?.sortIndex ?? Int.max
+                let rightOrder = rhs.stageUse?.sortIndex ?? Int.max
+                if leftOrder != rightOrder {
+                    return leftOrder < rightOrder
                 }
-
                 let nameComparison = lhs.name.localizedStandardCompare(rhs.name)
                 if nameComparison != .orderedSame {
                     return nameComparison == .orderedAscending
                 }
-
-                return lhs.id.stageID.rawValue.rawValue < rhs.id.stageID.rawValue.rawValue
+                return lhs.id.description < rhs.id.description
             }
+    }
+}
+
+extension EventPlace {
+    var stageUse: EventPlace.Kind.Stage? {
+        guard case let .known(.stage(use)) = kind else { return nil }
+        return use
+    }
+
+    var stageUIColor: Color {
+        guard let color = stageUse?.color
+        else { return .secondary }
+        return Color(
+            red: Double((color.rawValue >> 16) & 0xFF) / 255.0,
+            green: Double((color.rawValue >> 8) & 0xFF) / 255.0,
+            blue: Double(color.rawValue & 0xFF) / 255.0
+        )
+    }
+
+    var stageVisualIdentifier: String {
+        if let icon = stageUse?.icon {
+            return "icon:\(icon.rawValue)"
+        }
+        if let shortLabel = stageUse?.shortLabel, !shortLabel.isEmpty {
+            return "text:\(shortLabel.lowercased())"
+        }
+        return "text:\(stageFallbackInitials.lowercased())"
+    }
+
+    var stageFallbackInitials: String {
+        name.split(separator: " ")
+            .filter { !$0.localizedCaseInsensitiveContains("the") }
+            .compactMap(\.first)
+            .prefix(2)
+            .map(String.init)
+            .joined()
     }
 }
 

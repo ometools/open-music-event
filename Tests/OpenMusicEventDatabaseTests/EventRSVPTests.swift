@@ -15,7 +15,7 @@ struct EventRSVPTests {
         try migrator.migrate(database)
 
         let eventURI = try #require(
-            ATProto.URI("at://did:plc:festival/app.openmusicevent.event/summer-2026")
+            ATProto.URI("at://did:plc:festival/events.openmusic.event/summer-2026")
         )
         let accountDID = try #require(DID("did:plc:attendee"))
         let account = EventRSVP.Consumer(accountDID: accountDID)

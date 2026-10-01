@@ -11,7 +11,6 @@ extension OpenMusicEventAppViewServer {
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
-        openMusicEventCatalog: OpenMusicEventCalendarCatalog,
         store: OpenMusicEventAppViewStore?
     ) {
         router.get(RouterPath(oauthClient.metadataURL.path)) { request, _ async throws -> Response in
@@ -38,7 +37,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -49,7 +48,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -60,7 +59,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -71,7 +70,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -85,7 +84,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -100,7 +99,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -111,7 +110,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -122,7 +121,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -133,7 +132,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -144,7 +143,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
 
@@ -155,7 +154,7 @@ extension OpenMusicEventAppViewServer {
                 routeResolver: routeResolver,
                 staticSiteFiles: staticSiteFiles,
                 wellKnownFiles: wellKnownFiles,
-                openMusicEventCatalog: openMusicEventCatalog
+                store: store
             )
         }
     }
@@ -166,7 +165,7 @@ extension OpenMusicEventAppViewServer {
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
-        openMusicEventCatalog: OpenMusicEventCalendarCatalog
+        store: OpenMusicEventAppViewStore?
     ) throws -> Response {
         let route = try routeResolver.route(host: host, path: path)
         return try response(
@@ -175,7 +174,7 @@ extension OpenMusicEventAppViewServer {
             routeResolver: routeResolver,
             staticSiteFiles: staticSiteFiles,
             wellKnownFiles: wellKnownFiles,
-            openMusicEventCatalog: openMusicEventCatalog
+            store: store
         )
     }
 
@@ -185,7 +184,7 @@ extension OpenMusicEventAppViewServer {
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
-        openMusicEventCatalog: OpenMusicEventCalendarCatalog
+        store: OpenMusicEventAppViewStore?
     ) throws -> Response {
         switch route {
         case .appleAppSiteAssociation:
@@ -198,9 +197,7 @@ extension OpenMusicEventAppViewServer {
             return file.response
 
         case let .brandedEvent(claim):
-            guard let event = try openMusicEventCatalog.event(
-                uri: OME.Event.reference(id: claim.eventID).uri
-            ) else {
+            guard let event = try store?.event(id: claim.eventID) else {
                 return textResponse(
                     "Event \(claim.eventClaim) is temporarily unavailable.",
                     status: .serviceUnavailable

@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -25,27 +26,24 @@ public struct EventSearch {
 
     public struct State {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: eventID)
+                Event.timeZoneQuery(eventID: eventID)
             )
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
             _contributors = FetchAll(
                 ContributorProfile.all(eventID: eventID, hydration: .none)
             )
-            _performanceContributors = FetchAll(
-                EventSearch.performanceContributorsQuery(eventID: eventID)
-            )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
@@ -54,7 +52,6 @@ public struct EventSearch {
         public var content: EventSearchContent
 
         @FetchAll var contributors: [ContributorProfile]
-        @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll var performanceRows: [PerformanceRow]
 
         public var query = ""
@@ -62,7 +59,7 @@ public struct EventSearch {
         public var destination: Destination.State?
 
         public static func route(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             target: EventTarget?
         ) -> Self {
             switch target {
@@ -94,7 +91,7 @@ public struct EventSearch {
         }
 
         static func content(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             query: String,
             now: Date,
             db: Database
@@ -125,15 +122,6 @@ public struct EventSearch {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @StoreTaskID var searchTask
-
-    static func performanceContributorsQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
-        OMERecord.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
-            .order { ($0.performanceID.performanceID, $0.sortIndex) }
-    }
 
     public var body: some Feature {
         Update { state, action in
@@ -172,14 +160,6 @@ public struct EventSearch {
                     store.withDependencies {
                         state.destination = .performanceDetail(
                             Spawn(.init(performanceID: performanceID, eventID: eventID))
-                        )
-                    }
-
-                case .poster(_):
-                    store.addTask {
-                        try store.post(
-                            key: NavigationRequested.self,
-                            value: .event(eventID, .posters)
                         )
                     }
 
@@ -255,7 +235,6 @@ public struct EventSearchView: View {
                         contributors: store.contributors,
                         eventTimePresentation: eventTimePresentation,
                         timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
-                        performanceContributors: store.performanceContributors,
                         performanceRows: store.performanceRows,
                         openTarget: { store.send(.openTarget($0)) }
                     )
@@ -288,7 +267,6 @@ struct EventSearchContentView: View {
     let contributors: [ContributorProfile]
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
-    let performanceContributors: [OMERecord.Performance.Contributors]
     let performanceRows: [PerformanceRow]
     let openTarget: (EventSearchDocument.Target) -> Void
 
@@ -302,7 +280,6 @@ struct EventSearchContentView: View {
                     contributors: contributors,
                     eventTimePresentation: eventTimePresentation,
                     timeZoneDisclosure: timeZoneDisclosure,
-                    performanceContributors: performanceContributors,
                     openTarget: openTarget
                 )
 
@@ -352,7 +329,6 @@ struct EventSearchDashboardView: View {
     let contributors: [ContributorProfile]
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
-    let performanceContributors: [OMERecord.Performance.Contributors]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -446,38 +422,33 @@ struct EventSearchDashboardView: View {
         return indices
     }
 
-    var leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile] {
+    var leadContributors: [ProgramItem.ID: ContributorProfile] {
         let contributorsByID = Dictionary(
             uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
         )
-        let primaryContributors = performanceContributors
-            .filter { $0.billing == .primary }
-            .sorted { lhs, rhs in
-                if lhs.performanceID.performanceID == rhs.performanceID.performanceID {
-                    return lhs.sortIndex < rhs.sortIndex
-                }
-                return lhs.performanceID.performanceID < rhs.performanceID.performanceID
-            }
-
+        let rows = dashboard.stageRows.flatMap { $0.nowPlayingRows + $0.comingNextRows }
         return Dictionary(
-            primaryContributors.compactMap { contribution in
-                contribution.contributorID.flatMap { contributorID in
-                    contributorsByID[contributorID].map { (contribution.performanceID.performanceID, $0) }
-                }
+            rows.compactMap { row in
+                let contributorID = row.performance.credits?.first {
+                    if case .known(.primary) = $0.billing { return $0.contributor != nil }
+                    return false
+                }?.contributor
+                guard let contributorID, let profile = contributorsByID[contributorID] else { return nil }
+                return (row.performanceID, profile)
             },
             uniquingKeysWith: { first, _ in first }
         )
     }
 
-    func showStageNameLabels(for stage: OMERecord.Stage) -> Bool {
-        dashboard.stageRows.filter { $0.stage.category == stage.category }.count > 1
+    func showStageNameLabels(for stage: EventPlace) -> Bool {
+        dashboard.stageRows.filter { $0.stage.stageUse?.category == stage.stageUse?.category }.count > 1
     }
 }
 
 struct EventSearchStageCard: View {
     let row: StageDashboardRow
     let now: Date
-    let leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile]
+    let leadContributors: [ProgramItem.ID: ContributorProfile]
     let showStageNameLabels: Bool
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
@@ -523,7 +494,7 @@ struct EventSearchStageCard: View {
         .portableContentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .accessibilityLabel(Text(accessibilityLabel))
         .onTapGesture {
-            openTarget(.stage(row.stage.id.stageID))
+            openTarget(.stage(row.stage.id))
         }
     }
 
@@ -552,18 +523,21 @@ struct EventSearchStageCard: View {
                     Text(performance.title)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
-                    if showsStartTime {
-                        Text("Starts \(startTimeText(for: performance.performance.startTime))")
+                    if showsStartTime, let start = performance.performance.startDate {
+                        Text("Starts \(startTimeText(for: start))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    PerformanceTimingChip(
-                        status: PerformanceTimingStatus(
-                            startTime: performance.performance.startTime,
-                            endTime: performance.performance.endTime,
-                            now: now
+                    if let start = performance.performance.startDate,
+                       let end = performance.performance.endDate {
+                        PerformanceTimingChip(
+                            status: PerformanceTimingStatus(
+                                startTime: start,
+                                endTime: end,
+                                now: now
+                            )
                         )
-                    )
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -571,7 +545,7 @@ struct EventSearchStageCard: View {
     }
 
     var stageColor: Color {
-        row.stage.color.swiftUIColor
+        row.stage.stageUIColor
     }
 
     var isClosed: Bool {
@@ -583,9 +557,10 @@ struct EventSearchStageCard: View {
         if let performance = row.nowPlayingRows.first {
             parts.append("Now, \(performance.title)")
         }
-        if let performance = row.comingNextRows.first {
+        if let performance = row.comingNextRows.first,
+           let start = performance.performance.startDate {
             parts.append(
-                "Up next, \(performance.title), starts \(startTimeText(for: performance.performance.startTime))"
+                "Up next, \(performance.title), starts \(startTimeText(for: start))"
             )
         }
         return parts.joined(separator: ", ")
@@ -651,19 +626,17 @@ struct EventSearchPerformanceRow: View {
         HStack(spacing: 8) {
             EventSearchRow(
                 title: row.title,
-                subtitle: eventTimePresentation.performanceRowTimeRange(
+                subtitle: eventTimePresentation.programItemRowTimeRange(
                     for: row.performance,
                     disclosure: timeZoneDisclosure
                 ),
-                secondarySubtitle: eventTimePresentation.daySegment(
-                    for: row.performance.startTime,
-                    policy: dateTimeRangeResolutionPolicy
-                ),
-                status: PerformanceTimingStatus(
-                    startTime: row.performance.startTime,
-                    endTime: row.performance.endTime,
-                    now: now
-                ),
+                secondarySubtitle: row.performance.startDate.map {
+                    eventTimePresentation.daySegment(
+                        for: $0,
+                        policy: dateTimeRangeResolutionPolicy
+                    )
+                },
+                status: timingStatus,
                 chrome: EventSearchPerformanceChrome(stage: row.stage)
             )
 
@@ -678,6 +651,12 @@ struct EventSearchPerformanceRow: View {
                 context: reactionMenuContext
             )
         }
+    }
+
+    var timingStatus: PerformanceTimingStatus? {
+        guard let start = row.performance.startDate,
+              let end = row.performance.endDate else { return nil }
+        return PerformanceTimingStatus(startTime: start, endTime: end, now: now)
     }
 }
 
@@ -722,17 +701,17 @@ struct EventSearchResultRow: View {
 }
 
 struct EventSearchPerformanceChrome: View {
-    let stage: OMERecord.Stage?
+    let stage: EventPlace?
 
     var body: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                .fill(stage?.stageUIColor ?? .secondary.opacity(0.35))
                 .frame(width: 5, height: 44)
 
             Group {
                 if let stage {
-                    ScheduleStageIcon(stage: stage)
+                    EventPlaceStageArtworkView(place: stage, size: 44)
                 } else {
                     MappedSystemImage(systemName: "music.note")
                         .padding(10)

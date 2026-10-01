@@ -3,6 +3,7 @@ import LiquidGlassSegmentedPicker
 #endif
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -21,9 +22,9 @@ extension EnvironmentValues {
 }
 
 struct OMEScheduleStageSelector: View {
-    let stages: [OMERecord.Stage]
-    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
-    @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let stages: [EventPlace]
+    let unavailableStageIDs: Set<EventPlace.ID>
+    @Binding var selectedStageID: EventPlace.ID?
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.showStageNameLabels) var showStageNameLabels
@@ -51,11 +52,11 @@ struct OMEScheduleStageSelector: View {
             selection: $selectedStageID,
             itemAccessibilityIdentifier: { stageID in
                 stageID.map {
-                    "button.schedule-stage.\($0.rawValue.rawValue)"
+                    "button.schedule-stage.\($0.description)"
                 }
             },
             itemAccessibilityLabel: { stageID in
-                stages.first { $0.id.stageID == stageID }?.name
+                stages.first { $0.id == stageID }?.name
             }
         ) {
             ForEach(stages) { stage in
@@ -64,9 +65,9 @@ struct OMEScheduleStageSelector: View {
                 } icon: {
                     ScheduleStageIcon(stage: stage)
                 }
-                .pickerItemColor(stage.color.swiftUIColor)
-                .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
-                .tag(Optional(stage.id.stageID))
+                .pickerItemColor(stage.stageUIColor)
+                .opacity(unavailableStageIDs.contains(stage.id) ? 0.45 : 1)
+                .tag(Optional(stage.id))
             }
         }
         .labelsVisibility(showStageNameLabels ? .visible : .hidden)
@@ -86,22 +87,22 @@ struct OMEScheduleStageSelector: View {
             HStack(spacing: 10) {
                 ForEach(stages) { stage in
                     Button {
-                        selectedStageID = stage.id.stageID
+                        selectedStageID = stage.id
                     } label: {
                         VStack(spacing: 4) {
                             ScheduleStageIcon(stage: stage)
                                 .frame(width: 34, height: 34)
                                 .padding(9)
                                 .foregroundStyle(
-                                    selectedStageID == stage.id.stageID
+                                    selectedStageID == stage.id
                                     ? .white
-                                    : stage.color.swiftUIColor
+                                    : stage.stageUIColor
                                 )
                                 .background {
                                     Circle()
                                         .fill(
-                                            selectedStageID == stage.id.stageID
-                                            ? stage.color.swiftUIColor
+                                            selectedStageID == stage.id
+                                            ? stage.stageUIColor
                                             : Color.secondary.opacity(0.12)
                                         )
                                 }
@@ -116,11 +117,11 @@ struct OMEScheduleStageSelector: View {
                             }
                         }
                         .frame(width: showStageNameLabels ? 112 : 76)
-                        .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
+                        .opacity(unavailableStageIDs.contains(stage.id) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(
-                        "button.schedule-stage.\(stage.id.stageID.rawValue.rawValue)"
+                        "button.schedule-stage.\(stage.id.description)"
                     )
                     .accessibilityLabel(Text(stage.name))
                 }
@@ -133,8 +134,8 @@ struct OMEScheduleStageSelector: View {
 }
 
 struct AndroidScheduleStagePicker: View {
-    let stages: [OMERecord.Stage]
-    @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let stages: [EventPlace]
+    @Binding var selectedStageID: EventPlace.ID?
     let showStageNameLabels: Bool
 
     var body: some View {
@@ -143,10 +144,10 @@ struct AndroidScheduleStagePicker: View {
                 ForEach(stages) { stage in
                     AndroidScheduleStagePickerItem(
                         stage: stage,
-                        isSelected: selectedStageID == stage.id.stageID,
+                        isSelected: selectedStageID == stage.id,
                         showStageNameLabel: showStageNameLabels
                     ) {
-                        selectedStageID = stage.id.stageID
+                        selectedStageID = stage.id
                     }
                 }
             }
@@ -157,7 +158,7 @@ struct AndroidScheduleStagePicker: View {
 }
 
 struct AndroidScheduleStagePickerItem: View {
-    let stage: OMERecord.Stage
+    let stage: EventPlace
     let isSelected: Bool
     let showStageNameLabel: Bool
     let select: () -> Void
@@ -167,11 +168,11 @@ struct AndroidScheduleStagePickerItem: View {
     }
 
     var iconForegroundColor: Color {
-        isSelected ? .white : stage.color.swiftUIColor
+        isSelected ? .white : stage.stageUIColor
     }
 
     var iconBackgroundColor: Color {
-        isSelected ? stage.color.swiftUIColor : Color.secondary.opacity(0.12)
+        isSelected ? stage.stageUIColor : Color.secondary.opacity(0.12)
     }
 
     var body: some View {
@@ -198,61 +199,21 @@ struct AndroidScheduleStagePickerItem: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(
-            "button.schedule-stage.\(stage.id.stageID.rawValue.rawValue)"
+            "button.schedule-stage.\(stage.id.description)"
         )
         .accessibilityLabel(Text(stage.name))
     }
 }
 
 struct ScheduleStageIcon: View {
-    let stage: OMERecord.Stage
+    let stage: EventPlace
 
     var body: some View {
         ImageAssetAsyncImage(
-            asset: stage.images?.imageAsset(role: .logo),
-            cacheContext: .init(stageID: stage.id),
+            image: stage.stageLogoDisplayImage,
             contentMode: .fit
         ) {
-            fallback
+            EventPlaceStageIconFallback(place: stage, size: 66)
         }
-    }
-
-    @ViewBuilder
-    var fallback: some View {
-        #if os(Android)
-        Text(stage.initials)
-            .font(.system(size: 24, weight: .heavy))
-        #else
-        if let systemIconName = stage.systemIconName {
-            Image(systemName: systemIconName)
-                .resizable()
-                .scaledToFit()
-        } else if let iconShortCode = stage.iconShortCode {
-            Text(iconShortCode)
-                .font(.system(size: 24, weight: .heavy))
-                #if os(iOS)
-                .minimumScaleFactor(0.2)
-                #endif
-        } else {
-            Text(stage.initials)
-                .font(.system(size: 24, weight: .heavy))
-                #if os(iOS)
-                .minimumScaleFactor(0.2)
-                #endif
-        }
-        #endif
-    }
-}
-
-private extension OMERecord.Stage {
-    var initials: String {
-        let initials = name
-            .split(separator: " ")
-            .filter { !$0.localizedCaseInsensitiveContains("the") }
-            .compactMap(\.first)
-            .prefix(2)
-            .map(String.init)
-            .joined()
-        return initials.isEmpty ? "?" : initials
     }
 }

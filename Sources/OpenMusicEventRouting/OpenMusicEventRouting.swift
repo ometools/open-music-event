@@ -18,7 +18,7 @@ public struct BrandedEventRouteClaim: Equatable, Sendable {
     public init(
         host: String,
         eventClaim: String,
-        eventID: OME.Event.ID
+        eventID: Event.ID
     ) {
         self.host = host
         self.eventClaim = eventClaim
@@ -27,7 +27,7 @@ public struct BrandedEventRouteClaim: Equatable, Sendable {
 
     public let host: String
     public let eventClaim: String
-    public let eventID: OME.Event.ID
+    public let eventID: Event.ID
 }
 
 public struct OpenMusicEventIncomingRequest: Equatable, Sendable {
@@ -183,25 +183,25 @@ public let openMusicEventPathRouter = OpenMusicEventPathRouter()
 public struct OpenMusicEventEventPathRouter: Sendable {
     public init() {}
 
-    public func path(for eventID: OME.Event.ID) -> String {
-        let organizerID = eventID.organizerID.description.encodedPathSegment
-        let localEventID = eventID.eventID.rawValue.rawValue.encodedPathSegment
-        return "/orgs/\(organizerID)/events/\(localEventID)"
+    public func path(for eventID: Event.ID) -> String {
+        let repository = eventID.authority.description.encodedPathSegment
+        let recordKey = (eventID.rkey?.rawValue ?? "").encodedPathSegment
+        return "/records/\(repository)/\(recordKey)"
     }
 
     public func communicationChannelPath(
-        eventID: OME.Event.ID,
-        channelID: OME.ID<OME.Channel>
+        eventID: Event.ID,
+        channelID: Social.Category.ID
     ) -> String {
-        "\(path(for: eventID))/communications/\(channelID.rawValue.rawValue.encodedPathSegment)"
+        "\(path(for: eventID))/communications/\(channelID.description.encodedPathSegment)"
     }
 
     public func communicationPostPath(
-        eventID: OME.Event.ID,
-        channelID: OME.ID<OME.Channel>,
-        postID: String
+        eventID: Event.ID,
+        channelID: Social.Category.ID,
+        postID: Social.Post.ID
     ) -> String {
-        "\(communicationChannelPath(eventID: eventID, channelID: channelID))/posts/\(postID.encodedPathSegment)"
+        "\(communicationChannelPath(eventID: eventID, channelID: channelID))/posts/\(postID.description.encodedPathSegment)"
     }
 }
 

@@ -1,7 +1,10 @@
+import OpenMusicEventLexicon
+import ATProtoTypes
 import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventDatabase
 import SQLiteData
 #if os(Android)
 import SkipSwiftUI
@@ -14,41 +17,46 @@ public struct EditSchedule {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date) var date
 
     public struct State: Identifiable {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             initialDate: LocalDate? = nil,
             timeZone: TimeZone
         ) {
             @Dependency(\.date) var date
 
             let dateSelection = initialDate?.atStartOfDay(in: timeZone) ?? date()
-            let scheduleDate = LocalDate(dateSelection, in: timeZone)
-            let defaults = Self.defaults(for: scheduleDate, in: timeZone)
             self.dateSelection = dateSelection
             self.eventID = eventID
-            self.generatedScheduleDate = scheduleDate
-            self.customTitle = defaults.customTitle
-            self.sourceFileName = defaults.sourceFileName
+            self.scheduleID = nil
+            self.customTitle = ""
             self.timeZone = timeZone
         }
 
-        public let eventID: OMERecord.Event.ID
+        public init(schedule: Schedule, timeZone: TimeZone) {
+            self.dateSelection = schedule.date.atStartOfDay(in: timeZone)
+            self.eventID = schedule.event
+            self.scheduleID = schedule.id
+            self.customTitle = schedule.title ?? ""
+            self.timeZone = timeZone
+        }
+
+        public let eventID: Event.ID
+        public let scheduleID: Schedule.ID?
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
 
-        public var customTitle = ""
+        public var customTitle: String
         public var dateSelection: Date
         public var errorMessage: String?
         public var isSaving = false
-        public var sourceFileName: String
-        private var generatedScheduleDate: LocalDate
 
-        public var id: OMERecord.Event.ID { eventID }
+        public var id: Schedule.ID { scheduleID ?? eventID }
 
         public var canSubmit: Bool {
-            !isSaving && validationMessage == nil
+            !isSaving
         }
 
         public var scheduleDate: LocalDate {
@@ -63,110 +71,20 @@ public struct EditSchedule {
             customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        public var trimmedSourceFileName: String {
-            sourceFileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        public var validationMessage: String? {
-            if trimmedSourceFileName.isEmpty {
-                return "Enter a source file name."
-            }
-            if !Self.isValidSourceFileName(trimmedSourceFileName) {
-                return "Use a file name like friday or 2026-08-01."
-            }
-            return nil
-        }
-
-        mutating func dateSelectionChanged() {
-            let newScheduleDate = scheduleDate
-            guard generatedScheduleDate != newScheduleDate else { return }
-
-            let oldDefaults = Self.defaults(for: generatedScheduleDate, in: timeZone)
-            let newDefaults = Self.defaults(for: newScheduleDate, in: timeZone)
-            if customTitle == oldDefaults.customTitle {
-                customTitle = newDefaults.customTitle
-            }
-            if sourceFileName == oldDefaults.sourceFileName {
-                sourceFileName = newDefaults.sourceFileName
-            }
-            generatedScheduleDate = newScheduleDate
-        }
-
         fileprivate struct SaveRequest: Sendable {
-            var customTitle: String?
-            var eventID: OMERecord.Event.ID
+            var title: String?
+            var eventID: Event.ID
+            var scheduleID: Schedule.ID?
             var scheduleDate: LocalDate
-            var sourceFileName: String
+            var createdAt: Date
 
-            init(state: State) {
-                self.customTitle = state.trimmedCustomTitle.nilIfEmpty
+            init(state: State, createdAt: Date) {
+                self.title = state.trimmedCustomTitle.nilIfEmpty
                 self.eventID = state.eventID
+                self.scheduleID = state.scheduleID
                 self.scheduleDate = state.scheduleDate
-                self.sourceFileName = state.trimmedSourceFileName
+                self.createdAt = createdAt
             }
-        }
-
-        fileprivate static func scheduleID(
-            for request: SaveRequest,
-            in db: Database
-        ) throws -> OMERecord.ID<OMERecord.Schedule> {
-            let base = request.sourceFileName
-            var candidate = base
-            var suffix = 2
-
-            while true {
-                let exists = try OMERecord.Schedule
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .where { $0.id.scheduleID.eq(localID(candidate)) }
-                    .fetchOne(db) != nil
-                guard exists else { return localID(candidate) }
-                candidate = "\(base)-\(suffix)"
-                suffix += 1
-            }
-        }
-
-        fileprivate static func scheduleDraft(
-            for request: SaveRequest,
-            scheduleID: OMERecord.ID<OMERecord.Schedule>
-        ) -> OMERecord.Schedule.Draft {
-            OMERecord.Schedule.Draft(
-                id: OMERecord.Schedule.ID(
-                    organizerID: request.eventID.organizerID,
-                    eventID: request.eventID.eventID,
-                    scheduleID: scheduleID
-                ),
-                date: request.scheduleDate,
-                startsAt: nil,
-                endsAt: nil,
-                customTitle: request.customTitle
-            )
-        }
-        private static func isValidSourceFileName(_ value: String) -> Bool {
-            !value.isEmpty
-                && value != "."
-                && value != ".."
-                && !value.contains("/")
-                && !value.contains("\\")
-        }
-
-        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
-            OMERecord.ID<OMERecord.Schedule>(.init(string))
-        }
-
-        private struct Defaults: Equatable {
-            var customTitle: String
-            var sourceFileName: String
-        }
-
-        private static func defaults(
-            for scheduleDate: LocalDate,
-            in timeZone: TimeZone
-        ) -> Defaults {
-            return Defaults(
-                customTitle: "",
-                sourceFileName: scheduleDate.description
-            )
         }
 
         private static func weekdayTitle(
@@ -183,6 +101,7 @@ public struct EditSchedule {
 
     public enum Action {
         case saveButtonTapped
+        case deleteButtonTapped
     }
 
     public var body: some Feature {
@@ -190,56 +109,72 @@ public struct EditSchedule {
             switch action {
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
-                guard let validationMessage = state.validationMessage else {
-                    state.errorMessage = nil
-                    state.isSaving = true
-                    let request = State.SaveRequest(state: state)
+                state.errorMessage = nil
+                state.isSaving = true
+                let request = State.SaveRequest(state: state, createdAt: date())
 
-                    store.addTask {
-                        do {
-                            try database.write { db in
-                                try EditScheduleDrafts.insert(request, in: db)
-                            }
-                            try store.modify {
-                                $0.errorMessage = nil
-                                $0.isSaving = false
-                            }
-                            try store.dismiss()
-                        } catch {
-                            try store.modify {
-                                $0.errorMessage = "Unable to create schedule."
-                                $0.isSaving = false
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            if let scheduleID = request.scheduleID {
+                                try ScheduleRecordEditing.update(
+                                    scheduleID,
+                                    eventID: request.eventID,
+                                    date: request.scheduleDate,
+                                    title: request.title,
+                                    in: db
+                                )
+                            } else {
+                                _ = try ScheduleRecordEditing.create(
+                                    eventID: request.eventID,
+                                    date: request.scheduleDate,
+                                    title: request.title,
+                                    createdAt: request.createdAt,
+                                    in: db
+                                )
                             }
                         }
+                        try store.modify {
+                            $0.errorMessage = nil
+                            $0.isSaving = false
+                        }
+                        try store.dismiss()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to save schedule."
+                            $0.isSaving = false
+                        }
                     }
-                    return
                 }
 
-                state.errorMessage = validationMessage
+            case .deleteButtonTapped:
+                guard !state.isSaving, let scheduleID = state.scheduleID else { return }
+                state.errorMessage = nil
+                state.isSaving = true
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            try ScheduleRecordEditing.delete(scheduleID, eventID: eventID, in: db)
+                        }
+                        try store.dismiss()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = (error as? ScheduleRecordEditing.Error) == .scheduleInUse
+                                ? "Move or delete scheduled items before deleting this schedule."
+                                : "Unable to delete schedule."
+                            $0.isSaving = false
+                        }
+                    }
+                }
             }
         }
-        .onChange(of: store.dateSelection) { state in
-            state.dateSelectionChanged()
-        }
-    }
-}
-
-fileprivate enum EditScheduleDrafts {
-    static func insert(_ request: EditSchedule.State.SaveRequest, in db: Database) throws {
-        let scheduleID = try EditSchedule.State.scheduleID(for: request, in: db)
-        try OMERecord.Schedule.insert {
-            EditSchedule.State.scheduleDraft(
-                for: request,
-                scheduleID: scheduleID
-            )
-        }
-        .execute(db)
     }
 }
 
 public struct EditScheduleView: View {
     @Environment(\.dismiss) var dismiss
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @State var isDeleteConfirmationPresented = false
     @Bindable var store: StoreOf<EditSchedule>
 
     public init(store: StoreOf<EditSchedule>) {
@@ -259,25 +194,6 @@ public struct EditScheduleView: View {
 
             Section("Details") {
                 TextField("Title", text: $store.customTitle, prompt: Text(store.inferredTitle))
-                if showsTechnicalDetails {
-                    TextField(
-                        "Source File",
-                        text: $store.sourceFileName,
-                        prompt: Text(store.scheduleDate.description)
-                    )
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .autocorrectionDisabled()
-                }
-            }
-
-            if let validationMessage = store.validationMessage {
-                Section {
-                    Text(validationMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
             }
 
             if let errorMessage = store.errorMessage {
@@ -289,7 +205,7 @@ public struct EditScheduleView: View {
             }
         }
         .disabled(store.isSaving)
-        .navigationTitle("New Schedule")
+        .navigationTitle(store.scheduleID == nil ? "New Schedule" : "Edit Schedule")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button {
@@ -307,6 +223,30 @@ public struct EditScheduleView: View {
                     store.send(.saveButtonTapped)
                 }
             }
+            if store.scheduleID != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Delete Schedule", role: .destructive) {
+                            isDeleteConfirmationPresented = true
+                        }
+                    } label: {
+                        Label("Schedule actions", systemImage: "ellipsis")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete Schedule?",
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Schedule", role: .destructive) {
+                store.send(.deleteButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Scheduled items must be moved or deleted first.")
         }
     }
 }

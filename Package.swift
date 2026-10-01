@@ -9,6 +9,7 @@ enum PackageBuild: Equatable {
     case app
     case androidApp
     case appView
+    case database
     case lexicon
 }
 
@@ -18,6 +19,7 @@ enum PackageBuild: Equatable {
 let environment = ProcessInfo.processInfo.environment
 let packageBuild: PackageBuild = {
     if environment["OME_LEXICON"] == "1" { return .lexicon }
+    if environment["OME_DATABASE"] == "1" { return .database }
     if environment["OME_APPVIEW"] == "1" {
         return .appView
     }
@@ -192,7 +194,7 @@ let composableNotificationsDependency: Package.Dependency = {
         path: "/Users/woody/Developer/ometools/worktrees/swift-composable-notifications-atmosphere-reorg"
     )
 }()
-let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView || packageBuild == .lexicon
+let skipstonePlugins: [Target.PluginUsage] = packageBuild == .appView || packageBuild == .database || packageBuild == .lexicon
     ? []
     : [.plugin(name: "skipstone", package: "skip")]
 let workspaceSkipRootPath = [
@@ -721,6 +723,7 @@ var applicationTargets: [Target] = [
             "OpenMusicEventTimeZones",
             "SourceEditing",
             .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
@@ -943,6 +946,7 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
     .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
     .product(name: "ATProto", package: "swift-atproto"),
+    .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
 ]
 
 // The Android app target names SkipKit directly so the host-side Gradle
@@ -1006,6 +1010,8 @@ applicationTargets.append(contentsOf: [
             "SourceEditing",
             "SwiftUITabFeatures",
             .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
+            .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
@@ -1020,9 +1026,6 @@ applicationTargets.append(contentsOf: [
             .product(name: "ComposableAtmosphere", package: "swift-composable-atmosphere"),
         ] + skipKitTargetDependencies,
         resources: [.process("Resources")],
-        swiftSettings: isAndroidAppBuild
-            ? [.unsafeFlags(["-disable-batch-mode"])]
-            : [],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
     .target(
@@ -1036,6 +1039,7 @@ applicationTargets.append(contentsOf: [
     .target(
         name: "OpenMusicEventEditors",
         dependencies: [
+            "OpenMusicEventLexicon",
             "OpenMusicEventViewers",
             .product(name: "ComposableArchitecture2", package: "TCA26"),
         ]
@@ -1140,6 +1144,7 @@ applicationTargets.append(contentsOf: [
             "OpenMusicEventWhiteLabel",
             "OpenMusicEventSourceEditing",
             .product(name: "ATProto", package: "swift-atproto"),
+            .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
@@ -1345,6 +1350,7 @@ case .androidApp:
 case .lexicon:
     products = [
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+        .library(name: "OpenMusicEventRouting", targets: ["OpenMusicEventRouting"]),
         .executable(name: "ome-export-lexicons", targets: ["OpenMusicEventLexiconExport"]),
     ]
     dependencies = [
@@ -1356,8 +1362,31 @@ case .lexicon:
     ]
     targets = [
         openMusicEventTimeZonesTarget, openMusicEventLexiconTarget, openMusicEventLexiconTestTarget,
+        routingTarget, routingTestTarget,
         .executableTarget(name: "OpenMusicEventLexiconExport", dependencies: ["OpenMusicEventLexicon"]),
     ]
+
+case .database:
+    products = [
+        .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
+        .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+    ]
+    dependencies = applicationDependencies
+    targets = [
+        openMusicEventTimeZonesTarget,
+        openMusicEventLexiconTarget,
+        openMusicEventSourceCloneTarget,
+        openMusicEventSourceTarget,
+    ] + applicationTargets.filter {
+        [
+            "ErrorHandling",
+            "OpenMusicEventDatabase",
+            "OpenMusicEventDatabaseTests",
+            "OpenMusicEventSourceEditing",
+            "OpenMusicEventSourceEditingTests",
+            "SourceEditing",
+        ].contains($0.name)
+    }
 
 case .appView:
     products = appViewProducts

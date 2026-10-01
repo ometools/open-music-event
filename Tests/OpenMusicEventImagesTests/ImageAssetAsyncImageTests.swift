@@ -123,4 +123,58 @@ struct ImageAssetAsyncImageTests {
             "https://pds.ome-auth.test/xrpc/com.atproto.sync.getBlob?did=did:plc:organizer&cid=bafkreieventposter"
         )
     }
+
+    @Test
+    func `canonical site map blob keeps its event identity for image resolution`() throws {
+        let recordID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let blob = ATProto.Blob(
+            ref: "bafkreieventmap", mimeType: "image/png", size: 120
+        )
+        let image = OME.Image(
+            source: .known(.blob(blob)), role: .known(.siteMap)
+        )
+        let display = try #require(image.displayImageAsset(recordID: recordID))
+
+        expectNoDifference(display.recordID, recordID)
+        expectNoDifference(display.asset.source, .blob(blob))
+        expectNoDifference(display.asset.role, .siteMap)
+
+        let view = ImageAssetAsyncImage(image: display) { EmptyView() }
+        #expect(view.shouldResolveAsset)
+    }
+
+    @Test
+    func `canonical contributor keeps photo and logo presentation`() throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let contributorID = try #require(Contributor.ID(
+            "at://did:plc:organizer/events.openmusic.contributor/3mrdbziccpcai"
+        ))
+        var contributor = try Contributor(
+            id: contributorID,
+            event: eventID,
+            name: "The Woods Collective",
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        let photoURL = try #require(URL(string: "https://example.com/collective-photo.jpg"))
+        let logoURL = try #require(URL(string: "https://example.com/collective-logo.png"))
+        contributor.media = [
+            .known(.image(OME.Image(source: .known(.url(logoURL)), role: .known(.logo)))),
+            .known(.image(OME.Image(source: .known(.url(photoURL)), role: .known(.photo)))),
+        ]
+
+        let artwork = try #require(contributor.artworkDisplayImage)
+        let logo = try #require(contributor.logoDisplayImage)
+        expectNoDifference(artwork.asset.source, .url(photoURL))
+        expectNoDifference(logo.asset.source, .url(logoURL))
+        expectNoDifference(artwork.recordID, eventID)
+        expectNoDifference(logo.recordID, eventID)
+        expectNoDifference(
+            contributor.heroImageSources.map(\.kind),
+            [.primaryImage, .logo]
+        )
+    }
 }

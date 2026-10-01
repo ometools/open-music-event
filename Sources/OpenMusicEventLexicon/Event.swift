@@ -131,6 +131,86 @@ public struct Event: RecordCodable, Equatable {
     }
 }
 
+public extension Event {
+    struct IndexedRecord: Codable, Equatable, Sendable {
+        public init(uri: Event.ID, cid: ATProto.CID?, value: Lexicon.JSONValue) {
+            self.uri = uri
+            self.cid = cid
+            self.value = value
+        }
+
+        public var uri: Event.ID
+        public var cid: ATProto.CID?
+        public var value: Lexicon.JSONValue
+
+        public func event() throws -> Event {
+            let event = try Event.decodeLexicon(
+                value,
+                metadata: RecordMetadata(uri: uri, cid: cid)
+            )
+            try event.validateReferences()
+            return event
+        }
+    }
+
+    struct Page: Codable, Equatable, Sendable {
+        public init(events: [IndexedRecord], cursor: String? = nil) {
+            self.events = events
+            self.cursor = cursor
+        }
+
+        public var events: [IndexedRecord]
+        public var cursor: String?
+    }
+
+    struct GetEvent: XRPC.Query, Sendable {
+        public static let nsid = ATProto.NSID("events.openmusic.getEvent")
+        public typealias Input = Never
+        public typealias Output = IndexedRecord
+
+        public init(uri: Event.ID) {
+            self.parameters = Parameters(uri: uri)
+        }
+
+        public var parameters: Parameters
+
+        public struct Parameters: Codable, Equatable, Sendable {
+            public var uri: Event.ID
+        }
+    }
+
+    struct GetEvents: XRPC.Query, Sendable {
+        public static let nsid = ATProto.NSID("events.openmusic.getEvents")
+        public typealias Input = Never
+        public typealias Output = Page
+
+        public init(cursor: String? = nil, limit: Int = 100) {
+            self.parameters = Parameters(cursor: cursor, limit: limit)
+        }
+
+        public var parameters: Parameters
+
+        public struct Parameters: Codable, Equatable, Sendable {
+            public var cursor: String?
+            public var limit: Int
+        }
+    }
+}
+
+public extension Open where Known == Event.Time {
+    func date(in timeZone: TimeZone) -> Date? {
+        switch self {
+        case let .known(.day(day)):
+            day.value.atStartOfDay(in: timeZone)
+        case let .known(.time(instant)):
+            (try? Date(instant.value.rawValue, strategy: .iso8601.time(includingFractionalSeconds: true)))
+                ?? (try? Date(instant.value.rawValue, strategy: .iso8601))
+        case .unknown:
+            nil
+        }
+    }
+}
+
 extension Event {
     public enum TimeZoneIdentifier: LexiconFieldEncoding {
         public static func encode(_ value: TimeZone) -> String { value.identifier }
@@ -191,4 +271,3 @@ extension Event {
     }
 
 }
-

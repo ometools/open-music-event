@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import HeroImageList
 import Bluesky
 import ComposableArchitecture2
@@ -19,22 +20,22 @@ public struct PerformanceDetail {
 
     public struct State: Identifiable {
         public init(
-            performanceID: OMERecord.ID<OMERecord.Performance>,
-            eventID: OMERecord.Event.ID? = nil
+            performanceID: ProgramItem.ID,
+            eventID: Event.ID? = nil
         ) {
             @Dependency(EventViewerContext.self) var eventViewer
             self.eventID = eventID ?? eventViewer.eventID
             self.performanceID = performanceID
             self._timeZone = FetchOne(
-                OMERecord.Event.timeZoneQuery(eventID: self.eventID)
+                Event.timeZoneQuery(eventID: self.eventID)
             )
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
                 EventViewerState.none
             )
             _contributors = FetchAll(
-                PerformanceDetail.contributorsQuery(
-                    performanceID: performanceID,
+                ContributorProfile.forProgramItem(
+                    programItemID: performanceID,
                     eventID: self.eventID,
                     hydration: .bskyActorProfile
                 )
@@ -45,25 +46,12 @@ public struct PerformanceDetail {
                     eventID: self.eventID
                 )
             )
-            _performanceContributors = FetchAll(
-                EditPerformance.performanceContributorsQuery(
-                    performanceID: performanceID,
-                    eventID: self.eventID
-                )
-            )
             _schedules = FetchAll(
                 ScheduleViewer.schedulesQuery(eventID: self.eventID)
             )
-            _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: self.eventID)
-            )
-            let fullPerformanceID = OMERecord.Performance.ID(
-                organizerID: self.eventID.organizerID,
-                eventID: self.eventID.eventID,
-                performanceID: performanceID
-            )
+            _stages = FetchAll(EventPlace.where { $0.event.eq(self.eventID) })
             _reactions = FetchAll(
-                PerformanceReaction.forPerformance(performanceID: fullPerformanceID)
+                PerformanceReaction.forPerformance(performanceID: performanceID)
             )
             _reactionUsage = FetchAll(
                 PerformanceReactionEmojiUsage.ranked
@@ -76,8 +64,8 @@ public struct PerformanceDetail {
             )
         }
 
-        public let eventID: OMERecord.Event.ID
-        public let performanceID: OMERecord.ID<OMERecord.Performance>
+        public let eventID: Event.ID
+        public let performanceID: ProgramItem.ID
         @FetchOne public var timeZone: TimeZone?
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
@@ -89,10 +77,9 @@ public struct PerformanceDetail {
         public var eventViewerState: EventViewerState {
             persistedEventViewerState ?? EventViewerState(id: eventID)
         }
-        @FetchOne public var performance: OMERecord.Performance?
-        @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
-        @FetchAll public var schedules: [OMERecord.Schedule]
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchOne public var performance: ProgramItem?
+        @FetchAll public var schedules: [Schedule]
+        @FetchAll public var stages: [EventPlace]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         @FetchAll public var userSchedules: [UserSchedule]
@@ -106,28 +93,20 @@ public struct PerformanceDetail {
             )
         }
 
-        public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
-
-        public var fullPerformanceID: OMERecord.Performance.ID {
-            OMERecord.Performance.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                performanceID: performanceID
-            )
-        }
+        public var id: ProgramItem.ID { performanceID }
 
         public var canEditPerformance: Bool {
-            performance != nil && schedule != nil
+            performance != nil
         }
 
-        public var schedule: OMERecord.Schedule? {
-            guard let scheduleID = performance?.scheduleID else { return nil }
-            return schedules.first { $0.id.scheduleID == scheduleID }
+        public var schedule: Schedule? {
+            guard let scheduleID = performance?.schedule else { return nil }
+            return schedules.first { $0.id == scheduleID }
         }
 
-        public var stage: OMERecord.Stage? {
+        public var stage: EventPlace? {
             guard let performance else { return nil }
-            return stages.first { $0.id.stageID == performance.stageID }
+            return stages.first { $0.id == performance.eventPlace }
         }
 
         var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
@@ -135,72 +114,56 @@ public struct PerformanceDetail {
         }
 
         var displayedContributors: [ContributorProfile] {
-            displayedContributorCredits.map(\.profile)
+            displayedContributorCredits.compactMap(\.profile)
         }
 
         var displayedContributorCredits: [ContributorCredit] {
-            orderedContributorCredits(for: .primary)
-                + orderedContributorCredits(for: .supporting)
-                + unorderedContributorCredits
+            let contributorsByID = Dictionary(
+                uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
+            )
+            return (performance?.credits ?? []).enumerated().map { index, credit in
+                ContributorCredit(
+                    id: index,
+                    credit: credit,
+                    profile: credit.contributor.flatMap { contributorsByID[$0] }
+                )
+            }
         }
 
         var headlineContributors: [ContributorProfile] {
-            let primaryContributors = orderedContributorCredits(for: .primary).map(\.profile)
+            let primaryContributors = displayedContributorCredits
+                .filter { $0.credit.billing == .known(.primary) }
+                .compactMap(\.profile)
             return primaryContributors.isEmpty
                 ? displayedContributors
                 : primaryContributors
         }
 
-        private var unorderedContributorCredits: [ContributorCredit] {
-            let orderedIDs = Set(
-                performanceContributors.compactMap(\.contributorID)
-            )
-            return contributors
-                .filter { !orderedIDs.contains($0.contributorID) }
-                .map { ContributorCredit(profile: $0, performanceContributor: nil) }
-        }
-
-        private func orderedContributorCredits(
-            for billing: OMERecord.Performance.Contributors.Billing
-        ) -> [ContributorCredit] {
-            let contributorsByID = Dictionary(
-                uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
-            )
-            return performanceContributors
-                .filter { $0.billing == billing }
-                .compactMap { performanceContributor in
-                    performanceContributor.contributorID
-                        .flatMap { contributorsByID[$0] }
-                        .map {
-                            ContributorCredit(
-                                profile: $0,
-                                performanceContributor: performanceContributor
-                            )
-                        }
-                }
+        var headlineNames: [String] {
+            let primary = displayedContributorCredits
+                .filter { $0.credit.billing == .known(.primary) }
+                .map { $0.credit.name }
+            return primary.isEmpty
+                ? displayedContributorCredits.map { $0.credit.name }
+                : primary
         }
 
         struct ContributorCredit: Identifiable {
-            var profile: ContributorProfile
-            var performanceContributor: OMERecord.Performance.Contributors?
-
-            var id: OMERecord.Contributor.ID {
-                profile.id
-            }
-
-            var contributorID: OMERecord.ID<OMERecord.Contributor> {
-                profile.contributorID
-            }
-
+            let id: Int
+            let credit: ProgramItem.Credit
+            let profile: ContributorProfile?
+            var contributorID: Contributor.ID? { profile?.contributorID }
             var roleTitle: String? {
-                guard let performanceContributor else { return nil }
-                return performanceContributor.role?.displayTitle ?? "Performer"
+                guard let role = credit.role else { return nil }
+                return role == role.uppercased()
+                    ? role
+                    : role.replacingOccurrences(of: "-", with: " ").capitalized
             }
         }
     }
 
     public enum Action {
-        case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
+        case contributorButtonTapped(Contributor.ID)
         case deleteButtonTapped
         case destination(Destination.Action)
         case editButtonTapped
@@ -223,26 +186,13 @@ public struct PerformanceDetail {
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.uuid) var uuid
 
-    static func contributorsQuery(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
-        hydration: ContributorProfile.Hydration = .none
-    ) -> some Statement<ContributorProfile> {
-        ContributorProfile.forPerformance(
-            performanceID: performanceID,
-            eventID: eventID,
-            hydration: hydration
-        )
-    }
-
     static func performanceQuery(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance> {
-        OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.performanceID.eq(performanceID) }
+        performanceID: ProgramItem.ID,
+        eventID: Event.ID
+    ) -> some SelectStatementOf<ProgramItem> {
+        ProgramItem
+            .where { $0.id.eq(performanceID) }
+            .where { $0.event.eq(eventID) }
     }
 
     public var body: some Feature {
@@ -278,9 +228,7 @@ public struct PerformanceDetail {
                 break
 
             case .editButtonTapped:
-                guard state.performance != nil,
-                      state.schedule != nil
-                else { return }
+                guard state.performance != nil else { return }
                 let eventID = state.eventID
                 let performanceID = state.performanceID
                 store.addTask {
@@ -297,12 +245,12 @@ public struct PerformanceDetail {
             case .otherReactionButtonTapped:
                 state.destination = .reactionEntry(
                     PerformanceReactionEntry.State(
-                        performanceID: state.fullPerformanceID
+                        performanceID: state.performanceID
                     )
                 )
 
             case let .reactionButtonTapped(emoji):
-                let performanceID = state.fullPerformanceID
+                let performanceID = state.performanceID
                 let id = uuid()
                 let date = now
                 let userDID = getSelectedOAuthSessionID()?.rawValue
@@ -413,45 +361,53 @@ public struct PerformanceDetailView: View {
                     PerformanceHeroView(
                         performance: performance,
                         stage: store.stage,
-                        contributors: store.headlineContributors
+                        contributors: store.headlineContributors,
+                        contributorNames: store.headlineNames
                     )
                 } content: {
                     PerformanceSummaryRow(
                         performance: performance,
                         stage: store.stage,
                         contributors: store.headlineContributors,
+                        contributorNames: store.headlineNames,
                         eventTimePresentation: eventTimePresentation
                     )
 
 
 
-                    if let description = performance.displayDescription {
+                    if let description = performance.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !description.isEmpty {
                         Section("About") {
                             Text(description)
                         }
 
                     }
 
-                    if !performance.recordings.isEmpty {
+                    if !performance.recordingMedia.isEmpty {
                         Section("Recordings") {
-                            ForEach(Array(performance.recordings.enumerated()), id: \.offset) { _, recording in
+                            ForEach(Array(performance.recordingMedia.enumerated()), id: \.offset) { _, recording in
                                 PerformanceRecordingRow(recording: recording)
                             }
                         }
                     }
 
-                    if !store.displayedContributors.isEmpty {
+                    if !store.displayedContributorCredits.isEmpty {
                         Section {
                             ForEach(store.displayedContributorCredits) { credit in
-                                Button {
-                                    store.send(.contributorButtonTapped(credit.contributorID))
-                                } label: {
-                                    ContributorsRowView(
-                                        profile: credit.profile,
-                                        subtitle: credit.roleTitle
-                                    )
+                                if let profile = credit.profile,
+                                   let contributorID = credit.contributorID {
+                                    Button {
+                                        store.send(.contributorButtonTapped(contributorID))
+                                    } label: {
+                                        ContributorsRowView(
+                                            profile: profile,
+                                            subtitle: credit.roleTitle
+                                        )
+                                    }
+                                    .navigationLinkListRowStyle()
+                                } else {
+                                    LabeledContent(credit.credit.name, value: credit.roleTitle ?? "")
                                 }
-                                .navigationLinkListRowStyle()
                             }
                         }
                     }
@@ -464,7 +420,7 @@ public struct PerformanceDetailView: View {
 
                     ToolbarItem {
                         PerformanceReactionMenu(
-                            performanceID: store.fullPerformanceID,
+                            performanceID: store.performanceID,
                             context: reactionMenuContext
                         )
                     }
@@ -495,7 +451,7 @@ public struct PerformanceDetailView: View {
                         ContentUnavailableView(
                             "Performance",
                             systemImage: "music.mic",
-                            description: Text(verbatim: store.performanceID.rawValue.rawValue)
+                            description: Text(verbatim: store.performanceID.description)
                         )
                     } else {
                         ContentUnavailableView("Performance unavailable", systemImage: "music.mic")
@@ -505,7 +461,7 @@ public struct PerformanceDetailView: View {
             }
         }
         .accessibilityIdentifier(
-            "view.performance-detail.\(store.performanceID.rawValue.rawValue)"
+            "view.performance-detail.\(store.performanceID.description)"
         )
         .navigationDestination(item: $store.scope(\.destination).contributorDetail) { detailStore in
             ContributorDetailView(
@@ -586,19 +542,21 @@ public struct PerformanceUserScheduleMenu: View {
 }
 
 struct PerformanceHeroView: View {
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
+    let performance: ProgramItem
+    let stage: EventPlace?
     let contributors: [ContributorProfile]
+    let contributorNames: [String]
 
     var body: some View {
         let summary = PerformanceDetailSummary(
             stage: stage,
-            contributors: contributors
+            contributors: contributors,
+            contributorNames: contributorNames
         )
 
         HeroImage(
             title: Text(performance.title),
-            sources: stage?.heroImageSources ?? [],
+            sources: performance.heroImageSources + (stage?.heroImageSources ?? []),
             titleSources: [.title],
             tint: summary.tint
         ) {
@@ -614,15 +572,17 @@ struct PerformanceSummaryRow: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.timeZone) var deviceTimeZone
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
+    let performance: ProgramItem
+    let stage: EventPlace?
     let contributors: [ContributorProfile]
+    let contributorNames: [String]
     let eventTimePresentation: EventTimePresentation
 
     var body: some View {
         let summary = PerformanceDetailSummary(
             stage: stage,
-            contributors: contributors
+            contributors: contributors,
+            contributorNames: contributorNames
         )
 
         VStack(alignment: .center, spacing: 10) {
@@ -640,7 +600,7 @@ struct PerformanceSummaryRow: View {
 
                 VStack(spacing: 2) {
                     Text(
-                        eventTimePresentation.performanceRowTimeRange(
+                        eventTimePresentation.programItemRowTimeRange(
                             for: performance,
                             disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                         )
@@ -654,25 +614,25 @@ struct PerformanceSummaryRow: View {
                     .portableLayoutPriority(1)
 #endif
 
-                    PeriodicTimelineView(every: 1) { currentDate in
-                        PerformanceTimingChip(
-                            startTime: performance.startTime,
-                            endTime: performance.endTime,
-                            now: currentDate
-                        )
-                        .portableLayoutPriority(1)
+                    if let start = performance.startDate, let end = performance.endDate {
+                        PeriodicTimelineView(every: 1) { currentDate in
+                            PerformanceTimingChip(startTime: start, endTime: end, now: currentDate)
+                                .portableLayoutPriority(1)
+                        }
                     }
 
-                    Text(
-                        eventTimePresentation.daySegment(
-                            for: performance.startTime,
-                            policy: dateTimeRangeResolutionPolicy
+                    if let start = performance.startDate {
+                        Text(
+                            eventTimePresentation.daySegment(
+                                for: start,
+                                policy: dateTimeRangeResolutionPolicy
+                            )
                         )
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
                 }
 #if !os(Android)
                 .portableLayoutPriority(1)
@@ -697,11 +657,12 @@ struct PerformanceSummaryRow: View {
 }
 
 struct PerformanceDetailSummary {
-    let stage: OMERecord.Stage?
+    let stage: EventPlace?
     let contributors: [ContributorProfile]
+    let contributorNames: [String]
 
     var tint: Color {
-        stage?.color.swiftUIColor ?? .accentColor
+        stage?.stageUIColor ?? .accentColor
     }
 
     var featuredContributor: ContributorProfile? {
@@ -715,46 +676,16 @@ struct PerformanceDetailSummary {
     }
 
     var artistSummary: String {
-        switch contributors.count {
+        switch contributorNames.count {
         case 0:
             return "Lineup TBA"
         case 1:
-            return contributors[0].name
+            return contributorNames[0]
         case 2:
-            return "\(contributors[0].name) / \(contributors[1].name)"
+            return "\(contributorNames[0]) / \(contributorNames[1])"
         default:
-            return "\(contributors[0].name) + \(contributors.count - 1) more"
+            return "\(contributorNames[0]) + \(contributorNames.count - 1) more"
         }
-    }
-}
-
-private extension OMERecord.Performance.Contributors.Role {
-    var displayTitle: String {
-        let role = OMERecord.Relationship.Role(rawValue)
-        let selection = EditPerformance.State.RelationshipRoleSelection(role: role)
-        return selection == .custom
-            ? rawValue.identifierDisplayTitle
-            : selection.title
-    }
-}
-
-private extension String {
-    var identifierDisplayTitle: String {
-        let spaced = replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(
-                of: "([a-z0-9])([A-Z])",
-                with: "$1 $2",
-                options: .regularExpression
-            )
-        return spaced
-            .split(separator: " ")
-            .map { word in
-                word.uppercased() == "DJ"
-                    ? "DJ"
-                    : word.prefix(1).uppercased() + String(word.dropFirst())
-            }
-            .joined(separator: " ")
     }
 }
 
@@ -765,7 +696,7 @@ struct PerformanceContextIdentity: View {
 
     enum Content {
         case contributor(ContributorProfile?, fallbackTitle: String)
-        case stage(OMERecord.Stage?)
+        case stage(EventPlace?)
     }
 
     enum Placement {
@@ -831,7 +762,7 @@ struct PerformanceContextIdentity: View {
 }
 
 struct PerformanceStageBubbleView: View {
-    let stage: OMERecord.Stage?
+    let stage: EventPlace?
     let tint: Color
 
     var body: some View {
@@ -843,7 +774,7 @@ struct PerformanceStageBubbleView: View {
     @ViewBuilder
     var stageIcon: some View {
         if let stage {
-            ScheduleStageIcon(stage: stage)
+            EventPlaceStageArtworkView(place: stage, size: PerformanceContextIdentity.bubbleSize)
         } else {
             Text("TBA")
                 .font(.system(size: 18, weight: .heavy))
@@ -960,30 +891,16 @@ struct PerformanceArtistBubbleView: View {
     var photoCandidates: [PerformanceArtistImageCandidate] {
         guard let contributor else { return [] }
 
-        var candidates: [PerformanceArtistImageCandidate] = []
-        if let artworkAsset = contributor.artworkAsset {
-            candidates.append(
-                PerformanceArtistImageCandidate(
-                    asset: artworkAsset,
-                    cacheContext: contributor.artworkCacheContext
-                )
-            )
-        }
-        if let preferredArtworkAsset = contributor.contributor.preferredArtworkAsset,
-           !candidates.contains(where: { $0.asset == preferredArtworkAsset }) {
-            candidates.append(
-                PerformanceArtistImageCandidate(
-                    asset: preferredArtworkAsset,
-                    cacheContext: LocalImageCacheContext(contributorID: contributor.id)
-                )
-            )
-        }
-        return candidates
+        guard let artworkAsset = contributor.artworkAsset else { return [] }
+        return [PerformanceArtistImageCandidate(
+            asset: artworkAsset,
+            cacheContext: contributor.artworkCacheContext
+        )]
     }
 }
 
 struct PerformanceArtistImageCandidate {
-    let asset: OMERecord.ImageAsset
+    let asset: OME.ImageAsset
     let cacheContext: LocalImageCacheContext?
 }
 
@@ -1114,12 +1031,12 @@ struct PerformanceArtistBubbleFallback: View {
 
 struct PerformanceHeroPlaceholder: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
+    let performance: ProgramItem
+    let stage: EventPlace?
 
     var body: some View {
         if needsStageDisambiguation, let stage {
-            StageIconFallback(stage: stage, size: 150)
+            EventPlaceStageArtworkView(place: stage, size: 150)
         } else {
             Text(initials)
                 .font(.system(size: 46, weight: .heavy))
@@ -1143,21 +1060,34 @@ struct PerformanceHeroPlaceholder: View {
 }
 
 struct PerformanceRecordingRow: View {
-    let recording: ExternalPlatform.Asset
+    let recording: OME.Media
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
-        if let url = recording.url {
-            Link(destination: url) {
-                Label(recording.platform.name, systemImage: "link")
+        switch recording {
+        case let .external(external):
+            Link(destination: external.uri) {
+                Label(external.title ?? "Recording", systemImage: "link")
             }
-        } else if let record = recording.record {
+        case let .record(record):
             Label(
                 showsTechnicalDetails ? record.uri.description : "Recording",
                 systemImage: "record.circle"
             )
-        } else {
-            Label("Recording", systemImage: "play.circle")
+        case .image:
+            EmptyView()
+        }
+    }
+}
+
+extension ProgramItem {
+    var recordingMedia: [OME.Media] {
+        (media ?? []).compactMap { item in
+            guard case let .known(media) = item else { return nil }
+            switch media {
+            case .record, .external: return media
+            case .image: return nil
+            }
         }
     }
 }

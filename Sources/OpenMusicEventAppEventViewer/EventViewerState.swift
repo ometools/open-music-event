@@ -1,11 +1,13 @@
+import ATProtoSQLite
+import OpenMusicEventLexicon
 import Foundation
 import SQLiteData
 
 @Table("eventViewerState")
 public struct EventViewerState: Equatable, Sendable, Identifiable {
     public init(
-        id: OMERecord.Event.ID,
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>? = nil,
+        id: Event.ID,
+        selectedScheduleID: Schedule.ID? = nil,
         selectedUserScheduleID: UUID? = nil,
         didInitializeUserSchedules: Bool = false
     ) {
@@ -15,8 +17,8 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
         self.didInitializeUserSchedules = didInitializeUserSchedules
     }
 
-    public var id: OMERecord.Event.ID
-    public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    public var id: Event.ID
+    public var selectedScheduleID: Schedule.ID?
     public var selectedUserScheduleID: UUID?
     public var didInitializeUserSchedules = false
 
@@ -64,7 +66,7 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
 }
 
 struct EventViewerStateRequest: FetchKeyRequest {
-    let eventID: OMERecord.Event.ID
+    let eventID: Event.ID
 
     func fetch(_ db: Database) throws -> EventViewerState {
         try EventViewerState

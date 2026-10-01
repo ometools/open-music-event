@@ -1,10 +1,12 @@
+import ATProtoSQLite
+import OpenMusicEventLexicon
 import SQLiteData
 
 @Table("scheduleViewerState")
 public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     public init(
         id: ID,
-        selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
+        selectedStageID: EventPlace.ID? = nil,
         filteringFavorites: Bool = false,
         scheduleKind: ScheduleKind = .singleStageAtOnce
     ) {
@@ -16,7 +18,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     }
 
     public init(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         scheduleDivision: ScheduleViewer.ScheduleDivision
     ) {
         self.init(
@@ -30,14 +32,14 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     @Selection
     public struct ID: Hashable, Sendable {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             category: String
         ) {
             self.eventID = eventID
             self.category = category
         }
 
-        public var eventID: OMERecord.Event.ID
+        public var eventID: Event.ID
         public var category: String
     }
 
@@ -147,7 +149,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     }
 
     public var id: ID
-    public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    public var selectedStageID: EventPlace.ID?
     public var filteringFavorites = false
     @Column("scheduleKind") public var scheduleKind: ScheduleKind = .singleStageAtOnce
     @Column("manyStagesOrientation") var legacyManyStagesOrientation: ScheduleKind.Orientation = .vertical
@@ -166,14 +168,14 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     }
 
     static func forEvent(
-        eventID: OMERecord.Event.ID
+        eventID: Event.ID
     ) -> some SelectStatementOf<ScheduleViewerState> {
         Self
             .where { $0.id.eventID.eq(eventID) }
     }
 
     static func rows(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         scheduleDivision: ScheduleViewer.ScheduleDivision
     ) -> some SelectStatementOf<ScheduleViewerState> {
         Self
@@ -184,7 +186,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     static func persistChanges(
         from oldValue: Self,
         to newValue: Self,
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         scheduleDivision: ScheduleViewer.ScheduleDivision,
         in db: Database
     ) throws {
@@ -221,7 +223,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
 }
 
 struct ScheduleViewerStateRequest: FetchKeyRequest {
-    let eventID: OMERecord.Event.ID
+    let eventID: Event.ID
     let scheduleDivision: ScheduleViewer.ScheduleDivision
 
     func fetch(_ db: Database) throws -> ScheduleViewerState {

@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ATProto
 import Bluesky
 import ComposableArchitecture2
@@ -190,32 +191,18 @@ public struct AboutOpenMusicEvent {
     }
 
     public struct State: Equatable {
-        public init(
-            eventID: OMERecord.Event.ID? = nil,
-            sourceProvenance: EventSourceProvenanceRecord? = nil
-        ) {
+        public init(eventID: Event.ID? = nil) {
             self.eventID = eventID
-            self.sourceProvenance = sourceProvenance
         }
 
         public var contributors: Contributors = .loading
-        public let eventID: OMERecord.Event.ID?
+        public let eventID: Event.ID?
         @Trigger public var loadContributors
-        public let sourceProvenance: EventSourceProvenanceRecord?
-
         public var eventInformationProviderDescription: String {
             guard eventID != nil else {
                 return "Event information is supplied by event organizers and their published sources. OpenMusicEvent displays that information but does not claim authorship of it."
             }
-            guard let sourceProvenance else {
-                return "No external source information is attached to this event. OpenMusicEvent cannot identify a published provider for it."
-            }
-            switch sourceProvenance.sourceKind {
-            case .local:
-                return "This event was created or imported locally. Its local source path is not shared here."
-            case .tangled:
-                return "This event information comes from the organizer-controlled Tangled source \(sourceProvenance.sourceReference)."
-            }
+            return "This event information is published in the organizer's AT Protocol repository. OpenMusicEvent displays it but does not claim authorship of it."
         }
     }
 

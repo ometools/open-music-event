@@ -24,10 +24,9 @@ struct WorkspaceReviewsTests {
     func `the Workspace badge combines local changes and open proposals`() throws {
         let database = try makePreparedDatabase()
         let workspace = try workspace()
-        let eventID = OME.Event.ID(
-            organizerID: workspace.organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "workspace-badges")
-        )
+        let eventID = Event.ID(
+            "at://\(workspace.organizerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
         var state = withDependencies {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -282,10 +281,9 @@ struct WorkspaceReviewsTests {
         }()
         let ready = proposalDetail(revision: "new-revision")
         let responses = LockIsolated([stale, rendering, ready])
-        let eventID = OME.Event.ID(
-            organizerID: workspace.organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
-        )
+        let eventID = Event.ID(
+            "at://\(workspace.organizerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
         let grant = try ownerGrant(workspace: workspace)
 
         let store = withDependencies {
@@ -591,10 +589,9 @@ struct WorkspaceReviewsTests {
         close: nonisolated(nonsending) @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
         preloadedProposals: Bool = false
     ) -> StoreOf<WorkspaceReviews> {
-        let eventID = OME.Event.ID(
-            organizerID: workspace.organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
-        )
+        let eventID = Event.ID(
+            "at://\(workspace.organizerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
         return withDependencies {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -638,10 +635,9 @@ struct WorkspaceReviewsTests {
         close: nonisolated(nonsending) @escaping @Sendable (ATProto.URI) async throws -> Void = { _ in },
         preloadedProposals: Bool = false
     ) -> TestStore<WorkspaceReviews> {
-        let eventID = OME.Event.ID(
-            organizerID: workspace.organizerID,
-            eventID: OME.ID<OME.Event>(rawValue: "workspace-reviews")
-        )
+        let eventID = Event.ID(
+            "at://\(workspace.organizerID)/events.openmusic.event/3mrdbziccpcah"
+        )!
         return withDependencies {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID

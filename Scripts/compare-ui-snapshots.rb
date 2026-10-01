@@ -38,8 +38,8 @@ module UISnapshotComparator
 
   module_function
 
-  def capture_paths(root)
-    PLATFORMS.flat_map do |platform|
+  def capture_paths(root, platforms: PLATFORMS)
+    platforms.flat_map do |platform|
       MILESTONES.map do |milestone|
         [platform, milestone, File.join(root, platform, "#{milestone}.png")]
       end
@@ -120,9 +120,9 @@ module UISnapshotComparator
     )
   end
 
-  def compare_suite(actual_root:, baseline_root:, diff_root:)
+  def compare_suite(actual_root:, baseline_root:, diff_root:, platforms: PLATFORMS)
     failures = []
-    capture_paths(actual_root).each do |platform, milestone, actual_path|
+    capture_paths(actual_root, platforms: platforms).each do |platform, milestone, actual_path|
       baseline_path = File.join(baseline_root, platform, "#{milestone}.png")
       diff_path = File.join(diff_root, platform, "#{milestone}.png")
 
@@ -150,13 +150,13 @@ module UISnapshotComparator
     raise failures.join("\n") unless failures.empty?
   end
 
-  def record_suite(actual_root:, baseline_root:)
-    missing = capture_paths(actual_root).filter_map do |platform, milestone, actual_path|
+  def record_suite(actual_root:, baseline_root:, platforms: PLATFORMS)
+    missing = capture_paths(actual_root, platforms: platforms).filter_map do |platform, milestone, actual_path|
       "#{platform}/#{milestone}: #{actual_path}" unless File.file?(actual_path)
     end
     raise "missing actual screenshots:\n#{missing.join("\n")}" unless missing.empty?
 
-    capture_paths(actual_root).each do |platform, milestone, actual_path|
+    capture_paths(actual_root, platforms: platforms).each do |platform, milestone, actual_path|
       baseline_path = File.join(baseline_root, platform, "#{milestone}.png")
       FileUtils.mkdir_p(File.dirname(baseline_path))
       FileUtils.cp(actual_path, baseline_path)
@@ -230,7 +230,8 @@ command = ARGV.shift
 options = {
   actual_root: ".maestro/screenshots",
   baseline_root: ".maestro/baselines",
-  diff_root: ".maestro/diffs"
+  diff_root: ".maestro/diffs",
+  platforms: UISnapshotComparator::PLATFORMS
 }
 
 OptionParser.new do |parser|
@@ -238,6 +239,11 @@ OptionParser.new do |parser|
   parser.on("--actual-root PATH") { |path| options[:actual_root] = path }
   parser.on("--baseline-root PATH") { |path| options[:baseline_root] = path }
   parser.on("--diff-root PATH") { |path| options[:diff_root] = path }
+  parser.on("--platform PLATFORM") do |platform|
+    raise OptionParser::InvalidArgument, platform unless UISnapshotComparator::PLATFORMS.include?(platform)
+
+    options[:platforms] = [platform]
+  end
 end.parse!
 
 case command
@@ -246,7 +252,8 @@ when "compare"
 when "record"
   UISnapshotComparator.record_suite(
     actual_root: options[:actual_root],
-    baseline_root: options[:baseline_root]
+    baseline_root: options[:baseline_root],
+    platforms: options[:platforms]
   )
 when "self-test"
   UISnapshotComparator.run_self_tests

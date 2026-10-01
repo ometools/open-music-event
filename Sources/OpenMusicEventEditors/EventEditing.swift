@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import OpenMusicEventLexicon
 import OpenMusicEventViewers
 
 public struct EventEditingRequested: FeatureEventKey {
@@ -8,25 +9,23 @@ public struct EventEditingRequested: FeatureEventKey {
 
 public enum EventEditingIntent: Equatable, Sendable {
     case addPerformance(
-        eventID: OMERecord.Event.ID,
-        scheduleID: OMERecord.ID<OMERecord.Schedule>?,
-        stageID: OMERecord.ID<OMERecord.Stage>?
+        eventID: Event.ID,
+        scheduleID: Schedule.ID?,
+        stageID: EventPlace.ID?
     )
-    case addPosters(OMERecord.Event.ID)
-    case addSchedule(OMERecord.Event.ID)
-    case copyStagesFromEvent(OMERecord.Event.ID)
-    case createContributor(OMERecord.Event.ID)
-    case createStage(OMERecord.Event.ID)
-    case deletePerformance(eventID: OMERecord.Event.ID, performanceID: OMERecord.ID<OMERecord.Performance>)
-    case deletePoster(OMERecord.Poster.ID)
-    case editContactInfo(OMERecord.Event.ID)
-    case editContributor(eventID: OMERecord.Event.ID, contributorID: OMERecord.ID<OMERecord.Contributor>)
-    case eventWorkspace(OMERecord.Event.ID)
-    case editLocation(OMERecord.Event.ID)
-    case editPerformance(eventID: OMERecord.Event.ID, performanceID: OMERecord.ID<OMERecord.Performance>)
-    case editPoster(OMERecord.Poster.ID)
-    case editStage(eventID: OMERecord.Event.ID, stageID: OMERecord.ID<OMERecord.Stage>)
-    case eventSettings(OMERecord.Event.ID)
+    case addPosters(Event.ID)
+    case addSchedule(Event.ID)
+    case copyStagesFromEvent(Event.ID)
+    case createContributor(Event.ID)
+    case createStage(Event.ID)
+    case deletePerformance(eventID: Event.ID, performanceID: ProgramItem.ID)
+    case editContactInfo(Event.ID)
+    case editContributor(eventID: Event.ID, contributorID: Contributor.ID)
+    case eventWorkspace(Event.ID)
+    case editLocation(Event.ID)
+    case editPerformance(eventID: Event.ID, performanceID: ProgramItem.ID)
+    case editStage(eventID: Event.ID, stageID: EventPlace.ID)
+    case eventSettings(Event.ID)
 }
 
 extension EventFeature {

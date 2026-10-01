@@ -94,15 +94,8 @@ public struct EventSearchFeature: Equatable, Identifiable, Sendable {
     ]
 }
 
-@Table("eventSearchDocuments")
 public struct EventSearchDocument: Equatable, Identifiable, Sendable {
-    public enum IDTag {}
-    public typealias ID = Tagged<IDTag, Int64>
-
-    public enum StableIDTag {}
-    public typealias StableID = Tagged<StableIDTag, String>
-
-    public enum Kind: String, Codable, Equatable, Hashable, Sendable, SQLiteType {
+    public enum Kind: String, Equatable, Hashable, Sendable {
         case channel
         case contact
         case contributor
@@ -114,20 +107,17 @@ public struct EventSearchDocument: Equatable, Identifiable, Sendable {
         case stage
     }
 
-    public enum Target: Codable, Equatable, Hashable, Sendable {
-        case channel(OME.ID<OME.Channel>)
-        case contributor(OME.ID<OME.Contributor>)
+    public enum Target: Equatable, Hashable, Sendable {
+        case channel(Social.Category.ID)
+        case contributor(Contributor.ID)
         case feature(EventSearchFeature.ID)
-        case performance(OME.ID<OME.Performance>)
-        case poster(OME.ID<OME.Poster>)
-        case stage(OME.ID<OME.Stage>)
+        case performance(ProgramItem.ID)
+        case stage(EventPlace.ID)
     }
 
     public init(
-        id: ID,
-        stableID: StableID,
-        organizerID: OME.Organizer.ID,
-        eventID: OME.ID<OME.Event>,
+        id: String,
+        eventID: Event.ID,
         kind: Kind,
         title: String,
         subtitle: String? = nil,
@@ -137,8 +127,6 @@ public struct EventSearchDocument: Equatable, Identifiable, Sendable {
         baseRank: Int = 0
     ) {
         self.id = id
-        self.stableID = stableID
-        self.organizerID = organizerID
         self.eventID = eventID
         self.kind = kind
         self.title = title
@@ -149,49 +137,15 @@ public struct EventSearchDocument: Equatable, Identifiable, Sendable {
         self.baseRank = baseRank
     }
 
-    @Column(primaryKey: true)
-    public var id: ID
-    public var stableID: StableID
-    public var organizerID: OME.Organizer.ID
-    public var eventID: OME.ID<OME.Event>
+    public var id: String
+    public var eventID: Event.ID
     public var kind: Kind
     public var title: String
     public var subtitle: String?
     public var body: String?
     public var keywords: String
-    @Column(as: Target.JSONRepresentation.self)
     public var target: Target
     public var baseRank: Int
-
-    public var eventRecordID: OME.Event.ID {
-        OME.Event.ID(organizerID: organizerID, eventID: eventID)
-    }
-}
-
-@Table("eventSearchText")
-public struct EventSearchText: Equatable, FTS5, Identifiable, Sendable {
-    public init(
-        rowid: EventSearchDocument.ID,
-        title: String,
-        keywords: String,
-        subtitle: String,
-        body: String
-    ) {
-        self.rowid = rowid
-        self.title = title
-        self.keywords = keywords
-        self.subtitle = subtitle
-        self.body = body
-    }
-
-    @Column(primaryKey: true)
-    public let rowid: EventSearchDocument.ID
-    public var id: EventSearchDocument.ID { rowid }
-
-    public var title: String
-    public var keywords: String
-    public var subtitle: String
-    public var body: String
 }
 
 public struct EventSearchTerm: Equatable, Hashable, RawRepresentable, Sendable {
@@ -209,12 +163,10 @@ public struct EventSearchTerm: Equatable, Hashable, RawRepresentable, Sendable {
 
         self.rawValue = trimmed
         self.tokens = tokens
-        self.ftsQuery = tokens.map { "\($0)*" }.joined(separator: " ")
     }
 
     public let rawValue: String
     let tokens: [String]
-    let ftsQuery: String
 }
 
 public struct EventSearchRank: Equatable, Comparable, Sendable {
@@ -253,7 +205,7 @@ public struct EventSearchResult: Equatable, Identifiable, Sendable {
         self.rank = rank
     }
 
-    public var id: EventSearchDocument.ID { document.id }
+    public var id: String { document.id }
     public var document: EventSearchDocument
     public var rank: EventSearchRank
 }
@@ -261,27 +213,95 @@ public struct EventSearchResult: Equatable, Identifiable, Sendable {
 public enum EventSearchIndex {
     public static func results(
         matching term: EventSearchTerm,
-        in eventID: OME.Event.ID,
+        in eventID: Event.ID,
         limit: Int = 25,
         db: Database
     ) throws -> [EventSearchResult] {
-        guard limit > 0
+        guard limit > 0, try Event.find(eventID).fetchOne(db) != nil
         else { return [] }
 
-        let textMatches = try EventSearchText
-            .where { $0.match(term.ftsQuery) }
+        let categories = try Social.Category
+            .where { $0.event.eq(eventID) }
             .fetchAll(db)
-        let documentIDs = textMatches.map(\.id)
-        guard !documentIDs.isEmpty
-        else { return [] }
+        let contributors = try Contributor
+            .where { $0.event.eq(eventID) }
+            .fetchAll(db)
+        let places = try EventPlace
+            .where { $0.event.eq(eventID) }
+            .fetchAll(db)
+        let items = try ProgramItem
+            .where { $0.event.eq(eventID) }
+            .fetchAll(db)
 
-        let documents = try EventSearchDocument
-            .where { $0.id.in(documentIDs) }
-            .where { $0.organizerID.eq(eventID.organizerID) }
-            .where { $0.eventID.eq(eventID.eventID) }
-            .fetchAll(db)
+        var documents = EventSearchFeature.indexedFeatures.map { feature in
+            EventSearchDocument(
+                id: "feature:\(feature.id.rawValue)",
+                eventID: eventID,
+                kind: .feature,
+                title: feature.title,
+                subtitle: feature.subtitle,
+                body: feature.body,
+                keywords: feature.keywords,
+                target: .feature(feature.id),
+                baseRank: feature.baseRank
+            )
+        }
+        documents += categories.map { category in
+            EventSearchDocument(
+                id: "channel:\(category.id)",
+                eventID: eventID,
+                kind: .channel,
+                title: category.name,
+                subtitle: "Comms",
+                body: category.description,
+                keywords: "channel announcements updates communications",
+                target: .channel(category.id),
+                baseRank: 700
+            )
+        }
+        documents += contributors.map { contributor in
+            EventSearchDocument(
+                id: "contributor:\(contributor.id)",
+                eventID: eventID,
+                kind: .contributor,
+                title: contributor.name,
+                subtitle: "Artist",
+                body: contributor.description,
+                keywords: "artist contributor performer lineup",
+                target: .contributor(contributor.id),
+                baseRank: 850
+            )
+        }
+        documents += places.compactMap { place -> EventSearchDocument? in
+            guard case .known(.stage) = place.kind else { return nil }
+            return EventSearchDocument(
+                id: "stage:\(place.id)",
+                eventID: eventID,
+                kind: .stage,
+                title: place.name,
+                subtitle: "Stage",
+                body: place.description,
+                keywords: "stage venue area location \(place.name)",
+                target: .stage(place.id),
+                baseRank: 900
+            )
+        }
+        documents += items.map { item in
+            EventSearchDocument(
+                id: "performance:\(item.id)",
+                eventID: eventID,
+                kind: .performance,
+                title: item.title,
+                subtitle: "Performance",
+                body: item.description,
+                keywords: "performance set show music lineup",
+                target: .performance(item.id),
+                baseRank: 950
+            )
+        }
 
         return documents
+            .filter { matches($0, term: term) }
             .map {
                 EventSearchResult(
                     document: $0,
@@ -298,10 +318,24 @@ public enum EventSearchIndex {
                 guard lhs.document.title == rhs.document.title
                 else { return lhs.document.title < rhs.document.title }
 
-                return lhs.document.stableID < rhs.document.stableID
+                return lhs.document.id < rhs.document.id
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private static func matches(
+        _ document: EventSearchDocument,
+        term: EventSearchTerm
+    ) -> Bool {
+        let words = [document.title, document.keywords, document.subtitle, document.body]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+        return term.tokens.allSatisfy { token in
+            words.contains { $0.hasPrefix(token) }
+        }
     }
 
     private static func matchedField(

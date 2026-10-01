@@ -63,13 +63,47 @@
       "description" : "Stage use of an event place. All event-specific display data belongs to the containing place, and persistent identity is optional.",
       "nullable" : [
         "stage",
-        "color"
+        "color",
+        "category",
+        "sortIndex",
+        "icon",
+        "shortLabel",
+        "lineup"
       ],
       "properties" : {
+        "category" : {
+          "description" : "The organizer-defined stage group used to divide the event schedule. Missing means the main schedule group.",
+          "maxGraphemes" : 50,
+          "maxLength" : 500,
+          "type" : "string"
+        },
         "color" : {
           "description" : "The organizer's presentation color for this stage use. Missing means unspecified, without inheritance from a persistent stage.",
           "ref" : "#color",
           "type" : "ref"
+        },
+        "icon" : {
+          "description" : "A platform-neutral fallback icon for this stage when no logo is available.",
+          "ref" : "#semanticIcon",
+          "type" : "ref"
+        },
+        "lineup" : {
+          "description" : "Ordered organizer-authored contributor records in this event place's stage lineup, including performers without a scheduled program item.",
+          "items" : {
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "shortLabel" : {
+          "description" : "Short fallback text for this stage when no logo or icon is available.",
+          "maxGraphemes" : 10,
+          "maxLength" : 20,
+          "type" : "string"
+        },
+        "sortIndex" : {
+          "description" : "The event-wide stage display order. A program's eventPlaces array separately controls its lane order.",
+          "type" : "integer"
         },
         "stage" : {
           "description" : "An optional DID-based events.openmusic.stage record URI for continuity across editions. This is a live identity reference, not required rendering data or proof of the stage owner's agreement. Linking or unlinking it preserves the event place's identity.",

@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import ComposableAuthoring
 import ComposableNotifications
@@ -24,13 +25,13 @@ import CoreImage.CIFilterBuiltins
 #endif
 
 public struct EventViewerDismissalRequested: FeatureEventKey {
-    public typealias Value = OMERecord.Event.ID
+    public typealias Value = Event.ID
 
     public init() {}
 }
 
 struct EventViewerContext: Sendable {
-    let eventID: OMERecord.Event.ID
+    let eventID: Event.ID
 }
 
 extension EventViewerContext: DependencyKey {
@@ -38,10 +39,7 @@ extension EventViewerContext: DependencyKey {
         Self(
             eventID: unimplemented(
                 "EventViewerContext.eventID",
-                placeholder: .init(
-                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                    eventID: .init("-1")
-                )
+                placeholder: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         )
     }
@@ -50,10 +48,7 @@ extension EventViewerContext: DependencyKey {
         Self(
             eventID: unimplemented(
                 "EventViewerContext.eventID",
-                placeholder: .init(
-                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                    eventID: .init("-1")
-                )
+                placeholder: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         )
     }
@@ -70,7 +65,7 @@ private enum DefaultEventTimeZoneKey: DependencyKey {
 }
 
 extension DependencyValues {
-    public var defaultEventID: OMERecord.Event.ID {
+    public var defaultEventID: Event.ID {
         get { self[EventViewerContext.self].eventID }
         set { self[EventViewerContext.self] = EventViewerContext(eventID: newValue) }
     }
@@ -87,18 +82,25 @@ where Self == InMemoryKey<AuthoringGrant?>.Default {
         @Dependency(\.defaultEventID) var eventID
         return Self[
             .inMemory(
-                "open-music-event.authoring-grant."
-                    + eventID.organizerID.description
-                    + "."
-                    + eventID.eventID.rawValue
+                "open-music-event.authoring-grant." + eventID.description
             ),
             default: nil
         ]
     }
 }
 
-extension OMERecord.Event {
-  static var defaultEvent: some SelectStatementOf<OMERecord.Event> {
+extension SharedReader where Value == AuthoringGrant? {
+    static func authoringGrant(for eventID: Event.ID) -> Self {
+        withDependencies {
+            $0.defaultEventID = eventID
+        } operation: {
+            Self(.defaultAuthoringGrant)
+        }
+    }
+}
+
+extension Event {
+  static var defaultEvent: some SelectStatementOf<Event> {
     @Dependency(EventViewerContext.self) var eventViewer
     return Self.where { $0.id.eq(eventViewer.eventID) }
   }
@@ -113,7 +115,7 @@ extension OpenMusicEventViewers.EventFeature {
     }
 
     static func features(
-        eventID: OMERecord.Event.ID,
+        eventID: Event.ID,
         authoringAccess: AuthoringAccess
     ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
@@ -155,8 +157,8 @@ public struct EventViewer {
     var workspace
 
     public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
-        public init(eventID: OMERecord.Event.ID) {
-            let authoringGrant = SharedReader<AuthoringGrant?>(.defaultAuthoringGrant)
+        public init(eventID: Event.ID) {
+            let authoringGrant = SharedReader<AuthoringGrant?>.authoringGrant(for: eventID)
             self.init(
                 eventID: eventID,
                 features: EventFeature.features(
@@ -167,14 +169,15 @@ public struct EventViewer {
         }
 
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             features: [EventFeature],
             pendingAuthoringEntry: EditorEntry? = nil,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
+            self._authoringGrant = .authoringGrant(for: eventID)
             self.eventID = eventID
             self._event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
+                Event.where { $0.id.eq(eventID) }
             )
             self.eventViewerState = EventViewerState(id: eventID)
             self._persistedEventViewerState = FetchOne(
@@ -300,11 +303,11 @@ public struct EventViewer {
         }
 
         public static func route(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             target: EventTarget?,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) -> Self {
-            let authoringGrant = SharedReader<AuthoringGrant?>(.defaultAuthoringGrant)
+            let authoringGrant = SharedReader<AuthoringGrant?>.authoringGrant(for: eventID)
             let access = authoringGrant.wrappedValue?.access ?? .attendee
             var state = Self(
                 eventID: eventID,
@@ -314,7 +317,8 @@ public struct EventViewer {
                 ),
                 pendingScheduleLaunchAction: pendingScheduleLaunchAction
             )
-            if let target, target.eventFeature.isEditorFeature, !state.showsAuthoringControls {
+            if let target, target.eventFeature.isEditorFeature,
+               !state.authoringAccess.canEditContent {
                 state.pendingAuthoringEntry = .target(target)
             } else {
                 state.navigate(to: target)
@@ -322,7 +326,7 @@ public struct EventViewer {
             return state
         }
 
-        @SharedReader(.defaultAuthoringGrant)
+        @SharedReader
         public var authoringGrant: AuthoringGrant?
         @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceFailure> public var workspaceBaselineSelectionFailed
@@ -333,11 +337,11 @@ public struct EventViewer {
         @Trigger public var workspaceProposalPublishing
         @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
         @Trigger public var workspaceSourcePrepared
-        public let eventID: OMERecord.Event.ID
-        @FetchOne public var event: OMERecord.Event?
+        public let eventID: Event.ID
+        @FetchOne public var event: Event?
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
-        @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var stages: [EventPlace]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         public var installedFeatures: [EventFeature]
@@ -359,10 +363,11 @@ public struct EventViewer {
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
         public var destination: Destination.State?
+        public var isEditing = false
         public var pendingAuthoringEntry: EditorEntry?
         public var pendingScheduleLaunchAction: ScheduleLaunchAction?
 
-        public var id: OMERecord.Event.ID { eventID }
+        public var id: Event.ID { eventID }
 
         public var eventTimeZone: TimeZone {
             event?.timeZone ?? .current
@@ -377,7 +382,7 @@ public struct EventViewer {
         }
 
         public var showsAuthoringControls: Bool {
-            authoringAccess.canEditContent
+            isEditing
         }
 
         public var needsStageDisambiguation: Bool {
@@ -413,12 +418,6 @@ public struct EventViewer {
                 self.communicationsViewer?.destination = destination
             case let .post(channelID, postID):
                 let eventID = self.eventID
-                let postID = CommsPost.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    channelID: channelID,
-                    postID: postID
-                )
                 if self.communicationsViewer == nil {
                     self.communicationsViewer = withEventDependencies {
                         CommunicationsViewer.State(eventID: eventID)
@@ -430,7 +429,7 @@ public struct EventViewer {
                             channelID: channelID,
                             eventID: eventID,
                             destination: .postDetail(
-                                CommsPostDetail.State(postID: postID)
+                                CommsPostDetail.State(postID: postID, eventID: eventID)
                             )
                         )
                     )
@@ -567,13 +566,6 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .schedule(.schedule)
 
-            case let .deletePoster(posterID),
-                 let .editPoster(posterID):
-                guard posterID.eventID == self.eventID.eventID,
-                      posterID.organizerID == self.eventID.organizerID
-                else { return }
-                self.selectedFeature = .posters
-
             case let .editContactInfo(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
@@ -629,33 +621,54 @@ public struct EventViewer {
         }
 
         private func addPerformanceState(
-            scheduleID: OMERecord.ID<OMERecord.Schedule>?,
-            stageID: OMERecord.ID<OMERecord.Stage>?
+            scheduleID: Schedule.ID?,
+            stageID: EventPlace.ID?
         ) -> EditPerformance.State? {
             @Dependency(\.defaultDatabase) var database
 
             do {
                 return try database.write { db in
-                    let event = try OMERecord.Event
+                    let event = try Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)
                     var schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
-                    let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    var programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
+                        .filter { event?.programs?.contains($0.id) == true }
+                    let stages = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
                     let contributors = try ContributorProfile
                         .all(eventID: eventID, hydration: .none)
                         .fetchAll(db)
-                    guard !stages.isEmpty else { return nil }
+                    if programs.isEmpty,
+                       event?.programs?.isEmpty != false,
+                       event != nil {
+                        let stageIDs = stages.compactMap { place -> EventPlace.ID? in
+                            guard case .known(.stage(_)) = place.kind else { return nil }
+                            return place.id
+                        }
+                        @Dependency(\.date.now) var now
+                        let programID = try ProgramRecordEditing.create(
+                            eventID: eventID,
+                            title: "Schedule",
+                            eventPlaces: stageIDs,
+                            createdAt: now,
+                            in: db
+                        )
+                        if let program = try Program.find(programID).fetchOne(db) {
+                            programs.append(program)
+                        }
+                    }
+                    guard !programs.isEmpty else { return nil }
 
                     let resolvedScheduleID = scheduleID.flatMap { scheduleID in
-                        schedules.contains { $0.id.scheduleID == scheduleID }
+                        schedules.contains { $0.id == scheduleID }
                             ? scheduleID
                             : nil
                     }
                     var schedule = resolvedScheduleID.flatMap { scheduleID in
-                        schedules.first { $0.id.scheduleID == scheduleID }
+                        schedules.first { $0.id == scheduleID }
                     } ?? schedules.first
                     if schedule == nil,
-                       let insertedSchedule = try Self.insertSingletonSchedule(
+                       let insertedSchedule = try Self.insertInitialSchedule(
                            event: event,
                            eventID: eventID,
                            in: db
@@ -665,24 +678,23 @@ public struct EventViewer {
                     }
                     guard let schedule else { return nil }
                     let resolvedStageID = stageID.flatMap { stageID in
-                        stages.contains { $0.id.stageID == stageID }
+                        stages.contains { $0.id == stageID }
                             ? stageID
                             : nil
-                    } ?? stages.first?.id.stageID
-                    guard let resolvedStageID else { return nil }
-                    let initialStartTime = try OMERecord.Performance
-                        .where { $0.id.organizerID.eq(eventID.organizerID) }
-                        .where { $0.id.eventID.eq(eventID.eventID) }
-                        .where { $0.scheduleID.eq(schedule.id.scheduleID) }
-                        .where { $0.stageID.eq(resolvedStageID) }
+                    } ?? stages.first?.id
+                    let initialStartTime = try ProgramItem
+                        .where { $0.event.eq(eventID) }
+                        .where { $0.schedule.eq(schedule.id) }
                         .fetchAll(db)
-                        .map(\.endTime)
+                        .filter { $0.eventPlace == resolvedStageID }
+                        .compactMap(\.endDate)
                         .max()
 
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
                         schedules: schedules,
+                        programs: programs,
                         stages: stages,
                         timeZone: eventTimeZone,
                         selectedStageID: resolvedStageID,
@@ -695,66 +707,59 @@ public struct EventViewer {
             }
         }
 
-        private static func insertSingletonSchedule(
-            event: OMERecord.Event?,
-            eventID: OMERecord.Event.ID,
+        private static func insertInitialSchedule(
+            event: Event?,
+            eventID: Event.ID,
             in db: Database
-        ) throws -> OMERecord.Schedule? {
-            guard let scheduleDate = event?.startDate else { return nil }
-            let scheduleID = OMERecord.Schedule.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                scheduleID: OMERecord.Schedule.singletonID
+        ) throws -> Schedule? {
+            guard let event,
+                  let start = event.start?.date(in: event.timeZone)
+            else { return nil }
+            let scheduleDate = LocalDate(start, in: event.timeZone)
+            @Dependency(\.date.now) var now
+            let scheduleID = try ScheduleRecordEditing.create(
+                eventID: eventID,
+                date: scheduleDate,
+                title: nil,
+                createdAt: now,
+                in: db
             )
-            try OMERecord.Schedule.insert {
-                OMERecord.Schedule.Draft(
-                    id: scheduleID,
-                    date: scheduleDate,
-                    startsAt: nil,
-                    endsAt: nil,
-                    customTitle: nil
-                )
-            }
-            .execute(db)
-            return try OMERecord.Schedule
+            return try Schedule
                 .find(scheduleID)
                 .fetchOne(db)
         }
 
         private func editPerformanceState(
-            performanceID: OMERecord.ID<OMERecord.Performance>
+            performanceID: ProgramItem.ID
         ) -> EditPerformance.State? {
             @Dependency(\.defaultDatabase) var database
 
             do {
                 return try database.read { db in
+                    let event = try Event.find(eventID).fetchOne(db)
                     let performanceRows = try PerformanceRow.all(eventID: eventID).fetchAll(db)
                     let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
-                    let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
+                        .filter { event?.programs?.contains($0.id) == true }
+                    let stages = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
                     let contributors = try ContributorProfile
                         .all(eventID: eventID, hydration: .none)
                         .fetchAll(db)
                     guard
                         let row = performanceRows.first(where: { $0.performanceID == performanceID }),
-                        let scheduleID = row.performance.scheduleID,
-                        let schedule = schedules.first(where: { $0.id.scheduleID == scheduleID })
+                        let scheduleID = row.performance.schedule,
+                        let schedule = schedules.first(where: { $0.id == scheduleID })
                     else { return nil }
-                    let performanceContributors = try EditPerformance
-                        .performanceContributorsQuery(
-                            performanceID: performanceID,
-                            eventID: eventID
-                        )
-                        .fetchAll(db)
 
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
                         schedules: schedules,
+                        programs: programs,
                         stages: stages,
                         timeZone: eventTimeZone,
                         performance: row.performance,
-                        contributors: contributors,
-                        performanceContributors: performanceContributors
+                        contributors: contributors
                     )
                 }
             } catch {
@@ -768,10 +773,12 @@ public struct EventViewer {
             let initialDate: LocalDate?
             do {
                 initialDate = try database.read { db in
-                    try OMERecord.Event
+                    try Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)?
-                        .startDate
+                        .start?
+                        .date(in: eventTimeZone)
+                        .map { LocalDate($0, in: eventTimeZone) }
                 }
             } catch {
                 initialDate = nil
@@ -802,7 +809,7 @@ public struct EventViewer {
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
         case eventWorkspace(EventWorkspace.Action)
-        case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
+        case reactionButtonTapped(ProgramItem.ID, PerformanceReaction.Emoji)
     }
 
     public enum EditorEntry: Equatable, Sendable {
@@ -823,7 +830,15 @@ public struct EventViewer {
     }
 
     private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
-        guard !state.showsAuthoringControls else {
+        if case .intent = entry {
+            state.isEditing = true
+            state.pendingAuthoringEntry = nil
+            store.withDependencies {
+                state.enterAuthoringEntry(entry)
+            }
+            return
+        }
+        guard !state.authoringAccess.canEditContent else {
             state.pendingAuthoringEntry = nil
             store.withDependencies {
                 state.enterAuthoringEntry(entry)
@@ -1132,6 +1147,9 @@ public struct EventViewer {
                     guard intent.eventID == state.eventID else { return }
                     enterOrRequestAuthoring(.intent(intent), state: &state)
                 }
+                .onEvent(EventEditingModeRequested.self) { isEditing, state in
+                    state.isEditing = isEditing
+                }
             )
         }
         .ifLet(\.destination) {
@@ -1184,7 +1202,7 @@ public struct EventViewerView: View {
     public var body: some View {
         tabContent
             .accessibilityIdentifier(
-                "view.event.\(store.eventID.eventID.rawValue.rawValue)"
+                "view.event.\(store.eventID.rkey?.rawValue ?? store.eventID.description)"
             )
             .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
             .environment(
@@ -1428,7 +1446,7 @@ public struct EventViewerView: View {
                         badgeValue: featureStore.permissions.notificationSetupBadgeValue,
                         navigation: .stack
                     ) {
-                        EventSettingsView(store: featureStore)
+                        EventSettingsView(store: featureStore, isEditing: store.isEditing)
                     }
                 }
 
@@ -1614,7 +1632,7 @@ public struct EventViewerView: View {
                     .settings,
                     badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
-                    EventSettingsView(store: featureStore)
+                    EventSettingsView(store: featureStore, isEditing: store.isEditing)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1731,7 +1749,7 @@ public struct EventViewerView: View {
                     .settings,
                     badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
-                    EventSettingsView(store: featureStore)
+                    EventSettingsView(store: featureStore, isEditing: store.isEditing)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1832,7 +1850,7 @@ private extension EventViewer.State {
 }
 
 private extension EventEditingIntent {
-    var eventID: OMERecord.Event.ID {
+    var eventID: Event.ID {
         switch self {
         case let .addPerformance(eventID, _, _),
              let .addPosters(eventID),
@@ -1850,12 +1868,6 @@ private extension EventEditingIntent {
              let .eventWorkspace(eventID):
             return eventID
 
-        case let .deletePoster(posterID),
-             let .editPoster(posterID):
-            return OMERecord.Event.ID(
-                organizerID: posterID.organizerID,
-                eventID: posterID.eventID
-            )
         }
     }
 }
@@ -1942,10 +1954,7 @@ struct TestFlightShareView: View {
     EventViewerView(
         store: Store(
             initialState: EventViewer.State(
-                eventID: .init(
-                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                    eventID: .init("preview")
-                )
+                eventID: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         ) {
             EventViewer()

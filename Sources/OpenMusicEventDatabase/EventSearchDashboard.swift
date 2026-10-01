@@ -24,93 +24,68 @@ public struct EventSearchDashboard: Equatable, Sendable {
     public var nowPlayingRows: [PerformanceDashboardRow]
     public var comingNextRows: [PerformanceDashboardRow]
 
-    public static func fetch(
-        eventID: OME.Event.ID,
-        db: Database
-    ) throws -> Self {
+    public static func fetch(eventID: Event.ID, db: Database) throws -> Self {
         try fetch(eventID: eventID, now: nil, db: db)
     }
 
-    public static func fetch(
-        eventID: OME.Event.ID,
-        now: Date,
-        db: Database
-    ) throws -> Self {
+    public static func fetch(eventID: Event.ID, now: Date, db: Database) throws -> Self {
         try fetch(eventID: eventID, now: Optional(now), db: db)
     }
 
-    private static func fetch(
-        eventID: OME.Event.ID,
-        now: Date?,
-        db: Database
-    ) throws -> Self {
-        let stages = try OME.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+    private static func fetch(eventID: Event.ID, now: Date?, db: Database) throws -> Self {
+        let places = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
+        let stages = places
+            .filter { if case .known(.stage) = $0.kind { true } else { false } }
+            .sorted { lhs, rhs in
+                let lhsIndex: Int? = if case let .known(.stage(use)) = lhs.kind { use.sortIndex } else { nil }
+                let rhsIndex: Int? = if case let .known(.stage(use)) = rhs.kind { use.sortIndex } else { nil }
+                if lhsIndex != rhsIndex {
+                    if let lhsIndex, let rhsIndex { return lhsIndex < rhsIndex }
+                    return lhsIndex != nil
+                }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+        let channels = try Social.Category
+            .where { $0.event.eq(eventID) }
+            .order { $0.name.collate(.nocase) }
             .fetchAll(db)
 
-        let channels = try OME.Channel
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
-            .fetchAll(db)
-
-        let performanceRows: [PerformanceDashboardRow]
+        let performanceRows = try now.map { _ in
+            try PerformanceDashboardRow.all(eventID: eventID).fetchAll(db)
+        } ?? []
         let nowPlayingRows: [PerformanceDashboardRow]
         let comingNextRows: [PerformanceDashboardRow]
         if let now {
-            performanceRows = try PerformanceDashboardRow.all(eventID: eventID).fetchAll(db)
-            nowPlayingRows = performanceRows.filter {
-                $0.performance.startTime <= now && now < $0.performance.endTime
+            nowPlayingRows = performanceRows.filter { row in
+                guard let start = row.performance.startDate, let end = row.performance.endDate else { return false }
+                return start <= now && now < end
             }
-            let comingNextStartTime = performanceRows
-                .lazy
-                .map(\.performance.startTime)
-                .filter { now < $0 }
-                .min()
-            comingNextRows = comingNextStartTime.map { startTime in
-                performanceRows.filter { $0.performance.startTime == startTime }
+            let nextStart = performanceRows.compactMap(\.performance.startDate).filter { now < $0 }.min()
+            comingNextRows = nextStart.map { start in
+                performanceRows.filter { $0.performance.startDate == start }
             } ?? []
         } else {
-            performanceRows = []
             nowPlayingRows = []
             comingNextRows = []
         }
 
         let stageRows = stages.map { stage in
-            guard let now else {
-                return StageDashboardRow(stage: stage)
+            let performances = performanceRows.filter { $0.performance.eventPlace == stage.id }
+            let current = nowPlayingRows.filter { $0.performance.eventPlace == stage.id }
+            let nextStart = now.flatMap { now in
+                performances.compactMap(\.performance.startDate).filter { now < $0 }.min()
             }
-
-            let performances = performanceRows.filter {
-                $0.performance.stageID == stage.id.stageID
-            }
-            let nowPlayingRows = performances.filter {
-                $0.performance.startTime <= now && now < $0.performance.endTime
-            }
-            let nextStartTime = performances
-                .lazy
-                .map(\.performance.startTime)
-                .filter { now < $0 }
-                .min()
-            let comingNextRows = nextStartTime.map { startTime in
-                performances.filter { $0.performance.startTime == startTime }
+            let next = nextStart.map { start in
+                performances.filter { $0.performance.startDate == start }
             } ?? []
-
-            return StageDashboardRow(
-                stage: stage,
-                nowPlayingRows: nowPlayingRows,
-                comingNextRows: comingNextRows
-            )
+            return StageDashboardRow(stage: stage, nowPlayingRows: current, comingNextRows: next)
         }
         let orderedStageRows = stageRows.enumerated().sorted { lhs, rhs in
-            let lhsStartTime = lhs.element.comingNextRows.first?.performance.startTime
-            let rhsStartTime = rhs.element.comingNextRows.first?.performance.startTime
-
-            switch (lhsStartTime, rhsStartTime) {
-            case let (lhsStartTime?, rhsStartTime?) where lhsStartTime != rhsStartTime:
-                return lhsStartTime < rhsStartTime
+            let lhsStart = lhs.element.comingNextRows.first?.performance.startDate
+            let rhsStart = rhs.element.comingNextRows.first?.performance.startDate
+            switch (lhsStart, rhsStart) {
+            case let (lhsStart?, rhsStart?) where lhsStart != rhsStart:
+                return lhsStart < rhsStart
             case (_?, nil):
                 return true
             case (nil, _?):
@@ -133,49 +108,33 @@ public struct EventSearchDashboard: Equatable, Sendable {
 
 @Selection
 public struct PerformanceDashboardRow: Equatable, Identifiable, Sendable {
-    public let performance: OME.Performance
-    public let stage: OME.Stage?
+    public let performance: ProgramItem
+    public let stage: EventPlace?
 
-    public var id: OME.Performance.ID {
-        performance.id
-    }
-
-    public var performanceID: OME.ID<OME.Performance> {
-        performance.id.performanceID
-    }
-
-    public var title: String {
-        performance.title
-    }
+    public var id: ProgramItem.ID { performance.id }
+    public var performanceID: ProgramItem.ID { performance.id }
+    public var title: String { performance.title }
 }
 
 extension PerformanceDashboardRow {
-    public static func all(
-        eventID: OME.Event.ID
-    ) -> some Statement<PerformanceDashboardRow> {
-        OME.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .leftJoin(OME.Stage.all) { performance, stage in
-                stage.id.organizerID.eq(eventID.organizerID)
-                    .and(stage.id.eventID.eq(eventID.eventID))
-                    .and(stage.id.stageID.eq(performance.stageID))
+    public static func all(eventID: Event.ID) -> some Statement<PerformanceDashboardRow> {
+        ProgramItem
+            .where { $0.event.eq(eventID) }
+            .leftJoin(EventPlace.all) { item, place in
+                item.eventPlace.eq(place.id).and(place.event.eq(eventID))
             }
-            .order { performance, _ in
-                (performance.startTime, performance.title.collate(.nocase))
+            .order { item, _ in
+                (item.startsAt.asc(nulls: .last), item.title.collate(.nocase))
             }
-            .select { performance, stage -> PerformanceDashboardRow.Columns in
-                PerformanceDashboardRow.Columns(
-                    performance: performance,
-                    stage: stage
-                )
+            .select { item, place -> PerformanceDashboardRow.Columns in
+                PerformanceDashboardRow.Columns(performance: item, stage: place)
             }
     }
 }
 
 public struct StageDashboardRow: Equatable, Identifiable, Sendable {
     public init(
-        stage: OME.Stage,
+        stage: EventPlace,
         nowPlayingRows: [PerformanceDashboardRow] = [],
         comingNextRows: [PerformanceDashboardRow] = []
     ) {
@@ -184,26 +143,22 @@ public struct StageDashboardRow: Equatable, Identifiable, Sendable {
         self.comingNextRows = comingNextRows
     }
 
-    public var id: OME.Stage.ID { stage.id }
-    public var stage: OME.Stage
+    public var id: EventPlace.ID { stage.id }
+    public var stage: EventPlace
     public var nowPlayingRows: [PerformanceDashboardRow]
     public var comingNextRows: [PerformanceDashboardRow]
 }
 
 public struct FeatureShortcutRow: Equatable, Identifiable, Sendable {
-    public init(feature: EventSearchFeature) {
-        self.feature = feature
-    }
+    public init(feature: EventSearchFeature) { self.feature = feature }
 
     public var id: EventSearchFeature.ID { feature.id }
     public var feature: EventSearchFeature
 }
 
 public struct ChannelShortcutRow: Equatable, Identifiable, Sendable {
-    public init(channel: OME.Channel) {
-        self.channel = channel
-    }
+    public init(channel: Social.Category) { self.channel = channel }
 
-    public var id: OME.Channel.ID { channel.id }
-    public var channel: OME.Channel
+    public var id: Social.Category.ID { channel.id }
+    public var channel: Social.Category
 }

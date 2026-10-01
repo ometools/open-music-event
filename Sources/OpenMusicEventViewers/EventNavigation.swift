@@ -1,19 +1,20 @@
+import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Foundation
 
 
 public enum EventTarget: Equatable, Sendable {
     case schedule
-    case performance(OMERecord.ID<OMERecord.Performance>)
+    case performance(ProgramItem.ID)
     case contributors
-    case contributor(OMERecord.ID<OMERecord.Contributor>)
+    case contributor(Contributor.ID)
     case stages
-    case stage(OMERecord.ID<OMERecord.Stage>)
+    case stage(EventPlace.ID)
     case communications
-    case channel(OMERecord.ID<OMERecord.Channel>)
+    case channel(Social.Category.ID)
     case post(
-        channelID: OMERecord.ID<OMERecord.Channel>,
-        postID: CommsPost.PostID
+        channelID: Social.Category.ID,
+        postID: Social.Post.ID
     )
     case contactInfo
     case location
@@ -32,7 +33,7 @@ public struct NavigationRequested: FeatureEventKey {
 }
 
 public enum NavigationRequest: Equatable, Sendable {
-    case event(OMERecord.Event.ID, EventTarget?)
+    case event(Event.ID, EventTarget?)
     case externalURL(URL)
 }
 

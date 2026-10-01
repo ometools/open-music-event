@@ -1,3 +1,5 @@
+import OpenMusicEventLexicon
+import ATProtoTypes
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -15,20 +17,17 @@ public struct ContactInfoViewer {
     public init() {}
 
     public struct State {
-        public let eventID: OMERecord.Event.ID
-        @FetchOne public var event: OMERecord.Event?
+        public let eventID: Event.ID
+        @FetchOne public var event: Event?
 
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) }
-            )
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
         }
 
         var hasContent: Bool {
             guard let event else { return false }
-            return !(event.contactNumbers ?? []).displayContactNumbers.isEmpty
-                || !(event.reportingLinks ?? []).isEmpty
+            return !event.contactLinks.isEmpty || !event.reportingLinks.isEmpty
         }
     }
 
@@ -66,7 +65,7 @@ public struct ContactInfoViewerView: View {
     }
 
     public var body: some View {
-        let reportingLinkCount = store.event?.reportingLinks?.count ?? 0
+        let reportingLinkCount = store.event?.reportingLinks.count ?? 0
 
         Group {
             if store.hasContent {
@@ -78,28 +77,24 @@ public struct ContactInfoViewerView: View {
                                 IncidentReportingLinkRow(reportingLink: reportingLink)
                                 .buttonStyle(.plain)
                                 .portableAccessibilityHint(
-                                    Text("Opens \(reportingLink.name) in a browser.")
+                                    Text("Opens \(reportingLink.displayTitle) in a browser.")
                                 )
                             }
                         }
                     }
 
-                    if let contactNumbers = store.event?.contactNumbers?.displayContactNumbers,
-                       !contactNumbers.isEmpty {
-                        Section("Contact Numbers") {
+                    if let contactLinks = store.event?.contactLinks, !contactLinks.isEmpty {
+                        Section(contactLinks.allSatisfy { $0.url.scheme?.lowercased() == "tel" }
+                            ? "Contact Numbers" : "Contact") {
                             ForEach(
-                                reportingLinkCount..<(reportingLinkCount + contactNumbers.count),
+                                reportingLinkCount..<(reportingLinkCount + contactLinks.count),
                                 id: \.self
                             ) { rowID in
-                                let contactNumber = contactNumbers[rowID - reportingLinkCount]
-                                if let url = contactNumber.phoneURL {
-                                    Link(destination: url) {
-                                        ContactNumberRow(contactNumber: contactNumber)
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    ContactNumberRow(contactNumber: contactNumber)
+                                let contactLink = contactLinks[rowID - reportingLinkCount]
+                                Link(destination: contactLink.url) {
+                                    ContactLinkRow(contactLink: contactLink)
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -135,50 +130,57 @@ public struct EditContactInfo {
     public init() {}
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
         }
 
-        let eventID: OMERecord.Event.ID
-        var draft: OMERecord.Event.Draft = .placeholder
-        var contactNumbers: [EditableContactNumber] = []
-        var reportingLinks: [EditableReportingLink] = []
+        let eventID: Event.ID
+        var event: Event?
+        var contactLinks: [EditableCommunicationLink] = []
+        var reportingLinks: [EditableCommunicationLink] = []
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
 
-        var preparedContactNumbers: [OMERecord.Event.ContactNumber] {
-            contactNumbers.compactMap(\.preparedContactNumber)
-        }
-
-        var preparedReportingLinks: [OMERecord.Event.ReportingLink] {
-            reportingLinks.compactMap(\.preparedReportingLink)
-        }
-
         var validationMessage: String? {
             guard hasLoadedDraft else { return nil }
-            return reportingLinks.compactMap(\.validationMessage).first
+            return contactLinks.compactMap(\.validationMessage).first
+                ?? reportingLinks.compactMap(\.validationMessage).first
         }
 
         var canSubmit: Bool {
             hasLoadedDraft && !isSaving && validationMessage == nil
         }
 
-        var preparedDraft: OMERecord.Event.Draft {
-            var draft = draft
-            let contactNumbers = preparedContactNumbers
-            draft.contactNumbers = contactNumbers.isEmpty ? nil : contactNumbers
-            let reportingLinks = preparedReportingLinks
-            draft.reportingLinks = reportingLinks.isEmpty ? nil : reportingLinks
-            return draft
+        var preparedEvent: Event? {
+            guard var event else { return nil }
+            let original = event.links ?? []
+            var editedByIndex: [Int: OME.Link] = [:]
+            for row in contactLinks + reportingLinks {
+                if let index = row.originalIndex, let link = row.preparedLink {
+                    editedByIndex[index] = link
+                }
+            }
+            var links: [OME.Link] = []
+            for (index, link) in original.enumerated() {
+                if let edited = editedByIndex[index] {
+                    links.append(edited)
+                } else if !link.isContactOrReporting {
+                    links.append(link)
+                }
+            }
+            links += contactLinks.filter { $0.originalIndex == nil }.compactMap(\.preparedLink)
+            links += reportingLinks.filter { $0.originalIndex == nil }.compactMap(\.preparedLink)
+            event.links = links.isEmpty ? nil : links
+            return event
         }
     }
 
     public enum Action {
-        case addContactNumberButtonTapped
+        case addContactLinkButtonTapped
         case addReportingLinkButtonTapped
         case cancelButtonTapped
-        case removeContactNumberButtonTapped(UUID)
+        case removeContactLinkButtonTapped(UUID)
         case removeReportingLinkButtonTapped(UUID)
         case saveButtonTapped
     }
@@ -188,19 +190,19 @@ public struct EditContactInfo {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .addContactNumberButtonTapped:
-                state.contactNumbers.append(EditableContactNumber())
+            case .addContactLinkButtonTapped:
+                state.contactLinks.append(EditableCommunicationLink(kind: .contact))
 
             case .addReportingLinkButtonTapped:
-                state.reportingLinks.append(EditableReportingLink())
+                state.reportingLinks.append(EditableCommunicationLink(kind: .reporting))
 
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
                 }
 
-            case .removeContactNumberButtonTapped(let id):
-                state.contactNumbers.removeAll { $0.id == id }
+            case .removeContactLinkButtonTapped(let id):
+                state.contactLinks.removeAll { $0.id == id }
 
             case .removeReportingLinkButtonTapped(let id):
                 state.reportingLinks.removeAll { $0.id == id }
@@ -213,23 +215,35 @@ public struct EditContactInfo {
                 }
 
                 guard let validationMessage = state.validationMessage else {
+                    guard let original = state.event,
+                          let edited = state.preparedEvent else {
+                        state.errorMessage = "This event could not be loaded."
+                        return
+                    }
                     state.errorMessage = nil
                     state.isSaving = true
-                    let draft = state.preparedDraft
 
                     store.addTask {
                         do {
                             try database.write { db in
-                                try OMERecord.Event.upsert {
-                                    draft
+                                guard var current = try Event.find(original.id).fetchOne(db),
+                                      current.links == original.links else {
+                                    throw ContactInfoChangedError()
                                 }
-                                .execute(db)
+                                current.links = edited.links
+                                try current.validateReferences()
+                                try Event.upsert { current }.execute(db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
                                 $0.isSaving = false
                             }
                             try store.dismiss()
+                        } catch is ContactInfoChangedError {
+                            try store.modify {
+                                $0.errorMessage = "Contact information changed. Reopen the editor to see the latest values."
+                                $0.isSaving = false
+                            }
                         } catch {
                             try store.modify {
                                 $0.errorMessage = "Unable to save contact information."
@@ -248,11 +262,15 @@ public struct EditContactInfo {
 
             do {
                 if let event = try database.read({ db in
-                    try OMERecord.Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
+                    try Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
                 }) {
-                    state.draft = .init(event)
-                    state.contactNumbers = (event.contactNumbers ?? []).map(EditableContactNumber.init)
-                    state.reportingLinks = (event.reportingLinks ?? []).map(EditableReportingLink.init)
+                    state.event = event
+                    state.contactLinks = (event.links ?? []).enumerated().compactMap { index, link in
+                        link.isContact ? EditableCommunicationLink(link, originalIndex: index, kind: .contact) : nil
+                    }
+                    state.reportingLinks = (event.links ?? []).enumerated().compactMap { index, link in
+                        link.isReporting ? EditableCommunicationLink(link, originalIndex: index, kind: .reporting) : nil
+                    }
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -265,6 +283,8 @@ public struct EditContactInfo {
     }
 }
 
+private struct ContactInfoChangedError: Error {}
+
 public struct EditContactInfoView: View {
     @Bindable var store: StoreOf<EditContactInfo>
 
@@ -276,32 +296,42 @@ public struct EditContactInfoView: View {
         Group {
             if store.hasLoadedDraft {
                 Form {
-                    ForEach($store.contactNumbers) { $contactNumber in
+                    ForEach($store.contactLinks) { $contactLink in
                         Section {
-                            TextField("Title", text: $contactNumber.title)
-                            TextField("Phone Number", text: $contactNumber.phoneNumber)
+                            TextField("Title", text: $contactLink.title)
+                            TextField("Phone, email, or URL", text: $contactLink.destinationString)
                                 #if os(iOS)
-                                .keyboardType(.phonePad)
+                                .keyboardType(.URL)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
                                 #endif
-                            PortableTextField("Description", text: $contactNumber.description, axis: .vertical)
+                            PortableTextField("Description", text: $contactLink.description, axis: .vertical)
                                 .portableLineLimit(2...4)
+                            ContactUsePicker(selection: $contactLink.useChoice)
 
-                            Button("Remove Contact Number", role: .destructive) {
-                                store.send(.removeContactNumberButtonTapped(contactNumber.id))
+                        } header: {
+                            HStack {
+                                Text("Contact")
+                                Spacer()
+                                Menu("Actions") {
+                                    Button("Delete Contact", role: .destructive) {
+                                        store.send(.removeContactLinkButtonTapped(contactLink.id))
+                                    }
+                                }
                             }
                         }
                     }
 
                     Section {
-                        Button("Add Contact Number") {
-                            store.send(.addContactNumberButtonTapped)
+                        Button("Add Contact") {
+                            store.send(.addContactLinkButtonTapped)
                         }
                     }
 
                     ForEach($store.reportingLinks) { $reportingLink in
-                        Section("Reporting Link") {
-                            TextField("Name", text: $reportingLink.name)
-                            TextField("URL", text: $reportingLink.urlString)
+                        Section {
+                            TextField("Name", text: $reportingLink.title)
+                            TextField("Phone, email, or URL", text: $reportingLink.destinationString)
                                 #if os(iOS)
                                 .keyboardType(.URL)
                                 .textInputAutocapitalization(.never)
@@ -313,9 +343,17 @@ public struct EditContactInfoView: View {
                                 axis: .vertical
                             )
                             .portableLineLimit(2...5)
+                            ContactUsePicker(selection: $reportingLink.useChoice)
 
-                            Button("Remove Reporting Link", role: .destructive) {
-                                store.send(.removeReportingLinkButtonTapped(reportingLink.id))
+                        } header: {
+                            HStack {
+                                Text("Reporting Link")
+                                Spacer()
+                                Menu("Actions") {
+                                    Button("Delete Reporting Link", role: .destructive) {
+                                        store.send(.removeReportingLinkButtonTapped(reportingLink.id))
+                                    }
+                                }
                             }
                         }
                     }
@@ -365,22 +403,22 @@ public struct EditContactInfoView: View {
     }
 }
 
-struct ContactNumberRow: View {
-    let contactNumber: OMERecord.Event.ContactNumber
+struct ContactLinkRow: View {
+    let contactLink: OME.Link
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(contactNumber.displayTitle)
+                Text(contactLink.displayTitle)
                     .font(.headline)
 
-                Text(contactNumber.phoneNumber.formattedPhoneNumber)
+                Text(contactLink.displayDestination)
                     .foregroundStyle(.secondary)
                     #if !os(Android)
                     .selectableText()
                     #endif
 
-                if let description = contactNumber.displayDescription {
+                if let description = contactLink.displayDescription {
                     Text(description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -397,12 +435,12 @@ struct ContactNumberRow: View {
 }
 
 struct ReportingLinkRow: View {
-    let reportingLink: OMERecord.Event.ReportingLink
+    let reportingLink: OME.Link
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(reportingLink.name)
+                Text(reportingLink.displayTitle)
                     .font(.headline)
 
                 if let description = reportingLink.displayDescription {
@@ -421,145 +459,157 @@ struct ReportingLinkRow: View {
     }
 }
 
-public struct EditableContactNumber: Identifiable, Equatable {
-    public var id = UUID()
-    var title = ""
-    var phoneNumber = ""
-    var description = ""
-
-    init() {}
-
-    init(_ contactNumber: OMERecord.Event.ContactNumber) {
-        self.title = contactNumber.title
-        self.phoneNumber = contactNumber.phoneNumber
-        self.description = contactNumber.description ?? ""
+extension OME.Link {
+    var displayTitle: String {
+        title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? (isReporting ? "Report an Issue" : "Contact")
     }
 
-    var preparedContactNumber: OMERecord.Event.ContactNumber? {
-        let phoneNumber = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !phoneNumber.isEmpty else { return nil }
+    var displayDescription: String? {
+        description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
 
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return OMERecord.Event.ContactNumber(
-            phoneNumber: phoneNumber,
-            title: title.isEmpty ? "Contact" : title,
-            description: description.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        )
+    var displayDestination: String {
+        if url.scheme?.lowercased() == "tel" {
+            return String(url.absoluteString.dropFirst(4)).formattedPhoneNumber
+        }
+        return url.absoluteString
     }
 }
 
-public struct EditableReportingLink: Identifiable, Equatable {
-    public var id = UUID()
-    var name = ""
-    var urlString = ""
-    var description = ""
-
-    init() {}
-
-    init(_ reportingLink: OMERecord.Event.ReportingLink) {
-        self.name = reportingLink.name
-        self.urlString = reportingLink.url.absoluteString
-        self.description = reportingLink.description ?? ""
+public struct EditableCommunicationLink: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case contact
+        case reporting
     }
 
-    var preparedReportingLink: OMERecord.Event.ReportingLink? {
+    public var id = UUID()
+    let originalIndex: Int?
+    let kind: Kind
+    let original: OME.Link?
+    var title = ""
+    var destinationString = ""
+    var description = ""
+    var useChoice = ""
+
+    init(kind: Kind) {
+        self.kind = kind
+        self.originalIndex = nil
+        self.original = nil
+    }
+
+    init(_ link: OME.Link, originalIndex: Int, kind: Kind) {
+        self.kind = kind
+        self.originalIndex = originalIndex
+        self.original = link
+        self.title = link.title ?? ""
+        self.destinationString = link.url.absoluteString
+        self.description = link.description ?? ""
+        switch link.role {
+        case .known(.contact(let contact)):
+            self.useChoice = contact.use?.displayValue ?? ""
+        case .known(.reporting(let reporting)):
+            self.useChoice = reporting.use?.displayValue ?? ""
+        default:
+            break
+        }
+    }
+
+    var preparedLink: OME.Link? {
         guard !isEmpty, validationMessage == nil, let url = preparedURL else { return nil }
-        return OMERecord.Event.ReportingLink(
-            name: trimmedName,
-            url: url,
-            description: trimmedDescription.nilIfEmpty
-        )
+        var link = original ?? OME.Link(url: url)
+        link.url = url
+        link.title = trimmedTitle.nilIfEmpty
+        link.description = trimmedDescription.nilIfEmpty
+        let use: Open<OME.Link.ContactUse>? = switch useChoice {
+        case "": nil
+        case "emergency": .known(.emergency)
+        case "nonEmergency": .known(.nonEmergency)
+        default: .unknown(.string(useChoice))
+        }
+        switch kind {
+        case .contact: link.role = .known(.contact(.init(use: use)))
+        case .reporting: link.role = .known(.reporting(.init(use: use)))
+        }
+        return link
     }
 
     var validationMessage: String? {
         guard !isEmpty else { return nil }
-        guard !trimmedName.isEmpty else { return "Enter a reporting link name." }
-        guard preparedURL != nil else { return "Enter a valid http or https URL." }
+        if kind == .reporting && trimmedTitle.isEmpty {
+            return "Enter a reporting link name."
+        }
+        guard preparedURL != nil else { return "Enter a valid phone number, email, or URL." }
         return nil
     }
 
     var isEmpty: Bool {
-        trimmedName.isEmpty && trimmedURLString.isEmpty && trimmedDescription.isEmpty
+        trimmedTitle.isEmpty && trimmedDestination.isEmpty && trimmedDescription.isEmpty
+            && useChoice.isEmpty
     }
 
     var preparedURL: URL? {
-        guard let components = URLComponents(string: trimmedURLString),
+        let value = trimmedDestination
+        guard !value.isEmpty else { return nil }
+        if !value.contains(":"), value.contains("@") {
+            return URL(string: "mailto:\(value)")
+        }
+        if !value.contains(":") {
+            let digits = value.filter(\.isNumber)
+            guard !digits.isEmpty else { return nil }
+            return URL(string: "tel:\(value.first == "+" ? "+" : "")\(digits)")
+        }
+        guard let components = URLComponents(string: value),
               let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              components.host?.isEmpty == false,
+              ["tel", "sms", "mailto", "http", "https"].contains(scheme),
               let url = components.url
         else { return nil }
-
-        return url
+        if scheme == "http" || scheme == "https" {
+            return components.host?.isEmpty == false ? url : nil
+        }
+        return components.path.isEmpty ? nil : url
     }
 
-    var trimmedDescription: String {
-        description.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var trimmedDescription: String { description.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var trimmedDestination: String { destinationString.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
 
-    var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+struct ContactUsePicker: View {
+    @Binding var selection: String
 
-    var trimmedURLString: String {
-        urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    var body: some View {
+        Picker("Use", selection: $selection) {
+            Text("Unspecified").tag("")
+            Text("Emergency").tag("emergency")
+            Text("Non-emergency").tag("nonEmergency")
+            if !["", "emergency", "nonEmergency"].contains(selection) {
+                Text("Other: \(selection)").tag(selection)
+            }
+        }
     }
 }
 
-private extension Array where Element == OMERecord.Event.ContactNumber {
-    var displayContactNumbers: Self {
-        filter { !$0.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+extension OME.Link {
+    var isContact: Bool {
+        if case .known(.contact) = role { return true }
+        return false
     }
+
+    var isReporting: Bool {
+        if case .known(.reporting) = role { return true }
+        return false
+    }
+
+    var isContactOrReporting: Bool { isContact || isReporting }
 }
 
-private extension OMERecord.Event.ContactNumber {
-    var displayTitle: String {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? "Contact" : title
-    }
-
-    var displayDescription: String? {
-        let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return description?.isEmpty == false ? description : nil
-    }
-
-    var phoneURL: URL? {
-        let phoneNumber = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasInternationalPrefix = phoneNumber.first == "+"
-        let digits = phoneNumber.filter(\.isNumber)
-        guard !digits.isEmpty else { return nil }
-        return URL(string: "tel:\(hasInternationalPrefix ? "+" : "")\(digits)")
-    }
-}
-
-private extension OMERecord.Event.ReportingLink {
-    var displayDescription: String? {
-        let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return description?.isEmpty == false ? description : nil
-    }
-}
-
-private extension OMERecord.Event.Draft {
-    static var placeholder: Self {
-        .init(
-            id: .init(
-                organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
-                eventID: .init("-1")
-            ),
-            name: "",
-            description: nil,
-            startDate: nil,
-            endDate: nil,
-            status: nil,
-            mode: nil,
-            locations: nil,
-            uris: nil,
-            timeZone: TimeZone.current,
-            imageURL: nil,
-            iconImageURL: nil,
-            siteMapImageURL: nil,
-            contactNumbers: nil
-        )
+extension Open where Known == OME.Link.ContactUse {
+    var displayValue: String {
+        switch self {
+        case .known(let use): use.rawValue
+        case .unknown(let value): value.string ?? ""
+        }
     }
 }
 

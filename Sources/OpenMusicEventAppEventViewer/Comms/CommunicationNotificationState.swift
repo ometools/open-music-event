@@ -6,7 +6,7 @@ public struct NotificationSubscriptionsRefreshRequested: FeatureEventKey {
     public init() {}
 }
 
-extension OMERecord.Channel.NotificationState {
+extension Social.Category.NotificationState {
     var menuTitle: String {
         switch self {
         case .subscribed:

@@ -1,7 +1,9 @@
+import ATProtoTypes
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -117,7 +119,7 @@ public struct ImportImages {
                 guard let index = state.images.firstIndex(where: { $0.id == imageInfo.id }) else {
                     return
                 }
-                state.images[index].asset = imageInfo.asset
+                state.images[index].image = imageInfo.image
 
             case .destination:
                 break
@@ -126,11 +128,13 @@ public struct ImportImages {
                 guard let image = state.images.first(where: { $0.id == id }) else {
                     return
                 }
+                var imageInfoConfiguration = state.configuration.imageInfoConfiguration
+                imageInfoConfiguration.showsTitle = false
                 state.destination = .imageInfo(
                     ImageInfo.State(
                         id: image.id,
-                        asset: image.asset,
-                        configuration: state.configuration.imageInfoConfiguration,
+                        image: image.image,
+                        configuration: imageInfoConfiguration,
                         sourceLabel: image.sourceLabel,
                         previewData: image.data
                     )
@@ -199,64 +203,36 @@ public extension ImportImages {
         public init(
             cardinality: Cardinality,
             title: String,
-            role: OMERecord.ImageAsset.Role,
-            renderKind: OMERecord.ImageAsset.RenderKind,
-            appearance: OMERecord.ImageAsset.Appearance? = nil,
-            materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy,
+            role: OME.Image.Role,
+            renderingMode: OME.Image.RenderingMode,
+            appearance: OME.Image.Appearance? = nil,
             imageInfoConfiguration: ImageInfo.Configuration? = nil
         ) {
             self.cardinality = cardinality
             self.title = title
             self.role = role
-            self.renderKind = renderKind
+            self.renderingMode = renderingMode
             self.appearance = appearance
-            self.materializationPolicy = materializationPolicy
             self.imageInfoConfiguration = imageInfoConfiguration ?? ImageInfo.Configuration(
                 allowedRoles: [role],
-                allowedRenderKinds: [renderKind],
-                allowsAppearance: true,
-                allowsMaterializationPolicy: true,
-                allowedMaterializationPolicies: [materializationPolicy]
+                allowedRenderingModes: [renderingMode],
+                allowsAppearance: true
             )
         }
 
         public var cardinality: Cardinality
         public var imageInfoConfiguration: ImageInfo.Configuration
         public var title: String
-        public var role: OMERecord.ImageAsset.Role
-        public var renderKind: OMERecord.ImageAsset.RenderKind
-        public var appearance: OMERecord.ImageAsset.Appearance?
-        public var materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy
-
-        public static var calendarHero: Self {
-            Self(
-                cardinality: .single,
-                title: "Choose Calendar Hero",
-                role: .hero,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy,
-                imageInfoConfiguration: .calendarHero
-            )
-        }
-
-        public static var calendarLogo: Self {
-            Self(
-                cardinality: .single,
-                title: "Choose Calendar Logo",
-                role: .logo,
-                renderKind: .transparent,
-                materializationPolicy: .lazy,
-                imageInfoConfiguration: .calendarLogo
-            )
-        }
+        public var role: OME.Image.Role
+        public var renderingMode: OME.Image.RenderingMode
+        public var appearance: OME.Image.Appearance?
 
         public static var posters: Self {
             Self(
                 cardinality: .multiple,
                 title: "Add Posters",
                 role: .poster,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy,
+                renderingMode: .original,
                 imageInfoConfiguration: .posters
             )
         }
@@ -266,8 +242,7 @@ public extension ImportImages {
                 cardinality: .single,
                 title: "Choose Contributor Logo",
                 role: .logo,
-                renderKind: .transparent,
-                materializationPolicy: .lazy,
+                renderingMode: .template,
                 imageInfoConfiguration: .contributorLogo
             )
         }
@@ -277,8 +252,7 @@ public extension ImportImages {
                 cardinality: .single,
                 title: "Choose Contributor Photo",
                 role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy,
+                renderingMode: .original,
                 imageInfoConfiguration: .contributorPhoto
             )
         }
@@ -288,8 +262,7 @@ public extension ImportImages {
                 cardinality: .multiple,
                 title: "Add Post Images",
                 role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
+                renderingMode: .original
             )
         }
 
@@ -298,8 +271,7 @@ public extension ImportImages {
                 cardinality: .single,
                 title: "Choose Stage Hero",
                 role: .hero,
-                renderKind: .fullImage,
-                materializationPolicy: .prefetchOnOpen,
+                renderingMode: .original,
                 imageInfoConfiguration: .stageHero
             )
         }
@@ -309,8 +281,7 @@ public extension ImportImages {
                 cardinality: .single,
                 title: "Choose Stage Logo",
                 role: .logo,
-                renderKind: .transparent,
-                materializationPolicy: .prefetchOnOpen,
+                renderingMode: .template,
                 imageInfoConfiguration: .stageLogo
             )
         }
@@ -320,8 +291,7 @@ public extension ImportImages {
                 cardinality: .multiple,
                 title: "Choose Stage Posters",
                 role: .poster,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy,
+                renderingMode: .original,
                 imageInfoConfiguration: .stagePoster
             )
         }
@@ -338,12 +308,11 @@ public extension ImportImages {
             mimeType: String,
             data: Data
         ) -> ImportedImage {
-            let asset = OMERecord.ImageAsset(
-                source: .url(sourceURL ?? Self.transientImportSourceURL(id: id)),
-                role: role,
-                renderKind: renderKind,
-                appearance: appearance,
-                materializationPolicy: materializationPolicy
+            let image = OME.Image(
+                source: .known(.url(sourceURL ?? Self.transientImportSourceURL(id: id))),
+                role: .known(role),
+                renderingMode: .known(renderingMode),
+                appearance: appearance.map(Open.known)
             )
             return ImportedImage(
                 id: id,
@@ -352,7 +321,7 @@ public extension ImportImages {
                 sourceURL: sourceURL,
                 mimeType: mimeType,
                 data: data,
-                asset: asset
+                image: image
             )
         }
 
@@ -369,7 +338,7 @@ public extension ImportImages {
             sourceURL: URL? = nil,
             mimeType: String,
             data: Data,
-            asset: OMERecord.ImageAsset
+            image: OME.Image
         ) {
             self.id = id
             self.title = title ?? sourceName?.deletingPathExtension ?? ""
@@ -377,10 +346,10 @@ public extension ImportImages {
             self.sourceURL = sourceURL
             self.mimeType = mimeType
             self.data = data
-            self.asset = asset
+            self.image = image
         }
 
-        public var asset: OMERecord.ImageAsset
+        public var image: OME.Image
         public var id: UUID
         public var title: String
         public var sourceName: String?
@@ -404,30 +373,20 @@ public extension ImportImages {
                 ?? "Photos"
         }
 
-        public var localImageImportRequest: LocalImageImportRequest {
-            LocalImageImportRequest(
-                data: data,
-                mimeType: mimeType,
-                sourceURL: sourceURL,
-                role: asset.role,
-                renderKind: asset.renderKind,
-                appearance: asset.appearance,
-                materializationPolicy: asset.materializationPolicy,
-                thumbhash: asset.thumbhash,
-                focalPoint: asset.focalPoint
-            )
-        }
     }
 }
 
 extension Collection where Element == ImportImages.ImportedImage {
     func normalizingIncompleteAppearancePairs() -> [ImportImages.ImportedImage] {
-        zip(self, map(\.asset).normalizingIncompleteAppearancePairs())
-            .map { importedImage, asset in
-                var importedImage = importedImage
-                importedImage.asset = asset
-                return importedImage
-            }
+        let images = Array(self)
+        let hasLight = images.contains { $0.image.appearance == .known(.light) }
+        let hasDark = images.contains { $0.image.appearance == .known(.dark) }
+        guard !hasLight || !hasDark else { return images }
+        return images.map { importedImage in
+            var importedImage = importedImage
+            importedImage.image.appearance = nil
+            return importedImage
+        }
     }
 }
 

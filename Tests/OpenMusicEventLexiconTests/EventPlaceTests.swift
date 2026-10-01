@@ -91,6 +91,73 @@ struct EventPlaceTests {
         expectNoDifference(place, original)
     }
 
+    @Test
+    func `an event stage keeps its schedule grouping and fallback presentation`() throws {
+        let place = try EventPlace(
+            id: placeURI,
+            event: eventURI,
+            name: "Meadow",
+            createdAt: createdAt,
+            kind: .known(.stage(.init(
+                color: OME.Color(rawValue: 0x336699),
+                category: "workshop",
+                sortIndex: 7,
+                icon: .init(rawValue: "sparkles"),
+                shortLabel: "MD"
+            )))
+        )
+        try place.validateReferences()
+        let encoded = try place.encodeLexicon()
+        expectNoDifference(encoded.object?["kind"], .object([
+            "$type": "events.openmusic.defs#eventPlaceStage",
+            "color": .integer(0x336699),
+            "category": "workshop",
+            "sortIndex": .integer(7),
+            "icon": "sparkles",
+            "shortLabel": "MD",
+        ]))
+        expectNoDifference(
+            try EventPlace.decodeLexicon(encoded, metadata: .init(uri: placeURI)),
+            place
+        )
+    }
+
+    @Test
+    func `a stage keeps an ordered lineup when contributors have no scheduled item`() throws {
+        let first = try #require(ATProto.URI(
+            "at://did:plc:wickedwoods/events.openmusic.contributor/3mrdbziccpcak"
+        ))
+        let second = try #require(ATProto.URI(
+            "at://did:plc:wickedwoods/events.openmusic.contributor/3mrdbziccpcam"
+        ))
+        var place = try EventPlace(
+            id: placeURI,
+            event: eventURI,
+            name: "The Hollow",
+            createdAt: createdAt,
+            kind: .known(.stage(.init(lineup: [first, second])))
+        )
+        try place.validateReferences()
+        let encoded = try place.encodeLexicon()
+        expectNoDifference(
+            encoded.object?["kind"]?.object?["lineup"],
+            .array([.string(first.description), .string(second.description)])
+        )
+        expectNoDifference(
+            try EventPlace.decodeLexicon(encoded, metadata: .init(uri: placeURI)),
+            place
+        )
+
+        place.kind = .known(.stage(.init(lineup: [first, first])))
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+
+        let outsideEvent = try #require(ATProto.URI(
+            "at://did:plc:other/events.openmusic.contributor/3mrdbziccpcan"
+        ))
+        place.kind = .known(.stage(.init(lineup: [outsideEvent])))
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+    }
+
     @Test(arguments: ["entrance", "camping", "info"])
     func `nonstage places need no persistent entity`(_ kind: String) throws {
         let placeKind: EventPlace.Kind = switch kind {
@@ -292,7 +359,10 @@ struct EventPlaceTests {
         let defs = try #require(documents.first { $0.id.rawValue == "events.openmusic.defs" })
         let definitions = try #require(Lexicon.JSONValue(encoding: defs).object?["defs"]?.object)
         let stageUse = try #require(definitions["eventPlaceStage"]?.object)
-        expectNoDifference(Set(try #require(stageUse["properties"]?.object).keys), ["stage", "color"])
+        expectNoDifference(
+            Set(try #require(stageUse["properties"]?.object).keys),
+            ["stage", "color", "category", "sortIndex", "icon", "shortLabel", "lineup"]
+        )
         #expect(definitions["stage"] == nil)
     }
 

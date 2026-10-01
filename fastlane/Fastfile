@@ -212,10 +212,10 @@ def snapshot_diff_root
   File.join(repo_root, ".maestro", "diffs")
 end
 
-def prepare_snapshot_output_directories
-  FileUtils.rm_rf(snapshot_actual_root)
-  FileUtils.rm_rf(snapshot_diff_root)
-  %w[ios android].each do |platform|
+def prepare_snapshot_output_directories(platforms: %w[ios android])
+  platforms.each do |platform|
+    FileUtils.rm_rf(File.join(snapshot_actual_root, platform))
+    FileUtils.rm_rf(File.join(snapshot_diff_root, platform))
     FileUtils.mkdir_p(File.join(snapshot_actual_root, platform))
     FileUtils.mkdir_p(File.join(snapshot_diff_root, platform))
   end
@@ -311,17 +311,17 @@ def verify_snapshot_profiles!(ios_device:, android_device:)
   ) unless actual_android == expected.fetch("android")
 end
 
-def run_snapshot_comparator(action)
-  # `bundle` and `ruby` can resolve to different installations on macOS. Pin
-  # the child process to the Ruby already running Fastlane so Bundler never
-  # combines Homebrew gems with Apple's system Ruby.
+def run_snapshot_comparator(action, platform: nil)
+  # Run the comparator with Fastlane's Ruby and load this Gemfile directly.
+  # A bare `bundle` command may resolve to Apple's system Bundler instead.
   run_in_repo(
-    "bundle", "exec", RbConfig.ruby,
+    RbConfig.ruby, "-rbundler/setup",
     File.join(repo_root, "Scripts", "compare-ui-snapshots.rb"),
     action,
     "--actual-root", snapshot_actual_root,
     "--baseline-root", snapshot_baseline_root,
-    "--diff-root", snapshot_diff_root
+    "--diff-root", snapshot_diff_root,
+    *(platform ? ["--platform", platform] : [])
   )
 end
 
@@ -556,6 +556,33 @@ lane :ui_tests do |options|
 
   snapshot_action = snapshot_comparison_requested?(options) ? "compare" : nil
   run_dual_platform_ui_suite(options, snapshot_action: snapshot_action)
+end
+
+desc "Run Testival UI stories and compare visual baselines on iOS only"
+lane :ios_ui_tests do |options|
+  UI.user_error!("ios_ui_tests always uses the Testival flows; omit flow:<path>") if options[:flow]
+  UI.user_error!("Maestro is unavailable") unless executable_available?("maestro")
+  flows = maestro_flows(options)
+  flows.each do |flow|
+    UI.user_error!("Maestro flow does not exist: #{flow}") unless File.file?(flow)
+  end
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
+  verify_maestro_device!(ios_device)
+  expected_profile = snapshot_profiles.fetch("ios")
+  actual_profile = ios_snapshot_profile(ios_device)
+  UI.user_error!(
+    "Visual baselines require #{expected_profile}; found #{actual_profile}"
+  ) unless actual_profile == expected_profile
+
+  prepare_snapshot_output_directories(platforms: ["ios"])
+  ios_app_path = build_ios_ui_app(device: ios_device)
+  flows.each do |flow|
+    reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+    run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: flow)
+  end
+  run_snapshot_comparator("compare", platform: "ios")
 end
 
 desc "Run the deterministic Testival suite and explicitly replace visual baselines"

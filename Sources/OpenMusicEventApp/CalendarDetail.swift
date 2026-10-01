@@ -6,6 +6,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import SQLiteData
 import SwiftUITabFeatures
 #if os(Android)
@@ -36,7 +37,7 @@ public struct CalendarDetail {
 
         @DebugSnapshotIgnored
         @FetchAll
-        public var events: [OMERecord.Event]
+        public var events: [Event]
 
         public let calendarID: OMERecord.Calendar.ID
 
@@ -44,7 +45,6 @@ public struct CalendarDetail {
     }
 
     public enum Action {
-        case eventButtonTapped(OMERecord.Event.ID)
         case task
     }
 
@@ -63,21 +63,21 @@ public struct CalendarDetail {
             .where { $0.id.calendarID.eq(calendarID.calendarID) }
     }
 
-    static let localEventsQuery = OMERecord.Event.all
+    static let localEventsQuery = Event.all
 
     public struct EntryRows: Equatable, Sendable {
         public var rows: [EntryRow]
 
         public init(
             entries: [OMERecord.CalendarEntry],
-            events: [OMERecord.Event]
+            events: [Event]
         ) {
             let eventsByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
             rows = entries
                 .map { entry in
                     EntryRow(
                         entry: entry,
-                        event: entry.event.localEventID.flatMap { eventsByID[$0] }
+                        event: eventsByID[entry.event.uri]
                     )
                 }
                 .sorted(by: Self.sort)
@@ -121,28 +121,20 @@ public struct CalendarDetail {
 
     public struct EntryRow: Equatable, Identifiable, Sendable {
         public var entry: OMERecord.CalendarEntry
-        public var event: OMERecord.Event?
+        public var event: Event?
 
         public var id: OMERecord.CalendarEntry.ID {
             entry.id
         }
 
-        public var eventID: OMERecord.Event.ID? {
-            event?.id ?? entry.event.localEventID
+        public var eventID: Event.ID? {
+            event?.id
         }
     }
 
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .eventButtonTapped(let eventID):
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
-
             case .task:
                 break
             }
@@ -210,27 +202,6 @@ public struct CalendarDetailView: View {
     @ViewBuilder
     private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
         ForEach(rows) { row in
-            CalendarEntryButton(
-                row: row,
-                store: store
-            )
-        }
-    }
-}
-
-struct CalendarEntryButton: View {
-    let row: CalendarDetail.EntryRow
-    let store: StoreOf<CalendarDetail>
-
-    var body: some View {
-        if let event = row.event {
-            Button {
-                store.send(.eventButtonTapped(event.id))
-            } label: {
-                CalendarEntryRowView(row: row)
-            }
-            .navigationLinkListRowStyle()
-        } else {
             CalendarEntryRowView(row: row)
         }
     }
@@ -243,7 +214,12 @@ struct CalendarEntryRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let event = row.event {
-                EventRowView(event: event)
+                HStack(spacing: 10) {
+                    Image(systemName: "music.note")
+                        .frame(width: 60, height: 60)
+                    Text(event.name)
+                    Spacer()
+                }
             } else {
                 HStack(spacing: 10) {
                     Image(systemName: "calendar.badge.exclamationmark")
@@ -275,23 +251,16 @@ struct CalendarEntryRowView: View {
     }
 }
 
-extension OMERecord.Event.Reference {
-    var localEventID: OMERecord.Event.ID? {
-        guard
-            uri.collection == OMERecord.Event.nsid,
-            let eventID = uri.rkey,
-            case let .did(organizerID) = uri.authority
-        else { return nil }
-
-        return OMERecord.Event.ID(
-            organizerID: organizerID,
-            eventID: OMERecord.ID<OMERecord.Event>(rawValue: eventID)
-        )
+extension Event {
+    var calendarStartDay: LocalDate? {
+        start?.date(in: timeZone).map { LocalDate($0, in: timeZone) }
     }
-}
 
-private extension OMERecord.Event {
+    var calendarEndDay: LocalDate? {
+        end?.date(in: timeZone).map { LocalDate($0, in: timeZone) }
+    }
+
     var calendarSortDate: LocalDate? {
-        startDate ?? endDate
+        calendarStartDay ?? calendarEndDay
     }
 }

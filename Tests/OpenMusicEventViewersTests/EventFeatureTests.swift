@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import Testing
 
 @testable import OpenMusicEventViewers
@@ -14,7 +15,7 @@ struct EventFeatureTests {
     @Test
     func readOnlyFeaturesIncludeScheduleDivisionsBeforeStaticFeatures() {
         let workshopDivision = ScheduleDivision(
-            category: OMERecord.Stage.Category("workshop")
+            category: "workshop"
         )
 
         let features = EventFeature.readOnlyFeatures(
@@ -33,12 +34,14 @@ struct EventFeatureTests {
     }
 
     @Test
-    func eventTargetsMapToViewerFeatures() {
+    func eventTargetsMapToViewerFeatures() throws {
         #expect(EventTarget.schedule.eventFeature == .schedule(.schedule))
         #expect(EventTarget.contributors.eventFeature == .contributors)
         #expect(
             EventTarget.contributor(
-                OMERecord.ID<OMERecord.Contributor>(.init("artist-1"))
+                try #require(Contributor.ID(
+                    "at://did:plc:organizer/events.openmusic.contributor/3mrdbziccpcah"
+                ))
             )
                 .eventFeature == .contributors
         )

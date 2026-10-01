@@ -1,95 +1,40 @@
 appId: ${APP_ID}
 ---
-# This is a separate, clean install from the visual attendee story. Revision A
-# enters through the real validator before the attendee creates local state.
+# A clean automation install enters the canonical Testival event.
 - launchApp
 - extendedWaitUntil:
     visible:
-      id: button.browse-event.testival-source-testival-2026
+      id: button.browse-event.3mrdbziccpcah
     timeout: 30000
 - tapOn:
-    id: button.browse-event.testival-source-testival-2026
+    id: button.browse-event.3mrdbziccpcah
 - extendedWaitUntil:
     visible:
-      id: button.enter-event.testival-source-testival-2026
+      id: button.enter-event.3mrdbziccpcah
     timeout: 15000
 - tapOn:
-    id: button.enter-event.testival-source-testival-2026
+    id: button.enter-event.3mrdbziccpcah
 - extendedWaitUntil:
     visible:
-      id: button.performance.opening-set
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
     timeout: 30000
-
-# Opening Welcome records attendee-owned read state without introducing another
-# server dependency into this refresh-focused flow.
-- tapOn: Comms
-- extendedWaitUntil:
-    visible:
-      id: button.channel.general
-    timeout: 15000
-- tapOn:
-    id: button.channel.general
-- extendedWaitUntil:
-    visible:
-      id: button.communication-post.welcome
-    timeout: 15000
-- tapOn:
-    id: button.communication-post.welcome
-- extendedWaitUntil:
-    visible:
-      id: view.communication-post.welcome
-    timeout: 15000
-- runFlow: helpers/back.yaml
-- runFlow: helpers/back.yaml
-
-# Canopy proves revision A is still mounted before resume. The fixture's new
-# Surprise Set does not exist until the production refresh transaction commits.
-- tapOn: Schedule
-- extendedWaitUntil:
-    visible:
-      id: button.schedule-stage.canopy
-    timeout: 15000
-- tapOn:
-    id: button.schedule-stage.canopy
-- extendedWaitUntil:
-    visible:
-      id: button.performance.sunset-session
-    timeout: 15000
-- assertNotVisible:
-    id: button.performance.surprise-set
-
-# Home then foreground is the real application-delegate resume signal. AppView
-# supplies revision B and its exact immutable archive through the HTTP boundary.
-- pressKey: Home
-- launchApp:
-    stopApp: false
-- extendedWaitUntil:
-    visible:
-      id: button.performance.surprise-set
-    timeout: 30000
-- assertVisible: Surprise Set
-- tapOn:
-    id: button.schedule-stage.meadow
-- scrollUntilVisible:
-    element:
-      id: button.performance.collaborative-set
-    direction: DOWN
-    timeout: 20000
-- assertVisible: Collaborative Set — Updated
-
-# Revision B adds a post while the attendee's earlier source post remains.
-# The Swift story checks its read state and the other local preference tables.
-- tapOn: Comms
-- extendedWaitUntil:
-    visible:
-      id: button.channel.general
-    timeout: 15000
-- tapOn:
-    id: button.channel.general
-- extendedWaitUntil:
-    visible:
-      id: button.communication-post.schedule-update
-    timeout: 15000
-- assertVisible: Saturday Schedule Updated
 - assertVisible:
-    id: button.communication-post.welcome
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt
+
+# The installed record and its related records survive a process relaunch.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- assertVisible:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Welcome to Testival

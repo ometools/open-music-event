@@ -1,15 +1,15 @@
 public struct ScheduleDivision: Hashable, Identifiable, Sendable {
-    public init(category: OMERecord.Stage.Category?) {
+    public init(category: String?) {
         self.category = category
     }
 
-    public var category: OMERecord.Stage.Category?
-    public var id: String { category?.rawValue ?? "schedule" }
+    public var category: String?
+    public var id: String { category ?? "schedule" }
 
     public static let schedule = Self(category: nil)
 
     public var systemImage: String {
-        switch category?.rawValue {
+        switch category {
         case nil:
             return "calendar"
         case "workshop":
@@ -22,13 +22,13 @@ public struct ScheduleDivision: Hashable, Identifiable, Sendable {
     }
 
     public var title: String {
-        switch category?.rawValue {
+        switch category {
         case nil:
             return "Schedule"
         case "workshop":
             return "Workshops"
         default:
-            return category?.rawValue.scheduleDivisionTitle ?? "Schedule"
+            return category?.scheduleDivisionTitle ?? "Schedule"
         }
     }
 }

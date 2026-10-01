@@ -1,12 +1,13 @@
 import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventComponents
+import OpenMusicEventLexicon
 import Sharing
 import SwiftUI
 
 struct ScheduleNowScrollRequest: Equatable {
     let sequence: Int
-    let performanceID: OMERecord.ID<OMERecord.Performance>
+    let performanceID: ProgramItem.ID
     let animated: Bool
 }
 
@@ -23,11 +24,11 @@ extension EnvironmentValues {
 
 public struct ScheduleAddMenu: View {
     @Bindable var store: StoreOf<ScheduleViewer>
-    let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let selectedScheduleID: Schedule.ID?
 
     public init(
         store: StoreOf<ScheduleViewer>,
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        selectedScheduleID: Schedule.ID?
     ) {
         self.store = store
         self.selectedScheduleID = selectedScheduleID
@@ -195,7 +196,7 @@ public struct ScheduleViewerView: View {
     @Dependency(\.date.now) var now
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Bindable var store: StoreOf<ScheduleViewer>
-    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: Schedule.ID?
     @Binding var pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction?
     @State var nowScrollRequest: ScheduleNowScrollRequest?
     @State var nowScrollSequence = 0
@@ -203,7 +204,7 @@ public struct ScheduleViewerView: View {
 
     public init(
         store: StoreOf<ScheduleViewer>,
-        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
+        selectedScheduleID: Binding<Schedule.ID?>,
         pendingScheduleLaunchAction: Binding<EventViewer.ScheduleLaunchAction?>,
         showsAuthoringControls: Bool = true
     ) {
@@ -214,57 +215,7 @@ public struct ScheduleViewerView: View {
     }
 
     public var body: some View {
-        content
-            .scheduleAccessibilityIdentifier(
-                "view.schedule.\(store.eventID.eventID.rawValue.rawValue)"
-            )
-            .navigationTitle(navigationTitle)
-            .toolbar {
-                #if os(macOS) && !SKIP
-                ToolbarItem(placement: .automatic) {
-                    UserScheduleFilterMenu(store: store)
-                }
-                #else
-                ToolbarItem(placement: .topBarLeading) {
-                    UserScheduleFilterMenu(store: store)
-                }
-                #endif
-
-                if currentTimeDestination != nil {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Now") {
-                            jumpToCurrentTime(animated: true)
-                        }
-                    }
-                }
-                if showsAuthoringControls {
-                    ToolbarItem(placement: .primaryAction) {
-                        ScheduleAddMenu(
-                            store: store,
-                            selectedScheduleID: selectedScheduleID
-                        )
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    ScheduleKindMenu(store: store)
-                }
-            }
-            .toolbarTitleMenu {
-                if !store.state.usesSingletonSchedule,
-                   let timeZone = store.timeZone {
-                    ForEach(store.schedules) { schedule in
-                        Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
-                            selectedScheduleID = schedule.id.scheduleID
-                        }
-                        .accessibilityIdentifier(
-                            "button.schedule-day.\(schedule.id.scheduleID.rawValue.rawValue)"
-                        )
-                    }
-                }
-            }
-            #if !os(macOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+        chromeContent
             .confirmationDialog(
                 "Delete Performance?",
                 isPresented: $store.scope(\.destination).deletePerformanceConfirmation.isPresented,
@@ -318,6 +269,59 @@ public struct ScheduleViewerView: View {
             .onAppear {
                 consumePendingScheduleLaunchAction()
             }
+    }
+
+    var chromeContent: some View {
+        content
+            .scheduleAccessibilityIdentifier(
+                "view.schedule.\(store.eventID.description)"
+            )
+            .navigationTitle(navigationTitle)
+            .toolbar {
+                #if os(macOS) && !SKIP
+                ToolbarItem(placement: .automatic) {
+                    UserScheduleFilterMenu(store: store)
+                }
+                #else
+                ToolbarItem(placement: .topBarLeading) {
+                    UserScheduleFilterMenu(store: store)
+                }
+                #endif
+
+                if currentTimeDestination != nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Now") {
+                            jumpToCurrentTime(animated: true)
+                        }
+                    }
+                }
+                if showsAuthoringControls {
+                    ToolbarItem(placement: .primaryAction) {
+                        ScheduleAddMenu(
+                            store: store,
+                            selectedScheduleID: selectedScheduleID
+                        )
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    ScheduleKindMenu(store: store)
+                }
+            }
+            .toolbarTitleMenu {
+                if let timeZone = store.timeZone {
+                    ForEach(store.schedules) { schedule in
+                        Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
+                            selectedScheduleID = schedule.id
+                        }
+                        .accessibilityIdentifier(
+                            "button.schedule-day.\(schedule.id.description)"
+                        )
+                    }
+                }
+            }
+            #if !os(macOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
     }
 
     var selectedScheduleTitle: String {

@@ -7,8 +7,7 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case duplicateBrandedEventRoute(host: String, eventClaim: String)
     case invalidBrandedEventRouteClaim(String)
     case invalidBrandedEventRouteHost(String)
-    case invalidBrandedEventRouteOrganizerID(String)
-    case invalidBrandedEventRouteRKey(String)
+    case invalidBrandedEventRouteEventURI(String)
 
     case apnsPrivateKeyUnreadable(String)
     case duplicateNotificationProviderApplicationID(

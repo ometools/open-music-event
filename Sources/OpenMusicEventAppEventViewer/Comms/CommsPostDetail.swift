@@ -4,6 +4,7 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
@@ -17,24 +18,29 @@ public struct CommsPostDetail {
     public struct State: Identifiable {
         enum LoadState: Equatable, Sendable {
             case failed
-            case loaded(CommsPost)
+            case loaded(Social.Post)
             case loading
         }
 
-        public init(postID: CommsPost.ID) {
+        public init(postID: Social.Post.ID, eventID: Event.ID) {
             self.postID = postID
-            _post = FetchOne(CommsPost.where { $0.id.eq(postID) })
+            self.eventID = eventID
+            self._authoringGrant = .authoringGrant(for: eventID)
+            _post = FetchOne(Social.Post.where { $0.id.eq(postID) })
         }
 
-        public let postID: CommsPost.ID
-        @SharedReader(.defaultAuthoringGrant)
+        public let postID: Social.Post.ID
+        public let eventID: Event.ID
+        @SharedReader
         public var authoringGrant: AuthoringGrant?
-        @FetchOne public var post: CommsPost?
+        @FetchOne public var post: Social.Post?
         public var errorMessage: String?
-        public var id: CommsPost.ID { postID }
+        public var id: Social.Post.ID { postID }
 
         public var canDelete: Bool {
-            authoringGrant?.access.canEditContent == true
+            guard let post, let authoringGrant else { return false }
+            return authoringGrant.access.canEditContent
+                && post.id.authority == .did(authoringGrant.principal.actorID)
         }
 
         var loadState: LoadState {
@@ -96,38 +102,19 @@ public struct CommsPostDetailView: View {
             case let .loaded(post):
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        if let headerImageURL = post.headerImageURL {
-                            CachedRemoteImage(url: headerImageURL) { phase in
-                                switch phase {
-                                case let .success(image, _):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                case .empty:
-                                    ProgressView()
-                                        .frame(maxWidth: .infinity)
-                                case .failure, .unavailable:
-                                    Color.clear
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(maxHeight: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(post.title)
+                            Text(post.title ?? "Post")
                                 .font(.title2)
                                 .fontWeight(.bold)
 
-                            if let timestamp = post.timestamp {
+                            if let timestamp = ISO8601DateFormatter().date(from: post.createdAt.rawValue) {
                                 Text(timestamp, format: .relative(presentation: .named))
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
                         }
 
-                        CommsMarkdownText(post.contents)
+                        CommsMarkdownText(post.text)
                             .multilineTextAlignment(.leading)
                             .selectableText()
 
@@ -137,18 +124,6 @@ public struct CommsPostDetailView: View {
                                 .foregroundStyle(.red)
                         }
 
-                        ForEach((post.images ?? []).indices, id: \.self) { index in
-                            let image = (post.images ?? [])[index]
-                            ImageAssetAsyncImage(
-                                asset: image,
-                                cacheContext: LocalImageCacheContext(commsPostID: post.id),
-                                contentMode: .fit
-                            ) {
-                                ImageAssetPickerThumbnailPlaceholder()
-                            }
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
@@ -184,6 +159,6 @@ public struct CommsPostDetailView: View {
                 }
             }
         }
-        .accessibilityIdentifier("view.communication-post.\(store.postID.postID.rawValue)")
+        .accessibilityIdentifier("view.communication-post.\(store.postID.description)")
     }
 }

@@ -167,6 +167,61 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
     }
 }
 
+public enum CanonicalWorkspaceRecordChanges {
+    public static func hasChanges(
+        workspace: SourceWorkspace,
+        in database: Database,
+        referenceDatabase: SourceBaselineDatabase
+    ) throws -> Bool {
+        let current = try Snapshot(in: database, organizerID: workspace.organizerID)
+        return try referenceDatabase.read { baseline in
+            current != (try Snapshot(in: baseline, organizerID: workspace.organizerID))
+        }
+    }
+
+    private struct Snapshot: Equatable {
+        var events: [Event]
+        var programs: [Program]
+        var schedules: [Schedule]
+        var places: [EventPlace]
+        var stages: [Stage]
+        var contributors: [Contributor]
+        var items: [ProgramItem]
+        var categories: [Social.Category]
+        var posts: [Social.Post]
+
+        init(in db: Database, organizerID: OME.Organizer.ID) throws {
+            events = try Event.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            programs = try Program.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            schedules = try Schedule.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            places = try EventPlace.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            stages = try Stage.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            contributors = try Contributor.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            items = try ProgramItem.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            categories = try Social.Category.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+            posts = try Social.Post.all.fetchAll(db)
+                .filter { $0.id.authority == .did(organizerID) }
+                .sorted { $0.id.description < $1.id.description }
+        }
+    }
+}
+
 public func openMusicEventSourceEditSummary(
     workspace: SourceWorkspace,
     workingDatabase: Database,

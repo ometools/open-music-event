@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import OpenMusicEventViewers
 import SQLiteData
 import SwiftUI
@@ -9,11 +10,11 @@ import SwiftUI
 struct PerformanceReactionMenuContext: Sendable {
     var reactions: [PerformanceReaction] = []
     var usage: [PerformanceReactionEmojiUsage] = []
-    var toggle: @MainActor @Sendable (OMERecord.Performance.ID, PerformanceReaction.Emoji) -> Void = { _, _ in }
-    var showOther: (@MainActor @Sendable (OMERecord.Performance.ID) -> Void)?
+    var toggle: @MainActor @Sendable (ProgramItem.ID, PerformanceReaction.Emoji) -> Void = { _, _ in }
+    var showOther: (@MainActor @Sendable (ProgramItem.ID) -> Void)?
 
     func selectedEmojis(
-        for performanceID: OMERecord.Performance.ID
+        for performanceID: ProgramItem.ID
     ) -> [PerformanceReaction.Emoji] {
         reactions
             .filter { $0.performanceID == performanceID }
@@ -21,7 +22,7 @@ struct PerformanceReactionMenuContext: Sendable {
     }
 
     func menuEmojis(
-        for performanceID: OMERecord.Performance.ID
+        for performanceID: ProgramItem.ID
     ) -> [PerformanceReaction.Emoji] {
         PerformanceReaction.menuEmojis(
             selected: selectedEmojis(for: performanceID),
@@ -42,7 +43,7 @@ extension EnvironmentValues {
 }
 
 struct PerformanceReactionMenuContent: View {
-    let performanceID: OMERecord.Performance.ID
+    let performanceID: ProgramItem.ID
     let context: PerformanceReactionMenuContext
 
     var body: some View {
@@ -56,7 +57,7 @@ struct PerformanceReactionMenuContent: View {
 }
 
 struct PerformanceReactionMenu: View {
-    let performanceID: OMERecord.Performance.ID
+    let performanceID: ProgramItem.ID
     let context: PerformanceReactionMenuContext
 
     var body: some View {
@@ -102,7 +103,7 @@ struct PerformanceReactionMenuLabel: View {
 }
 
 struct PerformanceReactionPicker: View {
-    let performanceID: OMERecord.Performance.ID
+    let performanceID: ProgramItem.ID
     let context: PerformanceReactionMenuContext
 
     var body: some View {
@@ -170,7 +171,7 @@ struct PerformanceReactionPicker: View {
 
 struct PerformanceReactionSummary: View {
     @Environment(\.performanceReactionMenuContext) var context
-    let performanceID: OMERecord.Performance.ID
+    let performanceID: ProgramItem.ID
     var limit = 3
 
     var body: some View {
@@ -196,7 +197,7 @@ struct PerformanceReactionSummary: View {
 }
 
 struct PerformanceReactionSummaryWhenFits: View {
-    let performanceID: OMERecord.Performance.ID
+    let performanceID: ProgramItem.ID
     var axes: Axis.Set = .horizontal
 
     var body: some View {
@@ -214,16 +215,16 @@ public struct PerformanceReactionEntry {
     public init() {}
 
     public struct State: Identifiable {
-        public init(performanceID: OMERecord.Performance.ID) {
+        public init(performanceID: ProgramItem.ID) {
             self.performanceID = performanceID
         }
 
-        public let performanceID: OMERecord.Performance.ID
+        public let performanceID: ProgramItem.ID
         public var text = ""
         public var errorMessage: String?
         public var isSaving = false
 
-        public var id: OMERecord.Performance.ID { performanceID }
+        public var id: ProgramItem.ID { performanceID }
         public var emoji: PerformanceReaction.Emoji? {
             PerformanceReaction.Emoji(rawValue: text)
         }

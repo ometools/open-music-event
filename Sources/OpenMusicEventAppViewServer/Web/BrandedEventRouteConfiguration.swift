@@ -1,4 +1,5 @@
 import Foundation
+import ATProtoTypes
 import OpenMusicEventLexicon
 import OpenMusicEventRouting
 
@@ -37,14 +38,16 @@ extension AppViewConfiguration {
                     configuredClaim.eventClaim
                 )
             }
-            guard let organizerID = OME.Organizer.ID(configuredClaim.organizerID) else {
-                throw AppViewConfigurationError.invalidBrandedEventRouteOrganizerID(
-                    configuredClaim.organizerID
+            guard let eventID = Event.ID(configuredClaim.eventURI) else {
+                throw AppViewConfigurationError.invalidBrandedEventRouteEventURI(
+                    configuredClaim.eventURI
                 )
             }
-            guard !configuredClaim.eventRKey.isEmpty else {
-                throw AppViewConfigurationError.invalidBrandedEventRouteRKey(
-                    configuredClaim.eventRKey
+            do {
+                try LexiconCoding.validateRecordURI(eventID, type: Event.self)
+            } catch {
+                throw AppViewConfigurationError.invalidBrandedEventRouteEventURI(
+                    configuredClaim.eventURI
                 )
             }
             guard routeKeys.insert("\(host)/\(configuredClaim.eventClaim)").inserted else {
@@ -57,10 +60,7 @@ extension AppViewConfiguration {
             return BrandedEventRouteClaim(
                 host: host,
                 eventClaim: configuredClaim.eventClaim,
-                eventID: OME.Event.ID(
-                    organizerID: organizerID,
-                    eventID: OME.ID<OME.Event>(.init(configuredClaim.eventRKey))
-                )
+                eventID: eventID
             )
         }
     }
@@ -72,8 +72,7 @@ private struct BrandedEventRouteConfigurationFile: Decodable {
     struct Claim: Decodable {
         var host: String
         var eventClaim: String
-        var organizerID: String
-        var eventRKey: String
+        var eventURI: String
     }
 }
 

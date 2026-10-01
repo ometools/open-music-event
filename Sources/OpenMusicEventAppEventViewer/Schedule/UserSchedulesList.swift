@@ -1,3 +1,4 @@
+import OpenMusicEventLexicon
 import ATProto
 import ComposableArchitecture2
 import Dependencies
@@ -14,9 +15,9 @@ public struct UserScheduleForm {
 
     public struct State: Identifiable {
         public init(
-            eventID: OMERecord.Event.ID,
+            eventID: Event.ID,
             schedule: UserSchedule? = nil,
-            performanceID: OMERecord.ID<OMERecord.Performance>? = nil
+            performanceID: ProgramItem.ID? = nil
         ) {
             self.eventID = eventID
             self.scheduleID = schedule?.id
@@ -24,10 +25,10 @@ public struct UserScheduleForm {
             self.performanceID = performanceID
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public let scheduleID: UserSchedule.ID?
         public var title: String
-        public let performanceID: OMERecord.ID<OMERecord.Performance>?
+        public let performanceID: ProgramItem.ID?
         public var errorMessage: String?
         public var isSaving = false
 
@@ -177,7 +178,7 @@ public struct UserSchedulesList {
     public init() {}
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(eventID: Event.ID) {
             self.eventID = eventID
             self.eventViewerState = EventViewerState(id: eventID)
             self._persistedEventViewerState = FetchOne(
@@ -189,7 +190,7 @@ public struct UserSchedulesList {
             self._performanceRows = FetchAll(PerformanceRow.all(eventID: eventID))
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let eventID: Event.ID
         public var destination: Destination.State?
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?

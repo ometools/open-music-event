@@ -1,8 +1,10 @@
+import OpenMusicEventLexicon
 import ATProto
 import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventDatabase
 import ScheduleComponents
 import SQLiteData
 #if os(Android)
@@ -21,14 +23,14 @@ public struct EditPerformance {
 
     public struct State: Identifiable {
         public struct StageOption: Equatable, Sendable {
-            public init(stage: OMERecord.Stage) {
-                self.id = stage.id.stageID
+            public init(stage: EventPlace) {
+                self.id = stage.id
                 self.name = stage.name
             }
 
-            public var id: OMERecord.ID<OMERecord.Stage>
+            public var id: EventPlace.ID
             public var name: String
-            public var rawID: String { id.rawValue.rawValue }
+            public var rawID: String { id.description }
         }
 
         public enum RelationshipRoleSelection: String, CaseIterable, Equatable, Hashable, Sendable {
@@ -40,39 +42,39 @@ public struct EditPerformance {
             case stageHand
             case custom
 
-            init(role: OMERecord.Relationship.Role) {
+            init(role: String) {
                 switch role {
-                case .performer:
+                case "performer":
                     self = .performer
-                case .dj:
+                case "dj":
                     self = .dj
-                case .dancer:
+                case "dancer":
                     self = .dancer
-                case .visualArtist:
+                case "visualArtist":
                     self = .visualArtist
-                case .soundTech:
+                case "soundTech":
                     self = .soundTech
-                case .stageHand:
+                case "stageHand":
                     self = .stageHand
                 default:
                     self = .custom
                 }
             }
 
-            var role: OMERecord.Relationship.Role? {
+            var role: String? {
                 switch self {
                 case .performer:
-                    return .performer
+                    return "performer"
                 case .dj:
-                    return .dj
+                    return "dj"
                 case .dancer:
-                    return .dancer
+                    return "dancer"
                 case .visualArtist:
-                    return .visualArtist
+                    return "visualArtist"
                 case .soundTech:
-                    return .soundTech
+                    return "soundTech"
                 case .stageHand:
-                    return .stageHand
+                    return "stageHand"
                 case .custom:
                     return nil
                 }
@@ -106,22 +108,25 @@ public struct EditPerformance {
             public init(
                 id: Int,
                 selection: ContributorRelationshipPicker.Selection,
-                billing: OMERecord.Performance.Contributors.Billing = .primary,
+                billing: Open<ProgramItem.Billing> = .known(.primary),
                 roleSelection: RelationshipRoleSelection? = nil,
-                customRelationshipRole: String = ""
+                customRelationshipRole: String = "",
+                creditName: String? = nil
             ) {
                 self.id = id
                 self.selection = selection
                 self.billing = billing
                 self.roleSelection = roleSelection
                 self.customRelationshipRole = customRelationshipRole
+                self.creditName = creditName
             }
 
             public var id: Int
             public var selection: ContributorRelationshipPicker.Selection
-            public var billing: OMERecord.Performance.Contributors.Billing
+            public var billing: Open<ProgramItem.Billing>
             public var roleSelection: RelationshipRoleSelection?
             public var customRelationshipRole: String
+            public var creditName: String?
 
             var hasEmptyCustomRelationshipRole: Bool {
                 roleSelection == .custom && trimmedCustomRelationshipRole.isEmpty
@@ -139,53 +144,20 @@ public struct EditPerformance {
                 return roleSelection.title
             }
 
-            fileprivate var contributorSubject: EditPerformanceContributorSubject {
-                switch selection {
-                case .none:
-                    return .none
-
-                case let .existingContributor(contributorID):
-                    return .contributor(contributorID)
-
-                case let .identityOnly(actor, _):
-                    return .identity(actor)
-
-                case let .newContributor(name):
-                    return .newContributor(name)
-
-                case let .newContributorFromIdentity(identity):
-                    return .newContributorFromIdentity(identity)
-
-                case let .performanceDisplayName(name):
-                    return .displayName(name)
-                }
-            }
-
-            fileprivate var performanceContributorRole: OMERecord.Performance.Contributors.Role? {
-                guard roleSelection != nil else { return nil }
-                let role = relationshipRole
-                return role == .performer
-                    ? nil
-                    : OMERecord.Performance.Contributors.Role(role.rawValue)
-            }
-
-            fileprivate var relationshipRole: OMERecord.Relationship.Role {
-                guard let roleSelection else { return .performer }
-                return roleSelection.role
-                    ?? OMERecord.Relationship.Role(
-                        trimmedCustomRelationshipRole.nilIfEmpty
-                            ?? OMERecord.Relationship.Role.performer.rawValue
-                    )
+            fileprivate var role: String? {
+                guard let roleSelection else { return nil }
+                return roleSelection.role ?? trimmedCustomRelationshipRole.nilIfEmpty
             }
         }
 
         public init(
-            eventID: OMERecord.Event.ID,
-            schedule: OMERecord.Schedule,
-            schedules: [OMERecord.Schedule],
-            stages: [OMERecord.Stage],
+            eventID: Event.ID,
+            schedule: Schedule,
+            schedules: [Schedule],
+            programs: [Program],
+            stages: [EventPlace],
             timeZone: TimeZone,
-            selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
+            selectedStageID: EventPlace.ID? = nil,
             initialStartTime: Date? = nil,
             contributors: [ContributorProfile] = []
         ) {
@@ -198,58 +170,70 @@ public struct EditPerformance {
             self.eventID = eventID
             self.schedule = schedule
             self.schedules = schedules
+            self.programs = programs
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
+            let selectedProgramID = programs.first(where: {
+                selectedStageID.map($0.eventPlaces.contains) == true
+            })?.id ?? programs.first?.id
+            self.selectedProgramID = selectedProgramID
             self.selectedStageID = selectedStageID.flatMap { selectedStageID in
-                stages.contains { $0.id.stageID == selectedStageID }
+                stages.contains { $0.id == selectedStageID }
                     ? selectedStageID
                     : nil
-            } ?? stages.first?.id.stageID
-            self.stageOptions = stages.map(StageOption.init)
+            } ?? stages.first(where: { stage in
+                programs.first(where: { $0.id == selectedProgramID })?
+                    .eventPlaces.contains(stage.id) == true
+            })?.id
+            self.allStageOptions = stages.map(StageOption.init)
             self.timeRangeSelection = DateTimeRangeSelection(
                 start: startTime,
                 end: endTime,
                 timeZone: timeZone,
                 anchorDate: schedule.date.atStartOfDay(in: timeZone),
-                preferredWindow: Self.preferredWindow(for: schedule)
+                preferredWindow: nil
             )
             self.timeZone = timeZone
         }
 
         public init(
-            eventID: OMERecord.Event.ID,
-            schedule: OMERecord.Schedule,
-            schedules: [OMERecord.Schedule],
-            stages: [OMERecord.Stage],
+            eventID: Event.ID,
+            schedule: Schedule,
+            schedules: [Schedule],
+            programs: [Program],
+            stages: [EventPlace],
             timeZone: TimeZone,
-            performance: OMERecord.Performance,
-            contributors: [ContributorProfile] = [],
-            performanceContributors: [OMERecord.Performance.Contributors] = []
+            performance: ProgramItem,
+            contributors: [ContributorProfile] = []
         ) {
             self.init(
                 eventID: eventID,
                 schedule: schedule,
                 schedules: schedules,
+                programs: programs,
                 stages: stages,
                 timeZone: timeZone,
-                selectedStageID: performance.stageID,
+                selectedStageID: performance.eventPlace,
                 contributors: contributors
             )
             self.description = performance.description ?? ""
-            self.performanceID = performance.id.performanceID
-            self.selectedStageID = performance.stageID
-            self.timeRangeSelection.end = performance.endTime
-            self.timeRangeSelection.start = performance.startTime
+            self.performanceID = performance.id
+            self.selectedProgramID = performance.program
+            self.selectedStageID = performance.eventPlace
+            self.timeRangeSelection.end = performance.endDate ?? performance.startDate ?? self.timeRangeSelection.end
+            self.timeRangeSelection.start = performance.startDate ?? self.timeRangeSelection.start
             self.title = performance.title
-            self.loadContributions(performanceContributors)
+            self.media = performance.media
+            self.loadContributions(performance.credits ?? [])
             self.titleIsGenerated = !self.generatedTitle.isEmpty && self.title == self.generatedTitle
         }
 
-        public let eventID: OMERecord.Event.ID
-        public var schedule: OMERecord.Schedule
-        public let schedules: [OMERecord.Schedule]
-        public let stageOptions: [StageOption]
+        public let eventID: Event.ID
+        public var schedule: Schedule
+        public let schedules: [Schedule]
+        public let programs: [Program]
+        public let allStageOptions: [StageOption]
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
 
@@ -263,35 +247,45 @@ public struct EditPerformance {
         public var isSaving = false
         @DebugSnapshotTracked
         var nextContributionID = 0
-        public var performanceID: OMERecord.ID<OMERecord.Performance>?
-        public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+        public var performanceID: ProgramItem.ID?
+        public var selectedProgramID: Program.ID?
+        public var selectedStageID: EventPlace.ID?
+        public var media: [Open<OME.Media>]?
         @DebugSnapshotTracked
         var titleIsGenerated = true
         public var timeRangeSelection: DateTimeRangeSelection
         public var title = ""
 
         public var id: String {
-            [
-                eventID.organizerID.description,
-                eventID.eventID.rawValue.rawValue,
-                performanceID?.rawValue.rawValue ?? "new",
-            ]
-            .joined(separator: ":")
+            "\(eventID.description):\(performanceID?.description ?? "new")"
         }
 
-        public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule> {
-            get { schedule.id.scheduleID }
+        public var stageOptions: [StageOption] {
+            guard let program = programs.first(where: { $0.id == selectedProgramID }) else { return [] }
+            return allStageOptions.filter { program.eventPlaces.contains($0.id) }
+        }
+
+        mutating func selectProgram(_ programID: Program.ID?) {
+            guard let program = programs.first(where: { $0.id == programID }) else { return }
+            selectedProgramID = program.id
+            if let selectedStageID, !program.eventPlaces.contains(selectedStageID) {
+                self.selectedStageID = nil
+            }
+        }
+
+        public var selectedScheduleID: Schedule.ID {
+            get { schedule.id }
             set {
-                guard newValue != schedule.id.scheduleID,
+                guard newValue != schedule.id,
                       let selectedSchedule = schedules.first(where: {
-                          $0.id.scheduleID == newValue
+                          $0.id == newValue
                       })
                 else { return }
 
                 let startDayOffset = timeRangeSelection.startDayOffset
                 schedule = selectedSchedule
                 timeRangeSelection.anchorDate = selectedSchedule.date.atStartOfDay(in: timeZone)
-                timeRangeSelection.preferredWindow = Self.preferredWindow(for: selectedSchedule)
+                timeRangeSelection.preferredWindow = nil
                 timeRangeSelection.setStartDayOffset(startDayOffset)
             }
         }
@@ -334,8 +328,11 @@ public struct EditPerformance {
             if trimmedTitle.isEmpty {
                 return "Enter a title."
             }
-            if selectedStageID == nil {
-                return "Choose a stage."
+            if selectedProgramID == nil {
+                return "Choose a program."
+            }
+            if let selectedStageID, !stageOptions.contains(where: { $0.id == selectedStageID }) {
+                return "Choose a place in this program."
             }
             if endTimeSelection <= startTimeSelection {
                 return "End time must be after the start time."
@@ -347,18 +344,19 @@ public struct EditPerformance {
         }
 
         var primaryContributions: [Contribution] {
-            contributions.filter { $0.billing == .primary }
+            contributions.filter { $0.billing == .known(.primary) }
         }
 
         var supportingContributions: [Contribution] {
-            contributions.filter { $0.billing == .supporting }
+            contributions.filter { $0.billing != .known(.primary) }
         }
 
         mutating func appendContribution(
             selection: ContributorRelationshipPicker.Selection,
-            billing: OMERecord.Performance.Contributors.Billing? = nil,
+            billing: Open<ProgramItem.Billing>? = nil,
             roleSelection: RelationshipRoleSelection? = nil,
-            customRelationshipRole: String = ""
+            customRelationshipRole: String = "",
+            creditName: String? = nil
         ) {
             guard !selection.isNone else { return }
             contributions.append(
@@ -367,10 +365,21 @@ public struct EditPerformance {
                     selection: selection,
                     billing: billing ?? defaultBillingForNewContribution,
                     roleSelection: roleSelection,
-                    customRelationshipRole: customRelationshipRole
+                    customRelationshipRole: customRelationshipRole,
+                    creditName: creditName
                 )
             )
             nextContributionID += 1
+            refreshGeneratedTitle()
+        }
+
+        mutating func updateContributionSelection(
+            id: Int,
+            selection: ContributorRelationshipPicker.Selection
+        ) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            contributions[index].selection = selection
+            contributions[index].creditName = nil
             refreshGeneratedTitle()
         }
 
@@ -381,7 +390,7 @@ public struct EditPerformance {
 
         mutating func setContributionBilling(
             id: Int,
-            billing: OMERecord.Performance.Contributors.Billing
+            billing: Open<ProgramItem.Billing>
         ) {
             guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
             contributions[index].billing = billing
@@ -428,16 +437,16 @@ public struct EditPerformance {
             }
         }
 
-        private var defaultBillingForNewContribution: OMERecord.Performance.Contributors.Billing {
-            contributions.contains { $0.billing == .primary }
-                ? .supporting
-                : .primary
+        private var defaultBillingForNewContribution: Open<ProgramItem.Billing> {
+            contributions.contains { $0.billing == .known(.primary) }
+                ? .known(.supporting)
+                : .known(.primary)
         }
 
         private func generatedPerformanceTitle() -> String {
             primaryContributions
                 .compactMap { contribution in
-                    contributorRelationshipPicker
+                    contribution.creditName ?? contributorRelationshipPicker
                         .summary(for: contribution.selection)?
                         .title
                         .nilIfEmpty
@@ -446,57 +455,35 @@ public struct EditPerformance {
         }
 
         private mutating func loadContributions(
-            _ performanceContributors: [OMERecord.Performance.Contributors]
+            _ credits: [ProgramItem.Credit]
         ) {
-            for contributor in performanceContributors.sorted(by: { $0.sortIndex < $1.sortIndex }) {
-                guard let selection = Self.selection(for: contributor) else { continue }
-                let role = contributor.role.map { OMERecord.Relationship.Role($0.rawValue) }
-                let roleSelection = role.map(RelationshipRoleSelection.init(role:))
+            for contributor in credits {
+                let selection: ContributorRelationshipPicker.Selection = contributor.contributor
+                    .map(ContributorRelationshipPicker.Selection.existingContributor)
+                    ?? .performanceDisplayName(name: contributor.name)
+                let roleSelection = contributor.role.map(RelationshipRoleSelection.init(role:))
                 appendContribution(
                     selection: selection,
                     billing: contributor.billing,
                     roleSelection: roleSelection,
-                    customRelationshipRole: roleSelection == .custom ? role?.rawValue ?? "" : ""
+                    customRelationshipRole: roleSelection == .custom ? contributor.role ?? "" : "",
+                    creditName: contributor.name
                 )
             }
         }
 
-        private static func selection(
-            for contributor: OMERecord.Performance.Contributors
-        ) -> ContributorRelationshipPicker.Selection? {
-            if let contributorID = contributor.contributorID {
-                return .existingContributor(contributorID)
-            }
-            if let contributorActor = contributor.contributorActor {
-                return .identityOnly(
-                    actor: contributorActor,
-                    displayTitle: nil
-                )
-            }
-            if let anonymousName = contributor.anonymousName {
-                return .performanceDisplayName(name: anonymousName)
-            }
-            return nil
-        }
-
-        private static func preferredWindow(for schedule: OMERecord.Schedule) -> DateInterval? {
-            guard let startsAt = schedule.startsAt,
-                  let endsAt = schedule.endsAt,
-                  endsAt > startsAt
-            else { return nil }
-            return DateInterval(start: startsAt, end: endsAt)
-        }
     }
 
     public enum Action {
         case contributionBillingButtonTapped(
             Int,
-            OMERecord.Performance.Contributors.Billing
+            Open<ProgramItem.Billing>
         )
         case contributionCustomRoleChanged(Int, String)
         case contributionDeleteButtonTapped(Int)
         case contributionRoleButtonTapped(Int, State.RelationshipRoleSelection?)
         case contributorRelationshipPicker(ContributorRelationshipPicker.Action)
+        case programChanged(Program.ID?)
         case saveButtonTapped
         case titleTextChanged(String)
     }
@@ -548,11 +535,14 @@ public struct EditPerformance {
                     break
                 }
 
+            case let .programChanged(programID):
+                state.selectProgram(programID)
+
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
                 guard let validationMessage = state.validationMessage else {
-                    guard let stageID = state.selectedStageID else {
-                        state.errorMessage = "Choose a stage."
+                    guard let programID = state.selectedProgramID else {
+                        state.errorMessage = "Choose a program."
                         return
                     }
 
@@ -560,14 +550,14 @@ public struct EditPerformance {
                     state.isSaving = true
                     let request = EditPerformanceSaveRequest(
                         state: state,
-                        stageID: stageID,
-                        createdAt: Self.relationshipCreatedAt(now)
+                        programID: programID
                     )
+                    let createdAt = now
 
                     store.addTask {
                         do {
                             try database.write { db in
-                                try EditPerformanceDrafts.save(request, in: db)
+                                try EditPerformanceDrafts.save(request, createdAt: createdAt, in: db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
@@ -592,473 +582,167 @@ public struct EditPerformance {
         }
     }
 
-    static func performanceContributorsQuery(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
-        OMERecord.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
-            .where { $0.performanceID.performanceID.eq(performanceID) }
-            .order { $0.sortIndex }
-    }
-
-    private static func relationshipCreatedAt(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
-    }
-}
-
-fileprivate enum EditPerformanceContributorSubject: Equatable, Sendable {
-    case none
-    case contributor(OMERecord.ID<OMERecord.Contributor>)
-    case identity(OMERecord.Contributor.Actor)
-    case newContributor(String)
-    case newContributorFromIdentity(ContributorRelationshipPicker.SelectedActorIdentity)
-    case displayName(String)
-
-    var identityDID: DID? {
-        guard case let .identity(actor) = self,
-              case let .did(did) = actor.identifier
-        else { return nil }
-        return did
-    }
 }
 
 fileprivate struct EditPerformanceSaveRequest: Sendable {
-    var contributions: [EditPerformance.State.Contribution]
-    var createdAt: String
-    var description: String?
-    var endTime: Date
-    var eventID: OMERecord.Event.ID
-    var performanceID: OMERecord.ID<OMERecord.Performance>?
-    var scheduleID: OMERecord.ID<OMERecord.Schedule>
-    var stageID: OMERecord.ID<OMERecord.Stage>
-    var startTime: Date
-    var title: String
+    let contributions: [EditPerformance.State.Contribution]
+    let description: String?
+    let endTime: Date
+    let eventID: Event.ID
+    let performanceID: ProgramItem.ID?
+    let programID: Program.ID
+    let scheduleID: Schedule.ID
+    let stageID: EventPlace.ID?
+    let startTime: Date
+    let title: String
 
-    init(
-        state: EditPerformance.State,
-        stageID: OMERecord.ID<OMERecord.Stage>,
-        createdAt: String
-    ) {
-        self.contributions = state.contributions
-        self.createdAt = createdAt
-        self.description = state.trimmedDescription.nilIfEmpty
-        self.endTime = state.endTimeSelection
-        self.eventID = state.eventID
-        self.performanceID = state.performanceID
-        self.scheduleID = state.selectedScheduleID
-        self.stageID = stageID
-        self.startTime = state.startTimeSelection
-        self.title = state.trimmedTitle
+    init(state: EditPerformance.State, programID: Program.ID) {
+        contributions = state.contributions
+        description = state.trimmedDescription.nilIfEmpty
+        endTime = state.endTimeSelection
+        eventID = state.eventID
+        performanceID = state.performanceID
+        self.programID = programID
+        scheduleID = state.selectedScheduleID
+        stageID = state.selectedStageID
+        startTime = state.startTimeSelection
+        title = state.trimmedTitle
     }
 
     var errorMessage: String {
-        performanceID == nil
-            ? "Unable to create performance."
-            : "Unable to save performance."
+        performanceID == nil ? "Unable to create performance." : "Unable to save performance."
     }
 }
 
 fileprivate enum EditPerformanceDrafts {
-    static func save(_ request: EditPerformanceSaveRequest, in db: Database) throws {
-        var request = request
-        try resolveContributorSubjects(in: &request, db: db)
+    static func save(
+        _ request: EditPerformanceSaveRequest,
+        createdAt: Date,
+        in db: Database
+    ) throws {
+        let credits = try request.contributions.compactMap {
+            try credit(for: $0, eventID: request.eventID, createdAt: createdAt, in: db)
+        }
+        let start = ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: request.startTime))
+        let end = ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: request.endTime))
+        var fields: ProgramItemRecordEditing.Fields
+        if let performanceID = request.performanceID {
+            guard let item = try ProgramItem.find(performanceID).fetchOne(db),
+                  item.event == request.eventID
+            else { throw EditPerformanceSaveError() }
+            fields = ProgramItemRecordEditing.Fields(item)
+        } else {
+            fields = ProgramItemRecordEditing.Fields(
+                program: request.programID,
+                title: request.title
+            )
+        }
+        fields.program = request.programID
+        fields.title = request.title
+        fields.description = request.description
+        fields.schedule = request.scheduleID
+        fields.eventPlace = request.stageID
+        fields.startsAt = start
+        fields.endsAt = end
+        fields.credits = credits.isEmpty ? nil : credits
 
         if let performanceID = request.performanceID {
-            try update(request, performanceID: performanceID, in: db)
+            try ProgramItemRecordEditing.update(
+                performanceID,
+                eventID: request.eventID,
+                fields: fields,
+                in: db
+            )
         } else {
-            try insert(request, in: db)
-        }
-    }
-
-    static func insert(_ request: EditPerformanceSaveRequest, in db: Database) throws {
-        let performanceID = try performanceID(for: request, in: db)
-        try OMERecord.Performance.insert {
-            performanceDraft(
-                for: request,
-                performanceID: performanceID
+            _ = try ProgramItemRecordEditing.create(
+                eventID: request.eventID,
+                fields: fields,
+                createdAt: createdAt,
+                in: db
             )
         }
-        .execute(db)
-
-        let contributorDrafts = contributorDrafts(
-            for: request,
-            performanceID: performanceID
-        )
-        if !contributorDrafts.isEmpty {
-            try OMERecord.Performance.Contributors.insert {
-                contributorDrafts
-            }
-            .execute(db)
-        }
-        let relationshipDrafts = relationshipDrafts(
-            for: request,
-            performanceID: performanceID
-        )
-        if !relationshipDrafts.isEmpty {
-            try OMERecord.Relationship.insert {
-                relationshipDrafts
-            }
-            .execute(db)
-        }
     }
 
-    static func update(
-        _ request: EditPerformanceSaveRequest,
-        performanceID: OMERecord.ID<OMERecord.Performance>,
+    private static func credit(
+        for contribution: EditPerformance.State.Contribution,
+        eventID: Event.ID,
+        createdAt: Date,
         in db: Database
-    ) throws {
-        let id = OMERecord.Performance.ID(
-            organizerID: request.eventID.organizerID,
-            eventID: request.eventID.eventID,
-            performanceID: performanceID
-        )
-        guard try OMERecord.Performance.find(id).fetchOne(db) != nil else {
-            throw EditPerformanceSaveError()
+    ) throws -> ProgramItem.Credit? {
+        let name: String
+        let contributorID: Contributor.ID?
+        switch contribution.selection {
+        case .none:
+            return nil
+
+        case let .existingContributor(id):
+            guard let contributor = try Contributor.find(id).fetchOne(db),
+                  contributor.event == eventID
+            else { throw ContributorRecordEditing.Error.contributorUnavailable }
+            name = contribution.creditName ?? contributor.name
+            contributorID = id
+
+        case let .identityOnly(actor, displayTitle):
+            name = contribution.creditName ?? displayTitle ?? actor.description
+            contributorID = try resolvedContributorID(
+                for: actor,
+                name: name,
+                eventID: eventID,
+                createdAt: createdAt,
+                in: db
+            )
+
+        case let .newContributor(newName):
+            name = contribution.creditName ?? newName
+            contributorID = try ContributorRecordEditing.create(
+                eventID: eventID,
+                fields: .init(name: name),
+                createdAt: createdAt,
+                in: db
+            )
+
+        case let .newContributorFromIdentity(identity):
+            name = contribution.creditName ?? identity.contributorName
+            contributorID = try resolvedContributorID(
+                for: identity.did,
+                name: name,
+                eventID: eventID,
+                createdAt: createdAt,
+                in: db
+            )
+
+        case let .performanceDisplayName(displayName):
+            name = contribution.creditName ?? displayName
+            contributorID = nil
         }
 
-        try OMERecord.Performance
-            .find(id)
-            .update {
-                $0.description = #bind(request.description)
-                $0.endTime = #bind(request.endTime)
-                $0.scheduleID = #bind(request.scheduleID)
-                $0.stageID = #bind(request.stageID)
-                $0.startTime = #bind(request.startTime)
-                $0.title = #bind(request.title)
-            }
-            .execute(db)
+        return ProgramItem.Credit(
+            name: name,
+            contributor: contributorID,
+            billing: contribution.billing,
+            role: contribution.role
+        )
+    }
 
-        try OMERecord.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(request.eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(request.eventID.eventID) }
-            .where { $0.performanceID.performanceID.eq(performanceID) }
-            .delete()
-            .execute(db)
-        try deletePerformanceRelationships(
-            performanceID: id,
+    private static func resolvedContributorID(
+        for did: DID,
+        name: String,
+        eventID: Event.ID,
+        createdAt: Date,
+        in db: Database
+    ) throws -> Contributor.ID {
+        if let contributor = try Contributor
+            .where({ $0.event.eq(eventID) })
+            .fetchAll(db)
+            .first(where: { $0.subject == did }) {
+            return contributor.id
+        }
+        return try ContributorRecordEditing.create(
+            eventID: eventID,
+            fields: .init(name: name, subject: did),
+            createdAt: createdAt,
             in: db
         )
-
-        let contributorDrafts = contributorDrafts(
-            for: request,
-            performanceID: performanceID
-        )
-        if !contributorDrafts.isEmpty {
-            try OMERecord.Performance.Contributors.insert {
-                contributorDrafts
-            }
-            .execute(db)
-        }
-
-        let relationshipDrafts = relationshipDrafts(
-            for: request,
-            performanceID: performanceID
-        )
-        if !relationshipDrafts.isEmpty {
-            try OMERecord.Relationship.insert {
-                relationshipDrafts
-            }
-            .execute(db)
-        }
-    }
-
-    static func performanceID(
-        for request: EditPerformanceSaveRequest,
-        in db: Database
-    ) throws -> OMERecord.ID<OMERecord.Performance> {
-        let base = performanceIDBase(for: request)
-        var candidate = base
-        var suffix = 2
-
-        while try PerformanceDetail.performanceQuery(
-            performanceID: localID(candidate),
-            eventID: request.eventID
-        )
-        .fetchOne(db) != nil {
-            candidate = "\(base)-\(suffix)"
-            suffix += 1
-        }
-
-        return localID(candidate)
-    }
-
-    static func performanceDraft(
-        for request: EditPerformanceSaveRequest,
-        performanceID: OMERecord.ID<OMERecord.Performance>
-    ) -> OMERecord.Performance.Draft {
-        OMERecord.Performance.Draft(
-            id: OMERecord.Performance.ID(
-                organizerID: request.eventID.organizerID,
-                eventID: request.eventID.eventID,
-                performanceID: performanceID
-            ),
-            stageID: request.stageID,
-            scheduleID: request.scheduleID,
-            startTime: request.startTime,
-            endTime: request.endTime,
-            title: request.title,
-            description: request.description,
-            recordings: []
-        )
-    }
-
-    static func contributorDrafts(
-        for request: EditPerformanceSaveRequest,
-        performanceID: OMERecord.ID<OMERecord.Performance>
-    ) -> [OMERecord.Performance.Contributors.Draft] {
-        var drafts: [OMERecord.Performance.Contributors.Draft] = []
-        let scopedPerformanceID = OMERecord.Performance.ID(
-            organizerID: request.eventID.organizerID,
-            eventID: request.eventID.eventID,
-            performanceID: performanceID
-        )
-
-        for (sortIndex, contribution) in request.contributions.enumerated() {
-            switch contribution.contributorSubject {
-            case .none:
-                break
-
-            case let .contributor(contributorID):
-                drafts.append(
-                    OMERecord.Performance.Contributors.Draft(
-                        performanceID: scopedPerformanceID,
-                        contributorID: contributorID,
-                        anonymousName: nil,
-                        contributorActor: nil,
-                        billing: contribution.billing,
-                        role: contribution.performanceContributorRole,
-                        sortIndex: sortIndex
-                    )
-                )
-
-            case let .identity(actor):
-                drafts.append(
-                    OMERecord.Performance.Contributors.Draft(
-                        performanceID: scopedPerformanceID,
-                        contributorID: nil,
-                        anonymousName: nil,
-                        contributorActor: actor,
-                        billing: contribution.billing,
-                        role: contribution.performanceContributorRole,
-                        sortIndex: sortIndex
-                    )
-                )
-
-            case .newContributor, .newContributorFromIdentity:
-                break
-
-            case let .displayName(name):
-                drafts.append(
-                    OMERecord.Performance.Contributors.Draft(
-                        performanceID: scopedPerformanceID,
-                        contributorID: nil,
-                        anonymousName: name,
-                        contributorActor: nil,
-                        billing: contribution.billing,
-                        role: contribution.performanceContributorRole,
-                        sortIndex: sortIndex
-                    )
-                )
-            }
-        }
-
-        return drafts
-    }
-
-    static func relationshipDrafts(
-        for request: EditPerformanceSaveRequest,
-        performanceID: OMERecord.ID<OMERecord.Performance>
-    ) -> [OMERecord.Relationship] {
-        let scopedPerformanceID = OMERecord.Performance.ID(
-            organizerID: request.eventID.organizerID,
-            eventID: request.eventID.eventID,
-            performanceID: performanceID
-        )
-        let object = OMERecord.Relationship.RecordReference(performanceID: scopedPerformanceID)
-        var relationships: [OMERecord.Relationship] = []
-
-        for contribution in request.contributions {
-            switch contribution.contributorSubject {
-            case .none, .displayName:
-                break
-
-            case let .contributor(contributorID):
-                let scopedContributorID = OMERecord.Contributor.ID(
-                    organizerID: request.eventID.organizerID,
-                    eventID: request.eventID.eventID,
-                    contributorID: contributorID
-                )
-                relationships.append(
-                    OMERecord.Relationship(
-                        subject: .record(.init(contributorID: scopedContributorID)),
-                        role: contribution.relationshipRole,
-                        object: .record(object),
-                        createdAt: request.createdAt
-                    )
-                )
-
-            case let .identity(actor):
-                guard case let .did(did) = actor.identifier else { break }
-                relationships.append(
-                    OMERecord.Relationship(
-                        subject: .identity(did: did),
-                        role: contribution.relationshipRole,
-                        object: .record(object),
-                        createdAt: request.createdAt
-                    )
-                )
-
-            case .newContributor, .newContributorFromIdentity:
-                break
-            }
-        }
-
-        return relationships
-    }
-
-    static func resolveContributorSubjects(
-        in request: inout EditPerformanceSaveRequest,
-        db: Database
-    ) throws {
-        for index in request.contributions.indices {
-            switch request.contributions[index].contributorSubject {
-            case .none, .contributor, .displayName, .identity:
-                break
-
-            case let .newContributor(name):
-                let contributorID = try contributorID(for: name, eventID: request.eventID, in: db)
-                try insertContributor(
-                    contributorID: contributorID,
-                    did: nil,
-                    eventID: request.eventID,
-                    name: name,
-                    in: db
-                )
-                request.contributions[index].selection = .existingContributor(contributorID)
-
-            case let .newContributorFromIdentity(identity):
-                if let contributorID = try contributorID(
-                    matching: identity.did,
-                    eventID: request.eventID,
-                    in: db
-                ) {
-                    request.contributions[index].selection = .existingContributor(contributorID)
-                    continue
-                }
-
-                let contributorID = try contributorID(
-                    for: identity.contributorName,
-                    eventID: request.eventID,
-                    in: db
-                )
-                try insertContributor(
-                    contributorID: contributorID,
-                    did: identity.did,
-                    eventID: request.eventID,
-                    name: identity.contributorName,
-                    in: db
-                )
-                request.contributions[index].selection = .existingContributor(contributorID)
-            }
-        }
-    }
-
-    static func contributorID(
-        matching did: DID,
-        eventID: OMERecord.Event.ID,
-        in db: Database
-    ) throws -> OMERecord.ID<OMERecord.Contributor>? {
-        try OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .fetchAll(db)
-            .first { $0.did == did }?
-            .id.contributorID
-    }
-
-    static func contributorID(
-        for name: String,
-        eventID: OMERecord.Event.ID,
-        in db: Database
-    ) throws -> OMERecord.ID<OMERecord.Contributor> {
-        let base = slug(for: name)
-        var candidate = base
-        var suffix = 2
-
-        while try ContributorDetail.contributorQuery(
-            contributorID: OMERecord.ID<OMERecord.Contributor>(.init(candidate)),
-            eventID: eventID
-        )
-        .fetchOne(db) != nil {
-            candidate = "\(base)-\(suffix)"
-            suffix += 1
-        }
-
-        return OMERecord.ID<OMERecord.Contributor>(.init(candidate))
-    }
-
-    static func insertContributor(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        did: DID?,
-        eventID: OMERecord.Event.ID,
-        name: String,
-        in db: Database
-    ) throws {
-        try OMERecord.Contributor.insert {
-            OMERecord.Contributor.Draft(
-                id: OMERecord.Contributor.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    contributorID: contributorID
-                ),
-                name: name,
-                did: did,
-                bio: nil,
-                images: nil,
-                links: nil
-            )
-        }
-        .execute(db)
-    }
-
-    static func deletePerformanceRelationships(
-        performanceID: OMERecord.Performance.ID,
-        in db: Database
-    ) throws {
-        let recordURI = OMERecord.Relationship.RecordReference(performanceID: performanceID).uri.description
-        try db.execute(
-            sql: #"""
-            DELETE FROM "app.openmusicevent.relationship"
-            WHERE json_extract("object", '$.uri') = ?
-            """#,
-            arguments: [recordURI]
-        )
-    }
-
-    private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
-        OMERecord.ID<OMERecord.Performance>(.init(string))
-    }
-
-    private static func performanceIDBase(for request: EditPerformanceSaveRequest) -> String {
-        [
-            request.scheduleID.rawValue.rawValue,
-            request.stageID.rawValue.rawValue,
-            slug(for: request.title),
-        ]
-        .filter { !$0.isEmpty }
-        .joined(separator: "-")
-    }
-
-    private static func slug(for string: String) -> String {
-        let normalized = string
-            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-            .lowercased()
-        let words = normalized
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-        return words.isEmpty ? "performance" : words.joined(separator: "-")
     }
 }
 
@@ -1066,7 +750,6 @@ private struct EditPerformanceSaveError: Error {}
 
 public struct EditPerformanceView: View {
     @Environment(\.dismiss) var dismiss
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @Bindable var store: StoreOf<EditPerformance>
 
@@ -1113,8 +796,16 @@ public struct EditPerformanceView: View {
 
     private var lineupSection: some View {
         Section("Lineup") {
-            if needsStageDisambiguation {
-                Picker("Stage", selection: $store.selectedStageID) {
+            if store.programs.count > 1 {
+                Picker("Program", selection: programSelection) {
+                    ForEach(store.programs) { program in
+                        Text(program.title).tag(Optional(program.id))
+                    }
+                }
+            }
+            if !store.stageOptions.isEmpty {
+                Picker("Place", selection: $store.selectedStageID) {
+                    Text("Unplaced").tag(EventPlace.ID?.none)
                     ForEach(store.stageOptions, id: \.rawID) { stage in
                         Text(stage.name).tag(Optional(stage.id))
                     }
@@ -1134,7 +825,7 @@ public struct EditPerformanceView: View {
                 Picker("Schedule", selection: $store.selectedScheduleID) {
                     ForEach(store.schedules) { schedule in
                         Text(ScheduleViewer.scheduleTitle(schedule, in: store.timeZone))
-                            .tag(schedule.id.scheduleID)
+                            .tag(schedule.id)
                     }
                 }
             }
@@ -1173,7 +864,7 @@ public struct EditPerformanceView: View {
                 EditPerformanceContributionRow(
                     title: summary?.title ?? "Contributor",
                     subtitle: summary?.subtitle,
-                    isPrimary: contribution.billing == .primary,
+                    isPrimary: contribution.billing == .known(.primary),
                     roleTitle: contribution.roleTitle,
                     roleSelection: contribution.roleSelection,
                     roleChanged: { roleSelection in
@@ -1191,12 +882,12 @@ public struct EditPerformanceView: View {
                     }
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                    if contribution.billing == .supporting {
+                    if contribution.billing != .known(.primary) {
                         Button {
                             store.send(
                                 .contributionBillingButtonTapped(
                                     contribution.id,
-                                    .primary
+                                    .known(.primary)
                                 )
                             )
                         } label: {
@@ -1205,12 +896,12 @@ public struct EditPerformanceView: View {
                     }
                 }
                 .contextMenu {
-                    if contribution.billing == .primary {
+                    if contribution.billing == .known(.primary) {
                         Button("Remove as primary") {
                             store.send(
                                 .contributionBillingButtonTapped(
                                     contribution.id,
-                                    .supporting
+                                    .known(.supporting)
                                 )
                             )
                         }
@@ -1219,7 +910,7 @@ public struct EditPerformanceView: View {
                             store.send(
                                 .contributionBillingButtonTapped(
                                     contribution.id,
-                                    .primary
+                                    .known(.primary)
                                 )
                             )
                         }
@@ -1245,6 +936,13 @@ public struct EditPerformanceView: View {
         Binding(
             get: { store.title },
             set: { store.send(.titleTextChanged($0)) }
+        )
+    }
+
+    private var programSelection: Binding<Program.ID?> {
+        Binding(
+            get: { store.selectedProgramID },
+            set: { store.send(.programChanged($0)) }
         )
     }
 

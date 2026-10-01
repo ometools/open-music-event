@@ -404,7 +404,6 @@ public struct Browse {
         case browseEventButtonTapped(ATProto.URI)
         case daySelected(CalendarEvent.Day?)
         case didPullToRefresh
-        case eventButtonTapped(OMERecord.Event.ID)
         case eventDetail(EventBrowseDetail.Action)
         case modeSelected(CalendarEvent.Mode?)
         case searchTextChanged(String)
@@ -464,14 +463,6 @@ public struct Browse {
             case let .daySelected(day):
                 state.selectedDay = day
 
-            case let .eventButtonTapped(eventID):
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
-
             case .eventDetail:
                 return
 
@@ -505,7 +496,7 @@ public enum EventCatalog: String, CaseIterable, Equatable, Identifiable, Sendabl
     public var collection: ATProto.NSID {
         switch self {
         case .openMusicEvent:
-            OME.Event.nsid
+            ATProto.NSID(Event.lexiconID.rawValue)
         case .communityCalendar:
             "community.lexicon.calendar.event"
         }
@@ -799,7 +790,7 @@ struct BrowseCalendarEventRow: View {
 
     var dateText: String? {
         guard let startsAt = event.startsAt else { return nil }
-        if event.source.collection == OME.Event.nsid {
+        if event.source.collection == ATProto.NSID(Event.lexiconID.rawValue) {
             let formatter = DateIntervalFormatter()
             formatter.timeZone = event.eventTimeZone
             formatter.dateStyle = .medium
@@ -1274,6 +1265,17 @@ public struct EventBrowseDetail {
 
         public var dateText: String? {
             guard let record else { return event.detailDateText }
+            if case let .known(.day(startDay)) = record.start,
+               case let .known(.day(endDay)) = record.end {
+                let formatter = DateIntervalFormatter()
+                formatter.timeZone = record.timeZone
+                formatter.dateStyle = .long
+                formatter.timeStyle = .none
+                return formatter.string(
+                    from: startDay.value.atStartOfDay(in: record.timeZone),
+                    to: endDay.value.atStartOfDay(in: record.timeZone)
+                )
+            }
             let formatter = DateFormatter()
             formatter.timeZone = record.timeZone
             formatter.dateStyle = .long
@@ -1294,7 +1296,7 @@ public struct EventBrowseDetail {
         public var isEnteringEvent = false
         public var isSavingRSVP = false
         public var organizationDetail: OrganizationDetail.State?
-        public var rsvpStatus: OME.RSVP.Status?
+        public var rsvpStatus: EventRSVP.Status?
 
         public var id: ATProto.URI { event.uri }
     }
@@ -1305,7 +1307,7 @@ public struct EventBrowseDetail {
         case eventInfoForm(EditEventInfo.Action)
         case organizationDetail(OrganizationDetail.Action)
         case organizerButtonTapped
-        case rsvpButtonTapped(OME.RSVP.Status)
+        case rsvpButtonTapped(EventRSVP.Status)
         case task
     }
 
@@ -1313,7 +1315,6 @@ public struct EventBrowseDetail {
     @Dependency(\.calendarEvents) var calendarEvents
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.getSelectedOAuthSessionID) var selectedAccountID
-    @Dependency(\.omeEventInstallation) var eventInstallation
     @Dependency(\.eventRecords) var eventRecords
 
     public var body: some Feature {
@@ -1335,7 +1336,7 @@ public struct EventBrowseDetail {
                         fallbackMessage: .eventInstallationFailed,
                         operation: .eventInstallation
                     ) {
-                        let eventID = try await eventInstallation.ensureInstalled(eventURI)
+                        let eventID = try await eventRecords.install(eventURI)
                         try store.modify {
                             $0.isEnteringEvent = false
                         }
@@ -1461,7 +1462,7 @@ public struct EventBrowseDetailView: View {
                 MappedSystemImage(systemName: "music.note")
                     .frame(width: 56, height: 56)
             } chromeTrailingContent: {
-                if store.event.source.collection == OME.Event.nsid {
+                if store.event.source.collection == ATProto.NSID(Event.lexiconID.rawValue) {
                     Button {
                         store.send(.enterEventButtonTapped)
                     } label: {
@@ -1683,7 +1684,7 @@ private extension CalendarEvent {
     }
 }
 
-private extension OME.RSVP.Status {
+private extension EventRSVP.Status {
     var eventBrowseTitle: String {
         switch self {
         case .going:
@@ -1745,8 +1746,8 @@ struct EventOrganizerRow: View {
 
 struct RSVPStatusButton: View {
     let title: String
-    let status: OME.RSVP.Status
-    let selectedStatus: OME.RSVP.Status?
+    let status: EventRSVP.Status
+    let selectedStatus: EventRSVP.Status?
     let disabled: Bool
     let action: () -> Void
 
@@ -1775,16 +1776,8 @@ public struct Following {
 
     }
 
-//    static let followersQuery = OrganizerPreferences
-//        .select { $0.isFollowing }
-//        .leftJoin(OMERecord.Organizer.all, on: {
-//            $0.0.organizerID.is($0.1.id)
-//        })
-
-
     public enum Action {
         case didPullToRefresh
-        case eventButtonTapped(OMERecord.Event.ID)
         case followedOrganizersResponse([FollowedOrganizerRow])
         case organizerDetail(OrganizerDetail.Action)
         case organizerRowTapped(OMERecord.Organizer.ID)
@@ -1798,14 +1791,6 @@ public struct Following {
             case .organizerRowTapped(let organizerID):
                 store.withDependencies {
                     state.organizerDetail = .init(organizerID: organizerID)
-                }
-
-            case .eventButtonTapped(let eventID):
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
                 }
 
             case .didPullToRefresh,
@@ -1867,7 +1852,7 @@ public struct OrganizerDetail {
 
         @DebugSnapshotIgnored
         @FetchAll
-        public var calendarEvents: [OMERecord.Event]
+        public var calendarEvents: [Event]
 
         @DebugSnapshotIgnored
         @FetchAll
@@ -1885,7 +1870,6 @@ public struct OrganizerDetail {
     public enum Action {
         case calendarButtonTapped(OMERecord.Calendar.ID)
         case calendarDetail(CalendarDetail.Action)
-        case eventButtonTapped(OMERecord.Event.ID)
         case task
     }
 
@@ -1920,24 +1904,12 @@ public struct OrganizerDetail {
         )
     }
 
-    static func eventsQuery(
-        organizerID: OMERecord.Organizer.ID
-    ) -> some SelectStatementOf<OMERecord.Event> {
-        OMERecord.Event.where { event in
-            OMERecord.EventOrganizer
-                .where { $0.id.organizerID.eq(event.id.organizerID) }
-                .where { $0.id.eventID.eq(event.id.eventID) }
-                .where { $0.id.eventOrganizerID.eq(organizerID) }
-                .exists()
-        }
-    }
-
     public struct EventSections: Equatable, Sendable {
-        public var currentEvents: [OMERecord.Event]
-        public var previousEvents: [OMERecord.Event]
-        public var upcomingEvents: [OMERecord.Event]
+        public var currentEvents: [Event]
+        public var previousEvents: [Event]
+        public var upcomingEvents: [Event]
 
-        public init(events: [OMERecord.Event], now: Date) {
+        public init(events: [Event], now: Date) {
             let sortedEvents = events.sorted(by: Self.sort)
             self.currentEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .current }
             self.previousEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .previous }
@@ -1954,8 +1926,8 @@ public struct OrganizerDetail {
             case upcoming
         }
 
-        private static func sort(lhs: OMERecord.Event, rhs: OMERecord.Event) -> Bool {
-            switch (lhs.sortDate, rhs.sortDate) {
+        private static func sort(lhs: Event, rhs: Event) -> Bool {
+            switch (lhs.calendarSortDate, rhs.calendarSortDate) {
             case let (.some(lhsDate), .some(rhsDate)):
                 if lhsDate != rhsDate { return lhsDate > rhsDate }
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -1971,10 +1943,10 @@ public struct OrganizerDetail {
             }
         }
 
-        private static func timing(for event: OMERecord.Event, now: Date) -> Timing {
+        private static func timing(for event: Event, now: Date) -> Timing {
             let today = LocalDate(now, in: event.timeZone)
 
-            switch (event.startDate, event.endDate) {
+            switch (event.calendarStartDay, event.calendarEndDay) {
             case let (.some(startDate), .some(endDate)):
                 if startDate <= today && today <= endDate { return .current }
                 if endDate < today { return .previous }
@@ -2047,7 +2019,7 @@ public struct OrganizerDetail {
             guard let event = row.event else { return .unavailable }
             let today = LocalDate(now, in: event.timeZone)
 
-            switch (event.startDate, event.endDate) {
+            switch (event.calendarStartDay, event.calendarEndDay) {
             case let (.some(startDate), .some(endDate)):
                 if startDate <= today && today <= endDate { return .current }
                 if endDate < today { return .previous }
@@ -2093,17 +2065,16 @@ public struct OrganizerDetail {
             order: ChronologicalOrder
         ) -> Bool {
             switch (
-                lhs.event.flatMap { $0.startDate ?? $0.endDate },
-                rhs.event.flatMap { $0.startDate ?? $0.endDate }
+                lhs.event?.calendarSortDate,
+                rhs.event?.calendarSortDate
             ) {
             case let (.some(lhsDate), .some(rhsDate)):
-                let dateComparison = lhsDate.description.localizedStandardCompare(rhsDate.description)
-                if dateComparison != .orderedSame {
+                if lhsDate != rhsDate {
                     switch order {
                     case .ascending:
-                        return dateComparison == .orderedAscending
+                        return lhsDate < rhsDate
                     case .descending:
-                        return dateComparison == .orderedDescending
+                        return lhsDate > rhsDate
                     }
                 }
 
@@ -2144,14 +2115,6 @@ public struct OrganizerDetail {
 
             case .calendarDetail:
                 return
-
-            case .eventButtonTapped(let eventID):
-                store.addTask {
-                    try store.post(
-                        key: NavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
 
             case .task:
                 break
@@ -2269,15 +2232,7 @@ public struct OrganizerDetailView: View {
     @ViewBuilder
     private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
         ForEach(rows) { row in
-            if let event = row.event {
-                Button {
-                    store.send(.eventButtonTapped(event.id))
-                } label: {
-                    CalendarEntryRowView(row: row)
-                }
-            } else {
-                CalendarEntryRowView(row: row)
-            }
+            CalendarEntryRowView(row: row)
         }
     }
 }
@@ -2307,12 +2262,6 @@ struct CalendarRowView: View {
             Spacer()
         }
         .foregroundStyle(.primary)
-    }
-}
-
-private extension OMERecord.Event {
-    var sortDate: LocalDate? {
-        startDate ?? endDate
     }
 }
 
