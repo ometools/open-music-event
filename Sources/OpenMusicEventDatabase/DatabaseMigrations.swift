@@ -1081,6 +1081,15 @@ public extension OME {
                     """).execute(db)
             }
 
+            migrator.registerMigration("Track installed canonical Events") { db in
+                try #sql("""
+                    CREATE TABLE installedEventRecords (
+                      id TEXT PRIMARY KEY NOT NULL
+                        REFERENCES "events.openmusic.event"(id) ON DELETE CASCADE
+                    ) STRICT
+                    """).execute(db)
+            }
+
         }
     }
 }

@@ -106,6 +106,7 @@ struct CanonicalEventStorageTests {
             "Wicked Woods"
         )
         #expect(try database.read { try InstalledEventRecord.all.fetchCount($0) } == 1)
+        #expect(try database.read { try InstalledEvent.all.fetchCount($0) } == 0)
         #expect(try database.read {
             try #sql("""
                 SELECT count(*) FROM pragma_table_info('app.openmusicevent.event')

@@ -1,3 +1,4 @@
+import ATProtoSQLite
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -32,5 +33,15 @@ public struct InstalledEventRecord: Equatable, Sendable, Identifiable {
             repository: sourceReference,
             branch: "main"
         )
+    }
+}
+
+@Table("installedEventRecords")
+public struct InstalledEvent: Equatable, Sendable, Identifiable {
+    @Column(primaryKey: true)
+    public var id: Event.ID
+
+    public init(id: Event.ID) {
+        self.id = id
     }
 }

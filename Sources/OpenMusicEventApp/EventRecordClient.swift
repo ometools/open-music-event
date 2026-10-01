@@ -4,12 +4,45 @@ import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import SQLiteData
 
 public struct EventRecordClient: Sendable {
     public var load: @Sendable (Event.ID) async throws -> EventRecordGraph
 
     public init(load: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph) {
         self.load = load
+    }
+
+    public func install(_ eventID: Event.ID) async throws -> Event.ID {
+        try LexiconCoding.validateRecordURI(eventID, type: Event.self)
+        @Dependency(\.defaultDatabase) var database
+        let cached = try await database.read { db in
+            try Event.find(eventID).fetchOne(db) != nil
+        }
+        let downloaded: EventRecordGraph?
+        if cached {
+            downloaded = nil
+        } else {
+            let graph = try await load(eventID)
+            guard graph.event.id == eventID else {
+                throw ValidationError("The downloaded event has a different record ID")
+            }
+            try graph.validate()
+            downloaded = graph
+        }
+
+        try Task.checkCancellation()
+        try await database.write { db in
+            if let local = try EventRecordGraph.fetch(eventID: eventID, from: db) {
+                try local.validate()
+            } else if let downloaded {
+                try downloaded.upsert(in: db)
+            } else {
+                throw ValidationError("This event is no longer available. Try opening it again.")
+            }
+            try InstalledEvent.upsert { InstalledEvent(id: eventID) }.execute(db)
+        }
+        return eventID
     }
 }
 
