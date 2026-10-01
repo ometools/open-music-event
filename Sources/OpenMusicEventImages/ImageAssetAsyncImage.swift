@@ -1,4 +1,6 @@
+import ATProto
 import Dependencies
+import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -17,12 +19,14 @@ public enum ImageAssetPlaceholderReason: Equatable, Sendable {
 public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
+    let recordID: Event.ID?
     var contentMode: ContentMode?
     var renderedImageSize: CGSize?
     var focusSafeAreaInsets: EdgeInsets
     let onIntrinsicSizeLoaded: (CGSize) -> Void
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
     @Dependency(\.imageAssetResolver) var imageAssetResolver
+    @Dependency(ATProto.Repository.PDSHostResolver.self) var pdsHosts
     @State var resolvedAsset: OME.ImageAsset?
     @State var resolvedTaskID: String?
     @State var failedTaskID: String?
@@ -38,6 +42,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
+        self.recordID = nil
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -56,6 +61,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
+        self.recordID = nil
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -73,6 +79,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
+        self.recordID = image?.recordID
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -90,6 +97,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
+        self.recordID = image?.recordID
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -160,7 +168,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
 
     var shouldResolveAsset: Bool {
         guard let asset,
-              cacheContext != nil,
+              cacheContext != nil || isRecordBlob,
               resolvedTaskID != resolutionTaskID,
               failedTaskID != resolutionTaskID else {
             return false
@@ -175,6 +183,17 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         return true
     }
 
+    var isRecordBlob: Bool {
+        guard recordID != nil, let asset else { return false }
+        if case .blob = asset.source { return true }
+        return false
+    }
+
+    var blobCID: String? {
+        guard let asset, case let .blob(blob) = asset.source else { return nil }
+        return blob.ref.rawValue
+    }
+
     var resolutionTaskID: String {
         let organizerID = cacheContext?.organizerID.description ?? "nil"
         let eventID = cacheContext?.eventID?.rawValue.rawValue ?? "nil"
@@ -183,6 +202,8 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         return [
             asset?.assetKey ?? "nil",
             asset?.url?.absoluteString ?? "nil",
+            recordID?.description ?? "nil",
+            blobCID ?? "nil",
             asset?.role.rawValue ?? "nil",
             asset?.renderKind.rawValue ?? "nil",
             organizerID,
@@ -231,14 +252,23 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
 
     func resolveAsset() async {
         guard let asset,
-              let cacheContext,
               shouldResolveAsset else {
             return
         }
 
         do {
             let taskID = resolutionTaskID
-            let resolvedAsset = try await imageAssetResolver.resolve(asset, cacheContext)
+            let resolvedAsset: OME.ImageAsset
+            if let recordID, case let .blob(blob) = asset.source {
+                let host = try await pdsHosts.pdsHost(forRecordURI: recordID)
+                var image = asset
+                image.source = .url(try Self.blobURL(recordID: recordID, blob: blob, host: host))
+                resolvedAsset = image
+            } else if let cacheContext {
+                resolvedAsset = try await imageAssetResolver.resolve(asset, cacheContext)
+            } else {
+                return
+            }
             guard !Task.isCancelled else { return }
             self.resolvedAsset = resolvedAsset
             self.resolvedTaskID = taskID
@@ -247,6 +277,24 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
             guard !Task.isCancelled else { return }
             self.failedTaskID = resolutionTaskID
         }
+    }
+
+    static func blobURL(
+        recordID: Event.ID,
+        blob: ATProto.Blob,
+        host: ATProto.PDSHost
+    ) throws -> URL {
+        guard case let .did(did) = recordID.authority,
+              var components = URLComponents(string: "https://\(host)") else {
+            throw URLError(.badURL)
+        }
+        components.path = "/xrpc/com.atproto.sync.getBlob"
+        components.queryItems = [
+            URLQueryItem(name: "did", value: did.description),
+            URLQueryItem(name: "cid", value: blob.ref.rawValue),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        return url
     }
 }
 

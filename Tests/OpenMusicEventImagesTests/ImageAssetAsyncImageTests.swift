@@ -89,4 +89,38 @@ struct ImageAssetAsyncImageTests {
         expectNoDifference(focusedImage.resolutionTaskID, originalImage.resolutionTaskID)
         expectNoDifference(focusedImage.renderingCacheKey, originalImage.renderingCacheKey)
     }
+
+    @Test
+    func `record blob resolves through its publisher PDS`() throws {
+        let recordID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let blob = ATProto.Blob(
+            ref: "bafkreieventposter",
+            mimeType: "image/png",
+            size: 120
+        )
+        let asset = OME.ImageAsset(
+            source: .blob(blob),
+            role: .poster,
+            renderKind: .fullImage,
+            materializationPolicy: .lazy
+        )
+        let view = ImageAssetAsyncImage(
+            image: DisplayImageAsset(asset: asset, recordID: recordID)
+        ) { EmptyView() }
+        #expect(view.shouldResolveAsset)
+        #expect(view.resolutionTaskID.contains(recordID.description))
+        #expect(view.resolutionTaskID.contains(blob.ref.rawValue))
+
+        let url = try ImageAssetAsyncImage<EmptyView>.blobURL(
+            recordID: recordID,
+            blob: blob,
+            host: "pds.ome-auth.test"
+        )
+        expectNoDifference(
+            url.absoluteString,
+            "https://pds.ome-auth.test/xrpc/com.atproto.sync.getBlob?did=did:plc:organizer&cid=bafkreieventposter"
+        )
+    }
 }

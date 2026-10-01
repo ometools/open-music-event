@@ -131,6 +131,48 @@ struct CanonicalEventEditingTests {
         ])
     }
 
+    @Test(arguments: [false, true])
+    func canonicalMediaReplacesCatalogArtworkIncludingWhenCleared(cleared: Bool) throws {
+        let database = try database()
+        var record = try event()
+        let posterURL = try #require(URL(string: "https://wickedwoods.example/current-poster.png"))
+        let heroURL = try #require(URL(string: "https://wickedwoods.example/current-hero.png"))
+        let iconURL = try #require(URL(string: "https://wickedwoods.example/current-icon.png"))
+        if cleared {
+            record.media = []
+        } else {
+            record.media = [
+                .known(.image(.init(source: .known(.url(iconURL)), role: .known(.icon(.init()))))),
+                .known(.image(.init(source: .known(.url(heroURL)), role: .known(.hero)))),
+                .known(.image(.init(source: .known(.url(posterURL)), role: .known(.poster)))),
+            ]
+        }
+        try database.write { try Event.insert { record }.execute($0) }
+
+        var catalog = listing(record)
+        catalog.media = [
+            .init(
+                url: try #require(URL(string: "https://wickedwoods.example/stale-poster.png")),
+                role: "poster"
+            )
+        ]
+        let detail = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            EventBrowseDetail.State(event: catalog)
+        }
+
+        expectNoDifference(
+            detail.artworkSources.map(\.image.asset.url),
+            cleared ? [] : [posterURL, heroURL, iconURL]
+        )
+        expectNoDifference(
+            detail.artworkSources.map(\.kind),
+            cleared ? [] : [.primaryImage, .primaryImage, .logo]
+        )
+        #expect(detail.artworkTitleSources.containsLogo == !cleared)
+    }
+
     @Test(arguments: ["offline", "wrong-record", "incomplete-graph"])
     func failedDownloadsLeaveNoPartialRecordsAndCanBeRetried(scenario: String) async throws {
         let database = try database()

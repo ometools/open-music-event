@@ -1264,6 +1264,14 @@ public struct EventBrowseDetail {
             return event.links
         }
 
+        public var artworkSources: [HeroImageSource] {
+            record?.heroImageSources ?? event.artworkSources
+        }
+
+        public var artworkTitleSources: [HeroImageTitleSource] {
+            record?.heroImageTitleSources ?? [.title]
+        }
+
         public var dateText: String? {
             guard let record else { return event.detailDateText }
             let formatter = DateFormatter()
@@ -1447,8 +1455,8 @@ public struct EventBrowseDetailView: View {
         ) {
             HeroImage(
                 title: Text(store.title),
-                sources: store.event.artworkSources,
-                titleSources: [.title]
+                sources: store.artworkSources,
+                titleSources: store.artworkTitleSources
             ) {
                 MappedSystemImage(systemName: "music.note")
                     .frame(width: 56, height: 56)

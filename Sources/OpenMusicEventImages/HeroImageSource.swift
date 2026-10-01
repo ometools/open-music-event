@@ -9,14 +9,17 @@ import SwiftUI
 public struct DisplayImageAsset: Equatable, Sendable {
     public init(
         asset: OME.ImageAsset,
-        cacheContext: LocalImageCacheContext? = nil
+        cacheContext: LocalImageCacheContext? = nil,
+        recordID: Event.ID? = nil
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
+        self.recordID = recordID
     }
 
     public var asset: OME.ImageAsset
     public var cacheContext: LocalImageCacheContext?
+    public var recordID: Event.ID?
 }
 
 public struct HeroImageSource: Equatable, Sendable {
@@ -57,6 +60,86 @@ public extension Collection where Element == HeroImageTitleSource {
             }
             return false
         }
+    }
+}
+
+public extension Event {
+    var heroImageSources: [HeroImageSource] {
+        displayImages
+            .sorted { $0.priority < $1.priority }
+            .map { image in
+                let kind: HeroImageSource.Kind = image.asset.asset.role == .icon
+                    || image.asset.asset.role == .logo ? .logo : .primaryImage
+                return HeroImageSource(kind, image: image.asset)
+            }
+    }
+
+    var heroImageTitleSources: [HeroImageTitleSource] {
+        let logo = displayImages.first { $0.asset.asset.role == .icon }
+            ?? displayImages.first { $0.asset.asset.role == .logo }
+        return [logo.map { .logo($0.asset) }, .title].compactMap { $0 }
+    }
+}
+
+private extension Event {
+    var displayImages: [(priority: Int, asset: DisplayImageAsset)] {
+        (media ?? []).compactMap { medium in
+            guard case let .known(.image(image)) = medium,
+                  let asset = image.displayImageAsset else { return nil }
+            let priority: Int = switch asset.asset.role {
+            case .poster: 0
+            case .hero: 1
+            case .photo: 2
+            case .icon: 4
+            case .logo: 5
+            case .siteMap: 6
+            }
+            return (priority, DisplayImageAsset(asset: asset.asset, recordID: id))
+        }
+    }
+}
+
+private extension OME.Image {
+    var displayImageAsset: DisplayImageAsset? {
+        let source: OME.ImageAsset.Source
+        switch self.source {
+        case let .known(.blob(blob)):
+            source = .blob(blob)
+        case let .known(.url(url)):
+            source = .url(url)
+        case .unknown:
+            return nil
+        }
+
+        let role: OME.ImageAsset.Role
+        switch self.role {
+        case .known(.hero): role = .hero
+        case .known(.logo): role = .logo
+        case .known(.photo), .none, .unknown: role = .photo
+        case .known(.icon): role = .icon
+        case .known(.poster): role = .poster
+        case .known(.siteMap): return nil
+        }
+
+        let appearance: OME.ImageAsset.Appearance?
+        switch self.appearance {
+        case .known(.light): appearance = .light
+        case .known(.dark): appearance = .dark
+        case .none, .unknown: appearance = nil
+        }
+
+        return DisplayImageAsset(
+            asset: OME.ImageAsset(
+                source: source,
+                role: role,
+                renderKind: renderingMode == .known(.template) ? .transparent : .fullImage,
+                appearance: appearance,
+                materializationPolicy: .lazy,
+                focalPoint: focalPoint.map {
+                    OME.ImageAsset.FocalPoint(x: $0.x, y: $0.y)
+                }
+            )
+        )
     }
 }
 
