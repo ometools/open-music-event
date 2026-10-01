@@ -1250,6 +1250,20 @@ public struct EventBrowseDetail {
             return event.description
         }
 
+        public var locationText: String? {
+            if let record { return record.locations?.first?.name }
+            return event.locations.first?.summary
+        }
+
+        public var links: [CalendarEvent.Link] {
+            if let record {
+                return (record.links ?? []).map {
+                    CalendarEvent.Link(name: $0.title, uri: $0.url)
+                }
+            }
+            return event.links
+        }
+
         public var dateText: String? {
             guard let record else { return event.detailDateText }
             let formatter = DateFormatter()
@@ -1480,7 +1494,7 @@ public struct EventBrowseDetailView: View {
                         }
                     }
                 }
-                if let location = store.event.locations.first?.summary {
+                if let location = store.locationText {
                     LabeledContent("Location", value: location)
                 }
 //
@@ -1548,9 +1562,9 @@ public struct EventBrowseDetailView: View {
                 }
             }
 
-            if !store.event.links.isEmpty {
+            if !store.links.isEmpty {
                 Section("Links") {
-                    ForEach(Array(store.event.links.enumerated()), id: \.offset) { _, link in
+                    ForEach(Array(store.links.enumerated()), id: \.offset) { _, link in
                         Link(link.name ?? link.uri.host() ?? "Event link", destination: link.uri)
                     }
                 }

@@ -94,6 +94,43 @@ struct CanonicalEventEditingTests {
         await store.dismount()
     }
 
+    @Test(arguments: [false, true])
+    func canonicalLinksAndLocationsReplaceCatalogValuesIncludingWhenCleared(cleared: Bool) throws {
+        let database = try database()
+        var record = try event()
+        if !cleared {
+            record.links = [try OME.Link(
+                url: #require(URL(string: "https://wickedwoods.example/current-tickets")),
+                title: "Current tickets"
+            )]
+            record.locations = [try Event.Location(name: "Current venue")]
+        }
+        try database.write { try Event.insert { record }.execute($0) }
+
+        var catalog = listing(record)
+        catalog.links = [
+            CalendarEvent.Link(
+                name: "Old tickets",
+                uri: try #require(URL(string: "https://wickedwoods.example/old-tickets"))
+            )
+        ]
+        catalog.locations = [.init(name: "Old venue")]
+        let detail = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            EventBrowseDetail.State(event: catalog)
+        }
+
+        // A cleared canonical value must not bring stale catalog information back.
+        expectNoDifference(detail.locationText, cleared ? nil : "Current venue")
+        expectNoDifference(detail.links, cleared ? [] : [
+            CalendarEvent.Link(
+                name: "Current tickets",
+                uri: try #require(URL(string: "https://wickedwoods.example/current-tickets"))
+            )
+        ])
+    }
+
     @Test(arguments: ["offline", "wrong-record", "incomplete-graph"])
     func failedDownloadsLeaveNoPartialRecordsAndCanBeRetried(scenario: String) async throws {
         let database = try database()
