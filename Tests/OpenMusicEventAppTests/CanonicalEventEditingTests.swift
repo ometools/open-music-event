@@ -614,6 +614,66 @@ struct CanonicalEventEditingTests {
     }
 
     @Test
+    func eventLinksEditAndReorderWithoutLosingUnknownPurpose() async throws {
+        var event = try event()
+        let unknownRole: Open<OME.Link.Role> = .unknown(.object([
+            "$type": "events.example.defs#pressLink",
+            "audience": "press",
+        ]))
+        event.links = [
+            OME.Link(
+                url: try #require(URL(string: "https://example.com/press")),
+                title: "Press",
+                description: "Original notes",
+                role: unknownRole
+            ),
+            OME.Link(
+                url: try #require(URL(string: "https://example.com/tickets")),
+                title: "Tickets",
+                role: .known(.tickets(.init()))
+            ),
+            OME.Link(url: try #require(URL(string: "https://example.com/retired")), title: "Retired"),
+        ]
+        let store = withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 0)
+        } operation: {
+            TestStore(initialState: EditEventInfo.State(event: event)) { EditEventInfo() }
+        }
+        let pressID = store.state.links[0].id
+        let ticketID = store.state.links[1].id
+        let retiredID = store.state.links[2].id
+
+        await store.send(.editLinkButtonTapped(pressID))?.value
+        store.modify {
+            $0.links[0].title = "Press Kit"
+            $0.links[0].description = ""
+        }
+        await store.send(.moveLinkButtonTapped(ticketID, -1))?.value
+        await store.send(.removeLinkButtonTapped(retiredID))?.value
+
+        #expect(store.state.canSubmit)
+        let saved = try #require(store.state.preparedRecord.links)
+        #expect(saved.map(\.title) == ["Tickets", "Press Kit"])
+        #expect(saved[1].description == nil)
+        #expect(saved[1].role == unknownRole)
+        #expect(saved[0].role == .known(.tickets(.init())))
+        #expect(store.state.preparedRecord.media == event.media)
+    }
+
+    @Test
+    func incompleteEventLinkCannotBeSaved() async throws {
+        let store = try withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 0)
+        } operation: {
+            TestStore(initialState: EditEventInfo.State(event: try event())) { EditEventInfo() }
+        }
+        await store.send(.addLinkButtonTapped)?.value
+        #expect(!store.state.canSubmit)
+        store.modify { $0.links[0].url = "https://example.com" }
+        #expect(store.state.canSubmit)
+    }
+
+    @Test
     func siteMapEditorUpdatesCanonicalStylesAndDefaultWithoutReplacingOtherEventFields() async throws {
         let database = try database()
         var record = try event()

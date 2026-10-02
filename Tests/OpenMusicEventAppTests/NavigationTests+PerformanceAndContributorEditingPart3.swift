@@ -56,7 +56,7 @@ extension NavigationTests {
             $0.form.value.bio = " Updated bio "
             $0.imageURL = "https://example.com/image.jpg"
             $0.logoURL = " "
-            var link = EditableContributorLink()
+            var link = EditableLink()
             link.url = "https://example.com"
             link.title = " Bookings "
             link.description = " Contact the artist "

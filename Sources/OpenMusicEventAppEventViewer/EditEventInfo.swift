@@ -22,11 +22,17 @@ public struct EditEventInfo {
             @Dependency(\.date.now) var now
             self.original = event
             self.draft = event
+            let links = (event.links ?? []).map(EditableLink.init)
+            self.links = links
+            self.originalLinks = links
             self.defaultDate = now
         }
 
         let original: Event
         @DebugSnapshotTracked var draft: Event
+        var links: [EditableLink]
+        let originalLinks: [EditableLink]
+        var editingLinkID: EditableLink.ID?
         let defaultDate: Date
         @DebugSnapshotTracked var isSaving = false
         @DebugSnapshotTracked var errorMessage: String?
@@ -48,10 +54,15 @@ public struct EditEventInfo {
             if record.mode != original.mode, let custom = record.mode?.customValue {
                 record.mode = .unknown(.string(custom.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
+            if links != originalLinks {
+                let preparedLinks = links.compactMap(\.preparedLink)
+                record.links = preparedLinks.isEmpty ? nil : preparedLinks
+            }
             return record
         }
 
         var validationMessage: String? {
+            if let message = links.compactMap(\.validationMessage).first { return message }
             let record = preparedRecord
             if record.name.isEmpty { return "Enter an event name." }
             if record.status?.customValue == "" { return "Enter a custom event status." }
@@ -75,7 +86,11 @@ public struct EditEventInfo {
     }
 
     public enum Action {
+        case addLinkButtonTapped
         case cancelButtonTapped
+        case editLinkButtonTapped(UUID)
+        case moveLinkButtonTapped(UUID, Int)
+        case removeLinkButtonTapped(UUID)
         case saveButtonTapped
     }
 
@@ -84,8 +99,26 @@ public struct EditEventInfo {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addLinkButtonTapped:
+                let link = EditableLink()
+                state.links.append(link)
+                state.editingLinkID = link.id
+
             case .cancelButtonTapped:
                 store.addTask { try store.dismiss() }
+
+            case let .editLinkButtonTapped(id):
+                guard state.links.contains(where: { $0.id == id }) else { return }
+                state.editingLinkID = id
+
+            case let .moveLinkButtonTapped(id, offset):
+                guard let index = state.links.firstIndex(where: { $0.id == id }),
+                      state.links.indices.contains(index + offset) else { return }
+                state.links.swapAt(index, index + offset)
+
+            case let .removeLinkButtonTapped(id):
+                state.links.removeAll { $0.id == id }
+                if state.editingLinkID == id { state.editingLinkID = nil }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -164,6 +197,42 @@ public struct EditEventInfoView: View {
                     LabeledContent("Time Zone", value: store.draft.timeZone.identifier)
                 }
                 .navigationLinkListRowStyle()
+            }
+            Section("Links") {
+                ForEach(store.links) { link in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(link.title.isEmpty ? (link.url.isEmpty ? "New Link" : link.url) : link.title)
+                                .lineLimit(1)
+                            if !link.title.isEmpty && !link.url.isEmpty {
+                                Text(link.url)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Edit") { store.send(.editLinkButtonTapped(link.id)) }
+                            Button("Move Up") { store.send(.moveLinkButtonTapped(link.id, -1)) }
+                                .disabled(store.links.first?.id == link.id)
+                            Button("Move Down") { store.send(.moveLinkButtonTapped(link.id, 1)) }
+                                .disabled(store.links.last?.id == link.id)
+                            Button("Delete", role: .destructive) {
+                                store.send(.removeLinkButtonTapped(link.id))
+                            }
+                        } label: {
+                            Label("Link Actions", systemImage: "ellipsis.circle")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                }
+                Button("Add Link") { store.send(.addLinkButtonTapped) }
+            }
+            if let index = store.links.firstIndex(where: { $0.id == store.editingLinkID }) {
+                Section("Edit Link") {
+                    EditLinkFields(link: $store.links[index])
+                }
             }
             Section("Details") {
                 Picker("Status", selection: $store.draft.editStatus) {
