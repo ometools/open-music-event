@@ -1,5 +1,6 @@
 import Bluesky
 import ATProto
+import ATProtoTypes
 import Clocks
 import ComposableArchitecture2
 import ComposableNotifications
@@ -26,7 +27,6 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 import Testing
-import ATProto
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -58,6 +58,10 @@ extension NavigationTests {
             $0.logoURL = " "
             var link = EditableContributorLink()
             link.url = "https://example.com"
+            link.title = " Bookings "
+            link.description = " Contact the artist "
+            link.roleChoice = "contact"
+            link.useChoice = "nonEmergency"
             link.platformRawValue = ExternalPlatform.website.rawValue
             $0.form.value.links = [link]
         }
@@ -99,7 +103,94 @@ extension NavigationTests {
         #expect(images.first?.displayImageAsset(recordID: eventID)?.url?.absoluteString
             == "https://example.com/image.jpg")
         #expect(contributor.links?.map(\.url.absoluteString) == ["https://example.com"])
+        #expect(contributor.links?.map(\.title) == ["Bookings"])
+        #expect(contributor.links?.map(\.description) == ["Contact the artist"])
+        #expect(contributor.links?.map(\.role) == [
+            .known(.contact(.init(use: .known(.nonEmergency))))
+        ])
         #expect(contributor.links?.map(\.platform) == [.known(.website)])
+    }
+
+    @Test
+    func editContributorReordersAndDeletesLinksWithoutChangingUnknownRole() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        let unknownRole: Open<OME.Link.Role> = .unknown(.object([
+            "$type": "events.example.defs#pressLink",
+            "audience": "press",
+        ]))
+        _ = try await insertCanonicalContributor(
+            into: database,
+            name: "Artist One",
+            links: [
+                OME.Link(
+                    url: try #require(URL(string: "https://example.com/press")),
+                    title: "Press",
+                    role: unknownRole
+                ),
+                OME.Link(
+                    url: try #require(URL(string: "https://example.com/shop")),
+                    title: "Shop",
+                    role: .known(.website(.init()))
+                ),
+                OME.Link(
+                    url: try #require(URL(string: "https://example.com/tickets")),
+                    title: "Tickets",
+                    role: .known(.tickets(.init()))
+                ),
+            ]
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
+            }
+        }
+
+        #expect(store.state.form.value.links.map(\.title) == ["Press", "Shop", "Tickets"])
+        let pressID = store.state.form.value.links[0].id
+        let shopID = store.state.form.value.links[1].id
+        let ticketsID = store.state.form.value.links[2].id
+
+        await store.send(.editLinkButtonTapped(pressID))?.value
+        #expect(store.state.editingLinkID == pressID)
+        store.modify { $0.form.value.links[0].title = "Press Kit" }
+        await store.send(.moveLinkButtonTapped(ticketsID, -1))?.value
+        await store.send(.moveLinkButtonTapped(ticketsID, -1))?.value
+        await store.send(.removeLinkButtonTapped(shopID))?.value
+        #expect(store.state.form.value.links.map(\.title) == ["Tickets", "Press Kit"])
+
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
+
+        let contributor = try await database.read { db in
+            try #require(
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
+                    eventID: eventID
+                ).fetchOne(db)
+            )
+        }
+        #expect(contributor.links?.map(\.title) == ["Tickets", "Press Kit"])
+        #expect(contributor.links?.map(\.url.absoluteString) == [
+            "https://example.com/tickets",
+            "https://example.com/press",
+        ])
+        #expect(contributor.links?.last?.role == unknownRole)
     }
 
     @Test

@@ -435,6 +435,7 @@ public struct EditContributor {
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         public var contributorDID: DID?
         var destination: Destination.State?
+        var editingLinkID: EditableContributorLink.ID?
         @DebugSnapshotTracked var errorMessage: String?
         var form: FormFeature.State
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
@@ -650,9 +651,11 @@ public struct EditContributor {
         case actorProfileResponse(BlueskyActorProfile?)
         case cancelButtonTapped
         case destination(Destination.Action)
+        case editLinkButtonTapped(UUID)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
+        case moveLinkButtonTapped(UUID, Int)
         case photoImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(UUID)
         case saveButtonTapped
@@ -690,7 +693,9 @@ public struct EditContributor {
         Update { state, action in
             switch action {
             case .addLinkButtonTapped:
-                state.form.value.links.append(EditableContributorLink())
+                let link = EditableContributorLink()
+                state.form.value.links.append(link)
+                state.editingLinkID = link.id
 
             case let .actorIdentityTapped(identity):
                 state.contributorDID = identity.did
@@ -765,6 +770,10 @@ public struct EditContributor {
             case .destination:
                 break
 
+            case let .editLinkButtonTapped(id):
+                guard state.form.value.links.contains(where: { $0.id == id }) else { return }
+                state.editingLinkID = id
+
             case .form:
                 break
 
@@ -830,6 +839,11 @@ public struct EditContributor {
             case .logoImagePicker:
                 break
 
+            case let .moveLinkButtonTapped(id, offset):
+                guard let index = state.form.value.links.firstIndex(where: { $0.id == id }),
+                      state.form.value.links.indices.contains(index + offset) else { return }
+                state.form.value.links.swapAt(index, index + offset)
+
             case .photoImagePicker(.addButtonTapped):
                 state.destination = .photoImportImages(
                     Spawn(state.photoImagePicker.importImagesState())
@@ -846,6 +860,7 @@ public struct EditContributor {
 
             case let .removeLinkButtonTapped(id):
                 state.form.value.links.removeAll { $0.id == id }
+                if state.editingLinkID == id { state.editingLinkID = nil }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -1134,8 +1149,6 @@ struct EditContributorLoadedForm: View {
 
             EditContributorLinkSections(store: store)
 
-            EditContributorAddLinkSection(store: store)
-
             if let errorMessage = store.errorMessage {
                 Section {
                     Text(verbatim: errorMessage)
@@ -1294,60 +1307,84 @@ struct EditContributorLinkSections: View {
     }
 
     var body: some View {
-        ForEach($store.form.value.links) { $link in
-            EditableContributorLinkSection(
-                link: $link,
-                removeButtonTapped: removeLinkButtonTapped
-            )
-        }
-    }
-
-    private func removeLinkButtonTapped(id: EditableContributorLink.ID) {
-        store.send(.removeLinkButtonTapped(id))
-    }
-}
-
-struct EditContributorAddLinkSection: View {
-    let store: StoreOf<EditContributor>
-
-    var body: some View {
-        Section {
+        Section("Links") {
+            ForEach(store.form.value.links) { link in
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(link.title.isEmpty ? (link.url.isEmpty ? "New Link" : link.url) : link.title)
+                            .lineLimit(1)
+                        if !link.title.isEmpty && !link.url.isEmpty {
+                            Text(link.url)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Menu {
+                        Button("Edit") { store.send(.editLinkButtonTapped(link.id)) }
+                        Button("Move Up") { store.send(.moveLinkButtonTapped(link.id, -1)) }
+                            .disabled(store.form.value.links.first?.id == link.id)
+                        Button("Move Down") { store.send(.moveLinkButtonTapped(link.id, 1)) }
+                            .disabled(store.form.value.links.last?.id == link.id)
+                        Button("Delete", role: .destructive) {
+                            store.send(.removeLinkButtonTapped(link.id))
+                        }
+                    } label: {
+                        Label("Link Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
             Button("Add Link") {
                 store.send(.addLinkButtonTapped)
             }
             FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
         }
-    }
-}
-
-struct EditableContributorLinkSection: View {
-    @Binding var link: EditableContributorLink
-    let removeButtonTapped: (EditableContributorLink.ID) -> Void
-
-    init(
-        link: Binding<EditableContributorLink>,
-        removeButtonTapped: @escaping (EditableContributorLink.ID) -> Void
-    ) {
-        self._link = link
-        self.removeButtonTapped = removeButtonTapped
-    }
-
-    var body: some View {
-        Section("Link") {
-            TextField("URL", text: $link.url)
+        if let index = store.form.value.links.firstIndex(where: { $0.id == store.editingLinkID }) {
+            let link = store.form.value.links[index]
+            Section("Edit Link") {
+                TextField("Title", text: $store.form.value.links[index].title)
+                TextField("URL", text: $store.form.value.links[index].url)
                 #if os(iOS)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 #endif
-
-            Picker("Platform", selection: $link.platformRawValue) {
-                Text("Auto").tag("")
-                ExternalPlatformPickerOptions()
-            }
-
-            Button("Remove Link", role: .destructive) {
-                removeButtonTapped(link.id)
+                PortableTextField(
+                    "Description",
+                    text: $store.form.value.links[index].description,
+                    axis: .vertical
+                )
+                .portableLineLimit(2...5)
+                Picker("Purpose", selection: $store.form.value.links[index].roleChoice) {
+                    Text("Unspecified").tag("")
+                    Text("Website").tag("website")
+                    Text("Tickets").tag("tickets")
+                    Text("Contact").tag("contact")
+                    Text("Reporting").tag("reporting")
+                    if link.roleChoice == "unknown" {
+                        Text("Other (preserved)").tag("unknown")
+                    }
+                }
+                if link.roleChoice == "contact" || link.roleChoice == "reporting" {
+                    Picker("Use", selection: $store.form.value.links[index].useChoice) {
+                        Text("Unspecified").tag("")
+                        Text("Emergency").tag("emergency")
+                        Text("Non-Emergency").tag("nonEmergency")
+                        if !["", "emergency", "nonEmergency"].contains(link.useChoice) {
+                            Text("Other (preserved)").tag(link.useChoice)
+                        }
+                    }
+                }
+                Picker("Platform", selection: $store.form.value.links[index].platformRawValue) {
+                    Text("Auto").tag("")
+                    ExternalPlatformPickerOptions()
+                    if !link.platformRawValue.isEmpty,
+                       ExternalPlatform(rawValue: link.platformRawValue) == nil {
+                        Text("Other (preserved)").tag(link.platformRawValue)
+                    }
+                }
             }
         }
     }
@@ -1430,21 +1467,53 @@ struct ContributorActorAvatarPlaceholder: View {
 public struct EditableContributorLink: Identifiable, Equatable {
     public var id = UUID()
     var original: OME.Link?
+    var title = ""
     var platformRawValue = ""
+    var description = ""
+    var roleChoice = ""
     var url = ""
+    var useChoice = ""
 
     init() {}
 
     init(_ link: OME.Link) {
         self.original = link
+        self.title = link.title ?? ""
         self.platformRawValue = link.platformIdentifier ?? ""
+        self.description = link.description ?? ""
         self.url = link.url.absoluteString
+        switch link.role {
+        case .known(.website): self.roleChoice = "website"
+        case .known(.tickets): self.roleChoice = "tickets"
+        case .known(.contact(let contact)):
+            self.roleChoice = "contact"
+            self.useChoice = Self.useChoice(for: contact.use)
+        case .known(.reporting(let reporting)):
+            self.roleChoice = "reporting"
+            self.useChoice = Self.useChoice(for: reporting.use)
+        case .unknown: self.roleChoice = "unknown"
+        case nil: break
+        }
     }
 
     var preparedLink: OME.Link? {
-        guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else { return nil }
+        guard validationMessage == nil, let url = URL(string: trimmedURL) else { return nil }
         var link = original ?? OME.Link(url: url)
         link.url = url
+        link.title = trimmedTitle.nilIfEmpty
+        link.description = trimmedDescription.nilIfEmpty
+        switch roleChoice {
+        case "": link.role = nil
+        case "website": link.role = .known(.website(.init()))
+        case "tickets": link.role = .known(.tickets(.init()))
+        case "contact": link.role = .known(.contact(.init(use: preparedUse)))
+        case "reporting": link.role = .known(.reporting(.init(use: preparedUse)))
+        case "unknown":
+            guard let originalRole = original?.role, case .unknown = originalRole else {
+                return nil
+            }
+        default: return nil
+        }
         if let platform = ExternalPlatform(rawValue: trimmedPlatformRawValue) {
             link.platform = .known(platform)
         } else if trimmedPlatformRawValue.isEmpty {
@@ -1454,10 +1523,19 @@ public struct EditableContributorLink: Identifiable, Equatable {
     }
 
     var validationMessage: String? {
-        guard !trimmedURL.isEmpty else { return nil }
+        guard !trimmedURL.isEmpty else { return "Enter a link URL or delete this link." }
 
-        if URL(string: trimmedURL) == nil {
+        if URL(string: trimmedURL)?.scheme == nil {
             return "Enter a valid link URL."
+        }
+
+        if !["", "website", "tickets", "contact", "reporting", "unknown"].contains(roleChoice) {
+            return "Choose a valid link purpose."
+        }
+        if roleChoice == "unknown" {
+            guard let originalRole = original?.role, case .unknown = originalRole else {
+                return "Choose a valid link purpose."
+            }
         }
 
         if !trimmedPlatformRawValue.isEmpty,
@@ -1467,6 +1545,32 @@ public struct EditableContributorLink: Identifiable, Equatable {
         }
 
         return nil
+    }
+
+    private static func useChoice(for use: Open<OME.Link.ContactUse>?) -> String {
+        switch use {
+        case .known(.emergency): "emergency"
+        case .known(.nonEmergency): "nonEmergency"
+        case .unknown(let value): value.string ?? ""
+        case nil: ""
+        }
+    }
+
+    private var preparedUse: Open<OME.Link.ContactUse>? {
+        switch useChoice {
+        case "": nil
+        case "emergency": .known(.emergency)
+        case "nonEmergency": .known(.nonEmergency)
+        default: .unknown(.string(useChoice))
+        }
+    }
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedDescription: String {
+        description.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedPlatformRawValue: String {

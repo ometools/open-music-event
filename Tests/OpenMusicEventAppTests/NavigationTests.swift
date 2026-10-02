@@ -1394,7 +1394,8 @@ struct NavigationTests {
         into database: any DatabaseWriter,
         name: String,
         subject: DID? = nil,
-        description: String? = nil
+        description: String? = nil,
+        links: [OME.Link]? = nil
     ) async throws -> Contributor {
         let eventID = canonicalRouteEventID
         let contributorID = canonicalRouteRecordID(
@@ -1415,6 +1416,7 @@ struct NavigationTests {
             subject: subject
         )
         contributor.description = description
+        contributor.links = links
         let record = contributor
         try await database.write { db in
             try Event.insert { event }.execute(db)
