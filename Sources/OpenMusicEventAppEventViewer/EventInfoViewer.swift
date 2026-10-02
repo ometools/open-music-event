@@ -121,6 +121,13 @@ public struct EventInfoViewerView: View {
                             if let mode = event.mode?.eventInfoText {
                                 EventInfoRow(title: "Mode", value: mode)
                             }
+
+                            if let rsvpExpected = event.rsvpExpected {
+                                EventInfoRow(
+                                    title: "RSVPs",
+                                    value: rsvpExpected ? "Expected" : "Not expected"
+                                )
+                            }
                         }
                     }
 
@@ -177,7 +184,7 @@ private extension Event {
     }
 
     var hasEventInfoDetails: Bool {
-        status != nil || mode != nil
+        status != nil || mode != nil || rsvpExpected != nil
     }
 
     var dateIntervalText: String? {

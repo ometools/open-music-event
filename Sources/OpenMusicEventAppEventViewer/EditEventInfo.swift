@@ -182,6 +182,11 @@ public struct EditEventInfoView: View {
                 if store.draft.editMode == .custom {
                     TextField("Custom Mode", text: $store.draft.customModeText)
                 }
+                Picker("RSVPs", selection: $store.draft.rsvpExpected) {
+                    Text("Unspecified").tag(nil as Bool?)
+                    Text("Expected").tag(true as Bool?)
+                    Text("Not expected").tag(false as Bool?)
+                }
             }
             if let message = store.errorMessage ?? store.validationMessage {
                 Section {

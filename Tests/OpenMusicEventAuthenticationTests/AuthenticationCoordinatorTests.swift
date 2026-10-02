@@ -638,7 +638,8 @@ private func testPendingSession() throws -> OAuth.Session.Pending {
 private func waitForCondition(
     _ condition: @escaping @Sendable () -> Bool
 ) async throws {
-    for _ in 0..<100 {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while ContinuousClock.now < deadline {
         if condition() { return }
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -648,7 +649,8 @@ private func waitForCondition(
 private func waitForAsyncCondition(
     _ condition: @escaping @Sendable () async -> Bool
 ) async throws {
-    for _ in 0..<100 {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while ContinuousClock.now < deadline {
         if await condition() { return }
         try await Task.sleep(for: .milliseconds(10))
     }

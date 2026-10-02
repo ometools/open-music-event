@@ -69,13 +69,16 @@ struct CanonicalEventEditingTests {
         store.modify {
             $0.eventInfoForm?.draft.name = "  Wicked Woods 2026  "
             $0.eventInfoForm?.draft.description = "  Updated locally  "
+            $0.eventInfoForm?.draft.rsvpExpected = false
         } changes: {
             $0.eventInfoForm?.draft.name = "  Wicked Woods 2026  "
             $0.eventInfoForm?.draft.description = "  Updated locally  "
+            $0.eventInfoForm?.draft.rsvpExpected = false
         }
         var expected = event
         expected.name = "Wicked Woods 2026"
         expected.description = "Updated locally"
+        expected.rsvpExpected = false
         await store.send(.eventInfoForm(.saveButtonTapped)) {
             $0.eventInfoForm = nil
             $0.record = expected
@@ -581,12 +584,14 @@ struct CanonicalEventEditingTests {
         state.draft.description = "  "
         state.draft.status = nil
         state.draft.mode = nil
+        state.draft.rsvpExpected = nil
         state.draft.end = nil
         state.draft.timeZone = try #require(TimeZone(identifier: "Pacific/Auckland"))
         let saved = state.preparedRecord
         #expect(saved.description == nil)
         #expect(saved.status == nil)
         #expect(saved.mode == nil)
+        #expect(saved.rsvpExpected == nil)
         #expect(saved.end == nil)
         expectNoDifference(saved.start, event.start)
         #expect(state.validationMessage == nil)
