@@ -9,19 +9,13 @@ import Testing
 @Suite("Canonical workspace record changes")
 struct CanonicalWorkspaceRecordChangesTests {
     @Test
-    func detectsOrganizerOwnedRecordsWithoutCountingOtherRepositories() throws {
+    func detectsOrganizerChangesWithoutCountingOtherRepositories() throws {
         let working = try DatabaseQueue()
         let baseline = try DatabaseQueue()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(working)
         try migrator.migrate(baseline)
-        let owner = try #require(DID("did:plc:organizer"))
-        let workspace = SourceWorkspace(
-            organizerID: owner,
-            repository: "tangled.org/organizer/events",
-            branch: "main"
-        )
         let reference = SourceBaselineDatabase(path: "baseline", database: baseline)
         let eventID = try #require(Event.ID(
             "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
@@ -37,7 +31,7 @@ struct CanonicalWorkspaceRecordChangesTests {
 
         try working.read { db in
             let hasChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                workspace: workspace, in: db, referenceDatabase: reference
+                eventID: eventID, in: db, referenceDatabase: reference
             )
             #expect(!hasChanges)
         }
@@ -49,10 +43,13 @@ struct CanonicalWorkspaceRecordChangesTests {
             try Event.upsert { saved }.execute(db)
         }
         try working.read { db in
-            let hasChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                workspace: workspace, in: db, referenceDatabase: reference
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
             )
-            #expect(hasChanges)
+            #expect(changes.count == 1)
+            #expect(changes.first?.collection == Event.tableName)
+            #expect(changes.first?.id == eventID)
+            #expect(changes.first?.kind == .edited)
         }
 
         let otherID = try #require(Event.ID(
@@ -70,10 +67,30 @@ struct CanonicalWorkspaceRecordChangesTests {
         }
         try working.read { db in
             let hasChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                workspace: workspace, in: db, referenceDatabase: reference
+                eventID: eventID, in: db, referenceDatabase: reference
             )
             #expect(!hasChanges)
         }
+
+        let siblingID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcaj"
+        ))
+        let sibling = try Event(
+            id: siblingID,
+            name: "Another organizer event",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: .gmt
+        )
+        try working.write { db in try Event.insert { sibling }.execute(db) }
+        try working.read { db in
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(changes.count == 1)
+            #expect(changes.first?.id == siblingID)
+            #expect(changes.first?.kind == .added)
+        }
+        try baseline.write { db in try Event.insert { sibling }.execute(db) }
 
         let placeID = try #require(EventPlace.ID(
             "at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcak"
@@ -87,7 +104,7 @@ struct CanonicalWorkspaceRecordChangesTests {
         try working.write { db in try EventPlace.insert { place }.execute(db) }
         try working.read { db in
             let hasChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                workspace: workspace, in: db, referenceDatabase: reference
+                eventID: eventID, in: db, referenceDatabase: reference
             )
             #expect(hasChanges)
         }
@@ -104,9 +121,43 @@ struct CanonicalWorkspaceRecordChangesTests {
         try working.write { db in try Stage.insert { stage }.execute(db) }
         try working.read { db in
             let hasChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                workspace: workspace, in: db, referenceDatabase: reference
+                eventID: eventID, in: db, referenceDatabase: reference
             )
             #expect(hasChanges)
+        }
+
+        // Deleting one record and adding another produces two local changes without
+        // including the unrelated repository's event.
+        try working.write { db in try EventPlace.find(placeID).delete().execute(db) }
+        try working.read { db in
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(changes.count == 2)
+            #expect(changes.contains { $0.id == placeID && $0.kind == .deleted })
+            #expect(changes.contains { $0.id == stageID && $0.kind == .added })
+        }
+
+        try CanonicalWorkspaceRecordChanges.reset(
+            eventID: eventID,
+            in: working,
+            referenceDatabase: reference
+        )
+        try working.read { db in
+            let restoredEvent = try Event.find(eventID).fetchOne(db)
+            let siblingEvent = try Event.find(siblingID).fetchOne(db)
+            let restoredPlace = try EventPlace.find(placeID).fetchOne(db)
+            let removedStage = try Stage.find(stageID).fetchOne(db)
+            let otherEvent = try Event.find(otherID).fetchOne(db)
+            let remainingChanges = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(restoredEvent?.name == "Wicked Woods")
+            #expect(siblingEvent?.name == "Another organizer event")
+            #expect(restoredPlace?.name == "Main Stage")
+            #expect(removedStage == nil)
+            #expect(otherEvent?.name == "Another Event")
+            #expect(remainingChanges.isEmpty)
         }
     }
 }

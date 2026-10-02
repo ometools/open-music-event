@@ -25,23 +25,28 @@ public struct CommsPostDetail {
         public init(postID: Social.Post.ID, eventID: Event.ID) {
             self.postID = postID
             self.eventID = eventID
-            self._authoringGrant = .authoringGrant(for: eventID)
+            self._workspaceSession = .eventWorkspaceSession(for: eventID)
+            self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             _post = FetchOne(Social.Post.where { $0.id.eq(postID) })
         }
 
         public let postID: Social.Post.ID
         public let eventID: Event.ID
         @SharedReader
-        public var authoringGrant: AuthoringGrant?
+        public var workspaceSession: EventWorkspaceSession?
+        @DebugSnapshotIgnored let currentWorkspaceAccount: CurrentWorkspaceAccount
         @FetchOne public var post: Social.Post?
         public var destination: Destination.State?
         public var errorMessage: String?
         public var id: Social.Post.ID { postID }
 
         public var canDelete: Bool {
-            guard let post, let authoringGrant else { return false }
-            return authoringGrant.access.canEditContent
-                && post.id.authority == .did(authoringGrant.principal.actorID)
+            guard let post, let session = validatedWorkspaceSession else { return false }
+            return post.id.authority == .did(session.actorID)
+        }
+
+        var validatedWorkspaceSession: EventWorkspaceSession? {
+            currentWorkspaceAccount.validated(workspaceSession, for: eventID)
         }
 
         var loadState: LoadState {
@@ -78,7 +83,7 @@ public struct CommsPostDetail {
             case .editButtonTapped:
                 guard state.canDelete,
                       let post = state.post,
-                      let author = state.authoringGrant?.principal.actorID else { return }
+                      let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
                     CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
                 )

@@ -426,17 +426,21 @@ struct WorkspaceAuthoringStoryTests {
 
     #if os(macOS)
     @Test(.tcaExhaustivity(.off))
-    func `relaunching a canonical event keeps settings available without source restoration`() async throws {
+    func `relaunching an owner workspace keeps canonical event settings available`() async throws {
         let database = try makeWorkspaceStoryDatabase()
-        let organizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
-        )
+        let organizerID = try #require(DID("did:web:example.com"))
         let eventID = OpenMusicEventUIAutomationFixture.canonicalEventID
-        let authenticationStorage = workspaceStoryOAuthStorage(actorID: organizerID)
+        let authenticationStorage = OpenMusicEventOAuth.storage
 
+        try await withWorkspaceStoryOAuthSession(actorID: organizerID) {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.canonicalWorkspaceStorage = .fileBacked(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appending(path: "OME-WorkspaceRelaunch-\(UUID())", directoryHint: .isDirectory)
+            )
+            $0.continuousClock = ContinuousClock()
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.uuid = .incrementing
         } operation: {
@@ -467,19 +471,24 @@ struct WorkspaceAuthoringStoryTests {
                 expectNoDifference(viewer.selectedFeature, .settings)
                 #expect(viewer.eventSettings != nil)
                 #expect(viewer.eventWorkspace == nil)
-                #expect(!viewer.isEditing)
+                if visit == 1 { #expect(!viewer.showsAuthoringControls) }
 
                 if visit == 1 {
                     await store.send(
                         to: \.content.destination!.eventViewer!.eventSettings!,
-                        .enterEditingButtonTapped
+                        .enterAuthoringButtonTapped
                     )?.value
                     try await workspaceStoryWaitUntil {
-                        store.state.content.destination?.eventViewer?.isEditing == true
+                        store.state.content.destination?.eventViewer?.showsAuthoringControls == true
+                    }
+                } else {
+                    try await workspaceStoryWaitUntil {
+                        store.state.content.destination?.eventViewer?.showsAuthoringControls == true
                     }
                 }
                 await store.dismount()
             }
+        }
         }
     }
     #endif
@@ -547,50 +556,62 @@ struct WorkspaceAuthoringStoryTests {
     #endif
 
     @Test
-    func `leaving local editing preserves canonical event changes`() async throws {
+    func `owner workspace editing resets canonical event changes when discarded`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let eventID = OpenMusicEventUIAutomationFixture.canonicalEventID
+        let ownerID = try #require(DID("did:web:example.com"))
 
-        try await withDependencies {
-            $0.context = .test
-            OME.prepareDependencies(&$0, database: database)
-            $0.defaultEventID = eventID
-            $0.uuid = .incrementing
-            $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
-        } operation: {
-            try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
-            let store = Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+        try await withWorkspaceStoryOAuthSession(actorID: ownerID) {
+            try await withDependencies {
+                $0.context = .test
+                OME.prepareDependencies(&$0, database: database)
+                $0.defaultEventID = eventID
+                $0.canonicalWorkspaceStorage = .fileBacked(
+                    rootURL: FileManager.default.temporaryDirectory
+                        .appending(path: "OME-WorkspaceStory-\(UUID())", directoryHint: .isDirectory)
+                )
+                $0.uuid = .incrementing
+                $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
+            } operation: {
+                try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
+                let store = Store(initialState: EventViewer.State(eventID: eventID)) {
+                    EventViewer()
+                }
+                let settings = try #require(store.spawn(\.eventSettings))
+
+                await settings.send(.enterAuthoringButtonTapped)?.value
+                try await workspaceStoryWaitUntil { store.showsAuthoringControls }
+                #expect(store.canonicalWorkspace != nil)
+
+                var edited = try await database.read { db in
+                    try #require(try Event.find(eventID).fetchOne(db))
+                }
+                edited.name = "Wicked Woods, locally edited"
+                let updatedEvent = edited
+                try await database.write { db in
+                    try Event.upsert { updatedEvent }.execute(db)
+                }
+
+                await settings.send(.exitAuthoringButtonTapped)?.value
+                try await workspaceStoryWaitUntil { settings.destination != nil }
+                await settings.send(
+                    .destination(.exitAuthoringConfirmation(.exitAndDeleteButtonTapped))
+                )?.value
+                try await workspaceStoryWaitUntil { store.workspaceSession == nil }
+
+                let saved = try await database.read {
+                    try Event.find(eventID).fetchOne($0)
+                }
+                #expect(saved?.name != updatedEvent.name)
+                #expect(store.eventID == eventID)
+                #expect(store.canonicalWorkspace == nil)
+                #expect(!store.showsAuthoringControls)
             }
-            let settings = try #require(store.spawn(\.eventSettings))
-
-            await settings.send(.enterEditingButtonTapped)?.value
-            try await workspaceStoryWaitUntil { store.isEditing }
-
-            var edited = try await database.read { db in
-                try #require(try Event.find(eventID).fetchOne(db))
-            }
-            edited.name = "Wicked Woods, locally edited"
-            let updatedEvent = edited
-            try await database.write { db in
-                try Event.upsert { updatedEvent }.execute(db)
-            }
-
-            await settings.send(.exitEditingButtonTapped)?.value
-            try await workspaceStoryWaitUntil { !store.isEditing }
-
-            let saved = try await database.read {
-                try Event.find(eventID).fetchOne($0)
-            }
-            expectNoDifference(saved, updatedEvent)
-            #expect(store.eventID == eventID)
-            #expect(store.eventWorkspace == nil)
-            #expect(!store.showsAuthoringControls)
         }
     }
     #if os(macOS)
     @Test(.tcaExhaustivity(.off))
-    func `signed-out app enters local editing through canonical event settings`() async throws {
+    func `signed-out app cannot enter local editing through canonical event settings`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let eventID = OpenMusicEventUIAutomationFixture.canonicalEventID
         let authenticationStorage = workspaceStorySignedOutOAuthStorage()
@@ -600,6 +621,7 @@ struct WorkspaceAuthoringStoryTests {
             OME.prepareDependencies(&$0, database: database)
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.uuid = .incrementing
+            $0.continuousClock = ContinuousClock()
         } operation: {
             try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
             @Dependency(\.eventRecords) var eventRecords
@@ -628,13 +650,14 @@ struct WorkspaceAuthoringStoryTests {
             #expect(viewer.eventWorkspace == nil)
             #expect(!viewer.showsAuthoringControls)
 
-            await opened.send(
-                to: \.content.destination!.eventViewer!.eventSettings!,
-                .enterEditingButtonTapped
-            )?.value
-            try await workspaceStoryWaitUntil {
-                opened.state.content.destination?.eventViewer?.showsAuthoringControls == true
+            try await expectReportedIssue(containing: "ownerAccountRequired") {
+                await opened.send(
+                    to: \.content.destination!.eventViewer!.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )?.value
             }
+            #expect(opened.state.content.destination?.eventViewer?.showsAuthoringControls == false)
+            #expect(opened.state.content.destination?.eventViewer?.workspaceSession == nil)
             #expect(opened.state.content.destination?.eventViewer?.authoringGrant == nil)
             #expect(opened.state.content.destination?.eventViewer?.eventWorkspace == nil)
             await opened.dismount()
@@ -643,7 +666,7 @@ struct WorkspaceAuthoringStoryTests {
     #endif
 
     @Test
-    func `authenticated attendee editing does not require repository membership`() async throws {
+    func `authenticated attendee cannot edit another owner's event`() async throws {
         let database = try makeWorkspaceStoryDatabase()
         let organizerID = try #require(
             OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
@@ -657,6 +680,7 @@ struct WorkspaceAuthoringStoryTests {
                 OME.prepareDependencies(&$0, database: database)
                 $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
                 $0.uuid = .incrementing
+                $0.continuousClock = ContinuousClock()
                 $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
                     _, _ in
                     operations.record("membership")
@@ -712,13 +736,14 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(store.state.content.destination?.eventViewer?.eventWorkspace == nil)
                 #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
 
-                await store.send(
-                    to: \.content.destination!.eventViewer!.eventSettings!,
-                    .enterEditingButtonTapped
-                )?.value
-                try await workspaceStoryWaitUntil {
-                    store.state.content.destination?.eventViewer?.showsAuthoringControls == true
+                try await expectReportedIssue(containing: "ownerAccountRequired") {
+                    await store.send(
+                        to: \.content.destination!.eventViewer!.eventSettings!,
+                        .enterAuthoringButtonTapped
+                    )?.value
                 }
+                #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
+                #expect(store.state.content.destination?.eventViewer?.workspaceSession == nil)
                 #expect(store.state.content.destination?.eventViewer?.authoringGrant == nil)
                 #expect(store.state.content.destination?.eventViewer?.eventWorkspace == nil)
                 #expect(operations.snapshot.isEmpty)
@@ -728,46 +753,11 @@ struct WorkspaceAuthoringStoryTests {
     }
 }
 
-private func workspaceStoryOAuthStorage(actorID: DID) -> OAuthSessionStorage {
-    let session = workspaceStoryOAuthSession(actorID: actorID)
-    let sessionStore = Shared(
-        value: OAuth.SessionStore(
-            selectedAccountID: session.accountID,
-            sessions: [actorID: session]
-        )
-    )
-    return OAuthSessionStorage(
-        sessionStore: sessionStore,
-        authFailureMessage: Shared(value: nil),
-        selectedSessionID: Shared(value: session.accountID)
-    )
-}
-
 private func workspaceStorySignedOutOAuthStorage() -> OAuthSessionStorage {
     OAuthSessionStorage(
         sessionStore: Shared(value: OAuth.SessionStore()),
         authFailureMessage: Shared(value: nil),
         selectedSessionID: Shared(value: nil)
-    )
-}
-
-private func workspaceStoryOAuthSession(actorID: DID) -> OAuth.Session {
-    OAuth.Session(
-        accountID: Atmosphere.Account.ID(actorID),
-        pdsHost: "owner.pds.example",
-        tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
-            URL(string: "https://owner.pds.example/oauth/token")!
-        ),
-        scope: OAuth.Scope(
-            rawValue: Set([OAuth.Permission.atproto])
-                .union(OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions)
-                .map(\.rawValue)
-                .sorted()
-                .joined(separator: " ")
-        ),
-        accessToken: OAuth.AccessToken(rawValue: "workspace-story-access-token"),
-        refreshToken: OAuth.RefreshToken(rawValue: "workspace-story-refresh-token"),
-        dpopKey: OAuth.DPOP.Key()
     )
 }
 

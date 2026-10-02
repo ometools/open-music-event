@@ -34,67 +34,38 @@ import ATProto
 
 extension NavigationTests {
     @Test
-    func communicationsViewerAuthoringGrantReachesChannelDetail() async throws {
+    func communicationsViewerOwnerSessionReachesChannelDetail() async throws {
         let database = try makePreparedDatabase()
-        let eventID = canonicalRouteEventID
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpdba"
+        ))
         let channelID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalCategory(db, id: channelID, eventID: eventID, name: "General")
         }
-        let workspace = SourceWorkspace(
-            organizerID: testOrganizerID,
-            repository: "tangled.org/example/events",
-            branch: "main"
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
+            at: FileManager.default.temporaryDirectory
+                .appending(path: "OME-CommsOwner-\(UUID()).sqlite").path,
+            from: database
         )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(
-                actorID: try #require(DID("did:plc:organizer"))
-            ),
-            role: .owner,
-            workspaceID: workspace.id
+        let session = EventWorkspaceSession(
+            eventID: eventID, actorID: ownerID, baseline: baseline
         )
-        let authoringGrant = withDependencies {
+        let oauth = canonicalWorkspaceTestOAuthSession(actorID: ownerID)
+        let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.getOptionalDefaultSession = { oauth }
         } operation: {
-            Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-        }
-        let initialState = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            authoringGrant.withLock { $0 = grant }
-            return OpenMusicEventAuthoringWorkspace<EventViewer>.state(
-                workspace: workspace,
-                grant: authoringGrant
-            ) {
-                EventViewer.State(eventID: eventID)
+            Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
+                .withLock { $0 = session }
+            return Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
             }
         }
-
-        let workspaceStore = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            Store(initialState: initialState) {
-                OpenMusicEventWorkspace()
-            }
-        }
-        await waitForObservation {
-            workspaceStore.authoring.phase == .inactive(.unavailable)
-        }
-        authoringGrant.withLock { $0 = grant }
-        let authoringStore = workspaceStore
-            .scope(\.authoring)
-        let workspaceContentStore = authoringStore
-            .scope(\.content)
-        let eventViewerStore = workspaceContentStore
-            .scope(\.content)
-        let store = try #require(
-            eventViewerStore.scope(\.communicationsViewer)
-        )
 
         // The organizer can manage channels from the Comms list.
         #expect(store.canManageChannels)

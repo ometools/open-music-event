@@ -89,6 +89,27 @@ where Self == InMemoryKey<AuthoringGrant?>.Default {
     }
 }
 
+public extension SharedReaderKey
+where Self == InMemoryKey<EventWorkspaceSession?>.Default {
+    static var defaultEventWorkspaceSession: Self {
+        @Dependency(\.defaultEventID) var eventID
+        return Self[
+            .inMemory("open-music-event.workspace-session." + eventID.description),
+            default: nil
+        ]
+    }
+}
+
+extension SharedReader where Value == EventWorkspaceSession? {
+    static func eventWorkspaceSession(for eventID: Event.ID) -> Self {
+        withDependencies {
+            $0.defaultEventID = eventID
+        } operation: {
+            Self(.defaultEventWorkspaceSession)
+        }
+    }
+}
+
 extension SharedReader where Value == AuthoringGrant? {
     static func authoringGrant(for eventID: Event.ID) -> Self {
         withDependencies {
@@ -154,18 +175,23 @@ public struct EventViewer {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
+    @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
     @Dependency(\.uuid) var uuid
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
     var workspace
 
     public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
         public init(eventID: Event.ID) {
-            let authoringGrant = SharedReader<AuthoringGrant?>.authoringGrant(for: eventID)
+            let session = SharedReader<EventWorkspaceSession?>.eventWorkspaceSession(for: eventID)
+            let account = CurrentWorkspaceAccount()
             self.init(
                 eventID: eventID,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringAccess: authoringGrant.wrappedValue?.access ?? .attendee
+                    authoringAccess: account.validated(
+                        session.wrappedValue,
+                        for: eventID
+                    ) == nil ? .attendee : .authoring(.owner)
                 )
             )
         }
@@ -177,6 +203,8 @@ public struct EventViewer {
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
             self._authoringGrant = .authoringGrant(for: eventID)
+            self._workspaceSession = .eventWorkspaceSession(for: eventID)
+            self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.eventID = eventID
             self._event = FetchOne(
                 Event.where { $0.id.eq(eventID) }
@@ -309,8 +337,12 @@ public struct EventViewer {
             target: EventTarget?,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) -> Self {
-            let authoringGrant = SharedReader<AuthoringGrant?>.authoringGrant(for: eventID)
-            let access = authoringGrant.wrappedValue?.access ?? .attendee
+            let session = SharedReader<EventWorkspaceSession?>.eventWorkspaceSession(for: eventID)
+            let account = CurrentWorkspaceAccount()
+            let access: AuthoringAccess = account.validated(
+                session.wrappedValue,
+                for: eventID
+            ) == nil ? .attendee : .authoring(.owner)
             var state = Self(
                 eventID: eventID,
                 features: EventFeature.features(
@@ -330,6 +362,10 @@ public struct EventViewer {
 
         @SharedReader
         public var authoringGrant: AuthoringGrant?
+        @SharedReader
+        public var workspaceSession: EventWorkspaceSession?
+        @DebugSnapshotIgnored
+        let currentWorkspaceAccount: CurrentWorkspaceAccount
         @Trigger public var authoringAuthorizationInvalidated
         @Trigger<WorkspaceFailure> public var workspaceBaselineSelectionFailed
         @Trigger<WorkspaceFailure> public var workspaceChangesPublicationFailed
@@ -361,12 +397,12 @@ public struct EventViewer {
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSettings: Spawn<EventSettings>?
         public var eventWorkspace: EventWorkspace.State?
+        public var canonicalWorkspace: CanonicalEventWorkspace.State?
         public var account = Spawn(Account.State())
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
         public var destination: Destination.State?
-        public var isEditing = false
         public var pendingAuthoringEntry: EditorEntry?
         public var pendingScheduleLaunchAction: ScheduleLaunchAction?
 
@@ -381,11 +417,16 @@ public struct EventViewer {
         }
 
         public var authoringAccess: AuthoringAccess {
-            authoringGrant?.access ?? .attendee
+            if validatedWorkspaceSession != nil { return .authoring(.owner) }
+            return .attendee
+        }
+
+        public var validatedWorkspaceSession: EventWorkspaceSession? {
+            currentWorkspaceAccount.validated(workspaceSession, for: eventID)
         }
 
         public var showsAuthoringControls: Bool {
-            isEditing
+            validatedWorkspaceSession != nil
         }
 
         public var needsStageDisambiguation: Bool {
@@ -820,8 +861,10 @@ public struct EventViewer {
         case closeButtonTapped
         case communicationsViewer(CommunicationsViewer.Action)
         case destination(Destination.Action)
+        case editEventInfoButtonTapped
         case eventSearch(EventSearch.Action)
         case eventWorkspace(EventWorkspace.Action)
+        case canonicalWorkspace(CanonicalEventWorkspace.Action)
         case reactionButtonTapped(ProgramItem.ID, PerformanceReaction.Emoji)
     }
 
@@ -836,6 +879,7 @@ public struct EventViewer {
         case contactInfoForm(EditContactInfo)
         case contributorForm(EditContributor)
         case copyStagesFromEvent(CopyStagesFromEvent)
+        case eventInfoForm(EditEventInfo)
         case locationForm(EditLocation)
         case performanceForm(EditPerformance)
         case scheduleForm(EditSchedule)
@@ -843,14 +887,6 @@ public struct EventViewer {
     }
 
     private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
-        if case .intent = entry {
-            state.isEditing = true
-            state.pendingAuthoringEntry = nil
-            store.withDependencies {
-                state.enterAuthoringEntry(entry)
-            }
-            return
-        }
         guard !state.authoringAccess.canEditContent else {
             state.pendingAuthoringEntry = nil
             store.withDependencies {
@@ -887,6 +923,35 @@ public struct EventViewer {
         state.reloadFeaturesForAuthoringAccess()
         if let pendingAuthoringEntry = state.pendingAuthoringEntry {
             enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+        }
+    }
+
+    private func installCanonicalWorkspace(
+        _ session: EventWorkspaceSession,
+        state: inout State
+    ) {
+        guard state.validatedWorkspaceSession == session else { return }
+        if state.canonicalWorkspace?.baseline != session.baseline {
+            state.withEventDependencies {
+                state.canonicalWorkspace = CanonicalEventWorkspace.State(
+                    eventID: state.eventID,
+                    baseline: session.baseline
+                )
+            }
+        }
+        state.reloadFeaturesForAuthoringAccess()
+        if let pendingAuthoringEntry = state.pendingAuthoringEntry {
+            enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+        }
+    }
+
+    private func sharedWorkspaceSession(
+        for eventID: Event.ID
+    ) -> Shared<EventWorkspaceSession?> {
+        withDependencies {
+            $0.defaultEventID = eventID
+        } operation: {
+            Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
         }
     }
 
@@ -930,10 +995,21 @@ public struct EventViewer {
                     case .destination:
                         break
 
+                    case .editEventInfoButtonTapped:
+                        guard state.validatedWorkspaceSession != nil,
+                              let event = state.event
+                        else { break }
+                        state.destination = state.withEventDependencies {
+                            .eventInfoForm(EditEventInfo.State(event: event))
+                        }
+
                     case .eventSearch:
                         break
 
                     case .eventWorkspace:
+                        break
+
+                    case .canonicalWorkspace:
                         break
 
                     case let .reactionButtonTapped(performanceID, emoji):
@@ -957,15 +1033,6 @@ public struct EventViewer {
                             }
                         }
 
-                    }
-                }
-                .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
-                    let oldValue = oldGrant?.access ?? .attendee
-                    let newValue = newGrant?.access ?? .attendee
-                    if let newGrant, newValue.canEditContent {
-                        installAuthorizedWorkspace(newGrant, state: &state)
-                    } else if oldValue != newValue {
-                        state.reloadFeaturesForAuthoringAccess()
                     }
                 }
                 .onChange(of: store.selectedFeature) { _, feature, state in
@@ -1002,10 +1069,8 @@ public struct EventViewer {
                     }
                 }
                 .onMount { state in
-                    if let grant = state.authoringGrant,
-                       grant.access.canEditContent
-                    {
-                        installAuthorizedWorkspace(grant, state: &state)
+                    if let session = state.validatedWorkspaceSession {
+                        installCanonicalWorkspace(session, state: &state)
                     } else {
                         state.reloadFeaturesForAuthoringAccess()
                     }
@@ -1092,6 +1157,78 @@ public struct EventViewer {
 
             AnyFeature(
                 EmptyFeature<State, Action>()
+                    .onChange(of: store.workspaceSession) { _, session, state in
+                        if let session, state.validatedWorkspaceSession == session {
+                            installCanonicalWorkspace(session, state: &state)
+                        } else {
+                            state.canonicalWorkspace = nil
+                            state.reloadFeaturesForAuthoringAccess()
+                        }
+                    }
+                    .onEvent(AuthoringRequested.self) { _, state in
+                        guard state.validatedWorkspaceSession == nil else { return }
+                        let eventID = state.eventID
+                        let sessionStorage = sharedWorkspaceSession(for: eventID)
+                        let getOptionalDefaultSession = getOptionalDefaultSession
+                        let database = database
+                        store.addTask {
+                            let _: Void? = await store.withErrorHandling(
+                                fallbackMessage: .workspaceEntryFailed,
+                                operation: .workspaceEntry
+                            ) {
+                                guard let account = getOptionalDefaultSession(),
+                                      let actorID = DID(account.accountID.rawValue.description),
+                                      eventID.authority == .did(actorID)
+                                else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
+                                    for: eventID,
+                                    from: database
+                                )
+                                guard let current = getOptionalDefaultSession(),
+                                      DID(current.accountID.rawValue.description) == actorID
+                                else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                sessionStorage.withLock {
+                                    $0 = EventWorkspaceSession(
+                                        eventID: eventID,
+                                        actorID: actorID,
+                                        baseline: baseline
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .onEvent(AuthoringExitRequested.self) { _, state in
+                        let eventID = state.eventID
+                        let sessionStorage = sharedWorkspaceSession(for: eventID)
+                        guard let session = state.validatedWorkspaceSession else {
+                            sessionStorage.withLock { $0 = nil }
+                            return
+                        }
+                        let database = database
+                        store.addTask {
+                            let _: Void? = await store.withErrorHandling(
+                                fallbackMessage: .workspaceResetFailed,
+                                operation: .workspaceReset
+                            ) {
+                                try CanonicalWorkspaceRecordChanges.reset(
+                                    eventID: eventID,
+                                    in: database,
+                                    referenceDatabase: session.baseline
+                                )
+                                sessionStorage.withLock { $0 = nil }
+                            }
+                        }
+                    }
+                    .onTrigger(store.authoringAuthorizationInvalidated) { state in
+                        let sessionStorage = sharedWorkspaceSession(for: state.eventID)
+                        sessionStorage.withLock { $0 = nil }
+                        state.canonicalWorkspace = nil
+                        state.reloadFeaturesForAuthoringAccess()
+                    }
+            )
+
+            AnyFeature(
+                EmptyFeature<State, Action>()
                     .onEvent(ScheduleDivisionRequested.self) { division, state in
                         let feature = EventFeature.schedule(division)
                         guard state.installedFeatures.contains(feature) else { return }
@@ -1142,6 +1279,9 @@ public struct EventViewer {
                     EmptyFeature<State, Action>().ifLet(\.eventWorkspace) {
                         EventWorkspace()
                     }
+                    EmptyFeature<State, Action>().ifLet(\.canonicalWorkspace) {
+                        CanonicalEventWorkspace()
+                    }
                     EmptyFeature<State, Action>().spawn(\.account) {
                         Account()
                     }
@@ -1162,9 +1302,6 @@ public struct EventViewer {
                 .onEvent(EventEditingRequested.self) { intent, state in
                     guard intent.eventID == state.eventID else { return }
                     enterOrRequestAuthoring(.intent(intent), state: &state)
-                }
-                .onEvent(EventEditingModeRequested.self) { isEditing, state in
-                    state.isEditing = isEditing
                 }
             )
         }
@@ -1190,6 +1327,8 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
             destinationID("contributorForm", store.eventID, store.mode.contributorID)
         case let .copyStagesFromEvent(store):
             destinationID("copyStagesFromEvent", store.eventID)
+        case let .eventInfoForm(store):
+            destinationID("eventInfoForm", store.eventID)
         case let .locationForm(store):
             destinationID("locationForm", store.eventID)
         case let .performanceForm(store):
@@ -1259,6 +1398,8 @@ public struct EventViewerView: View {
         switch destinationStore {
         case let .copyStagesFromEvent(copyStore):
             CopyStagesFromEventView(store: copyStore)
+        case let .eventInfoForm(formStore):
+            EditEventInfoView(store: formStore)
         case let .contributorForm(formStore):
             EditContributorView(store: formStore)
         case let .stageForm(formStore):
@@ -1459,7 +1600,7 @@ public struct EventViewerView: View {
                         badgeValue: featureStore.permissions.notificationSetupBadgeValue,
                         navigation: .stack
                     ) {
-                        EventSettingsView(store: featureStore, isEditing: store.isEditing)
+                        EventSettingsView(store: featureStore)
                     }
                 }
 
@@ -1476,6 +1617,22 @@ public struct EventViewerView: View {
                     }
                 }
 
+                if let featureStore = store.scope(\.canonicalWorkspace) {
+                    TabFeature(
+                        .workspace,
+                        title: EventViewer.EventFeature.workspace.title,
+                        systemImage: EventViewer.EventFeature.workspace.systemImage,
+                        labelTint: EventViewer.EventFeature.workspace.labelTint,
+                        badgeValue: featureStore.badgeCount,
+                        navigation: .stack
+                    ) {
+                        CanonicalEventWorkspaceView(
+                            store: featureStore,
+                            onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                        )
+                    }
+                }
+
                 if let featureStore = store.spawn(\.eventInfoViewer) {
                     TabFeature(
                         .about,
@@ -1484,7 +1641,11 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
-                        EventInfoViewerView(store: featureStore)
+                        EventInfoViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls,
+                            onEdit: { store.send(.editEventInfoButtonTapped) }
+                        )
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button {
@@ -1651,7 +1812,7 @@ public struct EventViewerView: View {
                     .settings,
                     badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
-                    EventSettingsView(store: featureStore, isEditing: store.isEditing)
+                    EventSettingsView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1663,9 +1824,23 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.workspace)
             }
 
+            if let featureStore = store.scope(\.canonicalWorkspace) {
+                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
+                    CanonicalEventWorkspaceView(
+                        store: featureStore,
+                        onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                    )
+                }
+                .tag(EventViewer.EventFeature.workspace)
+            }
+
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(store: featureStore)
+                    EventInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls,
+                        onEdit: { store.send(.editEventInfoButtonTapped) }
+                    )
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1771,7 +1946,7 @@ public struct EventViewerView: View {
                     .settings,
                     badgeValue: featureStore.permissions.notificationSetupBadgeValue
                 ) {
-                    EventSettingsView(store: featureStore, isEditing: store.isEditing)
+                    EventSettingsView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1783,9 +1958,23 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.workspace)
             }
 
+            if let featureStore = store.scope(\.canonicalWorkspace) {
+                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
+                    CanonicalEventWorkspaceView(
+                        store: featureStore,
+                        onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                    )
+                }
+                .tag(EventViewer.EventFeature.workspace)
+            }
+
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(store: featureStore)
+                    EventInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls,
+                        onEdit: { store.send(.editEventInfoButtonTapped) }
+                    )
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1895,6 +2084,10 @@ private extension EventEditingIntent {
 }
 
 extension UserFacingText {
+    static let workspaceEntryFailed = Self(
+        "Sign in with the account that owns this event to enter Workspace.",
+        fallback: "Sign in with the account that owns this event to enter Workspace."
+    )
     static let workspaceBaselineSelectionFailed = Self(
         "Unable to switch Workspace.",
         fallback: "Unable to switch Workspace."
@@ -1902,7 +2095,12 @@ extension UserFacingText {
 }
 
 extension ErrorOperation {
+    static let workspaceEntry = Self("workspace.entry")
     static let workspaceBaselineSelection = Self("workspace.baseline.select")
+}
+
+private enum EventWorkspaceEntryError: Error {
+    case ownerAccountRequired
 }
 
 struct ViewerPlaceholderView: View {

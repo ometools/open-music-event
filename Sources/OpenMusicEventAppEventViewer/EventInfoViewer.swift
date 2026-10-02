@@ -63,9 +63,17 @@ public struct EventInfoViewer {
 
 public struct EventInfoViewerView: View {
     @Bindable var store: StoreOf<EventInfoViewer>
+    let showsAuthoringControls: Bool
+    let onEdit: () -> Void
 
-    public init(store: StoreOf<EventInfoViewer>) {
+    public init(
+        store: StoreOf<EventInfoViewer>,
+        showsAuthoringControls: Bool,
+        onEdit: @escaping () -> Void
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
+        self.onEdit = onEdit
     }
 
     public var body: some View {
@@ -149,6 +157,14 @@ public struct EventInfoViewerView: View {
                     systemImage: "info.circle",
                     description: "This event could not be loaded."
                 )
+            }
+        }
+        .toolbar {
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit Event Info", action: onEdit)
+                        .accessibilityIdentifier("button.event-info.edit")
+                }
             }
         }
     }

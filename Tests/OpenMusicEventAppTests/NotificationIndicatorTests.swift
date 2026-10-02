@@ -268,35 +268,30 @@ struct NotificationIndicatorTests {
             try Self.insertPost(db, eventID: eventID, category: "general", name: "welcome")
             try CommsPostRead.insert { CommsPostRead(id: postID) }.execute(db)
         }
-        let workspace = SourceWorkspace(
-            organizerID: Self.organizerDID,
-            repository: "tangled.org/example/delete-post",
-            branch: "main"
+        let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
+            at: FileManager.default.temporaryDirectory
+                .appending(path: "OME-DeletePost-\(UUID()).sqlite").path,
+            from: database
         )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(actorID: Self.organizerDID),
-            role: .owner,
-            workspaceID: workspace.id
+        let session = EventWorkspaceSession(
+            eventID: eventID,
+            actorID: Self.organizerDID,
+            baseline: baseline
         )
+        let oauth = canonicalWorkspaceTestOAuthSession(actorID: Self.organizerDID)
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.getOptionalDefaultSession = { oauth }
         } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            authoringGrant.withLock { $0 = grant }
+            Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
+                .withLock { $0 = session }
             return TestStore(
                 initialState: CommunicationChannelDetail.State(
                     channelID: categoryID, eventID: eventID
                 )
             ) { CommunicationChannelDetail() }
-        }
-        defer {
-            withDependencies {
-                $0.defaultEventID = eventID
-            } operation: {
-                Shared<AuthoringGrant?>(.defaultAuthoringGrant).withLock { $0 = nil }
-            }
         }
 
         store.send(.postButtonTapped(postID))

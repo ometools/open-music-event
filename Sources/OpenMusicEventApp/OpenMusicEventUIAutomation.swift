@@ -1,6 +1,9 @@
 import ATProto
+import ATProtoOAuth
+import ComposableAtmosphere
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SQLiteData
@@ -88,6 +91,35 @@ enum OpenMusicEventUIAutomationFixture {
     static let canonicalWelcomePostID = Social.Post.ID(
         "at://did:web:example.com/social.ome.post/3mrdbziccpcah"
     )!
+    static let ownerID = DID("did:web:example.com")!
+
+    static func prepareAccount(for profile: OpenMusicEventUIAutomation) {
+        let sessionStore: OAuth.SessionStore
+        let selectedAccountID: Atmosphere.Account.ID?
+        if profile == .workspace {
+            let session = OAuth.Session(
+                accountID: Atmosphere.Account.ID(ownerID),
+                pdsHost: "owner.ui.test",
+                tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
+                    URL(string: "https://owner.ui.test/oauth/token")!
+                ),
+                scope: OAuth.Scope(rawValue: OAuth.Permission.atproto.rawValue),
+                accessToken: OAuth.AccessToken(rawValue: "workspace-ui-access-token"),
+                refreshToken: OAuth.RefreshToken(rawValue: "workspace-ui-refresh-token"),
+                dpopKey: OAuth.DPOP.Key()
+            )
+            selectedAccountID = session.accountID
+            sessionStore = OAuth.SessionStore(
+                selectedAccountID: session.accountID,
+                sessions: [ownerID: session]
+            )
+        } else {
+            selectedAccountID = nil
+            sessionStore = OAuth.SessionStore()
+        }
+        OpenMusicEventOAuth.sessionStore.withLock { $0 = sessionStore }
+        OpenMusicEventOAuth.selectedSessionID.withLock { $0 = selectedAccountID }
+    }
     static func prepareCanonicalRecords(into database: any DatabaseWriter) async throws {
         guard let publicMapURL = Bundle.module.url(forResource: "public-map", withExtension: "png"),
               let safetyMapURL = Bundle.module.url(forResource: "safety-map", withExtension: "png")
@@ -466,7 +498,10 @@ enum OpenMusicEventApplicationPreparation: Equatable {
     /* SKIP @bridge */public init() {
         @Dependency(\.openMusicEventUIAutomation) var uiAutomation
         self.uiAutomation = uiAutomation
-        self._preparation = State(initialValue: uiAutomation == .attendee ? .preparing : .ready)
+        self._preparation = State(
+            initialValue: uiAutomation == .attendee || uiAutomation == .workspace
+                ? .preparing : .ready
+        )
     }
 
     public var body: some View {
@@ -499,10 +534,13 @@ enum OpenMusicEventApplicationPreparation: Equatable {
     }
 
     func prepareFixtureIfNeeded() async {
-        guard uiAutomation == .attendee, preparation == .preparing else { return }
+        guard uiAutomation == .attendee || uiAutomation == .workspace,
+              preparation == .preparing
+        else { return }
         @Dependency(\.defaultDatabase) var database
         do {
             try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
+            OpenMusicEventUIAutomationFixture.prepareAccount(for: uiAutomation)
             preparation = .ready
         } catch {
             preparation = .failed(String(describing: error))

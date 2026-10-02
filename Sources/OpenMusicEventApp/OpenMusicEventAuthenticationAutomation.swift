@@ -17,10 +17,12 @@ public enum OpenMusicEventUIAutomation: String, Sendable, Equatable {
     case normal
     case attendee
     case authentication
+    case workspace
 
     public static func buildProfile(_ name: String, legacyAttendee: Bool) -> Self {
         #if DEBUG
         if name == "authentication" { return .authentication }
+        if name == "workspace" { return .workspace }
         if name == "attendee" || legacyAttendee { return .attendee }
         #endif
         return .normal

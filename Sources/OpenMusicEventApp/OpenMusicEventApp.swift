@@ -256,7 +256,7 @@ extension OME {
         dependencies.defaultDatabase = database
         dependencies.openMusicEventServiceEnvironment = environment
         dependencies.openMusicEventUIAutomation = uiAutomation
-        if uiAutomation == .attendee {
+        if uiAutomation == .attendee || uiAutomation == .workspace {
             dependencies.date = .constant(OpenMusicEventUIAutomationFixture.now)
         }
         dependencies.calendarEvents = uiAutomation != .normal
@@ -267,7 +267,7 @@ extension OME {
         dependencies.workspaceProposalClient = .openMusicEvent(
             appViewHost: environment.appViewHost
         )
-        if uiAutomation == .authentication {
+        if uiAutomation == .authentication || uiAutomation == .workspace {
             OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)
         }
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
@@ -275,13 +275,18 @@ extension OME {
             &dependencies,
             environment: environment
         )
-        dependencies.notificationsClient = .http(
-            baseURL: environment.serverURL
-        )
+        dependencies.notificationsClient = uiAutomation == .workspace
+            ? .testValue
+            : .http(baseURL: environment.serverURL)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
-        if uiAutomation == .authentication {
+        if uiAutomation == .authentication || uiAutomation == .workspace {
             OpenMusicEventAuthenticationAutomation.prepareDependencies(&dependencies)
+        }
+        if uiAutomation == .workspace {
+            dependencies.openMusicEventAccountSessionValidationClient = .init { _ in
+                .accepted()
+            }
         }
 #if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
         dependencies.sourceControl = LibGit2SourceControlClient.live

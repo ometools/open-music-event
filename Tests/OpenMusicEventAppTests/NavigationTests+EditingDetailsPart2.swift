@@ -200,7 +200,9 @@ extension NavigationTests {
     @Test
     func communicationChannelDetailAuthoringActionsManagePinsAndOpenTheComposerEditor() async throws {
         let database = try makePreparedDatabase()
-        let eventID = canonicalRouteEventID
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpdbb"
+        ))
         let channelID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
         let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
         try await database.write { db in
@@ -219,26 +221,26 @@ extension NavigationTests {
                 .first
             )
         }
-        let workspace = SourceWorkspace(
-            organizerID: testOrganizerID,
-            repository: "tangled.org/example/events",
-            branch: "main"
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
+            at: FileManager.default.temporaryDirectory
+                .appending(path: "OME-ChannelOwner-\(UUID()).sqlite").path,
+            from: database
         )
-        let grant = AuthoringGrant(
-            principal: AuthoringPrincipal(
-                actorID: try #require(DID("did:plc:organizer"))
-            ),
-            role: .owner,
-            workspaceID: workspace.id
+        let session = EventWorkspaceSession(
+            eventID: eventID, actorID: ownerID, baseline: baseline
         )
+        let oauth = canonicalWorkspaceTestOAuthSession(actorID: ownerID)
+        let selectedSession = TestMutex(Optional(oauth))
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.getOptionalDefaultSession = { selectedSession.withLock { $0 } }
         } operation: {
-            let authoringGrant = Shared<AuthoringGrant?>(.defaultAuthoringGrant)
-            authoringGrant.withLock { $0 = grant }
+            Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
+                .withLock { $0 = session }
             return TestStore(
                 initialState: CommunicationChannelDetail.State(
                     channelID: channelID,
@@ -283,6 +285,9 @@ extension NavigationTests {
         store.send(.deleteChannelButtonTapped)
 
         #expect(store.state.destination?.deleteChannelConfirmation?.channelID == channelID)
+
+        selectedSession.withLock { $0 = nil }
+        #expect(!store.state.canEditChannel)
     }
 
 

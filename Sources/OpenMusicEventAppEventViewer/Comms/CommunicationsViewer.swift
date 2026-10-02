@@ -52,7 +52,8 @@ public struct CommunicationsViewer {
     public struct State {
         public let eventID: Event.ID
         @SharedReader
-        public var authoringGrant: AuthoringGrant?
+        public var workspaceSession: EventWorkspaceSession?
+        @DebugSnapshotIgnored let currentWorkspaceAccount: CurrentWorkspaceAccount
         @SharedReader(.devicePermissions)
         public var permissions: DevicePermissions
         public var destination: Destination.State?
@@ -67,7 +68,8 @@ public struct CommunicationsViewer {
             eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
-            self._authoringGrant = .authoringGrant(for: eventID)
+            self._workspaceSession = .eventWorkspaceSession(for: eventID)
+            self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.eventID = eventID
             self.destination = destination
             _channels = FetchAll(CommunicationsViewer.channelsQuery(eventID: eventID))
@@ -111,7 +113,7 @@ public struct CommunicationsViewer {
         }
 
         public var canManageChannels: Bool {
-            authoringGrant?.access.canEditContent == true
+            currentWorkspaceAccount.validated(workspaceSession, for: eventID) != nil
         }
 
         public var unreadPostCount: Int {

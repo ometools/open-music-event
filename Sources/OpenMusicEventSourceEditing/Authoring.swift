@@ -16,6 +16,31 @@ public struct AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct EventWorkspaceSession: Equatable, Sendable {
+    public let eventID: Event.ID
+    public let actorID: DID
+    public let baseline: SourceBaselineDatabase
+
+    public init(
+        eventID: Event.ID,
+        actorID: DID,
+        baseline: SourceBaselineDatabase
+    ) {
+        self.eventID = eventID
+        self.actorID = actorID
+        self.baseline = baseline
+    }
+
+    public func authorizes(
+        eventID: Event.ID,
+        selectedActorID: DID
+    ) -> Bool {
+        self.eventID == eventID
+            && actorID == selectedActorID
+            && eventID.authority == .did(selectedActorID)
+    }
+}
+
 public enum AuthoringAccess: Equatable, Sendable {
     case attendee
     case authoring(OME.WorkspaceRole)

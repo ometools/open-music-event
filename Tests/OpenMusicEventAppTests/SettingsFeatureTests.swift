@@ -202,15 +202,14 @@ struct SettingsFeatureTests {
     func `clean authoring exit proceeds without a destructive prompt`() async throws {
         let fixture = try await makeEventSettingsAuthoringExitFixture(isDirty: false)
         let store = fixture.store
-        let summary = try await fixture.database.read { db in
-            try SourceWorkspaceEditSummary.query(
-                workspace: fixture.source.workspace,
+        let changes = try await fixture.database.read { db in
+            try CanonicalWorkspaceRecordChanges.changes(
+                eventID: fixture.eventID,
                 in: db,
-                referenceDatabase: fixture.source.referenceDatabase
+                referenceDatabase: fixture.baseline
             )
         }
-        #expect(summary.availability == .available)
-        #expect(summary.totalCount == 0)
+        #expect(changes.isEmpty)
 
         let exit = store.send(.exitAuthoringButtonTapped)
         await store.receive(
@@ -238,7 +237,7 @@ struct SettingsFeatureTests {
         )
 
         #expect(store.destination == nil)
-        #expect(fixture.grant.wrappedValue != nil)
+        #expect(fixture.session.wrappedValue != nil)
         let eventName = try await fixture.database.read { db in
             try Event.find(fixture.eventID).fetchOne(db)?.name
         }
@@ -729,8 +728,8 @@ struct SettingsFeatureTests {
 private struct EventSettingsAuthoringExitFixture {
     let database: any DatabaseWriter
     let eventID: Event.ID
-    let grant: Shared<AuthoringGrant?>
-    let source: SourceWorkspaceResource
+    let session: Shared<EventWorkspaceSession?>
+    let baseline: SourceBaselineDatabase
     let store: TestStore<AnyFeature<EventSettings.State, EventSettings.Action>>
 }
 
@@ -744,11 +743,6 @@ private func makeEventSettingsAuthoringExitFixture(
     let eventID = try #require(Event.ID(
         "at://did:plc:eventsettingsowner/events.openmusic.event/3mrdbziccpcah"
     ))
-    let workspace = SourceWorkspace(
-        organizerID: organizerID,
-        repository: "tangled.org/eventsettingsowner/events",
-        branch: "main"
-    )
     let actorID = organizerID
 
     var referenceMigrator = DatabaseMigrator()
@@ -774,59 +768,36 @@ private func makeEventSettingsAuthoringExitFixture(
         }
     }
 
-    let resource = SourceWorkspaceResource(
-        workspace: workspace,
-        repositoryURL: FileManager.default.temporaryDirectory,
-        mainDatabase: database,
-        referenceDatabase: referenceDatabase
-    )
-    let grant = withDependencies {
+    let session = withDependencies {
         $0.context = .test
         $0.defaultDatabase = database
         $0.defaultEventID = eventID
     } operation: {
-        Shared<AuthoringGrant?>(.defaultAuthoringGrant)
+        Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
     }
-    grant.withLock {
-        $0 = AuthoringGrant(
-            principal: AuthoringPrincipal(actorID: actorID),
-            role: .owner,
-            workspaceID: workspace.id
+    session.withLock {
+        $0 = EventWorkspaceSession(
+            eventID: eventID,
+            actorID: actorID,
+            baseline: referenceDatabase
         )
     }
+    let oauth = canonicalWorkspaceTestOAuthSession(actorID: actorID)
     let store = withDependencies {
         $0.context = .test
         $0.defaultDatabase = database
+        $0.defaultEventID = eventID
+        $0.getOptionalDefaultSession = { oauth }
     } operation: {
         TestStore(initialState: EventSettings.State(eventID: eventID)) {
-            AnyFeature(
-                EventSettings()
-                    .environment(
-                        WorkspaceContext<SourceWorkspaceResource>(
-                            state: SharedReader(
-                                value: WorkspaceState(
-                                    id: WorkspaceID(rawValue: workspace.id.rawValue),
-                                    availability: .ready(
-                                        WorkspaceSession(
-                                            source: resource,
-                                            baseline: WorkspaceBranchReference(
-                                                branch: WorkspaceBranch(rawValue: "main"),
-                                                revision: WorkspaceRevision(rawValue: "published-revision")
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
+            AnyFeature(EventSettings())
         }
     }
     return EventSettingsAuthoringExitFixture(
         database: database,
         eventID: eventID,
-        grant: grant,
-        source: resource,
+        session: session,
+        baseline: referenceDatabase,
         store: store
     )
 }

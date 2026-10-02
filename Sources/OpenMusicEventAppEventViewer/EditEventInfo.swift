@@ -177,6 +177,7 @@ public struct EditEventInfoView: View {
         Form {
             Section("Event Name") {
                 TextField("Event Name", text: $store.draft.name)
+                    .accessibilityIdentifier("field.event-info.name")
             }
             Section("Description") {
                 PortableTextField("Description", text: $store.draft.description[coalesce: ""], axis: .vertical)

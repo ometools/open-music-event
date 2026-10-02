@@ -167,15 +167,79 @@ public struct SourceWorkspaceEditSummary: Equatable, Sendable {
     }
 }
 
+public struct CanonicalWorkspaceRecordChange: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case added
+        case edited
+        case deleted
+    }
+
+    public let collection: String
+    public let id: Event.ID
+    public let kind: Kind
+}
+
 public enum CanonicalWorkspaceRecordChanges {
     public static func hasChanges(
-        workspace: SourceWorkspace,
+        eventID: Event.ID,
         in database: Database,
         referenceDatabase: SourceBaselineDatabase
     ) throws -> Bool {
-        let current = try Snapshot(in: database, organizerID: workspace.organizerID)
+        try !changes(
+            eventID: eventID,
+            in: database,
+            referenceDatabase: referenceDatabase
+        ).isEmpty
+    }
+
+    public static func changes(
+        eventID: Event.ID,
+        in database: Database,
+        referenceDatabase: SourceBaselineDatabase
+    ) throws -> [CanonicalWorkspaceRecordChange] {
+        let current = try Snapshot(in: database, eventID: eventID)
         return try referenceDatabase.read { baseline in
-            current != (try Snapshot(in: baseline, organizerID: workspace.organizerID))
+            current.changes(from: try Snapshot(in: baseline, eventID: eventID))
+        }
+    }
+
+    public static func reset(
+        eventID: Event.ID,
+        in database: any DatabaseWriter,
+        referenceDatabase: SourceBaselineDatabase
+    ) throws {
+        let baseline = try referenceDatabase.read {
+            try Snapshot(in: $0, eventID: eventID)
+        }
+        try database.write { db in
+            let current = try Snapshot(in: db, eventID: eventID)
+            try Snapshot.restore(current.events, from: baseline.events,
+                delete: { _ = try Event.find($0).delete().execute(db) },
+                upsert: { record in try Event.upsert { record }.execute(db) })
+            try Snapshot.restore(current.programs, from: baseline.programs,
+                delete: { _ = try Program.find($0).delete().execute(db) },
+                upsert: { record in try Program.upsert { record }.execute(db) })
+            try Snapshot.restore(current.schedules, from: baseline.schedules,
+                delete: { _ = try Schedule.find($0).delete().execute(db) },
+                upsert: { record in try Schedule.upsert { record }.execute(db) })
+            try Snapshot.restore(current.places, from: baseline.places,
+                delete: { _ = try EventPlace.find($0).delete().execute(db) },
+                upsert: { record in try EventPlace.upsert { record }.execute(db) })
+            try Snapshot.restore(current.stages, from: baseline.stages,
+                delete: { _ = try Stage.find($0).delete().execute(db) },
+                upsert: { record in try Stage.upsert { record }.execute(db) })
+            try Snapshot.restore(current.contributors, from: baseline.contributors,
+                delete: { _ = try Contributor.find($0).delete().execute(db) },
+                upsert: { record in try Contributor.upsert { record }.execute(db) })
+            try Snapshot.restore(current.items, from: baseline.items,
+                delete: { _ = try ProgramItem.find($0).delete().execute(db) },
+                upsert: { record in try ProgramItem.upsert { record }.execute(db) })
+            try Snapshot.restore(current.categories, from: baseline.categories,
+                delete: { _ = try Social.Category.find($0).delete().execute(db) },
+                upsert: { record in try Social.Category.upsert { record }.execute(db) })
+            try Snapshot.restore(current.posts, from: baseline.posts,
+                delete: { _ = try Social.Post.find($0).delete().execute(db) },
+                upsert: { record in try Social.Post.upsert { record }.execute(db) })
         }
     }
 
@@ -190,34 +254,89 @@ public enum CanonicalWorkspaceRecordChanges {
         var categories: [Social.Category]
         var posts: [Social.Post]
 
-        init(in db: Database, organizerID: OME.Organizer.ID) throws {
+        init(in db: Database, eventID: Event.ID) throws {
+            let organizer = eventID.authority
             events = try Event.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             programs = try Program.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             schedules = try Schedule.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             places = try EventPlace.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             stages = try Stage.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             contributors = try Contributor.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             items = try ProgramItem.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             categories = try Social.Category.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
             posts = try Social.Post.all.fetchAll(db)
-                .filter { $0.id.authority == .did(organizerID) }
+                .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
+        }
+
+        func changes(from baseline: Self) -> [CanonicalWorkspaceRecordChange] {
+            Self.changes(Event.tableName, current: events, baseline: baseline.events)
+                + Self.changes(Program.tableName, current: programs, baseline: baseline.programs)
+                + Self.changes(Schedule.tableName, current: schedules, baseline: baseline.schedules)
+                + Self.changes(EventPlace.tableName, current: places, baseline: baseline.places)
+                + Self.changes(Stage.tableName, current: stages, baseline: baseline.stages)
+                + Self.changes(Contributor.tableName, current: contributors, baseline: baseline.contributors)
+                + Self.changes(ProgramItem.tableName, current: items, baseline: baseline.items)
+                + Self.changes(Social.Category.tableName, current: categories, baseline: baseline.categories)
+                + Self.changes(Social.Post.tableName, current: posts, baseline: baseline.posts)
+        }
+
+        private static func changes<Record: Identifiable & Equatable>(
+            _ collection: String,
+            current: [Record],
+            baseline: [Record]
+        ) -> [CanonicalWorkspaceRecordChange] where Record.ID == Event.ID {
+            let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
+            return Set(currentByID.keys).union(baselineByID.keys)
+                .sorted { $0.description < $1.description }
+                .compactMap { id in
+                    let kind: CanonicalWorkspaceRecordChange.Kind
+                    switch (currentByID[id], baselineByID[id]) {
+                    case (.some, nil): kind = .added
+                    case (nil, .some): kind = .deleted
+                    case let (.some(current), .some(reference)) where current != reference:
+                        kind = .edited
+                    default: return nil
+                    }
+                    return CanonicalWorkspaceRecordChange(
+                        collection: collection,
+                        id: id,
+                        kind: kind
+                    )
+                }
+        }
+
+        fileprivate static func restore<Record: Identifiable & Equatable>(
+            _ current: [Record],
+            from baseline: [Record],
+            delete: (Event.ID) throws -> Void,
+            upsert: (Record) throws -> Void
+        ) throws where Record.ID == Event.ID {
+            let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
+            for record in current where baselineByID[record.id] == nil {
+                try delete(record.id)
+            }
+            for record in baseline where currentByID[record.id] != record {
+                try upsert(record)
+            }
         }
     }
 }

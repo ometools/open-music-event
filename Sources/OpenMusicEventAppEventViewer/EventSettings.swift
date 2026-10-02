@@ -17,12 +17,6 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-public struct EventEditingModeRequested: FeatureEventKey {
-    public typealias Value = Bool
-
-    public init() {}
-}
-
 @Feature
 public struct EventSettings {
     public init() {}
@@ -30,23 +24,29 @@ public struct EventSettings {
     public struct State {
         public init(eventID: Event.ID) {
             self.eventID = eventID
+            self._workspaceSession = .eventWorkspaceSession(for: eventID)
+            self.currentWorkspaceAccount = CurrentWorkspaceAccount()
         }
 
         public var destination: Destination.State?
         public var eventID: Event.ID
+        @SharedReader public var workspaceSession: EventWorkspaceSession?
+        @DebugSnapshotIgnored let currentWorkspaceAccount: CurrentWorkspaceAccount
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
 
         public var notificationIndicatorValue: Int? {
             permissions.notificationSetupBadgeValue
+        }
+
+        public var validatedWorkspaceSession: EventWorkspaceSession? {
+            currentWorkspaceAccount.validated(workspaceSession, for: eventID)
         }
     }
 
     public enum Action {
         case criticalAlertPermissionButtonTapped
         case destination(Destination.Action)
-        case enterEditingButtonTapped
         case enterAuthoringButtonTapped
-        case exitEditingButtonTapped
         case exitAuthoringButtonTapped
         case notificationPermissionButtonTapped
         case testErrorButtonTapped
@@ -67,8 +67,6 @@ public struct EventSettings {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.devicePermissions) var devicePermissions
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
-    var workspace
 
     private func requestAuthoringExit() {
         store.addTask {
@@ -88,61 +86,36 @@ public struct EventSettings {
             case .destination(.exitAuthoringConfirmation(.exitAndDeleteButtonTapped)):
                 requestAuthoringExit()
 
-            case .enterEditingButtonTapped:
-                store.addTask {
-                    let task = try store.post(key: EventEditingModeRequested.self, value: true)
-                    await task?.value
-                }
-
             case .enterAuthoringButtonTapped:
                 store.addTask {
                     let task = try store.post(key: AuthoringRequested.self, value: ())
                     await task?.value
                 }
 
-            case .exitEditingButtonTapped:
-                store.addTask {
-                    let task = try store.post(key: EventEditingModeRequested.self, value: false)
-                    await task?.value
-                }
-
             case .exitAuthoringButtonTapped:
-                guard let source = workspace.session?.source else {
-                    // Without the prepared reference, cleanliness cannot be proven. Preserve the
-                    // same explicit destructive confirmation used for a known dirty workspace.
+                guard let session = state.validatedWorkspaceSession else {
                     state.destination = .exitAuthoringConfirmation(
                         ExitAuthoringConfirmation.State()
                     )
                     return
                 }
-                let sourceWorkspace = source.workspace
-                let referenceDatabase = source.referenceDatabase
                 let database = database
+                let eventID = state.eventID
                 store.addTask {
-                    let hasNoUnpublishedChanges: Bool
+                    let hasNoLocalChanges: Bool
                     do {
-                        hasNoUnpublishedChanges = try await database.read { db in
-                            let summary = try SourceWorkspaceEditSummary.query(
-                                workspace: sourceWorkspace,
+                        hasNoLocalChanges = try await database.read { db in
+                            try !CanonicalWorkspaceRecordChanges.hasChanges(
+                                eventID: eventID,
                                 in: db,
-                                referenceDatabase: referenceDatabase
+                                referenceDatabase: session.baseline
                             )
-                            let hasCanonicalChanges = try CanonicalWorkspaceRecordChanges.hasChanges(
-                                workspace: sourceWorkspace,
-                                in: db,
-                                referenceDatabase: referenceDatabase
-                            )
-                            return summary.availability == .available
-                                && summary.totalCount == 0
-                                && !hasCanonicalChanges
                         }
                     } catch {
-                        // If the comparison cannot prove the workspace is clean, require the same
-                        // explicit destructive confirmation as a known dirty workspace.
-                        hasNoUnpublishedChanges = false
+                        hasNoLocalChanges = false
                     }
 
-                    if hasNoUnpublishedChanges {
+                    if hasNoLocalChanges {
                         let task = try store.post(key: AuthoringExitRequested.self, value: ())
                         await task?.value
                     } else {
@@ -236,12 +209,9 @@ public struct EventSettings {
 
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
-    @Environment(\.openMusicEventAuthoringPhase) var authoringPhase
-    let isEditing: Bool
 
-    public init(store: StoreOf<EventSettings>, isEditing: Bool) {
+    public init(store: StoreOf<EventSettings>) {
         self.store = store
-        self.isEditing = isEditing
     }
 
     var criticalAlertPermissionButtonTitle: LocalizedStringKey {
@@ -296,108 +266,16 @@ public struct EventSettingsView: View {
 
     public var body: some View {
         Form {
-            Section {
-                Button {
-                    store.send(isEditing ? .exitEditingButtonTapped : .enterEditingButtonTapped)
-                } label: {
-                    Text(isEditing ? "Done Editing" : "Edit Event", bundle: .module)
-                }
-            } header: {
-                Text("Editing", bundle: .module)
-            }
-
-            switch authoringPhase {
-            case .some(.entering):
-                Section {
-                    ProgressView {
-                        Text(
-                            "Entering workspace",
-                            bundle: .module,
-                            comment: "Progress shown while source workspace access starts"
-                        )
-                    }
-                } header: {
-                    Text(
-                        "Workspace",
-                        bundle: .module,
-                        comment: "Settings section for entering or leaving the event workspace"
-                    )
-                }
-
-            case .some(.restoring):
-                Section {
-                    ProgressView {
-                        Text(
-                            "Restoring workspace",
-                            bundle: .module,
-                            comment: "Progress shown while saved workspace access is restored"
-                        )
-                    }
-                } header: {
-                    Text(
-                        "Workspace",
-                        bundle: .module,
-                        comment: "Settings section for entering or leaving the event workspace"
-                    )
-                }
-
-            case .some(.exiting):
-                Section {
-                    ProgressView {
-                        Text(
-                            "Leaving workspace",
-                            bundle: .module,
-                            comment: "Progress shown while workspace access and local edits are removed"
-                        )
-                    }
-                } header: {
-                    Text(
-                        "Workspace",
-                        bundle: .module,
-                        comment: "Settings section for entering or leaving the event workspace"
-                    )
-                }
-
-            case .some(.active):
-                Section {
-                    Button {
+            Section("Workspace") {
+                if store.validatedWorkspaceSession != nil {
+                    Button("Leave Workspace") {
                         store.send(.exitAuthoringButtonTapped)
-                    } label: {
-                        Text(
-                            "Leave Workspace",
-                            bundle: .module,
-                            comment: "Button that leaves the event editing workspace"
-                        )
                     }
-                } header: {
-                    Text(
-                        "Workspace",
-                        bundle: .module,
-                        comment: "Settings section for entering or leaving the event workspace"
-                    )
-                }
-
-            case .some(.inactive(.eligible)):
-                Section {
-                    Button {
+                } else {
+                    Button("Enter Workspace") {
                         store.send(.enterAuthoringButtonTapped)
-                    } label: {
-                        Text(
-                            "Enter Workspace",
-                            bundle: .module,
-                            comment: "Button that enters the event editing workspace"
-                        )
                     }
-                } header: {
-                    Text(
-                        "Workspace",
-                        bundle: .module,
-                        comment: "Settings section for entering or leaving the event workspace"
-                    )
                 }
-
-            case .some(.inactive), .none:
-                EmptyView()
             }
 
             #if os(iOS) || os(Android)
@@ -481,9 +359,7 @@ public struct EventSettingsView: View {
             #endif
             #endif
 
-            if case let .some(.active(grant)) = authoringPhase,
-               grant.access.canEditContent
-            {
+            if store.validatedWorkspaceSession != nil {
                 Section("Error Handling") {
                     Button {
                         store.send(.testErrorButtonTapped)
@@ -495,7 +371,7 @@ public struct EventSettingsView: View {
         }
         .navigationTitle("Event Settings")
         .alert(
-            "Delete unpublished changes?",
+            "Discard local changes?",
             isPresented: $store.scope(\.destination).exitAuthoringConfirmation.isPresented
         ) {
             Button(role: .destructive) {
@@ -506,7 +382,7 @@ public struct EventSettingsView: View {
                 )
             } label: {
                 Text(
-                    "Leave and Delete Changes",
+                    "Leave and Discard Changes",
                     bundle: .module,
                     comment: "Destructive confirmation that leaves the workspace and deletes local edits"
                 )
@@ -520,7 +396,7 @@ public struct EventSettingsView: View {
             }
         } message: {
             Text(
-                "Leaving the workspace restores Published content and permanently deletes unpublished changes on this device.",
+                "Leaving the workspace restores this organizer’s records from the local reference copy and discards your edits on this device.",
                 bundle: .module,
                 comment: "Warning shown before leaving a workspace with unpublished edits"
             )

@@ -237,9 +237,13 @@ extension NavigationTests {
     }
 
     @Test
-    func `signed out event settings unlocks canonical editing without a source workspace`() async throws {
+    func `owner event settings unlocks canonical editing without a source workspace`() async throws {
         let database = try makePreparedDatabase()
-        let eventID = canonicalRouteEventID
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpdbc"
+        ))
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let oauth = canonicalWorkspaceTestOAuthSession(actorID: ownerID)
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Editable Event")
         }
@@ -247,7 +251,12 @@ extension NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.getSelectedOAuthSessionID = { nil }
+            $0.getSelectedOAuthSessionID = { oauth.accountID }
+            $0.getOptionalDefaultSession = { oauth }
+            $0.canonicalWorkspaceStorage = .fileBacked(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appending(path: "OME-OwnerEditing-\(UUID())", directoryHint: .isDirectory)
+            )
         } operation: {
             Store(initialState: EventViewer.State(eventID: eventID)) {
                 EventViewer()
@@ -259,12 +268,12 @@ extension NavigationTests {
         #expect(store.authoringGrant == nil)
         #expect(store.eventWorkspace == nil)
 
-        await settings.send(.enterEditingButtonTapped)?.value
+        await settings.send(.enterAuthoringButtonTapped)?.value
         await waitForObservation { store.showsAuthoringControls }
-        await settings.send(.exitEditingButtonTapped)?.value
+        await settings.send(.exitAuthoringButtonTapped)?.value
         await waitForObservation { !store.showsAuthoringControls }
 
-        await settings.send(.enterEditingButtonTapped)?.value
+        await settings.send(.enterAuthoringButtonTapped)?.value
         await waitForObservation { store.showsAuthoringControls }
         let contactInfo = try #require(store.spawn(\.contactInfoViewer))
         await contactInfo.send(.editButtonTapped)?.value

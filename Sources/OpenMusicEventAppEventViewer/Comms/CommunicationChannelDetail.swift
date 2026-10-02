@@ -21,7 +21,8 @@ public struct CommunicationChannelDetail {
             eventID: Event.ID,
             destination: Destination.State? = nil
         ) {
-            self._authoringGrant = .authoringGrant(for: eventID)
+            self._workspaceSession = .eventWorkspaceSession(for: eventID)
+            self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.channelID = channelID
             self.eventID = eventID
             self.destination = destination
@@ -42,7 +43,8 @@ public struct CommunicationChannelDetail {
         public let channelID: Social.Category.ID
         public let eventID: Event.ID
         @SharedReader
-        public var authoringGrant: AuthoringGrant?
+        public var workspaceSession: EventWorkspaceSession?
+        @DebugSnapshotIgnored let currentWorkspaceAccount: CurrentWorkspaceAccount
         public var destination: Destination.State?
         public var errorMessage: String?
         public var isSavingPins = false
@@ -59,12 +61,16 @@ public struct CommunicationChannelDetail {
         }
 
         public var canEditChannel: Bool {
-            authoringGrant?.access.canEditContent == true
+            validatedWorkspaceSession != nil
+        }
+
+        var validatedWorkspaceSession: EventWorkspaceSession? {
+            currentWorkspaceAccount.validated(workspaceSession, for: eventID)
         }
 
         func canEditPost(_ post: Social.Post) -> Bool {
-            guard let authoringGrant else { return false }
-            return canEditChannel && post.id.authority == .did(authoringGrant.principal.actorID)
+            guard let session = validatedWorkspaceSession else { return false }
+            return post.id.authority == .did(session.actorID)
         }
 
         var effectiveNotificationState: Social.Category.NotificationState? {
@@ -168,7 +174,7 @@ public struct CommunicationChannelDetail {
             case let .editPostButtonTapped(postID):
                 guard let post = state.posts.first(where: { $0.id == postID }),
                       state.canEditPost(post),
-                      let author = state.authoringGrant?.principal.actorID else { return }
+                      let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
                     CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
                 )
@@ -205,7 +211,7 @@ public struct CommunicationChannelDetail {
 
             case .newPostButtonTapped:
                 guard state.canEditChannel,
-                      let author = state.authoringGrant?.principal.actorID else { return }
+                      let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
                     CommsPostComposer.State(
                         eventID: state.eventID,
@@ -256,7 +262,7 @@ public struct CommunicationChannelDetail {
             case let .destination(.postDeleteConfirmation(.deleteButtonTapped(postID))):
                 guard let post = state.posts.first(where: { $0.id == postID }),
                       state.canEditPost(post),
-                      let author = state.authoringGrant?.principal.actorID else { return }
+                      let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = nil
                 store.addTask {
                     do {
