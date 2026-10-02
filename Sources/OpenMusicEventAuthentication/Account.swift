@@ -1012,7 +1012,10 @@ private extension Account.State {
         oauth.state.$sessionStore.withLock {
             $0.upsert(session)
         }
-        accountSessionValidationStatuses[session.accountID] = .accepted
+        // A renewed authorization is a new session even when its account ID is unchanged.
+        // Let accountSessionsChanged validate it and refresh its verified handle.
+        accountSessionValidationStatuses[session.accountID] = .unchecked
+        verifiedAccountHandles[session.accountID] = nil
         $selectedSessionID.withLock {
             $0 = session.accountID
         }

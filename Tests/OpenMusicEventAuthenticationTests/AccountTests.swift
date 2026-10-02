@@ -1065,6 +1065,9 @@ struct AccountTests {
         await authorization.resumeSignIn(returning: renewed)
         await login?.value
         try await waitForCondition { !store.isLoginInProgress }
+        try await waitForCondition {
+            store.verifiedAccountHandles[alice.accountID] == handle
+        }
 
         expectNoDifference(store.accountSessionIDs, [alice.accountID.rawValue.description])
         expectNoDifference(store.session, renewed)
