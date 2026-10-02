@@ -174,7 +174,10 @@ struct CanonicalEventEditingTests {
         await store.send(.removeLinkButtonTapped(locationID, oldLinkID))?.value
         await store.send(.addLinkButtonTapped(locationID))?.value
         $store.locations[0].links[0].title.wrappedValue = "Map"
-        $store.locations[0].links[0].urlString.wrappedValue = "https://example.org/new-map"
+        $store.locations[0].links[0].url.wrappedValue = "https://example.org/new-map"
+        $store.locations[0].links[0].roleChoice.wrappedValue = "contact"
+        $store.locations[0].links[0].useChoice.wrappedValue = "emergency"
+        $store.locations[0].links[0].platformRawValue.wrappedValue = ExternalPlatform.website.rawValue
 
         try await database.write { db in
             var latest = try #require(try Event.find(recordID).fetchOne(db))
@@ -189,6 +192,8 @@ struct CanonicalEventEditingTests {
         #expect(saved.locations?[0].name == "North Gate")
         #expect(saved.locations?[0].description == "Follow the signs.")
         #expect(saved.locations?[0].links?.first?.url.absoluteString == "https://example.org/new-map")
+        #expect(saved.locations?[0].links?.first?.role == .known(.contact(.init(use: .known(.emergency)))))
+        #expect(saved.locations?[0].links?.first?.platform == .known(.website))
         let savedLocators = try #require(saved.locations?.first?.locators)
         if let first = savedLocators.first,
            case let .known(.address(savedAddress)) = first {
@@ -232,6 +237,58 @@ struct CanonicalEventEditingTests {
 
         $store.locations[0].locators[0].latitude.wrappedValue = "39"
         #expect(store.canSubmit)
+    }
+
+    @Test
+    func locationRowActionsPreserveOrderAndUnknownLocator() async throws {
+        let database = try database()
+        var record = try event()
+        let unknownLocator: Open<Event.Locator> = .unknown(.object([
+            "$type": "events.example.defs#arrivalPoint",
+            "gate": "north",
+        ]))
+        var address = Event.Address(country: "US")
+        address.street = "Forest Road"
+        var campground = Event.Location(name: "Campground")
+        campground.locators = [
+            .known(.address(address)),
+            unknownLocator,
+        ]
+        campground.links = [
+            OME.Link(url: try #require(URL(string: "https://example.com/arrival")), title: "Arrival"),
+            OME.Link(url: try #require(URL(string: "https://example.com/camping")), title: "Camping"),
+        ]
+        record.locations = [campground, Event.Location(name: "Main Gate"), Event.Location(name: "Old Gate")]
+        let originalRecord = record
+        let recordID = record.id
+        try await database.write { try Event.insert { originalRecord }.execute($0) }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditLocation.State(eventID: recordID)) { EditLocation() }
+        }
+        let campgroundID = store.locations[0].id
+        let mainGateID = store.locations[1].id
+        let oldGateID = store.locations[2].id
+        let unknownLocatorID = store.locations[0].locators[1].id
+        let campingLinkID = store.locations[0].links[1].id
+
+        await store.send(.editLocationButtonTapped(campgroundID))?.value
+        #expect(store.editingLocationID == campgroundID)
+        await store.send(.editLocatorButtonTapped(campgroundID, unknownLocatorID))?.value
+        #expect(store.editingLocatorID == unknownLocatorID)
+        await store.send(.moveLocatorButtonTapped(campgroundID, unknownLocatorID, -1))?.value
+        await store.send(.moveLinkButtonTapped(campgroundID, campingLinkID, -1))?.value
+        await store.send(.moveLocationButtonTapped(mainGateID, -1))?.value
+        await store.send(.removeLocationButtonTapped(oldGateID))?.value
+        await store.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { try #require(try Event.find(recordID).fetchOne($0)) }
+        #expect(saved.locations?.map(\.name) == ["Main Gate", "Campground"])
+        #expect(saved.locations?[1].locators?.first == unknownLocator)
+        #expect(saved.locations?[1].links?.map(\.title) == ["Camping", "Arrival"])
     }
 
     @Test

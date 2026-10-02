@@ -209,6 +209,9 @@ public struct EditLocation {
         let eventID: Event.ID
         var event: Event?
         var locations: [EditableLocation] = []
+        var editingLocationID: EditableLocation.ID?
+        var editingLocatorID: EditableLocator.ID?
+        var editingLinkID: EditableLink.ID?
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
@@ -240,6 +243,12 @@ public struct EditLocation {
         case addLocatorButtonTapped(UUID, EditableLocator.Kind)
         case addLinkButtonTapped(UUID)
         case cancelButtonTapped
+        case editLocationButtonTapped(UUID)
+        case editLocatorButtonTapped(UUID, UUID)
+        case editLinkButtonTapped(UUID, UUID)
+        case moveLocationButtonTapped(UUID, Int)
+        case moveLocatorButtonTapped(UUID, UUID, Int)
+        case moveLinkButtonTapped(UUID, UUID, Int)
         case removeLocationButtonTapped(UUID)
         case removeLocatorButtonTapped(UUID, UUID)
         case removeLinkButtonTapped(UUID, UUID)
@@ -252,31 +261,87 @@ public struct EditLocation {
         Update { state, action in
             switch action {
             case .addLocationButtonTapped:
-                state.locations.append(EditableLocation())
+                let location = EditableLocation()
+                state.locations.append(location)
+                state.editingLocationID = location.id
+                state.editingLocatorID = nil
+                state.editingLinkID = nil
 
             case let .addLocatorButtonTapped(locationID, kind):
                 guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
-                state.locations[index].locators.append(EditableLocator(kind: kind))
+                let locator = EditableLocator(kind: kind)
+                state.locations[index].locators.append(locator)
+                state.editingLocationID = locationID
+                state.editingLocatorID = locator.id
+                state.editingLinkID = nil
 
             case let .addLinkButtonTapped(locationID):
                 guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
-                state.locations[index].links.append(EditableLocationLink())
+                let link = EditableLink()
+                state.locations[index].links.append(link)
+                state.editingLocationID = locationID
+                state.editingLocatorID = nil
+                state.editingLinkID = link.id
 
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
                 }
 
+            case let .editLocationButtonTapped(id):
+                guard state.locations.contains(where: { $0.id == id }) else { return }
+                state.editingLocationID = id
+                state.editingLocatorID = nil
+                state.editingLinkID = nil
+
+            case let .editLocatorButtonTapped(locationID, locatorID):
+                guard let location = state.locations.first(where: { $0.id == locationID }),
+                      location.locators.contains(where: { $0.id == locatorID }) else { return }
+                state.editingLocationID = locationID
+                state.editingLocatorID = locatorID
+                state.editingLinkID = nil
+
+            case let .editLinkButtonTapped(locationID, linkID):
+                guard let location = state.locations.first(where: { $0.id == locationID }),
+                      location.links.contains(where: { $0.id == linkID }) else { return }
+                state.editingLocationID = locationID
+                state.editingLocatorID = nil
+                state.editingLinkID = linkID
+
+            case let .moveLocationButtonTapped(id, offset):
+                guard let index = state.locations.firstIndex(where: { $0.id == id }),
+                      state.locations.indices.contains(index + offset) else { return }
+                state.locations.swapAt(index, index + offset)
+
+            case let .moveLocatorButtonTapped(locationID, locatorID, offset):
+                guard let locationIndex = state.locations.firstIndex(where: { $0.id == locationID }),
+                      let index = state.locations[locationIndex].locators.firstIndex(where: { $0.id == locatorID }),
+                      state.locations[locationIndex].locators.indices.contains(index + offset) else { return }
+                state.locations[locationIndex].locators.swapAt(index, index + offset)
+
+            case let .moveLinkButtonTapped(locationID, linkID, offset):
+                guard let locationIndex = state.locations.firstIndex(where: { $0.id == locationID }),
+                      let index = state.locations[locationIndex].links.firstIndex(where: { $0.id == linkID }),
+                      state.locations[locationIndex].links.indices.contains(index + offset) else { return }
+                state.locations[locationIndex].links.swapAt(index, index + offset)
+
             case .removeLocationButtonTapped(let id):
                 state.locations.removeAll { $0.id == id }
+                if state.editingLocationID == id {
+                    state.editingLocationID = nil
+                    state.editingLocatorID = nil
+                    state.editingLinkID = nil
+                }
 
             case let .removeLocatorButtonTapped(locationID, locatorID):
                 guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
                 state.locations[index].locators.removeAll { $0.id == locatorID }
+                if state.editingLocatorID == locatorID { state.editingLocatorID = nil }
 
             case let .removeLinkButtonTapped(locationID, linkID):
                 guard let index = state.locations.firstIndex(where: { $0.id == locationID }) else { return }
                 state.locations[index].links.removeAll { $0.id == linkID }
+                if state.editingLinkID == linkID { state.editingLinkID = nil }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -362,83 +427,12 @@ public struct EditLocationView: View {
         Group {
             if store.hasLoadedDraft {
                 Form {
-                    ForEach($store.locations) { $location in
-                        Section {
-                            TextField("Name", text: $location.name)
-                            PortableTextField("Details and directions", text: $location.description, axis: .vertical)
-                                .portableLineLimit(2...6)
-                        } header: {
-                            HStack {
-                                Text(location.name.isEmpty ? "Location" : location.name)
-                                Spacer()
-                                Menu("Actions") {
-                                    Button("Delete Location", role: .destructive) {
-                                        store.send(.removeLocationButtonTapped(location.id))
-                                    }
-                                }
-                            }
-                        }
-
-                        ForEach($location.locators) { $locator in
-                            Section {
-                                EditableLocatorFields(locator: $locator)
-                            } header: {
-                                HStack {
-                                    Text(locator.kind.title)
-                                    Spacer()
-                                    Menu("Actions") {
-                                        Button("Delete Locator", role: .destructive) {
-                                            store.send(.removeLocatorButtonTapped(location.id, locator.id))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        ForEach($location.links) { $link in
-                            Section {
-                                TextField("Link Title", text: $link.title)
-                                TextField("URL", text: $link.urlString)
-                                    #if os(iOS)
-                                    .keyboardType(.URL)
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    #endif
-                                PortableTextField("Description", text: $link.description, axis: .vertical)
-                                    .portableLineLimit(2...4)
-                            } header: {
-                                HStack {
-                                    Text(link.title.isEmpty ? "Location Link" : link.title)
-                                    Spacer()
-                                    Menu("Actions") {
-                                        Button("Delete Link", role: .destructive) {
-                                            store.send(.removeLinkButtonTapped(location.id, link.id))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Section {
-                            Menu("Add Locator") {
-                                Button("Address") { store.send(.addLocatorButtonTapped(location.id, .address)) }
-                                Button("Coordinates") { store.send(.addLocatorButtonTapped(location.id, .geo)) }
-                                Button("Foursquare Place") { store.send(.addLocatorButtonTapped(location.id, .foursquare)) }
-                                Button("H3 Cell") { store.send(.addLocatorButtonTapped(location.id, .hthree)) }
-                            }
-                            Button("Add Link") {
-                                store.send(.addLinkButtonTapped(location.id))
-                            }
-                        }
+                    EditLocationListSection(store: store)
+                    if let index = store.locations.firstIndex(where: { $0.id == store.editingLocationID }) {
+                        EditLocationDetailSections(store: store, locationIndex: index)
                     }
 
-                    Section {
-                        Button("Add Location") {
-                            store.send(.addLocationButtonTapped)
-                        }
-                    }
-
-                    if let errorMessage = store.errorMessage {
+                    if let errorMessage = store.errorMessage ?? store.validationMessage {
                         Section {
                             Text(errorMessage)
                                 .font(.footnote)
@@ -472,6 +466,132 @@ public struct EditLocationView: View {
                 ) {
                     store.send(.saveButtonTapped)
                 }
+            }
+        }
+    }
+}
+
+struct EditLocationListSection: View {
+    @Bindable var store: StoreOf<EditLocation>
+
+    var body: some View {
+        Section("Locations") {
+            ForEach(store.locations) { location in
+                HStack {
+                    Text(location.name.isEmpty ? "New Location" : location.name)
+                    Spacer()
+                    Menu {
+                        Button("Edit") { store.send(.editLocationButtonTapped(location.id)) }
+                        Button("Move Up") { store.send(.moveLocationButtonTapped(location.id, -1)) }
+                            .disabled(store.locations.first?.id == location.id)
+                        Button("Move Down") { store.send(.moveLocationButtonTapped(location.id, 1)) }
+                            .disabled(store.locations.last?.id == location.id)
+                        Button("Delete", role: .destructive) {
+                            store.send(.removeLocationButtonTapped(location.id))
+                        }
+                    } label: {
+                        Label("Location Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+            Button("Add Location") { store.send(.addLocationButtonTapped) }
+        }
+    }
+}
+
+struct EditLocationDetailSections: View {
+    @Bindable var store: StoreOf<EditLocation>
+    let locationIndex: Int
+
+    var body: some View {
+        Section("Edit Location") {
+            TextField("Name", text: $store.locations[locationIndex].name)
+            PortableTextField(
+                "Details and directions",
+                text: $store.locations[locationIndex].description,
+                axis: .vertical
+            )
+            .portableLineLimit(2...6)
+        }
+        EditLocationLocatorSections(store: store, locationIndex: locationIndex)
+        EditLocationLinkSections(store: store, locationIndex: locationIndex)
+    }
+}
+
+struct EditLocationLocatorSections: View {
+    @Bindable var store: StoreOf<EditLocation>
+    let locationIndex: Int
+
+    var body: some View {
+        let location = store.locations[locationIndex]
+        Section("Locators") {
+            ForEach(location.locators) { locator in
+                HStack {
+                    Text(locator.kind.title)
+                    Spacer()
+                    Menu {
+                        Button("Edit") { store.send(.editLocatorButtonTapped(location.id, locator.id)) }
+                        Button("Move Up") { store.send(.moveLocatorButtonTapped(location.id, locator.id, -1)) }
+                            .disabled(location.locators.first?.id == locator.id)
+                        Button("Move Down") { store.send(.moveLocatorButtonTapped(location.id, locator.id, 1)) }
+                            .disabled(location.locators.last?.id == locator.id)
+                        Button("Delete", role: .destructive) {
+                            store.send(.removeLocatorButtonTapped(location.id, locator.id))
+                        }
+                    } label: {
+                        Label("Locator Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+            Menu("Add Locator") {
+                Button("Address") { store.send(.addLocatorButtonTapped(location.id, .address)) }
+                Button("Coordinates") { store.send(.addLocatorButtonTapped(location.id, .geo)) }
+                Button("Foursquare Place") { store.send(.addLocatorButtonTapped(location.id, .foursquare)) }
+                Button("H3 Cell") { store.send(.addLocatorButtonTapped(location.id, .hthree)) }
+            }
+        }
+        if let index = location.locators.firstIndex(where: { $0.id == store.editingLocatorID }) {
+            Section("Edit Locator") {
+                EditableLocatorFields(locator: $store.locations[locationIndex].locators[index])
+            }
+        }
+    }
+}
+
+struct EditLocationLinkSections: View {
+    @Bindable var store: StoreOf<EditLocation>
+    let locationIndex: Int
+
+    var body: some View {
+        let location = store.locations[locationIndex]
+        Section("Links") {
+            ForEach(location.links) { link in
+                HStack {
+                    Text(link.title.isEmpty ? (link.url.isEmpty ? "New Link" : link.url) : link.title)
+                        .lineLimit(1)
+                    Spacer()
+                    Menu {
+                        Button("Edit") { store.send(.editLinkButtonTapped(location.id, link.id)) }
+                        Button("Move Up") { store.send(.moveLinkButtonTapped(location.id, link.id, -1)) }
+                            .disabled(location.links.first?.id == link.id)
+                        Button("Move Down") { store.send(.moveLinkButtonTapped(location.id, link.id, 1)) }
+                            .disabled(location.links.last?.id == link.id)
+                        Button("Delete", role: .destructive) {
+                            store.send(.removeLinkButtonTapped(location.id, link.id))
+                        }
+                    } label: {
+                        Label("Link Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+            Button("Add Link") { store.send(.addLinkButtonTapped(location.id)) }
+        }
+        if let index = location.links.firstIndex(where: { $0.id == store.editingLinkID }) {
+            Section("Edit Link") {
+                EditLinkFields(link: $store.locations[locationIndex].links[index])
             }
         }
     }
@@ -511,7 +631,7 @@ public struct EditableLocation: Identifiable, Equatable {
     var name = ""
     var description = ""
     var locators: [EditableLocator] = []
-    var links: [EditableLocationLink] = []
+    var links: [EditableLink] = []
 
     init() {}
 
@@ -520,7 +640,7 @@ public struct EditableLocation: Identifiable, Equatable {
         name = location.name
         description = location.description ?? ""
         locators = (location.locators ?? []).map(EditableLocator.init)
-        links = (location.links ?? []).map(EditableLocationLink.init)
+        links = (location.links ?? []).map(EditableLink.init)
     }
 
     var validationMessage: String? {
@@ -657,39 +777,6 @@ public struct EditableLocator: Identifiable, Equatable {
         if !required && lat.isEmpty && lon.isEmpty { return true }
         guard let latitude = Double(lat), let longitude = Double(lon) else { return false }
         return (-90...90).contains(latitude) && (-180...180).contains(longitude)
-    }
-}
-
-public struct EditableLocationLink: Identifiable, Equatable {
-    public var id = UUID()
-    var original: OME.Link?
-    var title = ""
-    var urlString = ""
-    var description = ""
-
-    init() {}
-
-    init(_ link: OME.Link) {
-        original = link
-        title = link.title ?? ""
-        urlString = link.url.absoluteString
-        description = link.description ?? ""
-    }
-
-    var validationMessage: String? {
-        guard let url = URL(string: urlString.trimmed),
-              url.scheme == "https" || url.scheme == "http",
-              url.host != nil else { return "Enter a valid location link URL." }
-        return nil
-    }
-
-    var preparedLink: OME.Link? {
-        guard validationMessage == nil, let url = URL(string: urlString.trimmed) else { return nil }
-        var link = original ?? OME.Link(url: url)
-        link.url = url
-        link.title = title.trimmed.nilIfEmpty
-        link.description = description.trimmed.nilIfEmpty
-        return link
     }
 }
 
