@@ -331,7 +331,7 @@ struct ProposalRecordRow: View {
                 systemImage: "music.note"
             )
         case let .stage(stage):
-            StageRowView(stage: stage)
+            ProposalStageRowView(stage: stage)
         case let .contributor(contributor):
             ProposalArtworkRow(
                 title: snapshot.title,
@@ -706,7 +706,7 @@ struct ProposalStageDetailView: View {
             titleSources: stage.heroImageTitleSources,
             tint: stage.color.swiftUIColor
         ) {
-            StageIconFallback(stage: stage, size: 150)
+            ProposalStageIconFallback(stage: stage, size: 150)
         } content: {
             if stage.category != nil || stage.lineup?.isEmpty == false
                 || (showsTechnicalDetails && stage.sortIndex != nil) {
