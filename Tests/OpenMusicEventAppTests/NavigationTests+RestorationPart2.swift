@@ -197,6 +197,8 @@ extension NavigationTests {
                 db, id: existingID, eventID: eventID, name: "Old Meadow"
             )
         }
+        let logoURL = try #require(URL(string: "https://example.com/new-logo.png"))
+        let heroURL = try #require(URL(string: "https://example.com/new-hero.png"))
 
         let store = withDependencies {
             $0.context = .test
@@ -210,8 +212,16 @@ extension NavigationTests {
             state.colorHex = "#123456"
             state.iconName = OME.SemanticIcon.gridOfSquares.rawValue
             state.shortLabel = "NM"
-            state.logoURL = "https://example.com/new-logo.png"
-            state.heroImageURL = "https://example.com/new-hero.png"
+            state.mediaEntries = [
+                .init(value: .known(.image(OME.Image(
+                    source: .known(.url(logoURL)),
+                    role: .known(.logo)
+                )))),
+                .init(value: .known(.image(OME.Image(
+                    source: .known(.url(heroURL)),
+                    role: .known(.hero)
+                )))),
+            ]
 
             return TestStore(initialState: state) {
                 EditStage()
@@ -279,7 +289,7 @@ extension NavigationTests {
     }
 
     @Test
-    func editStageImagePickerImportAddsImageThroughParentDestination() async throws {
+    func editStageMediaImportAddsImageThroughParentDestination() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let image = ImportImages.Configuration.stagePoster.importedImage(
@@ -300,9 +310,9 @@ extension NavigationTests {
             }
         }
 
-        store.send(.posterImagePicker(.addButtonTapped))
+        store.send(.addImageButtonTapped)
         let importStore = try #require(
-            $store.scope(\.destination).posterImportImages.wrappedValue
+            $store.scope(\.destination).importImages.wrappedValue
         )
         importStore.send(.imagesImported([image]))
         await importStore.send(.saveButtonTapped)?.value
@@ -310,9 +320,8 @@ extension NavigationTests {
         await waitUntil { store.destination == nil }
         var selectedImage = image
         selectedImage.image.title = image.trimmedTitle
-        expectNoDifference(store.posterImagePicker.images.map(\.importedImage), [selectedImage])
-        #expect(store.heroImagePicker.images.isEmpty)
-        #expect(store.logoImagePicker.images.isEmpty)
+        expectNoDifference(store.mediaEntries.map(\.importedImage), [selectedImage])
+        #expect(store.mediaEntries.first?.imageValue?.image.role == .known(.poster))
     }
 
     @Test

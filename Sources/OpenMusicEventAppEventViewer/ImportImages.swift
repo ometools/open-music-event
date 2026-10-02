@@ -276,6 +276,16 @@ public extension ImportImages {
             )
         }
 
+        public static var eventPlaceImages: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Event Place Images",
+                role: .hero,
+                renderingMode: .original,
+                imageInfoConfiguration: .allImages
+            )
+        }
+
         public static var stageHero: Self {
             Self(
                 cardinality: .single,

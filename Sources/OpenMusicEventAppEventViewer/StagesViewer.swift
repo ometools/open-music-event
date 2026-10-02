@@ -1305,6 +1305,9 @@ public struct EditStage {
     public typealias FormFeature = ComposableForms.Form<FormValue>
 
     public struct State {
+        public typealias MediaEntry = RecordMediaEditing.MediaEntry
+        public typealias MediaDraft = RecordMediaEditing.MediaDraft
+
         public enum Mode: Equatable, Sendable {
             case create
             case edit(EventPlace.ID)
@@ -1325,15 +1328,6 @@ public struct EditStage {
             self.form = FormFeature.State(value: FormValue())
             self._contributors = FetchAll(Contributor.where { $0.event.eq(eventID) })
             self._persistentStages = FetchAll(OpenMusicEventLexicon.Stage.all)
-            self.heroImagePicker = ImageAssetPicker.State(
-                configuration: .stageHero, recordImages: nil, recordID: eventID
-            )
-            self.logoImagePicker = ImageAssetPicker.State(
-                configuration: .stageLogo, recordImages: nil, recordID: eventID
-            )
-            self.posterImagePicker = ImageAssetPicker.State(
-                configuration: .stagePoster, recordImages: nil, recordID: eventID
-            )
             self.hasLoadedDraft = true
         }
 
@@ -1346,21 +1340,6 @@ public struct EditStage {
             self.form = FormFeature.State(value: FormValue())
             self._contributors = FetchAll(Contributor.where { $0.event.eq(eventID) })
             self._persistentStages = FetchAll(OpenMusicEventLexicon.Stage.all)
-            self.heroImagePicker = ImageAssetPicker.State(
-                configuration: .stageHero,
-                recordImages: nil,
-                recordID: eventID
-            )
-            self.logoImagePicker = ImageAssetPicker.State(
-                configuration: .stageLogo,
-                recordImages: nil,
-                recordID: eventID
-            )
-            self.posterImagePicker = ImageAssetPicker.State(
-                configuration: .stagePoster,
-                recordImages: nil,
-                recordID: eventID
-            )
         }
 
         public let eventID: Event.ID
@@ -1373,13 +1352,11 @@ public struct EditStage {
         var editingLocatorID: EditableLocator.ID?
         var form: FormFeature.State
         var hasLoadedDraft = false
-        var heroImagePicker: ImageAssetPicker.State
         var isSaving = false
-        var logoImagePicker: ImageAssetPicker.State
+        var mediaEntries: [MediaEntry] = []
+        var mediaDraft: MediaDraft?
         var originalPlace: EventPlace?
-        var originalImages: [OME.Image] = []
         @FetchAll var persistentStages: [OpenMusicEventLexicon.Stage]
-        var posterImagePicker: ImageAssetPicker.State
 
         var category: String {
             get { form.value.category }
@@ -1401,19 +1378,9 @@ public struct EditStage {
             }
         }
 
-        var heroImageURL: String {
-            get { heroImagePicker.firstURLString }
-            set { heroImagePicker.replaceURLString(newValue) }
-        }
-
         var shortLabel: String {
             get { form.value.shortLabel }
             set { form.value.shortLabel = newValue }
-        }
-
-        var logoURL: String {
-            get { logoImagePicker.firstURLString }
-            set { logoImagePicker.replaceURLString(newValue) }
         }
 
         var sortIndex: String {
@@ -1467,9 +1434,7 @@ public struct EditStage {
             let icon: OME.SemanticIcon?
             let shortLabel: String?
             let originalPlace: EventPlace?
-            let logoImages: [ImageAssetPicker.ImageValue]
-            let heroImages: [ImageAssetPicker.ImageValue]
-            let posterImages: [ImageAssetPicker.ImageValue]
+            let mediaEntries: [MediaEntry]
 
             init(state: State) {
                 self.eventID = state.eventID
@@ -1488,9 +1453,7 @@ public struct EditStage {
                 self.icon = state.trimmedIconName.nilIfEmpty.map(OME.SemanticIcon.init(rawValue:))
                 self.shortLabel = state.trimmedShortLabel.nilIfEmpty
                 self.originalPlace = state.originalPlace
-                self.logoImages = state.logoImagePicker.images
-                self.heroImages = state.heroImagePicker.images
-                self.posterImages = state.posterImagePicker.images
+                self.mediaEntries = state.mediaEntries
             }
 
             func fields() throws -> EventPlaceRecordEditing.Fields {
@@ -1509,59 +1472,17 @@ public struct EditStage {
                     shortLabel: shortLabel,
                     lineup: lineup
                 )))
-                fields.media = try preparedMedia()
+                fields.media = try RecordMediaEditing.preparedMedia(mediaEntries)
                 return fields
-            }
-
-            private func preparedMedia() throws -> [Open<OME.Media>]? {
-                var logos = try logoImages.map { try preparedImage($0, role: .logo) }
-                var heroes = try heroImages.map { try preparedImage($0, role: .hero) }
-                var posters = try posterImages.map { try preparedImage($0, role: .poster) }
-                var media: [Open<OME.Media>] = []
-
-                for existing in originalPlace?.media ?? [] {
-                    switch existing {
-                    case let .known(.image(image))
-                        where image.role == .known(.logo)
-                            && image.displayImageAsset(recordID: eventID) != nil:
-                        if !logos.isEmpty { media.append(.known(.image(logos.removeFirst()))) }
-                    case let .known(.image(image))
-                        where image.role == .known(.hero)
-                            && image.displayImageAsset(recordID: eventID) != nil:
-                        if !heroes.isEmpty { media.append(.known(.image(heroes.removeFirst()))) }
-                    case let .known(.image(image))
-                        where image.role == .known(.poster)
-                            && image.displayImageAsset(recordID: eventID) != nil:
-                        if !posters.isEmpty { media.append(.known(.image(posters.removeFirst()))) }
-                    default:
-                        media.append(existing)
-                    }
-                }
-                media.append(contentsOf: logos.map { .known(.image($0)) })
-                media.append(contentsOf: heroes.map { .known(.image($0)) })
-                media.append(contentsOf: posters.map { .known(.image($0)) })
-                return media.isEmpty ? nil : media
-            }
-
-            private func preparedImage(
-                _ value: ImageAssetPicker.ImageValue,
-                role: OME.Image.Role
-            ) throws -> OME.Image {
-                var image = value.image
-                if let importedImage = value.importedImage {
-                    let blob = try stageLocalImageBlob(
-                        importedImage.data,
-                        mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
-                    )
-                    image.source = .known(.blob(blob))
-                }
-                image.role = .known(role)
-                return image
             }
         }
 
         var validationMessage: String? {
             guard hasLoadedDraft else { return nil }
+
+            if mediaDraft != nil {
+                return "Finish editing media."
+            }
 
             if trimmedName.isEmpty {
                 return "Enter a name."
@@ -1579,40 +1500,38 @@ public struct EditStage {
             return nil
         }
 
-        mutating func resetImagePickers() {
-            heroImagePicker = ImageAssetPicker.State(
-                configuration: .stageHero,
-                recordImages: originalImages,
-                recordID: eventID
-            )
-            logoImagePicker = ImageAssetPicker.State(
-                configuration: .stageLogo,
-                recordImages: originalImages,
-                recordID: eventID
-            )
-            posterImagePicker = ImageAssetPicker.State(
-                configuration: .stagePoster,
-                recordImages: originalImages,
-                recordID: eventID
-            )
-        }
-
         mutating func load(_ place: EventPlace) {
             form = FormFeature.State(value: FormValue(place: place))
             originalPlace = place
-            let editableImages = (place.media ?? []).compactMap { medium -> OME.Image? in
-                guard case let .known(.image(image)) = medium,
-                      image.role == .known(.logo)
-                        || image.role == .known(.hero)
-                        || image.role == .known(.poster),
-                      image.displayImageAsset(recordID: eventID) != nil
-                else { return nil }
-                return image
-            }
-            originalImages = editableImages
-            resetImagePickers()
+            mediaEntries = (place.media ?? []).map { MediaEntry(value: $0) }
             hasLoadedDraft = true
             errorMessage = nil
+        }
+
+        mutating func editMedia(id: UUID) {
+            guard let entry = mediaEntries.first(where: { $0.id == id }) else { return }
+            switch entry.value {
+            case let .known(.external(external)):
+                mediaDraft = MediaDraft(entryID: id, external: external)
+            case let .known(.record(reference)):
+                mediaDraft = MediaDraft(entryID: id, reference: reference)
+            default:
+                break
+            }
+        }
+
+        mutating func saveMediaDraft() {
+            guard let mediaDraft, let value = mediaDraft.value() else { return }
+            if let id = mediaDraft.entryID {
+                guard let index = mediaEntries.firstIndex(where: { $0.id == id }) else {
+                    self.mediaDraft = nil
+                    return
+                }
+                mediaEntries[index].value = value
+            } else {
+                mediaEntries.append(MediaEntry(value: value))
+            }
+            self.mediaDraft = nil
         }
 
         private var parsedSortIndex: Int? {
@@ -1659,22 +1578,35 @@ public struct EditStage {
     }
 
     public enum Action {
+        case addExternalMediaButtonTapped
+        case addImageButtonTapped
         case addLineupContributorTapped(Contributor.ID)
         case addLinkButtonTapped
         case addLocatorButtonTapped(EditableLocator.Kind)
+        case addRecordMediaButtonTapped
         case cancelButtonTapped
         case createPersistentStageTapped
         case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
-        case heroImagePicker(ImageAssetPicker.Action)
         case editLinkButtonTapped(EditableLink.ID)
         case editLocatorButtonTapped(EditableLocator.ID)
         case editPersistentStageTapped(OpenMusicEventLexicon.Stage.ID)
-        case logoImagePicker(ImageAssetPicker.Action)
         case linkPersistentStageTapped(OpenMusicEventLexicon.Stage.ID)
+        case mediaDeleteButtonTapped(UUID)
+        case mediaDraftAltChanged(String)
+        case mediaDraftCancelButtonTapped
+        case mediaDraftDescriptionChanged(String)
+        case mediaDraftKindChanged(String)
+        case mediaDraftRemoveThumbnailButtonTapped
+        case mediaDraftSaveButtonTapped
+        case mediaDraftThumbnailURLChanged(String)
+        case mediaDraftTitleChanged(String)
+        case mediaDraftURIChanged(String)
+        case mediaEditButtonTapped(UUID)
+        case mediaImageInfoButtonTapped(UUID)
+        case mediaMoveButtonTapped(UUID, Int)
         case moveLineupContributorTapped(Contributor.ID, Int)
-        case posterImagePicker(ImageAssetPicker.Action)
         case moveLinkButtonTapped(EditableLink.ID, Int)
         case moveLocatorButtonTapped(EditableLocator.ID, Int)
         case removeLinkButtonTapped(EditableLink.ID)
@@ -1686,12 +1618,8 @@ public struct EditStage {
 
     @Feature
     public enum Destination {
-        case heroImageInfo(Spawn<ImageInfo>)
-        case heroImportImages(Spawn<ImportImages>)
-        case logoImageInfo(Spawn<ImageInfo>)
-        case logoImportImages(Spawn<ImportImages>)
-        case posterImageInfo(Spawn<ImageInfo>)
-        case posterImportImages(Spawn<ImportImages>)
+        case imageInfo(Spawn<ImageInfo>)
+        case importImages(Spawn<ImportImages>)
         case persistentStageEditor(Spawn<EditPersistentStage>)
     }
 
@@ -1705,17 +1633,16 @@ public struct EditStage {
                     try store.send(.formSubmitted(value))
                 }
         }
-        Scope(\.heroImagePicker) {
-            ImageAssetPicker()
-        }
-        Scope(\.logoImagePicker) {
-            ImageAssetPicker()
-        }
-        Scope(\.posterImagePicker) {
-            ImageAssetPicker()
-        }
         Update { state, action in
             switch action {
+            case .addExternalMediaButtonTapped:
+                state.mediaDraft = State.MediaDraft(kind: .external)
+
+            case .addImageButtonTapped:
+                state.destination = .importImages(
+                    Spawn(ImportImages.State(configuration: .eventPlaceImages))
+                )
+
             case let .addLineupContributorTapped(id):
                 guard state.contributors.contains(where: { $0.id == id }),
                       !state.form.value.lineup.contains(id) else { return }
@@ -1732,6 +1659,9 @@ public struct EditStage {
                 state.form.value.locators.append(locator)
                 state.editingLocatorID = locator.id
                 state.editingLinkID = nil
+
+            case .addRecordMediaButtonTapped:
+                state.mediaDraft = State.MediaDraft(kind: .record)
 
             case .cancelButtonTapped:
                 store.addTask {
@@ -1815,37 +1745,63 @@ public struct EditStage {
                     }
                 }
 
-            case .heroImagePicker(.addButtonTapped):
-                state.destination = .heroImportImages(
-                    Spawn(state.heroImagePicker.importImagesState())
-                )
-
-            case let .heroImagePicker(.imageInfoButtonTapped(id)):
-                guard let imageInfoState = state.heroImagePicker.imageInfoState(for: id) else {
-                    return
-                }
-                state.destination = .heroImageInfo(Spawn(imageInfoState))
-
-            case .heroImagePicker:
-                break
-
-            case .logoImagePicker(.addButtonTapped):
-                state.destination = .logoImportImages(
-                    Spawn(state.logoImagePicker.importImagesState())
-                )
-
-            case let .logoImagePicker(.imageInfoButtonTapped(id)):
-                guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
-                    return
-                }
-                state.destination = .logoImageInfo(Spawn(imageInfoState))
-
-            case .logoImagePicker:
-                break
-
             case let .linkPersistentStageTapped(id):
                 guard state.persistentStages.contains(where: { $0.id == id }) else { return }
                 state.form.value.persistentStageID = id
+
+            case let .mediaDeleteButtonTapped(id):
+                state.mediaEntries.removeAll { $0.id == id }
+
+            case let .mediaDraftAltChanged(alt):
+                state.mediaDraft?.thumbnailAlt = alt
+
+            case .mediaDraftCancelButtonTapped:
+                state.mediaDraft = nil
+
+            case let .mediaDraftDescriptionChanged(description):
+                state.mediaDraft?.description = description
+
+            case let .mediaDraftKindChanged(kind):
+                state.mediaDraft?.mediaKind = kind
+
+            case .mediaDraftRemoveThumbnailButtonTapped:
+                state.mediaDraft?.removeThumbnail = true
+                state.mediaDraft?.thumbnailURL = ""
+
+            case .mediaDraftSaveButtonTapped:
+                state.saveMediaDraft()
+
+            case let .mediaDraftThumbnailURLChanged(url):
+                state.mediaDraft?.thumbnailURL = url
+                state.mediaDraft?.removeThumbnail = false
+
+            case let .mediaDraftTitleChanged(title):
+                state.mediaDraft?.title = title
+
+            case let .mediaDraftURIChanged(uri):
+                state.mediaDraft?.uri = uri
+
+            case let .mediaEditButtonTapped(id):
+                state.editMedia(id: id)
+
+            case let .mediaImageInfoButtonTapped(id):
+                guard let entry = state.mediaEntries.first(where: { $0.id == id }),
+                      let imageValue = entry.imageValue
+                else { return }
+                state.destination = .imageInfo(Spawn(ImageInfo.State(
+                    id: id,
+                    image: imageValue.image,
+                    configuration: .allImages,
+                    sourceLabel: imageValue.displaySource,
+                    recordID: state.eventID,
+                    previewData: entry.importedImage?.data
+                )))
+
+            case let .mediaMoveButtonTapped(id, offset):
+                guard let index = state.mediaEntries.firstIndex(where: { $0.id == id }),
+                      state.mediaEntries.indices.contains(index + offset)
+                else { return }
+                state.mediaEntries.swapAt(index, index + offset)
 
             case let .moveLineupContributorTapped(id, offset):
                 guard let index = state.form.value.lineup.firstIndex(of: id),
@@ -1861,20 +1817,6 @@ public struct EditStage {
                 guard let index = state.form.value.locators.firstIndex(where: { $0.id == id }),
                       state.form.value.locators.indices.contains(index + offset) else { return }
                 state.form.value.locators.swapAt(index, index + offset)
-
-            case .posterImagePicker(.addButtonTapped):
-                state.destination = .posterImportImages(
-                    Spawn(state.posterImagePicker.importImagesState())
-                )
-
-            case let .posterImagePicker(.imageInfoButtonTapped(id)):
-                guard let imageInfoState = state.posterImagePicker.imageInfoState(for: id) else {
-                    return
-                }
-                state.destination = .posterImageInfo(Spawn(imageInfoState))
-
-            case .posterImagePicker:
-                break
 
             case let .removeLinkButtonTapped(id):
                 state.form.value.links.removeAll { $0.id == id }
@@ -1904,42 +1846,17 @@ public struct EditStage {
         }
         .ifLet(\.destination) {
             EmptyFeature()
-                .ifCaseLet(\.heroImportImages) {
+                .ifCaseLet(\.importImages) {
                     ImportImages()
                 }
-                .ifCaseLet(\.heroImageInfo) {
+                .ifCaseLet(\.imageInfo) {
                     ImageInfo { imageID, image in
                         try store.modify {
-                            $0.heroImagePicker.updateImageInfo(
-                                imageID: imageID,
-                                image: image
-                            )
-                        }
-                    }
-                }
-                .ifCaseLet(\.logoImportImages) {
-                    ImportImages()
-                }
-                .ifCaseLet(\.logoImageInfo) {
-                    ImageInfo { imageID, image in
-                        try store.modify {
-                            $0.logoImagePicker.updateImageInfo(
-                                imageID: imageID,
-                                image: image
-                            )
-                        }
-                    }
-                }
-                .ifCaseLet(\.posterImportImages) {
-                    ImportImages()
-                }
-                .ifCaseLet(\.posterImageInfo) {
-                    ImageInfo { imageID, image in
-                        try store.modify {
-                            $0.posterImagePicker.updateImageInfo(
-                                imageID: imageID,
-                                image: image
-                            )
+                            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == imageID }),
+                                  case .known(.image) = $0.mediaEntries[index].value
+                            else { return }
+                            $0.mediaEntries[index].value = .known(.image(image))
+                            $0.mediaEntries[index].importedImage?.image = image
                         }
                     }
                 }
@@ -1948,17 +1865,8 @@ public struct EditStage {
                 }
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
-            switch state.destination {
-            case .heroImportImages(_):
-                state.heroImagePicker.append(images)
-            case .logoImportImages(_):
-                state.logoImagePicker.append(images)
-            case .posterImportImages(_):
-                state.posterImagePicker.append(images)
-            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_),
-                 .persistentStageEditor(_), nil:
-                break
-            }
+            guard case .importImages = state.destination else { return }
+            state.mediaEntries.append(contentsOf: images.map { State.MediaEntry(importedImage: $0) })
         }
         .onEvent(PersistentStageSaved.self) { id, state in
             state.form.value.persistentStageID = id
@@ -2051,32 +1959,12 @@ public struct EditStageView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(item: $store.scope(\.destination).logoImportImages) { importStore in
+        .sheet(item: $store.scope(\.destination).importImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(item: $store.scope(\.destination).logoImageInfo) { imageInfoStore in
-            NavigationStack {
-                ImageInfoView(store: imageInfoStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).heroImportImages) { importStore in
-            NavigationStack {
-                ImportImagesView(store: importStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).heroImageInfo) { imageInfoStore in
-            NavigationStack {
-                ImageInfoView(store: imageInfoStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).posterImportImages) { importStore in
-            NavigationStack {
-                ImportImagesView(store: importStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).posterImageInfo) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
@@ -2124,7 +2012,7 @@ struct EditStageLoadedForm: View {
             if showsTechnicalDetails {
                 iconSection
             }
-            imageSection
+            mediaSection
             errorSection
         }
     }
@@ -2164,20 +2052,157 @@ struct EditStageLoadedForm: View {
         }
     }
 
-    private var imageSection: some View {
-        Group {
-            ImageAssetPickerSection(
-                store: store.scope(\.logoImagePicker)
-            )
-            ImageAssetPickerSection(
-                store: store.scope(\.heroImagePicker)
-            )
-            ImageAssetPickerSection(
-                store: store.scope(\.posterImagePicker)
-            )
+    var mediaSection: some View {
+        Section("Media") {
+            ForEach(store.mediaEntries) { entry in
+                let index = store.mediaEntries.firstIndex(where: { $0.id == entry.id })
+                if let image = entry.imageValue {
+                    ImageAssetPickerRowView(
+                        recordID: store.eventID,
+                        image: image,
+                        canMoveUp: index.map { $0 > 0 } ?? false,
+                        canMoveDown: index.map { $0 + 1 < store.mediaEntries.count } ?? false
+                    ) {
+                        store.send(.mediaImageInfoButtonTapped(entry.id))
+                    } onRemove: {
+                        store.send(.mediaDeleteButtonTapped(entry.id))
+                    } onMoveUp: {
+                        store.send(.mediaMoveButtonTapped(entry.id, -1))
+                    } onMoveDown: {
+                        store.send(.mediaMoveButtonTapped(entry.id, 1))
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.title)
+                            if let subtitle = entry.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            if entry.canEditLink {
+                                Button("Edit") { store.send(.mediaEditButtonTapped(entry.id)) }
+                            }
+                            if index.map({ $0 > 0 }) == true {
+                                Button("Move Up") { store.send(.mediaMoveButtonTapped(entry.id, -1)) }
+                            }
+                            if index.map({ $0 + 1 < store.mediaEntries.count }) == true {
+                                Button("Move Down") { store.send(.mediaMoveButtonTapped(entry.id, 1)) }
+                            }
+                            Button("Delete", role: .destructive) {
+                                store.send(.mediaDeleteButtonTapped(entry.id))
+                            }
+                        } label: {
+                            Label("Media Actions", systemImage: "ellipsis.circle")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                }
+            }
+
+            if store.mediaDraft == nil {
+                Menu {
+                    Button("Image") { store.send(.addImageButtonTapped) }
+                    Button("External Link") { store.send(.addExternalMediaButtonTapped) }
+                    Button("AT Protocol Record") { store.send(.addRecordMediaButtonTapped) }
+                } label: {
+                    Label("Add Media", systemImage: "plus")
+                }
+            }
+
+            if let draft = store.mediaDraft {
+                Text(draft.kind == .external ? "External Media" : "AT Protocol Record")
+                    .font(.headline)
+                TextField("URL", text: mediaDraftURIBinding)
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                if draft.kind == .external {
+                    TextField("Title", text: mediaDraftTitleBinding)
+                    PortableTextField(
+                        "Description",
+                        text: mediaDraftDescriptionBinding,
+                        axis: .vertical
+                    )
+                    .portableLineLimit(2...5)
+                    TextField("Media Kind", text: mediaDraftKindBinding)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    TextField("Thumbnail URL", text: mediaDraftThumbnailURLBinding)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    if draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
+                        TextField("Thumbnail Alt Text", text: mediaDraftAltBinding)
+                        Button("Remove Thumbnail", role: .destructive) {
+                            store.send(.mediaDraftRemoveThumbnailButtonTapped)
+                        }
+                    }
+                }
+                if let validationMessage = draft.validationMessage {
+                    Text(validationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Button("Cancel") { store.send(.mediaDraftCancelButtonTapped) }
+                    Spacer()
+                    Button("Done") { store.send(.mediaDraftSaveButtonTapped) }
+                        .disabled(draft.validationMessage != nil)
+                }
+            }
         }
     }
 
+    var mediaDraftURIBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.uri ?? "" },
+            set: { store.send(.mediaDraftURIChanged($0)) }
+        )
+    }
+
+    var mediaDraftTitleBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.title ?? "" },
+            set: { store.send(.mediaDraftTitleChanged($0)) }
+        )
+    }
+
+    var mediaDraftDescriptionBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.description ?? "" },
+            set: { store.send(.mediaDraftDescriptionChanged($0)) }
+        )
+    }
+
+    var mediaDraftKindBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.mediaKind ?? "" },
+            set: { store.send(.mediaDraftKindChanged($0)) }
+        )
+    }
+
+    var mediaDraftThumbnailURLBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.thumbnailURL ?? "" },
+            set: { store.send(.mediaDraftThumbnailURLChanged($0)) }
+        )
+    }
+
+    var mediaDraftAltBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.thumbnailAlt ?? "" },
+            set: { store.send(.mediaDraftAltChanged($0)) }
+        )
+    }
     @ViewBuilder
     private var errorSection: some View {
         if let validationMessage = store.validationMessage {

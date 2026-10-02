@@ -153,6 +153,14 @@ extension NavigationTests {
         await store.send(.linkPersistentStageTapped(persistentStageID))?.value
         await store.send(.addLineupContributorTapped(addedLineupID))?.value
         await store.send(.moveLineupContributorTapped(addedLineupID, -1))?.value
+        let logo = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/logo.png")))),
+            role: .known(.logo)
+        )
+        let hero = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/hero.png")))),
+            role: .known(.hero)
+        )
         store.modify {
             $0.form.value.name = " New Meadow "
             $0.form.value.description = " New directions "
@@ -163,8 +171,8 @@ extension NavigationTests {
             $0.colorHex = " #AABBCC "
             $0.iconName = "sparkles"
             $0.shortLabel = " MD "
-            $0.logoURL = "https://example.com/logo.png"
-            $0.heroImageURL = "https://example.com/hero.png"
+            $0.mediaEntries.append(.init(value: .known(.image(logo))))
+            $0.mediaEntries.append(.init(value: .known(.image(hero))))
         }
 
         await store.send(.saveButtonTapped)?.value
@@ -207,6 +215,77 @@ extension NavigationTests {
             "https://example.com/hero.png",
             "https://example.com/logo.png",
             "https://example.com/poster.png",
+        ])
+    }
+
+    @Test
+    func editStageMediaLinksCanBeEditedRemovedAndReordered() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
+        let logo = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/logo.png")))),
+            role: .known(.logo)
+        )
+        let external = OME.Media.External(
+            uri: try #require(URL(string: "https://example.com/old-video")),
+            title: "Old video"
+        )
+        let oldRecord = OME.Media.RecordReference(
+            uri: try #require(ATProto.URI("at://did:plc:organizer/app.bsky.feed.post/old"))
+        )
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            var place = try EventPlace(
+                id: stageID,
+                event: eventID,
+                name: "Meadow",
+                createdAt: "2026-09-01T12:00:00Z"
+            )
+            place.kind = .known(.stage(.init()))
+            place.media = [
+                .known(.image(logo)),
+                .known(.external(external)),
+                .known(.record(oldRecord)),
+            ]
+            try EventPlace.insert { place }.execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: EditStage.State(stageID: stageID, eventID: eventID)) {
+                EditStage()
+            }
+        }
+        #expect(store.state.mediaEntries.count == 3)
+        let externalID = try #require(store.state.mediaEntries.dropFirst().first?.id)
+        let oldRecordID = try #require(store.state.mediaEntries.last?.id)
+        store.send(.mediaEditButtonTapped(externalID))
+        store.send(.mediaDraftURIChanged("https://example.com/live-video"))
+        store.send(.mediaDraftTitleChanged("Live video"))
+        store.send(.mediaDraftSaveButtonTapped)
+        store.send(.mediaDeleteButtonTapped(oldRecordID))
+        store.send(.addRecordMediaButtonTapped)
+        store.send(.mediaDraftURIChanged("at://did:plc:organizer/app.bsky.feed.post/new"))
+        store.send(.mediaDraftSaveButtonTapped)
+        let newRecordID = try #require(store.state.mediaEntries.last?.id)
+        store.send(.mediaMoveButtonTapped(newRecordID, -1))
+        store.send(.mediaMoveButtonTapped(newRecordID, -1))
+        await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
+
+        let edited = try await database.read { db in
+            try #require(try EventPlace.find(stageID).fetchOne(db))
+        }
+        let newRecordURI = try #require(ATProto.URI("at://did:plc:organizer/app.bsky.feed.post/new"))
+        let liveVideoURL = try #require(URL(string: "https://example.com/live-video"))
+        #expect(edited.media == [
+            .known(.record(OME.Media.RecordReference(uri: newRecordURI))),
+            .known(.image(logo)),
+            .known(.external(OME.Media.External(uri: liveVideoURL, title: "Live video"))),
         ])
     }
 
