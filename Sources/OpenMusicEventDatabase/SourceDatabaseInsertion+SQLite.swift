@@ -484,7 +484,6 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
     var calendarEntries: [OME.CalendarEntry.Draft]
     var events: [OME.Event.Draft]
     var siteMaps: [OME.Event.SiteMap]
-    var eventOrganizers: [OME.EventOrganizer.Draft]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
     var stages: [OME.Stage.Draft]
     var schedules: [OME.Schedule.Draft]
@@ -539,7 +538,6 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
         }
         self.events = sourceInsertion.events
         self.siteMaps = sourceInsertion.siteMaps
-        self.eventOrganizers = sourceInsertion.eventOrganizers
         self.stages = sourceInsertion.stages
         self.schedules = sourceInsertion.schedules
         self.contributors = sourceInsertion.contributors
@@ -655,18 +653,6 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
         }
         if !siteMaps.isEmpty {
             try OME.Event.SiteMap.insert { siteMaps }.execute(db)
-        }
-        if !eventOrganizers.isEmpty {
-            try OME.EventOrganizer.insert {
-                eventOrganizers
-            } onConflict: {
-                (
-                    $0.id.organizerID,
-                    $0.id.eventID,
-                    $0.id.eventOrganizerID
-                )
-            }
-            .execute(db)
         }
         if !eventSourceProvenances.isEmpty {
             try EventSourceProvenanceRecord.insert {

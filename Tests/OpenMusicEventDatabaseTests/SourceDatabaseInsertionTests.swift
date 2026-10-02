@@ -83,18 +83,6 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.eventOrganizers,
-            [
-                OME.EventOrganizer.Draft(
-                    id: .init(
-                        organizerID: organizerID,
-                        eventID: id(resolvedEventID),
-                        eventOrganizerID: organizerID
-                    )
-                )
-            ]
-        )
-        expectNoDifference(
             insertion.stages.map(\.id),
             [stageID("meadow", eventID: resolvedEventID, organizerID: organizerID)]
         )
@@ -2554,9 +2542,6 @@ struct SourceDatabaseInsertionTests {
         let events = try await database.read { db in
             try OME.Event.fetchAll(db)
         }
-        let eventOrganizers = try await database.read { db in
-            try OME.EventOrganizer.fetchAll(db)
-        }
         let sourceProvenances = try await database.read { db in
             try EventSourceProvenanceRecord.fetchAll(db)
         }
@@ -2569,13 +2554,7 @@ struct SourceDatabaseInsertionTests {
                 eventID("second-source-2026", organizerID: organizerID),
             ])
         )
-        expectNoDifference(
-            Set(eventOrganizers.map(\.id.eventID)),
-            Set([
-                id("first-source-2025"),
-                id("second-source-2026"),
-            ])
-        )
+        #expect(events.allSatisfy { $0.id.organizerID == organizerID })
         expectNoDifference(
             Set(sourceProvenances.map(\.sourceReference)),
             Set([
@@ -2960,9 +2939,6 @@ struct SourceDatabaseInsertionTests {
         let eventCount = try await database.read { db in
             try OME.Event.fetchCount(db)
         }
-        let eventOrganizerCount = try await database.read { db in
-            try OME.EventOrganizer.fetchCount(db)
-        }
         let performanceCount = try await database.read { db in
             try OME.Performance.fetchCount(db)
         }
@@ -2975,7 +2951,6 @@ struct SourceDatabaseInsertionTests {
 
         #expect(organizerCount == 1)
         #expect(eventCount == 1)
-        #expect(eventOrganizerCount == 1)
         #expect(performanceCount == 3)
         #expect(performanceContributorCount == 2)
         #expect(relationships.count == 3)

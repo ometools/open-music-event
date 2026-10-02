@@ -193,7 +193,6 @@ public extension OME {
         public var calendarEntries: [OME.CalendarEntry.Draft]
         public var events: [OME.Event.Draft]
         public var siteMaps: [OME.Event.SiteMap]
-        public var eventOrganizers: [OME.EventOrganizer.Draft]
         public var stages: [OME.Stage.Draft]
         public var schedules: [OME.Schedule.Draft]
         public var contributors: [OME.Contributor.Draft]
@@ -216,7 +215,6 @@ public extension OME {
             self.eventSourceProvenances = []
             self.events = []
             self.siteMaps = []
-            self.eventOrganizers = []
             self.stages = []
             self.schedules = []
             self.contributors = []
@@ -341,15 +339,6 @@ public extension OME {
                     )
                 )
             }
-            eventOrganizers.append(
-                OME.EventOrganizer.Draft(
-                    id: .init(
-                        organizerID: organizerID,
-                        eventID: localEventID,
-                        eventOrganizerID: organizerID
-                    )
-                )
-            )
             relationships.append(
                 OME.Relationship(
                     subject: .identity(did: organizerID),

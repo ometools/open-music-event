@@ -913,23 +913,6 @@ struct NavigationTests {
         .execute(db)
     }
 
-    nonisolated static func insertEventOrganizer(
-        _ db: Database,
-        eventID: OMERecord.Event.ID,
-        organizerID: OMERecord.Organizer.ID
-    ) throws {
-        try OMERecord.EventOrganizer.insert {
-            OMERecord.EventOrganizer.Draft(
-                id: .init(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    eventOrganizerID: organizerID
-                )
-            )
-        }
-        .execute(db)
-    }
-
     nonisolated static func insertContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,

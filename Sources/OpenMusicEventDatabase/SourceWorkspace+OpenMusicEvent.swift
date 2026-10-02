@@ -907,7 +907,6 @@ private struct SourceWorkspaceDatabaseSnapshot: Equatable, Sendable {
     var provenances: [EventSourceProvenanceRecord]
     var events: [OME.Event]
     var siteMaps: [OME.Event.SiteMap]
-    var eventOrganizers: [OME.EventOrganizer]
     var stages: [OME.Stage]
     var schedules: [OME.Schedule]
     var contributors: [OME.Contributor]
@@ -945,10 +944,6 @@ private struct SourceWorkspaceDatabaseSnapshot: Equatable, Sendable {
             .fetchAll(database)
             .filter { eventIDs.contains($0.id.eventID) }
         self.siteMaps = try OME.Event.SiteMap
-            .where { $0.id.organizerID.eq(workspace.organizerID) }
-            .fetchAll(database)
-            .filter { eventIDs.contains($0.id.eventID) }
-        self.eventOrganizers = try OME.EventOrganizer
             .where { $0.id.organizerID.eq(workspace.organizerID) }
             .fetchAll(database)
             .filter { eventIDs.contains($0.id.eventID) }

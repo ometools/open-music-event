@@ -380,45 +380,6 @@ extension OpenMusicEvent {
     }
 }
 
-// MARK: - EventOrganizer  (app.openmusicevent.event.organizer)
-
-extension OpenMusicEvent {
-    @Table("app.openmusicevent.event.organizer")
-    public struct EventOrganizer: Codable, Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.event.organizer")
-
-        @Selection public struct ID: Codable, Hashable, Sendable {
-            public init(
-                organizerID: OME.Organizer.ID,
-                eventID: OME.ID<OME.Event>,
-                eventOrganizerID: OME.Organizer.ID
-            ) {
-                self.organizerID = organizerID
-                self.eventID = eventID
-                self.eventOrganizerID = eventOrganizerID
-            }
-
-            public var organizerID: OME.Organizer.ID
-            public var eventID: OME.ID<OME.Event>
-            public var eventOrganizerID: OME.Organizer.ID
-        }
-
-        public var id: ID
-
-        public init(
-            organizerID: OME.Organizer.ID,
-            eventID: OME.ID<OME.Event>,
-            eventOrganizerID: OME.Organizer.ID
-        ) {
-            self.id = ID(
-                organizerID: organizerID,
-                eventID: eventID,
-                eventOrganizerID: eventOrganizerID
-            )
-        }
-    }
-}
-
 // MARK: - Stage  (app.openmusicevent.stage)
 //
 extension OpenMusicEvent {
@@ -917,7 +878,6 @@ extension OpenMusicEvent.Organizer.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Event.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Calendar.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.CalendarEntry.Draft: Codable, Equatable, Sendable {}
-extension OpenMusicEvent.EventOrganizer.Draft: Equatable, Sendable {}
 extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Schedule.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Performance.Draft: Codable, Equatable, Sendable {}
