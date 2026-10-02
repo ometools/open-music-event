@@ -21,7 +21,7 @@ public struct AppContribution: Equatable, Identifiable, Sendable {
         did: DID,
         displayName: String,
         handle: String? = nil,
-        role: OMERecord.Relationship.Role
+        role: OME.Relationship.Role
     ) {
         self.id = id
         self.avatarURL = avatarURL
@@ -38,7 +38,7 @@ public struct AppContribution: Equatable, Identifiable, Sendable {
     public let did: DID
     public let displayName: String
     public let handle: String?
-    public let role: OMERecord.Relationship.Role
+    public let role: OME.Relationship.Role
 
     var avatarDisplayImage: DisplayImageAsset? {
         avatarURL.flatMap {
@@ -87,12 +87,12 @@ public extension AppContributorsClient {
             }
 
             var cursor: ATProto.Repository.Cursor?
-            var listedRecords: [ATProto.Repository.ListedRecord<OMERecord.Relationship>] = []
+            var listedRecords: [ATProto.Repository.ListedRecord<OME.Relationship>] = []
             repeat {
                 let page = try await xrpcClient.listRecords(
-                    OMERecord.Relationship.self,
+                    OME.Relationship.self,
                     repo: .did(appDID),
-                    collection: OMERecord.Relationship.nsid,
+                    collection: OME.Relationship.nsid,
                     limit: 100,
                     cursor: cursor,
                     pdsHost: pdsHost,
@@ -143,9 +143,9 @@ public extension AppContributorsClient {
     }
 
     static func developerIdentity(
-        from listedRecord: ATProto.Repository.ListedRecord<OMERecord.Relationship>,
+        from listedRecord: ATProto.Repository.ListedRecord<OME.Relationship>,
         appDID: DID
-    ) -> OMERecord.Relationship.IdentityReference? {
+    ) -> OME.Relationship.IdentityReference? {
         guard case let .did(authorDID) = listedRecord.uri.authority,
               authorDID == appDID,
               listedRecord.value.role == .developer,

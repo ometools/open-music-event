@@ -912,7 +912,7 @@ struct AboutOpenMusicEventTests {
         let appDID = try #require(DID("did:plc:openmusicevent"))
         let woodyDID = try #require(DID("did:plc:woody"))
         let otherDID = try #require(DID("did:plc:other"))
-        let subject = OMERecord.Relationship.IdentityReference(
+        let subject = OME.Relationship.IdentityReference(
             did: woodyDID,
             handle: "woody.fm",
             displayName: "Woodrow Melling"
@@ -1147,17 +1147,17 @@ struct AboutOpenMusicEventTests {
 
     private func listedRelationship(
         author: DID,
-        subject: OMERecord.Relationship.Entity,
-        role: OMERecord.Relationship.Role,
-        object: OMERecord.Relationship.Entity?
-    ) -> ATProto.Repository.ListedRecord<OMERecord.Relationship> {
+        subject: OME.Relationship.Entity,
+        role: OME.Relationship.Role,
+        object: OME.Relationship.Entity?
+    ) -> ATProto.Repository.ListedRecord<OME.Relationship> {
         ATProto.Repository.ListedRecord(
             uri: ATProto.URI(
                 authority: .did(author),
-                collection: OMERecord.Relationship.nsid,
+                collection: OME.Relationship.nsid,
                 rkey: ATProto.Record.Key(rawValue: UUID().uuidString.lowercased())
             ),
-            value: OMERecord.Relationship(
+            value: OME.Relationship(
                 subject: subject,
                 role: role,
                 object: object,
