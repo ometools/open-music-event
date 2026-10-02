@@ -902,7 +902,6 @@ private func validate(
 private struct SourceWorkspaceDatabaseSnapshot: Equatable, Sendable {
     var organizer: OME.Organizer?
     var calendar: OME.Calendar?
-    var calendarEntries: [OME.CalendarEntry]
     var collaborators: [WorkspaceRelationshipRecord]
     var provenances: [EventSourceProvenanceRecord]
     var events: [OME.Event]
@@ -931,10 +930,6 @@ private struct SourceWorkspaceDatabaseSnapshot: Equatable, Sendable {
 
         self.organizer = try OME.Organizer.find(workspace.organizerID).fetchOne(database)
         self.calendar = try OME.Calendar.find(calendarID).fetchOne(database)
-        self.calendarEntries = try OME.CalendarEntry
-            .where { $0.id.calendarOwnerID.eq(workspace.organizerID) }
-            .where { $0.id.calendarID.eq(OME.Calendar.defaultID) }
-            .fetchAll(database)
         self.collaborators = try WorkspaceRelationshipRecord
             .where { $0.id.workspaceID.eq(workspace.id) }
             .fetchAll(database)

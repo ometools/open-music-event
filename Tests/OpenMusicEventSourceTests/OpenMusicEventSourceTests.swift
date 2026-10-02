@@ -45,10 +45,6 @@ struct OpenMusicEventSourceTests {
             ]
         )
         expectNoDifference(
-            result.insertion.calendarEntries.map(\.id?.entryID.rawValue.rawValue),
-            resolvedEventIDs
-        )
-        expectNoDifference(
             result.insertion.eventSourceProvenances.map(\.eventIDOrigin),
             [
                 .inferred,

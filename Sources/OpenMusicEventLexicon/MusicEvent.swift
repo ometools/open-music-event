@@ -333,53 +333,6 @@ extension OpenMusicEvent {
     }
 }
 
-// MARK: - CalendarEntry  (app.openmusicevent.calendar.entry)
-
-extension OpenMusicEvent {
-    @Table("app.openmusicevent.calendar.entry")
-    public struct CalendarEntry: Codable, Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.calendar.entry")
-
-        @Selection public struct ID: Codable, Hashable, Sendable {
-            public init(
-                calendarOwnerID: OME.Organizer.ID,
-                calendarID: OME.ID<OME.Calendar>,
-                entryID: OME.ID<OME.CalendarEntry>
-            ) {
-                self.calendarOwnerID = calendarOwnerID
-                self.calendarID = calendarID
-                self.entryID = entryID
-            }
-
-            public var calendarOwnerID: OME.Organizer.ID
-            public var calendarID: OME.ID<OME.Calendar>
-            public var entryID: OME.ID<OME.CalendarEntry>
-        }
-
-        public init(
-            id: ID,
-            event: OpenMusicEvent.Event.Reference,
-            createdAt: Date,
-            note: String? = nil,
-            pinned: Bool = false
-        ) {
-            self.id = id
-            self.event = event
-            self.createdAt = createdAt
-            self.note = note
-            self.pinned = pinned
-        }
-
-        public var id: ID
-
-        @Column(as: OpenMusicEvent.Event.Reference.JSONRepresentation.self)
-        public var event: OpenMusicEvent.Event.Reference
-        public var createdAt: Date
-        public var note: String?
-        public var pinned: Bool
-    }
-}
-
 // MARK: - Stage  (app.openmusicevent.stage)
 //
 extension OpenMusicEvent {
@@ -877,7 +830,6 @@ extension OpenMusicEvent {
 extension OpenMusicEvent.Organizer.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Event.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Calendar.Draft: Codable, Equatable, Sendable {}
-extension OpenMusicEvent.CalendarEntry.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Schedule.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Performance.Draft: Codable, Equatable, Sendable {}

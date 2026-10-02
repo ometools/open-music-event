@@ -10,7 +10,6 @@ struct MusicEventCodableTests {
         requiresCodable(OME.Organizer.self)
         requiresCodable(OME.Event.self)
         requiresCodable(OME.Calendar.self)
-        requiresCodable(OME.CalendarEntry.self)
         requiresCodable(OME.Stage.self)
         requiresCodable(OME.Schedule.self)
         requiresCodable(OME.Performance.self)

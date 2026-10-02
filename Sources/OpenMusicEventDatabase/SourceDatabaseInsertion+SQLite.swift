@@ -481,7 +481,6 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
     var workspaceRelationships: [WorkspaceRelationshipRecord]
     var organizers: [OME.Organizer.Draft]
     var calendars: [OME.Calendar.Draft]
-    var calendarEntries: [OME.CalendarEntry.Draft]
     var events: [OME.Event.Draft]
     var siteMaps: [OME.Event.SiteMap]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
@@ -527,15 +526,6 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
         }
         self.organizers = sourceInsertion.organizers
         self.calendars = sourceInsertion.calendars
-        self.calendarEntries = sourceInsertion.calendarEntries.map { entry in
-            OME.CalendarEntry.Draft(
-                id: entry.id,
-                event: entry.event,
-                createdAt: importedAt,
-                note: entry.note,
-                pinned: entry.pinned
-            )
-        }
         self.events = sourceInsertion.events
         self.siteMaps = sourceInsertion.siteMaps
         self.stages = sourceInsertion.stages
@@ -666,23 +656,9 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
                 .delete()
                 .execute(db)
         }
-        for calendar in calendars {
-            guard let calendarID = calendar.id else { continue }
-            try OME.CalendarEntry
-                .where { $0.id.calendarOwnerID.eq(calendarID.ownerID) }
-                .where { $0.id.calendarID.eq(calendarID.calendarID) }
-                .delete()
-                .execute(db)
-        }
         if !workspaceRelationships.isEmpty {
             try WorkspaceRelationshipRecord.insert { workspaceRelationships }
                 .execute(db)
-        }
-        if !calendarEntries.isEmpty {
-            try OME.CalendarEntry.insert {
-                calendarEntries
-            }
-            .execute(db)
         }
         if !stages.isEmpty {
             try OME.Stage.insert { stages }.execute(db)
