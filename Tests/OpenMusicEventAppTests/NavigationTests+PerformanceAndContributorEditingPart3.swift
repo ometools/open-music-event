@@ -96,7 +96,7 @@ extension NavigationTests {
         }
         #expect(images.count == 1)
         #expect(images.first?.role == .known(.photo))
-        #expect(images.first?.displayImageAsset(recordID: eventID)?.asset.url?.absoluteString
+        #expect(images.first?.displayImageAsset(recordID: eventID)?.url?.absoluteString
             == "https://example.com/image.jpg")
         #expect(contributor.links?.map(\.url.absoluteString) == ["https://example.com"])
         #expect(contributor.links?.map(\.platform) == [.known(.website)])

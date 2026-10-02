@@ -94,8 +94,8 @@ extension NavigationTests {
         #expect(contributorProfile.handle == "alice.bsky.social")
         #expect(contributorProfile.subtitle == "@alice.bsky.social")
         #expect(contributorProfile.bio == "OME bio")
-        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
-        #expect(contributorProfile.artworkCacheContext == nil)
+        #expect(contributorProfile.artworkDisplayImage?.url == explicitImageURL)
+        #expect(contributorProfile.artworkDisplayImage?.recordID != nil)
         #expect(row.matchesSearch("Explicit Alice"))
         #expect(row.matchesSearch("alice.bsky.social"))
         #expect(!row.matchesSearch("Bluesky Alice"))
@@ -176,7 +176,7 @@ extension NavigationTests {
         let row = try #require(store.contributorRows.first { $0.contributorID == contributorID })
         #expect(row.profile.name == "Alice at Wicked Woods")
         #expect(row.profile.subtitle == "@alice.bsky.social")
-        #expect(row.profile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(row.profile.artworkDisplayImage?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
     }
 
     @Test

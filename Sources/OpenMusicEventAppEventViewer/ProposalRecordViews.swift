@@ -1137,7 +1137,8 @@ extension OME.ImageAsset {
 
 extension HeroImageSource {
     var proposalReachableSource: Self? {
-        image.asset.proposalReachableAsset == nil ? nil : self
+        guard case let .source(asset, _) = image else { return self }
+        return asset.proposalReachableAsset == nil ? nil : self
     }
 }
 
@@ -1145,7 +1146,8 @@ extension HeroImageTitleSource {
     var proposalReachableSource: Self? {
         switch self {
         case let .logo(image):
-            return image.asset.proposalReachableAsset == nil ? nil : self
+            guard case let .source(asset, _) = image else { return self }
+            return asset.proposalReachableAsset == nil ? nil : self
         case .title:
             return self
         }

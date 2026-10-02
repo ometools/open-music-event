@@ -100,14 +100,9 @@ struct ImageAssetAsyncImageTests {
             mimeType: "image/png",
             size: 120
         )
-        let asset = OME.ImageAsset(
-            source: .blob(blob),
-            role: .poster,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy
-        )
+        let image = OME.Image(source: .known(.blob(blob)), role: .known(.poster))
         let view = ImageAssetAsyncImage(
-            image: DisplayImageAsset(asset: asset, recordID: recordID)
+            image: image.displayImageAsset(recordID: recordID)
         ) { EmptyView() }
         #expect(view.shouldResolveAsset)
         #expect(view.resolutionTaskID.contains(recordID.description))
@@ -125,6 +120,18 @@ struct ImageAssetAsyncImageTests {
     }
 
     @Test
+    func `canonical HTTPS image renders without an Event ID`() throws {
+        let url = try #require(URL(string: "https://example.com/actor-avatar.jpg"))
+        let image = OME.Image(source: .known(.url(url)), role: .known(.photo))
+        let display = try #require(image.displayImageAsset())
+        let view = ImageAssetAsyncImage(image: display) { EmptyView() }
+
+        expectNoDifference(display, .record(image, nil))
+        expectNoDifference(view.displayURL, url)
+        #expect(!view.shouldResolveAsset)
+    }
+
+    @Test
     func `canonical site map blob keeps its event identity for image resolution`() throws {
         let recordID = try #require(Event.ID(
             "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
@@ -138,8 +145,8 @@ struct ImageAssetAsyncImageTests {
         let display = try #require(image.displayImageAsset(recordID: recordID))
 
         expectNoDifference(display.recordID, recordID)
-        expectNoDifference(display.asset.source, .blob(blob))
-        expectNoDifference(display.asset.role, .siteMap)
+        expectNoDifference(display, .record(image, recordID))
+        expectNoDifference(display.role, .siteMap)
 
         let view = ImageAssetAsyncImage(image: display) { EmptyView() }
         #expect(view.shouldResolveAsset)
@@ -168,8 +175,8 @@ struct ImageAssetAsyncImageTests {
 
         let artwork = try #require(contributor.artworkDisplayImage)
         let logo = try #require(contributor.logoDisplayImage)
-        expectNoDifference(artwork.asset.source, .url(photoURL))
-        expectNoDifference(logo.asset.source, .url(logoURL))
+        expectNoDifference(artwork.url, photoURL)
+        expectNoDifference(logo.url, logoURL)
         expectNoDifference(artwork.recordID, eventID)
         expectNoDifference(logo.recordID, eventID)
         expectNoDifference(

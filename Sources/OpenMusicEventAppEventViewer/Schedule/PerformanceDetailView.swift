@@ -666,8 +666,8 @@ struct PerformanceDetailSummary {
     }
 
     var featuredContributor: ContributorProfile? {
-        contributors.first { $0.logoAsset != nil }
-            ?? contributors.first { $0.artworkAsset != nil }
+        contributors.first { $0.logoDisplayImage != nil }
+            ?? contributors.first { $0.artworkDisplayImage != nil }
             ?? contributors.first
     }
 
@@ -865,11 +865,10 @@ struct PerformanceArtistBubbleView: View {
     let tint: Color
 
     var body: some View {
-        if let logoAsset = contributor?.logoAsset {
+        if let logoImage = contributor?.logoDisplayImage {
             PerformanceScheduleBubbleChrome(tint: tint) {
                 ImageAssetAsyncImage(
-                    asset: logoAsset,
-                    cacheContext: contributor?.logoCacheContext,
+                    image: logoImage,
                     contentMode: .fit
                 ) {
                     PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
@@ -888,24 +887,14 @@ struct PerformanceArtistBubbleView: View {
         }
     }
 
-    var photoCandidates: [PerformanceArtistImageCandidate] {
+    var photoCandidates: [DisplayImageAsset] {
         guard let contributor else { return [] }
-
-        guard let artworkAsset = contributor.artworkAsset else { return [] }
-        return [PerformanceArtistImageCandidate(
-            asset: artworkAsset,
-            cacheContext: contributor.artworkCacheContext
-        )]
+        return [contributor.artworkDisplayImage].compactMap { $0 }
     }
 }
 
-struct PerformanceArtistImageCandidate {
-    let asset: OME.ImageAsset
-    let cacheContext: LocalImageCacheContext?
-}
-
 struct PerformanceArtistPhotoBubbleView: View {
-    let candidates: [PerformanceArtistImageCandidate]
+    let candidates: [DisplayImageAsset]
     let fallbackTitle: String
     let tint: Color
 
@@ -974,15 +963,14 @@ struct PerformanceArtistPhotoBubbleView: View {
 }
 
 struct PerformanceArtistPhotoImageView: View {
-    let candidates: [PerformanceArtistImageCandidate]
+    let candidates: [DisplayImageAsset]
     let fallbackTitle: String
     let tint: Color
 
     var body: some View {
         if let candidate = candidates.first {
             ImageAssetAsyncImage(
-                asset: candidate.asset,
-                cacheContext: candidate.cacheContext,
+                image: candidate,
                 contentMode: .fill
             ) { reason in
                 switch reason {

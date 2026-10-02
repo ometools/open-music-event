@@ -24,6 +24,6 @@ struct EventRowImageTests {
                 )))
             ]
         )
-        #expect(event.heroImageSources.map(\.image.asset.role) == [.poster, .icon])
+        #expect(event.heroImageSources.map(\.image.role) == [.poster, .icon(.init())])
     }
 }

@@ -219,18 +219,15 @@ public struct OrganizationDetailView: View {
     }
 
     var organizerImageSources: [HeroImageSource] {
-        guard let avatarURL = store.organizer?.avatarURL else { return [] }
+        guard let avatarURL = store.organizer?.avatarURL,
+              let image = OME.Image(
+                  source: .known(.url(avatarURL)),
+                  role: .known(.logo),
+                  renderingMode: .known(.template)
+              ).displayImageAsset()
+        else { return [] }
         return [
-            .logo(
-                DisplayImageAsset(
-                    asset: OME.ImageAsset(
-                        source: .url(avatarURL),
-                        role: .logo,
-                        renderKind: .transparent,
-                        materializationPolicy: .lazy
-                    )
-                )
-            )
+            .logo(image)
         ]
     }
 

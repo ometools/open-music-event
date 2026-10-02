@@ -505,7 +505,7 @@ struct EventBrowseStoryTests {
         let browsedEvent = try #require(page.events.first)
         expectNoDifference(browsedEvent.uri, eventID)
         expectNoDifference(
-            browsedEvent.artworkSources.map(\.image.asset.url),
+            browsedEvent.artworkSources.map(\.image.url),
             [posterURL, heroURL, iconURL]
         )
     }
@@ -539,7 +539,7 @@ struct EventBrowseStoryTests {
 
         // The renderer tries event-specific art first and organizer identity last.
         expectNoDifference(
-            calendarEvent.artworkSources.map(\.image.asset.url),
+            calendarEvent.artworkSources.map(\.image.url),
             [posterURL, heroURL, photoURL, iconURL, organizerURL]
         )
         expectNoDifference(
@@ -549,7 +549,7 @@ struct EventBrowseStoryTests {
 
         // An organization history identifies the event before trying promotional artwork.
         expectNoDifference(
-            calendarEvent.organizationArtworkSources.map(\.image.asset.url),
+            calendarEvent.organizationArtworkSources.map(\.image.url),
             [iconURL, posterURL, heroURL, photoURL, organizerURL]
         )
         expectNoDifference(

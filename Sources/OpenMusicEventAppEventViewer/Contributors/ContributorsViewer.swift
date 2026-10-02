@@ -320,8 +320,7 @@ struct ContributorsRowView: View {
         HStack(spacing: 12) {
             HStack {
                 ContributorArtworkView(
-                    asset: profile.artworkAsset,
-                    cacheContext: profile.artworkCacheContext,
+                    image: profile.artworkDisplayImage,
                     size: 60
                 )
 
@@ -1480,8 +1479,7 @@ public struct EditableContributorLink: Identifiable, Equatable {
 }
 
 struct ContributorArtworkView: View {
-    let asset: OMERecord.ImageAsset?
-    let cacheContext: LocalImageCacheContext?
+    let image: DisplayImageAsset?
     let size: CGFloat
 
     var body: some View {
@@ -1490,8 +1488,7 @@ struct ContributorArtworkView: View {
                 .fill(.secondary.opacity(0.12))
 
             ImageAssetAsyncImage(
-                asset: asset,
-                cacheContext: cacheContext,
+                image: image,
                 renderedImageSize: CGSize(width: size, height: size)
             ) {
                 placeholder

@@ -909,18 +909,14 @@ extension CalendarEvent {
             return media.artworkSource
         }
         if let avatarURL = organizer.avatarURL,
-           seenURLs.insert(avatarURL).inserted {
+           seenURLs.insert(avatarURL).inserted,
+           let image = OME.Image(
+               source: .known(.url(avatarURL)),
+               role: .known(.logo),
+               renderingMode: .known(.template)
+           ).displayImageAsset() {
             sources.append(
-                .logo(
-                    DisplayImageAsset(
-                        asset: OME.ImageAsset(
-                            source: .url(avatarURL),
-                            role: .logo,
-                            renderKind: .transparent,
-                            materializationPolicy: .lazy
-                        )
-                    )
-                )
+                .logo(image)
             )
         }
         return sources
@@ -985,43 +981,37 @@ private extension CalendarEvent.Media {
         }
     }
 
-    var artworkSource: HeroImageSource {
-        let role: OME.ImageAsset.Role
-        let renderKind: OME.ImageAsset.RenderKind
+    var artworkSource: HeroImageSource? {
+        let role: OME.Image.Role
+        let renderingMode: OME.Image.RenderingMode
         let kind: HeroImageSource.Kind
         switch normalizedRole {
         case "poster":
             role = .poster
-            renderKind = .fullImage
+            renderingMode = .original
             kind = .primaryImage
         case "hero":
             role = .hero
-            renderKind = .fullImage
+            renderingMode = .original
             kind = .primaryImage
         case "icon":
-            role = .icon
-            renderKind = .transparent
+            role = .icon(.init())
+            renderingMode = .template
             kind = .logo
         case "logo":
             role = .logo
-            renderKind = .transparent
+            renderingMode = .template
             kind = .logo
         default:
             role = .photo
-            renderKind = .fullImage
+            renderingMode = .original
             kind = .primaryImage
         }
-        return HeroImageSource(
-            kind,
-            image: DisplayImageAsset(
-                asset: OME.ImageAsset(
-                    source: .url(url),
-                    role: role,
-                    renderKind: renderKind,
-                    materializationPolicy: .lazy
-                )
-            )
-        )
+        return OME.Image(
+            source: .known(.url(url)),
+            role: .known(role),
+            renderingMode: .known(renderingMode)
+        ).displayImageAsset().map { HeroImageSource(kind, image: $0) }
     }
 }
 

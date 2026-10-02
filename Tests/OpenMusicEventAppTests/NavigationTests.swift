@@ -360,7 +360,7 @@ struct NavigationTests {
         }
 
         expectNoDifference(
-            state.selectedAsset?.asset.url,
+            state.selectedAsset?.url,
             siteMapURL
         )
         expectNoDifference(state.selectedAsset?.recordID, eventID)
@@ -406,7 +406,7 @@ struct NavigationTests {
 
         // The map opens on its source-defined style and exposes the layer switcher.
         #expect(store.state.selectedStyle?.title == "Festival")
-        #expect(store.state.selectedAsset?.asset.url == festivalURL)
+        #expect(store.state.selectedAsset?.url == festivalURL)
         #expect(store.state.showsStyleSwitcher)
         #expect(store.state.featureTitle == "Site Maps")
 
@@ -415,7 +415,7 @@ struct NavigationTests {
             $0.selectedStyleID = campingStyleID
         }
         #expect(store.state.selectedStyle?.title == "Camping")
-        #expect(store.state.selectedAsset?.asset.url == campingURL)
+        #expect(store.state.selectedAsset?.url == campingURL)
     }
 
     @Test

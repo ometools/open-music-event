@@ -40,14 +40,10 @@ public struct AppContribution: Equatable, Identifiable, Sendable {
     public let handle: String?
     public let role: OMERecord.Relationship.Role
 
-    var avatarAsset: OMERecord.ImageAsset? {
-        avatarURL.map {
-            OMERecord.ImageAsset(
-                source: .url($0),
-                role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
-            )
+    var avatarDisplayImage: DisplayImageAsset? {
+        avatarURL.flatMap {
+            OME.Image(source: .known(.url($0)), role: .known(.photo))
+                .displayImageAsset()
         }
     }
 
@@ -362,8 +358,7 @@ struct AppContributorRow: View {
     var body: some View {
         HStack(spacing: 12) {
             ContributorArtworkView(
-                asset: contributor.avatarAsset,
-                cacheContext: nil,
+                image: contributor.avatarDisplayImage,
                 size: 52
             )
 
@@ -391,8 +386,7 @@ struct AppContributorProfileView: View {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     ContributorArtworkView(
-                        asset: contributor.avatarAsset,
-                        cacheContext: nil,
+                        image: contributor.avatarDisplayImage,
                         size: 96
                     )
                     Text(contributor.displayName)

@@ -139,7 +139,7 @@ extension NavigationTests {
         #expect(stage.stageUse?.shortLabel == "NM")
         let imageURLs = (stage.media ?? []).compactMap { medium -> URL? in
             guard case let .known(.image(image)) = medium else { return nil }
-            return image.displayImageAsset(recordID: eventID)?.asset.url
+            return image.displayImageAsset(recordID: eventID)?.url
         }
         expectNoDifference(
             imageURLs.map(\.absoluteString).sorted(),

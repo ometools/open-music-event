@@ -169,7 +169,7 @@ extension NavigationTests {
         #expect(stage.media?.count == 3)
         #expect(stage.media?.compactMap { medium -> String? in
             guard case let .known(.image(image)) = medium else { return nil }
-            return image.displayImageAsset(recordID: eventID)?.asset.url?.absoluteString
+            return image.displayImageAsset(recordID: eventID)?.url?.absoluteString
         }.sorted() == [
             "https://example.com/hero.png",
             "https://example.com/logo.png",

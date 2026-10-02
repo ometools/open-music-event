@@ -6,20 +6,41 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-public struct DisplayImageAsset: Equatable, Sendable {
+public enum DisplayImageAsset: Equatable, Sendable {
+    case record(OME.Image, Event.ID?)
+    case source(OME.ImageAsset, LocalImageCacheContext?)
+
     public init(
         asset: OME.ImageAsset,
-        cacheContext: LocalImageCacheContext? = nil,
-        recordID: Event.ID? = nil
+        cacheContext: LocalImageCacheContext? = nil
     ) {
-        self.asset = asset
-        self.cacheContext = cacheContext
-        self.recordID = recordID
+        self = .source(asset, cacheContext)
     }
 
-    public var asset: OME.ImageAsset
-    public var cacheContext: LocalImageCacheContext?
-    public var recordID: Event.ID?
+    public var role: OME.Image.Role? {
+        switch self {
+        case let .record(image, _):
+            if case let .known(role) = image.role { return role }
+            return nil
+        case let .source(asset, _):
+            return OME.Image.Role(rawValue: asset.role.rawValue)
+        }
+    }
+
+    public var url: URL? {
+        switch self {
+        case let .record(image, _):
+            if case let .known(.url(url)) = image.source { return url }
+            return nil
+        case let .source(asset, _):
+            return asset.url
+        }
+    }
+
+    public var recordID: Event.ID? {
+        if case let .record(_, id) = self { return id }
+        return nil
+    }
 }
 
 public struct HeroImageSource: Equatable, Sendable {
@@ -68,15 +89,15 @@ public extension Event {
         displayImages
             .sorted { $0.priority < $1.priority }
             .map { image in
-                let kind: HeroImageSource.Kind = image.asset.asset.role == .icon
-                    || image.asset.asset.role == .logo ? .logo : .primaryImage
+                let kind: HeroImageSource.Kind = image.asset.role == .icon(.init())
+                    || image.asset.role == .logo ? .logo : .primaryImage
                 return HeroImageSource(kind, image: image.asset)
             }
     }
 
     var heroImageTitleSources: [HeroImageTitleSource] {
-        let logo = displayImages.first { $0.asset.asset.role == .icon }
-            ?? displayImages.first { $0.asset.asset.role == .logo }
+        let logo = displayImages.first { $0.asset.role == .icon(.init()) }
+            ?? displayImages.first { $0.asset.role == .logo }
         return [logo.map { .logo($0.asset) }, .title].compactMap { $0 }
     }
 }
@@ -87,10 +108,10 @@ private extension Event {
             guard case let .known(.image(image)) = medium,
                   image.role != .known(.siteMap),
                   let asset = image.displayImageAsset(recordID: id) else { return nil }
-            let priority: Int = switch asset.asset.role {
+            let priority: Int = switch asset.role {
             case .poster: 0
             case .hero: 1
-            case .photo: 2
+            case .photo, .none: 2
             case .icon: 4
             case .logo: 5
             case .siteMap: 6
@@ -102,12 +123,12 @@ private extension Event {
 
 public extension Contributor {
     var artworkDisplayImage: DisplayImageAsset? {
-        displayImages.first { $0.asset.role == .photo }
-            ?? displayImages.first { $0.asset.role == .logo }
+        displayImages.first { $0.role == .photo }
+            ?? displayImages.first { $0.role == .logo }
     }
 
     var logoDisplayImage: DisplayImageAsset? {
-        displayImages.first { $0.asset.role == .logo }
+        displayImages.first { $0.role == .logo }
     }
 
     var heroImageSources: [HeroImageSource] {
@@ -143,7 +164,7 @@ public extension EventPlace {
                   image.role != .known(.siteMap),
                   let asset = image.displayImageAsset(recordID: event)
             else { return nil }
-            let kind: HeroImageSource.Kind = asset.asset.role == .logo || asset.asset.role == .icon
+            let kind: HeroImageSource.Kind = asset.role == .logo || asset.role == .icon(.init())
                 ? .logo : .primaryImage
             return HeroImageSource(kind, image: asset)
         }
@@ -174,7 +195,7 @@ public extension ProgramItem {
                   image.role != .known(.siteMap),
                   let asset = image.displayImageAsset(recordID: event)
             else { return nil }
-            let kind: HeroImageSource.Kind = asset.asset.role == .logo || asset.asset.role == .icon
+            let kind: HeroImageSource.Kind = asset.role == .logo || asset.role == .icon(.init())
                 ? .logo : .primaryImage
             return HeroImageSource(kind, image: asset)
         }
@@ -182,47 +203,15 @@ public extension ProgramItem {
 }
 
 public extension OME.Image {
-    func displayImageAsset(recordID: Event.ID) -> DisplayImageAsset? {
-        let source: OME.ImageAsset.Source
-        switch self.source {
-        case let .known(.blob(blob)):
-            source = .blob(blob)
-        case let .known(.url(url)):
-            source = .url(url)
+    func displayImageAsset(recordID: Event.ID? = nil) -> DisplayImageAsset? {
+        switch source {
+        case .known(.url): break
+        case .known(.blob):
+            guard recordID != nil else { return nil }
         case .unknown:
             return nil
         }
-
-        let role: OME.ImageAsset.Role
-        switch self.role {
-        case .known(.hero): role = .hero
-        case .known(.logo): role = .logo
-        case .known(.photo), .none, .unknown: role = .photo
-        case .known(.icon): role = .icon
-        case .known(.poster): role = .poster
-        case .known(.siteMap): role = .siteMap
-        }
-
-        let appearance: OME.ImageAsset.Appearance?
-        switch self.appearance {
-        case .known(.light): appearance = .light
-        case .known(.dark): appearance = .dark
-        case .none, .unknown: appearance = nil
-        }
-
-        return DisplayImageAsset(
-            asset: OME.ImageAsset(
-                source: source,
-                role: role,
-                renderKind: renderingMode == .known(.template) ? .transparent : .fullImage,
-                appearance: appearance,
-                materializationPolicy: .lazy,
-                focalPoint: focalPoint.map {
-                    OME.ImageAsset.FocalPoint(x: $0.x, y: $0.y)
-                }
-            ),
-            recordID: recordID
-        )
+        return .record(self, recordID)
     }
 }
 

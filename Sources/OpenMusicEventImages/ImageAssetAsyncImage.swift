@@ -18,6 +18,7 @@ public enum ImageAssetPlaceholderReason: Equatable, Sendable {
 
 public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let asset: OME.ImageAsset?
+    let recordImage: OME.Image?
     let cacheContext: LocalImageCacheContext?
     let recordID: Event.ID?
     var contentMode: ContentMode?
@@ -28,6 +29,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     @Dependency(\.imageAssetResolver) var imageAssetResolver
     @Dependency(ATProto.Repository.PDSHostResolver.self) var pdsHosts
     @State var resolvedAsset: OME.ImageAsset?
+    @State var resolvedRecordURL: URL?
     @State var resolvedTaskID: String?
     @State var failedTaskID: String?
 
@@ -41,6 +43,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = asset
+        self.recordImage = nil
         self.cacheContext = cacheContext
         self.recordID = nil
         self.contentMode = contentMode
@@ -60,6 +63,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = asset
+        self.recordImage = nil
         self.cacheContext = cacheContext
         self.recordID = nil
         self.contentMode = contentMode
@@ -77,9 +81,23 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
-        self.asset = image?.asset
-        self.cacheContext = image?.cacheContext
-        self.recordID = image?.recordID
+        switch image {
+        case let .record(recordImage, recordID):
+            self.asset = nil
+            self.recordImage = recordImage
+            self.cacheContext = nil
+            self.recordID = recordID
+        case let .source(asset, cacheContext):
+            self.asset = asset
+            self.recordImage = nil
+            self.cacheContext = cacheContext
+            self.recordID = nil
+        case .none:
+            self.asset = nil
+            self.recordImage = nil
+            self.cacheContext = nil
+            self.recordID = nil
+        }
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -95,9 +113,23 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
-        self.asset = image?.asset
-        self.cacheContext = image?.cacheContext
-        self.recordID = image?.recordID
+        switch image {
+        case let .record(recordImage, recordID):
+            self.asset = nil
+            self.recordImage = recordImage
+            self.cacheContext = nil
+            self.recordID = recordID
+        case let .source(asset, cacheContext):
+            self.asset = asset
+            self.recordImage = nil
+            self.cacheContext = cacheContext
+            self.recordID = nil
+        case .none:
+            self.asset = nil
+            self.recordImage = nil
+            self.cacheContext = nil
+            self.recordID = nil
+        }
         self.contentMode = contentMode
         self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
@@ -113,8 +145,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                 }
         } else if failedTaskID == resolutionTaskID {
             placeholder(.failure)
-        } else if let displayAsset,
-                  let url = displayAsset.url {
+        } else if let url = displayURL {
             CachedRemoteImage(
                 url: url,
                 cacheKey: renderingCacheKey,
@@ -156,6 +187,27 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         )
     }
 
+    var displayURL: URL? {
+        if recordImage != nil {
+            return resolvedTaskID == resolutionTaskID
+                ? resolvedRecordURL ?? recordSourceURL
+                : recordSourceURL
+        }
+        return displayAsset?.url
+    }
+
+    var recordSourceURL: URL? {
+        guard let recordImage,
+              case let .known(.url(url)) = recordImage.source else { return nil }
+        return url
+    }
+
+    var recordBlob: ATProto.Blob? {
+        guard let recordImage,
+              case let .known(.blob(blob)) = recordImage.source else { return nil }
+        return blob
+    }
+
     static func displayAsset(
         asset: OME.ImageAsset?,
         resolvedAsset: OME.ImageAsset?
@@ -167,8 +219,13 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     var shouldResolveAsset: Bool {
+        if recordBlob != nil {
+            return recordID != nil
+                && resolvedTaskID != resolutionTaskID
+                && failedTaskID != resolutionTaskID
+        }
         guard let asset,
-              cacheContext != nil || isRecordBlob,
+              cacheContext != nil,
               resolvedTaskID != resolutionTaskID,
               failedTaskID != resolutionTaskID else {
             return false
@@ -184,14 +241,23 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     var isRecordBlob: Bool {
-        guard recordID != nil, let asset else { return false }
-        if case .blob = asset.source { return true }
-        return false
+        recordID != nil && recordBlob != nil
     }
 
     var blobCID: String? {
-        guard let asset, case let .blob(blob) = asset.source else { return nil }
-        return blob.ref.rawValue
+        recordBlob?.ref.rawValue
+    }
+
+    var recordRoleID: String? {
+        guard let recordImage,
+              case let .known(role) = recordImage.role else { return nil }
+        return role.rawValue
+    }
+
+    var recordRenderingModeID: String? {
+        guard let recordImage,
+              case let .known(mode) = recordImage.renderingMode else { return nil }
+        return mode.rawValue
     }
 
     var resolutionTaskID: String {
@@ -201,11 +267,11 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         let parentLocalID = cacheContext?.parentLocalID ?? "nil"
         return [
             asset?.assetKey ?? "nil",
-            asset?.url?.absoluteString ?? "nil",
+            asset?.url?.absoluteString ?? recordSourceURL?.absoluteString ?? "nil",
             recordID?.description ?? "nil",
             blobCID ?? "nil",
-            asset?.role.rawValue ?? "nil",
-            asset?.renderKind.rawValue ?? "nil",
+            asset?.role.rawValue ?? recordRoleID ?? "nil",
+            asset?.renderKind.rawValue ?? recordRenderingModeID ?? "nil",
             organizerID,
             eventID,
             parentKind,
@@ -216,13 +282,16 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     var renderingCacheKey: String {
         [
             resolutionTaskID,
-            displayAsset?.url?.absoluteString ?? "nil",
+            displayURL?.absoluteString ?? "nil",
         ].joined(separator: "|")
     }
 
     var resolvedContentMode: ContentMode {
         if let contentMode {
             return contentMode
+        }
+        if let recordImage {
+            return recordImage.renderingMode == .known(.template) ? .fit : .fill
         }
         return displayAsset?.renderKind == .transparent ? .fit : .fill
     }
@@ -234,11 +303,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?
     ) -> some View {
         let image = image
-            .renderingMode(asset?.isTemplateLike == true ? .template : .original)
+            .renderingMode(
+                recordImage?.renderingMode == .known(.template) || asset?.isTemplateLike == true
+                    ? .template : .original
+            )
             .resizable()
 
         if resolvedContentMode == .fill,
-           let focalPoint = asset?.focalPoint?.point {
+           let focalPoint = recordImage?.focalPoint?.point ?? asset?.focalPoint?.point {
             FocusedAsyncImage(
                 image: image,
                 imageSize: intrinsicSize,
@@ -251,6 +323,26 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     func resolveAsset() async {
+        if let blob = recordBlob, let recordID, shouldResolveAsset {
+            let taskID = resolutionTaskID
+            do {
+                let url: URL
+                if let fileURL = try stagedLocalImageBlobURL(for: blob) {
+                    url = fileURL
+                } else {
+                    let host = try await pdsHosts.pdsHost(forRecordURI: recordID)
+                    url = try Self.blobURL(recordID: recordID, blob: blob, host: host)
+                }
+                guard !Task.isCancelled else { return }
+                resolvedRecordURL = url
+                resolvedTaskID = taskID
+                failedTaskID = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                failedTaskID = taskID
+            }
+            return
+        }
         guard let asset,
               shouldResolveAsset else {
             return
@@ -263,11 +355,6 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                let fileURL = try stagedLocalImageBlobURL(for: blob) {
                 var image = asset
                 image.source = .url(fileURL)
-                resolvedAsset = image
-            } else if let recordID, case let .blob(blob) = asset.source {
-                let host = try await pdsHosts.pdsHost(forRecordURI: recordID)
-                var image = asset
-                image.source = .url(try Self.blobURL(recordID: recordID, blob: blob, host: host))
                 resolvedAsset = image
             } else if let cacheContext {
                 resolvedAsset = try await imageAssetResolver.resolve(asset, cacheContext)
@@ -349,6 +436,12 @@ struct FocusedAsyncImage: View {
 }
 
 private extension OME.ImageAsset.FocalPoint {
+    var point: CGPoint {
+        CGPoint(x: x, y: y)
+    }
+}
+
+private extension OME.Image.FocalPoint {
     var point: CGPoint {
         CGPoint(x: x, y: y)
     }

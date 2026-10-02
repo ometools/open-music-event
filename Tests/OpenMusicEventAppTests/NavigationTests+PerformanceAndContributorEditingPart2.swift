@@ -207,7 +207,7 @@ extension NavigationTests {
 
         expectNoDifference(store.state.heroImageSources.map(\.kind), [.primaryImage, .logo])
         expectNoDifference(
-            store.state.heroImageSources.map { $0.image.asset.url },
+            store.state.heroImageSources.map { $0.image.url },
             [festivalHeroURL, festivalLogoURL]
         )
         expectNoDifference(store.state.heroImageSources.map { $0.image.recordID }, [eventID, eventID])

@@ -529,7 +529,7 @@ struct ImageFocusPreviewImage: View {
 
     var storedImage: some View {
         ImageAssetAsyncImage(
-            image: recordID.flatMap { image.displayImageAsset(recordID: $0) },
+            image: image.displayImageAsset(recordID: recordID),
             contentMode: .fit,
             onIntrinsicSizeLoaded: { intrinsicSize in
                 self.intrinsicSize = intrinsicSize

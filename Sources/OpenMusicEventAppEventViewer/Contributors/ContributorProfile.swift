@@ -56,11 +56,7 @@ public struct ContributorProfile: Identifiable, Sendable {
         contributor.artworkDisplayImage ?? actorAvatarDisplayImage
     }
 
-    var artworkAsset: OME.ImageAsset? { artworkDisplayImage?.asset }
-    var artworkCacheContext: LocalImageCacheContext? { artworkDisplayImage?.cacheContext }
     var logoDisplayImage: DisplayImageAsset? { contributor.logoDisplayImage }
-    var logoAsset: OME.ImageAsset? { logoDisplayImage?.asset }
-    var logoCacheContext: LocalImageCacheContext? { logoDisplayImage?.cacheContext }
     var links: [OME.Link]? { contributor.links }
 
     var heroImageSources: [HeroImageSource] {
@@ -91,14 +87,10 @@ public struct ContributorProfile: Identifiable, Sendable {
 
     private var actorAvatarDisplayImage: DisplayImageAsset? {
         guard let actorProfileAvatar else { return nil }
-        return DisplayImageAsset(
-            asset: OME.ImageAsset(
-                source: .url(actorProfileAvatar),
-                role: .photo,
-                renderKind: .fullImage,
-                materializationPolicy: .lazy
-            )
-        )
+        return OME.Image(
+            source: .known(.url(actorProfileAvatar)),
+            role: .known(.photo)
+        ).displayImageAsset()
     }
 
     struct ActorProfileLoadRequest: Equatable, Sendable {

@@ -97,8 +97,8 @@ extension NavigationTests {
         #expect(contributorProfile.name == "Alice at Wicked Woods")
         #expect(contributorProfile.bio == nil)
         #expect(contributorProfile.handle == "alice.bsky.social")
-        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
-        #expect(contributorProfile.artworkCacheContext == nil)
+        #expect(contributorProfile.artworkDisplayImage?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(contributorProfile.artworkDisplayImage?.recordID == nil)
     }
 
     @Test
@@ -174,8 +174,8 @@ extension NavigationTests {
         #expect(contributorProfile.name == "Explicit Alice")
         #expect(contributorProfile.handle == "alice.bsky.social")
         #expect(contributorProfile.bio == "OME bio")
-        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
-        #expect(contributorProfile.artworkCacheContext == nil)
+        #expect(contributorProfile.artworkDisplayImage?.url == explicitImageURL)
+        #expect(contributorProfile.artworkDisplayImage?.recordID != nil)
     }
 
     @Test

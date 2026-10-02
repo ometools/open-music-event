@@ -418,7 +418,7 @@ struct CanonicalEventEditingTests {
         }
 
         expectNoDifference(
-            detail.artworkSources.map(\.image.asset.url),
+            detail.artworkSources.map(\.image.url),
             cleared ? [] : [posterURL, heroURL, iconURL]
         )
         expectNoDifference(

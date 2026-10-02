@@ -271,7 +271,7 @@ extension NavigationTests {
         expectNoDifference(contributor.description, "ATProto builder")
         let photoURL = contributor.media?.compactMap { medium -> URL? in
             guard case let .known(.image(image)) = medium else { return nil }
-            return image.displayImageAsset(recordID: eventID)?.asset.url
+            return image.displayImageAsset(recordID: eventID)?.url
         }.first
         expectNoDifference(
             photoURL?.absoluteString, "https://example.com/alice-avatar.jpg"

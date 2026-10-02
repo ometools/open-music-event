@@ -511,10 +511,9 @@ struct EventSearchStageCard: View {
 
             HStack(spacing: 10) {
                 if let contributor = leadContributors[performance.performanceID],
-                   let asset = contributor.artworkAsset {
+                   let image = contributor.artworkDisplayImage {
                     ContributorArtworkView(
-                        asset: asset,
-                        cacheContext: contributor.artworkCacheContext,
+                        image: image,
                         size: 54
                     )
                 }
@@ -674,8 +673,7 @@ struct EventSearchResultRow: View {
                 title: result.document.title,
                 subtitle: result.document.subtitle ?? result.document.kind.title,
                 chrome: ContributorArtworkView(
-                    asset: contributor.artworkAsset,
-                    cacheContext: contributor.artworkCacheContext,
+                    image: contributor.artworkDisplayImage,
                     size: 44
                 )
             )
