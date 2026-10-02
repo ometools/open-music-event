@@ -17,7 +17,6 @@ struct MusicEventCodableTests {
         requiresCodable(OME.Channel.self)
         requiresCodable(OME.Poster.self)
         requiresCodable(OME.Relationship.self)
-        requiresCodable(OME.RelationshipConfirmation.self)
     }
 
     @Test

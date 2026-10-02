@@ -9,11 +9,9 @@ struct OpenMusicEventRelationshipTests {
     @Test
     func collectionsExposeNSIDsAndScopes() {
         #expect(OME.RelationshipCollection.relationship.rawValue == "app.openmusicevent.relationship")
-        #expect(OME.RelationshipCollection.confirmation.rawValue == "app.openmusicevent.relationship.confirmation")
         #expect(OME.Relationship.nsid == ATProto.NSID("app.openmusicevent.relationship"))
-        #expect(OME.RelationshipConfirmation.nsid == ATProto.NSID("app.openmusicevent.relationship.confirmation"))
         #expect(OME.RelationshipCollection.relationship.repoScope == "repo:app.openmusicevent.relationship")
-        #expect(OME.RelationshipOAuthScopes.defaultWriteScope.contains("repo:app.openmusicevent.relationship.confirmation"))
+        #expect(OME.RelationshipOAuthScopes.defaultWriteScope == "repo:app.openmusicevent.relationship")
     }
 
     @Test
@@ -124,30 +122,10 @@ struct OpenMusicEventRelationshipTests {
     }
 
     @Test
-    func confirmationRecordReferencesRelationship() throws {
-        let relationshipURI = try #require(ATProto.URI("at://did:plc:owner/app.openmusicevent.relationship/3relationship"))
-        let confirmation = OME.RelationshipConfirmation(
-            relationship: .init(uri: relationshipURI, cid: "bafy-relationship"),
-            status: .accepted,
-            createdAt: "2026-07-04T12:05:00Z"
-        )
-
-        let encoded = try JSONEncoder().encode(confirmation)
-        let decoded = try JSONDecoder().decode(OME.RelationshipConfirmation.self, from: encoded)
-
-        #expect(decoded.type == "app.openmusicevent.relationship.confirmation")
-        #expect(decoded.relationship.uri == relationshipURI)
-        #expect(decoded.relationship.cid == "bafy-relationship")
-        #expect(decoded.status == .accepted)
-    }
-
-    @Test
-    func rolesAndStatusesCarryArbitraryStringValues() throws {
+    func rolesCarryArbitraryStringValues() throws {
         let role = OME.Relationship.Role("translationOf")
-        let status = OME.RelationshipConfirmation.Status("disputed")
 
         #expect(try JSONDecoder().decode(OME.Relationship.Role.self, from: JSONEncoder().encode(role)) == role)
-        #expect(try JSONDecoder().decode(OME.RelationshipConfirmation.Status.self, from: JSONEncoder().encode(status)) == status)
     }
 
     @Test
@@ -212,8 +190,6 @@ struct OpenMusicEventRelationshipTests {
         )
 
         #expect(OME.Relationship.Validation.relationshipAuthor(objectDID, canAssert: relationship))
-        #expect(OME.Relationship.Validation.confirmationAuthor(subjectDID, confirms: relationship))
         #expect(!OME.Relationship.Validation.relationshipAuthor(subjectDID, canAssert: relationship))
-        #expect(!OME.Relationship.Validation.confirmationAuthor(objectDID, confirms: relationship))
     }
 }

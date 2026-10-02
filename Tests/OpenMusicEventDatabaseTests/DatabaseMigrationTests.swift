@@ -514,17 +514,7 @@ struct DatabaseMigrationTests {
 
             try OME.Relationship.insert { relationship }.execute(db)
 
-            let relationshipURI = try #require(ATProto.URI("at://did:plc:owner/app.openmusicevent.relationship/3relationship"))
-            let confirmation = OME.RelationshipConfirmation(
-                relationship: .init(uri: relationshipURI, cid: "bafy-relationship"),
-                status: .accepted,
-                createdAt: "2026-07-04T12:05:00Z"
-            )
-
-            try OME.RelationshipConfirmation.insert { confirmation }.execute(db)
-
             #expect(try OME.Relationship.fetchAll(db) == [relationship])
-            #expect(try OME.RelationshipConfirmation.fetchAll(db) == [confirmation])
         }
     }
 

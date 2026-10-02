@@ -9,7 +9,6 @@ extension OpenMusicEvent {
 
     public enum RelationshipCollection: String, Codable, Equatable, Hashable, Sendable {
         case relationship = "app.openmusicevent.relationship"
-        case confirmation = "app.openmusicevent.relationship.confirmation"
 
         public var nsid: ATProto.NSID {
             ATProto.NSID(rawValue)
@@ -21,11 +20,7 @@ extension OpenMusicEvent {
     }
 
     public enum RelationshipOAuthScopes {
-        public static let defaultWriteScope = [
-            RelationshipCollection.relationship.repoScope,
-            RelationshipCollection.confirmation.repoScope,
-        ]
-        .joined(separator: " ")
+        public static let defaultWriteScope = RelationshipCollection.relationship.repoScope
     }
 
     public enum WorkspaceRole: Codable, Equatable, Hashable, Sendable {
@@ -193,44 +188,6 @@ extension OpenMusicEvent {
         }
     }
 
-    @Table("app.openmusicevent.relationship.confirmation")
-    public struct RelationshipConfirmation: Codable, Equatable, Sendable {
-        public static let collection = RelationshipCollection.confirmation
-        public static let nsid = collection.nsid
-
-        public var type: String
-        @Column(as: OpenMusicEvent.Relationship.RecordReference.JSONRepresentation.self)
-        public var relationship: OpenMusicEvent.Relationship.RecordReference
-        public var status: Status
-        public var createdAt: String
-
-        public init(
-            type: String = Self.collection.rawValue,
-            relationship: OpenMusicEvent.Relationship.RecordReference,
-            status: Status = .accepted,
-            createdAt: String
-        ) {
-            self.type = type
-            self.relationship = relationship
-            self.status = status
-            self.createdAt = createdAt
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case type = "$type"
-            case relationship
-            case status
-            case createdAt
-        }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            type = try container.decodeIfPresent(String.self, forKey: .type) ?? Self.collection.rawValue
-            relationship = try container.decode(OpenMusicEvent.Relationship.RecordReference.self, forKey: .relationship)
-            status = try container.decode(Status.self, forKey: .status)
-            createdAt = try container.decode(String.self, forKey: .createdAt)
-        }
-    }
 }
 
 extension OpenMusicEvent.Relationship {
@@ -485,44 +442,6 @@ extension OpenMusicEvent.Relationship {
             return self.author(author, matches: object)
         }
 
-        public static func confirmationAuthor(
-            _ author: DID,
-            confirms relationship: OpenMusicEvent.Relationship
-        ) -> Bool {
-            self.author(author, matches: relationship.subject)
-        }
-    }
-}
-
-extension OpenMusicEvent.RelationshipConfirmation {
-    public struct Status: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
-        public var rawValue: String
-
-        public init(_ rawValue: String) {
-            self.rawValue = rawValue
-        }
-
-        public init(rawValue: String) {
-            self.rawValue = rawValue
-        }
-
-        public init(stringLiteral value: String) {
-            self.init(value)
-        }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            self.init(try container.decode(String.self))
-        }
-
-        public func encode(to encoder: any Encoder) throws {
-            var container = encoder.singleValueContainer()
-            try container.encode(rawValue)
-        }
-
-        public static let accepted = Self("accepted")
-        public static let rejected = Self("rejected")
-        public static let revoked = Self("revoked")
     }
 }
 
