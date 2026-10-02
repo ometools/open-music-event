@@ -1405,7 +1405,10 @@ public struct EventViewerView: View {
                             labelTint: EventViewer.EventFeature.siteMap.labelTint,
                             navigation: .stack
                         ) {
-                            SiteMapViewerView(store: featureStore)
+                            SiteMapViewerView(
+                                store: featureStore,
+                                showsAuthoringControls: store.showsAuthoringControls
+                            )
                         }
                     }
                 }
@@ -1605,7 +1608,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.siteMapViewer) {
                 viewerTab(.siteMap) {
-                    SiteMapViewerView(store: featureStore)
+                    SiteMapViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.siteMap)
             }
@@ -1722,7 +1728,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.siteMapViewer) {
                 viewerTab(.siteMap) {
-                    SiteMapViewerView(store: featureStore)
+                    SiteMapViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.siteMap)
             }

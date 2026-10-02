@@ -18,6 +18,7 @@ public struct SiteMapViewer {
         public let eventID: Event.ID
         @FetchOne public var event: Event?
         public var selectedStyleID: String?
+        public var destination: Destination.State?
 
         public init(eventID: Event.ID) {
             self.eventID = eventID
@@ -55,6 +56,13 @@ public struct SiteMapViewer {
 
     public enum Action {
         case styleButtonTapped(String)
+        case editButtonTapped
+        case destination(Destination.Action)
+    }
+
+    @Feature
+    public enum Destination {
+        case editSiteMap(EditSiteMap)
     }
 
     public var body: some Feature {
@@ -65,16 +73,26 @@ public struct SiteMapViewer {
                     return
                 }
                 state.selectedStyleID = styleID
+            case .editButtonTapped:
+                guard let event = state.event else { return }
+                state.destination = .editSiteMap(EditSiteMap.State(event: event))
+            case .destination:
+                break
             }
+        }
+        .ifLet(\.destination) {
+            Destination.body
         }
     }
 }
 
 public struct SiteMapViewerView: View {
-    let store: StoreOf<SiteMapViewer>
+    @Bindable var store: StoreOf<SiteMapViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<SiteMapViewer>) {
+    public init(store: StoreOf<SiteMapViewer>, showsAuthoringControls: Bool = false) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -102,6 +120,17 @@ public struct SiteMapViewerView: View {
         .background(.background)
         .navigationTitle(store.siteMap?.title ?? "Site Map")
         .toolbar {
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.editButtonTapped)
+                    } label: {
+                        Label("Edit Site Map", systemImage: "pencil")
+                            .labelStyle(.iconOnly)
+                    }
+                    .disabled(store.event == nil)
+                }
+            }
             if store.showsStyleSwitcher {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -139,6 +168,11 @@ public struct SiteMapViewerView: View {
         .accessibilityIdentifier(
             "view.site-map.\(store.eventID)"
         )
+        .sheet(item: $store.scope(\.destination).editSiteMap) { editStore in
+            NavigationStack {
+                EditSiteMapView(store: editStore)
+            }
+        }
     }
 }
 

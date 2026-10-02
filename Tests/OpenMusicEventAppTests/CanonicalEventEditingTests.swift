@@ -613,6 +613,112 @@ struct CanonicalEventEditingTests {
         #expect(state.canSubmit)
     }
 
+    @Test
+    func siteMapEditorUpdatesCanonicalStylesAndDefaultWithoutReplacingOtherEventFields() async throws {
+        let database = try database()
+        var record = try event()
+        record.siteMap = Event.SiteMap(
+            title: "Grounds",
+            styles: [
+                .init(id: "public", title: "Public", image: OME.Image(
+                    source: .known(.url(try #require(URL(string: "https://example.com/public.png")))),
+                    role: .known(.siteMap)
+                )),
+                .init(id: "safety", title: "Safety", image: OME.Image(
+                    source: .known(.url(try #require(URL(string: "https://example.com/safety.png")))),
+                    role: .known(.siteMap)
+                )),
+            ],
+            defaultStyleID: "public"
+        )
+        let originalRecord = record
+        let eventID = originalRecord.id
+        try await database.write { try Event.insert { originalRecord }.execute($0) }
+
+        // The map's Edit action opens a draft of the installed canonical record.
+        let viewer = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: SiteMapViewer.State(eventID: record.id)) { SiteMapViewer() }
+        }
+        await viewer.send(.editButtonTapped)?.value
+        #expect(viewer.destination?.editSiteMap?.title == "Grounds")
+
+        @Bindable var editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.uuid = .constant(UUID(2))
+        } operation: {
+            Store(initialState: EditSiteMap.State(event: record)) { EditSiteMap() }
+        }
+
+        // Rename and reorder the existing styles without changing their stable IDs.
+        $editor.title.wrappedValue = "  Wicked Woods Grounds  "
+        await editor.send(.moveStyleButtonTapped("safety", -1))?.value
+        await editor.send(.editStyleButtonTapped("safety"))?.value
+        $editor.styles[0].title.wrappedValue = "  Emergency  "
+        $editor.styles[0].sourceURLString.wrappedValue = "https://example.com/emergency.png"
+        $editor.defaultStyleID.wrappedValue = "safety"
+
+        // A new row must have an image before the editor will save it.
+        await editor.send(.addStyleButtonTapped)?.value
+        #expect(!editor.canSubmit)
+        $editor.styles[2].title.wrappedValue = "Parking"
+        $editor.styles[2].sourceURLString.wrappedValue = "http://example.com/parking.png"
+        #expect(!editor.canSubmit)
+        $editor.styles[2].sourceURLString.wrappedValue = "https://example.com/parking.png"
+        #expect(editor.canSubmit)
+
+        // An unrelated rename made while editing survives the map save.
+        try await database.write { db in
+            var latest = try #require(try Event.find(eventID).fetchOne(db))
+            latest.name = "Wicked Woods Renamed"
+            try Event.upsert { latest }.execute(db)
+        }
+        await editor.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { try #require(try Event.find(eventID).fetchOne($0)) }
+        #expect(saved.name == "Wicked Woods Renamed")
+        #expect(saved.description == record.description)
+        #expect(saved.siteMap?.title == "Wicked Woods Grounds")
+        #expect(saved.siteMap?.styles.map(\.id) == ["safety", "public", UUID(2).uuidString.lowercased()])
+        #expect(saved.siteMap?.styles.map(\.title) == ["Emergency", "Public", "Parking"])
+        #expect(saved.siteMap?.defaultStyleID == "safety")
+        #expect(saved.siteMap?.defaultStyle?.image.displayImageAsset(recordID: record.id)?.url
+                == URL(string: "https://example.com/emergency.png"))
+    }
+
+    @Test
+    func siteMapEditorRemovesMapFromCanonicalEvent() async throws {
+        let database = try database()
+        var record = try event()
+        record.siteMap = Event.SiteMap(
+            title: "Grounds",
+            styles: [.init(id: "public", title: "Public", image: OME.Image(
+                source: .known(.url(try #require(URL(string: "https://example.com/map.png")))),
+                role: .known(.siteMap)
+            ))]
+        )
+        let originalRecord = record
+        let eventID = originalRecord.id
+        try await database.write { try Event.insert { originalRecord }.execute($0) }
+        let editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditSiteMap.State(event: record)) { EditSiteMap() }
+        }
+
+        await editor.send(.removeMapButtonTapped)?.value
+        #expect(editor.canSubmit)
+        await editor.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { try #require(try Event.find(eventID).fetchOne($0)) }
+        #expect(saved.siteMap == nil)
+        #expect(saved.name == record.name)
+        #expect(saved.media == record.media)
+    }
+
     private func database() throws -> DatabaseQueue {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()
