@@ -303,9 +303,9 @@ struct CanonicalEventEditingTests {
             $0.defaultDatabase = database
             $0.date.now = now
         } operation: {
-            Store(initialState: EditSchedule.State(
+            Store(initialState: ScheduleForm.State(
                 eventID: record.id, initialDate: day, timeZone: record.timeZone
-            )) { EditSchedule() }
+            )) { ScheduleForm() }
         }
         $store.customTitle.wrappedValue = "  Saturday Music  "
         await store.send(.saveButtonTapped)?.value
@@ -355,10 +355,10 @@ struct CanonicalEventEditingTests {
             $0.defaultDatabase = database
             $0.date = .constant(Date(timeIntervalSince1970: 0))
         } operation: {
-            Store(initialState: EditSchedule.State(
+            Store(initialState: ScheduleForm.State(
                 schedule: schedule,
                 timeZone: record.timeZone
-            )) { EditSchedule() }
+            )) { ScheduleForm() }
         }
         #expect(store.customTitle == "Saturday")
         $store.customTitle.wrappedValue = "  Sunday Music  "
@@ -379,10 +379,10 @@ struct CanonicalEventEditingTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditSchedule.State(
+            Store(initialState: ScheduleForm.State(
                 schedule: saved,
                 timeZone: record.timeZone
-            )) { EditSchedule() }
+            )) { ScheduleForm() }
         }
         await deleteStore.send(.deleteButtonTapped)?.value
         let eventAfterDelete = try await database.read { try #require(try Event.find(record.id).fetchOne($0)) }
@@ -428,10 +428,10 @@ struct CanonicalEventEditingTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditSchedule.State(
+            Store(initialState: ScheduleForm.State(
                 schedule: schedule,
                 timeZone: record.timeZone
-            )) { EditSchedule() }
+            )) { ScheduleForm() }
         }
         await store.send(.deleteButtonTapped)?.value
 
@@ -636,7 +636,7 @@ struct CanonicalEventEditingTests {
         var state = withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
         } operation: {
-            EditEventInfo.State(event: event)
+            EventForm.State(event: event)
         }
         state.draft.description = "  "
         state.draft.status = nil
@@ -659,7 +659,7 @@ struct CanonicalEventEditingTests {
         var state = try withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
         } operation: {
-            EditEventInfo.State(event: try event())
+            EventForm.State(event: try event())
         }
         state.draft.name = "  "
         #expect(!state.canSubmit)
@@ -694,7 +694,7 @@ struct CanonicalEventEditingTests {
         let store = withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
         } operation: {
-            TestStore(initialState: EditEventInfo.State(event: event)) { EditEventInfo() }
+            TestStore(initialState: EventForm.State(event: event)) { EventForm() }
         }
         let pressID = store.state.links[0].id
         let ticketID = store.state.links[1].id
@@ -722,7 +722,7 @@ struct CanonicalEventEditingTests {
         let store = try withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
         } operation: {
-            TestStore(initialState: EditEventInfo.State(event: try event())) { EditEventInfo() }
+            TestStore(initialState: EventForm.State(event: try event())) { EventForm() }
         }
         await store.send(.addLinkButtonTapped)?.value
         #expect(!store.state.canSubmit)

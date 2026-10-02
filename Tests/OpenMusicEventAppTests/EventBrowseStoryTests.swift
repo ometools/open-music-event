@@ -316,8 +316,8 @@ struct EventBrowseStoryTests {
             $0.uuid = .incrementing
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
         } operation: {
-            let store = Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            let store = Store(initialState: EventDetail.State(eventID: eventID)) {
+                EventDetail()
             }
             let mountedID = store.id
             let selectedFeature = store.selectedFeature
@@ -947,7 +947,7 @@ struct EventBrowseStoryTests {
             eventID: eventID,
             title: "My Schedule"
         )
-        let viewerState = EventViewerState(
+        let viewerState = EventDetailState(
             id: eventID,
             selectedUserScheduleID: userSchedule.id,
             didInitializeUserSchedules: true
@@ -957,7 +957,7 @@ struct EventBrowseStoryTests {
             try EventRecordGraph(event: initialEvent).upsert(in: db)
             try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
             try UserSchedule.insert { userSchedule }.execute(db)
-            try EventViewerState.insert { viewerState }.execute(db)
+            try EventDetailState.insert { viewerState }.execute(db)
         }
 
         event.name = "Wicked Woods after refresh"
@@ -977,7 +977,7 @@ struct EventBrowseStoryTests {
                 userSchedule
             )
             expectNoDifference(
-                try EventViewerState.find(eventID).fetchOne(db),
+                try EventDetailState.find(eventID).fetchOne(db),
                 viewerState
             )
         }

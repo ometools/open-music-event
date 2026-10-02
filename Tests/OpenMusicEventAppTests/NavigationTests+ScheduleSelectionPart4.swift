@@ -41,7 +41,7 @@ extension NavigationTests {
         let userScheduleID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
         )
-        var storedState = EventViewerState(id: eventID)
+        var storedState = EventDetailState(id: eventID)
         storedState.selectedScheduleID = scheduleID
         storedState.didInitializeUserSchedules = true
         let stateToStore = storedState
@@ -54,15 +54,15 @@ extension NavigationTests {
                 )
             }
             .execute(db)
-            try EventViewerState.insert { stateToStore }.execute(db)
+            try EventDetailState.insert { stateToStore }.execute(db)
         }
 
-        let staleState = EventViewerState(id: eventID)
+        let staleState = EventDetailState(id: eventID)
         var changedState = staleState
         changedState.selectedUserScheduleID = userScheduleID
         let stateToPersist = changedState
         try await database.write { db in
-            try EventViewerState.persistChanges(
+            try EventDetailState.persistChanges(
                 from: staleState,
                 to: stateToPersist,
                 in: db
@@ -70,7 +70,7 @@ extension NavigationTests {
         }
 
         let mergedState = try await database.read { db in
-            try EventViewerStateRequest(eventID: eventID).fetch(db)
+            try EventDetailStateRequest(eventID: eventID).fetch(db)
         }
         #expect(mergedState.selectedScheduleID == scheduleID)
         #expect(mergedState.selectedUserScheduleID == userScheduleID)
@@ -84,12 +84,12 @@ extension NavigationTests {
         let userScheduleID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
         )
-        var localState = EventViewerState(
+        var localState = EventDetailState(
             id: eventID,
             selectedUserScheduleID: userScheduleID,
             didInitializeUserSchedules: true
         )
-        let stalePersistedState = EventViewerState(
+        let stalePersistedState = EventDetailState(
             id: eventID,
             selectedScheduleID: scheduleID,
             didInitializeUserSchedules: true

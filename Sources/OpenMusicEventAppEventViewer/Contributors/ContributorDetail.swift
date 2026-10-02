@@ -44,7 +44,7 @@ public struct ContributorDetail {
             contributorID: Contributor.ID,
             eventID: Event.ID? = nil
         ) {
-            @Dependency(EventViewerContext.self) var eventViewer
+            @Dependency(EventDetailContext.self) var eventViewer
 
             self.contributorID = contributorID
             self.eventID = eventID ?? eventViewer.eventID
@@ -120,7 +120,7 @@ public struct ContributorDetail {
 
     @Feature
     public enum Destination {
-        case performanceDetail(Spawn<PerformanceDetail>)
+        case performanceDetail(Spawn<ProgramItemDetail>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -184,7 +184,7 @@ public struct ContributorDetail {
                 store.withDependencies {
                     state.destination = .performanceDetail(
                         Spawn(
-                            PerformanceDetail.State(
+                            ProgramItemDetail.State(
                                 performanceID: performanceID,
                                 eventID: state.eventID
                             )
@@ -261,7 +261,7 @@ public struct ContributorDetailView: View {
             }
         }
         .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
-            PerformanceDetailView(
+            ProgramItemDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls
             )

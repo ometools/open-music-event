@@ -77,7 +77,7 @@ struct NotificationIndicatorTests {
             $0.defaultDatabase = database
             $0.defaultEventID = installed
         } operation: {
-            CommunicationsViewer.State(eventID: installed).channelRows
+            SocialCategoryList.State(eventID: installed).channelRows
         }
         let unreadByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.unreadPostCount) })
         expectNoDifference(unreadByID[Self.categoryID("required", eventID: installed)], 1)
@@ -194,10 +194,10 @@ struct NotificationIndicatorTests {
             $0.defaultEventID = eventID
         } operation: {
             TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: categoryID, eventID: eventID
                 )
-            ) { CommunicationChannelDetail() }
+            ) { SocialCategoryDetail() }
         }
         await channel.send(.markPostReadButtonTapped(postID))?.value
         #expect(try await Self.isRead(postID, in: database))
@@ -209,8 +209,8 @@ struct NotificationIndicatorTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: CommsPostDetail.State(postID: postID, eventID: eventID)) {
-                CommsPostDetail()
+            TestStore(initialState: SocialPostDetail.State(postID: postID, eventID: eventID)) {
+                SocialPostDetail()
             }
         }
         #expect(detail.state.post?.title == "welcome")
@@ -243,8 +243,8 @@ struct NotificationIndicatorTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
         await store.send(.markAllPostsReadButtonTapped(general))?.value
@@ -288,10 +288,10 @@ struct NotificationIndicatorTests {
             Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
                 .withLock { $0 = session }
             return TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: categoryID, eventID: eventID
                 )
-            ) { CommunicationChannelDetail() }
+            ) { SocialCategoryDetail() }
         }
 
         store.send(.postButtonTapped(postID))

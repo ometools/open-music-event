@@ -106,7 +106,7 @@ public struct OpenMusicEventAppRoot {
 
     @Feature
     public enum Destination {
-        case eventViewer(EventViewer)
+        case eventViewer(EventDetail)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -292,7 +292,7 @@ public struct OpenMusicEventAppRoot {
                 try await notificationsClient.replaceSubscriptions(subscriptions)
             }
         }
-        .onEvent(EventViewerDismissalRequested.self) { eventID, state in
+        .onEvent(EventDetailDismissalRequested.self) { eventID, state in
             guard state.destination?.eventViewer?.id == eventID else {
                 return
             }
@@ -382,7 +382,7 @@ public struct OpenMusicEventAppRootView: View {
                 .scope(\.destination)
                 .eventViewer
         ) { eventViewerStore in
-            EventViewerView(store: eventViewerStore)
+            EventDetailView(store: eventViewerStore)
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in
                 InAppSafariView(url: presentation.url)
@@ -465,12 +465,12 @@ private extension OpenMusicEventAppRoot {
     static func makeEventViewerState(
         eventID: Event.ID,
         target: EventTarget?,
-        pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
-    ) -> EventViewer.State {
+        pendingScheduleLaunchAction: EventDetail.ScheduleLaunchAction? = nil
+    ) -> EventDetail.State {
         withDependencies {
             $0.defaultEventID = eventID
         } operation: {
-            EventViewer.State.route(
+            EventDetail.State.route(
                 eventID: eventID,
                 target: target,
                 pendingScheduleLaunchAction: pendingScheduleLaunchAction

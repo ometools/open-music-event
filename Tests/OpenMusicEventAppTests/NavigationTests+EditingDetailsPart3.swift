@@ -57,8 +57,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            Store(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 
@@ -100,8 +100,8 @@ extension NavigationTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 
@@ -148,8 +148,8 @@ extension NavigationTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 
@@ -191,8 +191,8 @@ extension NavigationTests {
             $0.defaultDatabase = database
             $0.devicePermissions = client
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 
@@ -224,8 +224,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
                     .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
                         refreshCount.withLock { $0 += 1 }
                     }
@@ -266,8 +266,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 

@@ -3,7 +3,7 @@ import OpenMusicEventLexicon
 import SQLiteData
 
 @Table("scheduleViewerState")
-public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
+public struct ScheduleListState: Equatable, Sendable, Identifiable {
     public init(
         id: ID,
         selectedStageID: EventPlace.ID? = nil,
@@ -19,7 +19,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
 
     public init(
         eventID: Event.ID,
-        scheduleDivision: ScheduleViewer.ScheduleDivision
+        scheduleDivision: ScheduleList.ScheduleDivision
     ) {
         self.init(
             id: ID(
@@ -169,15 +169,15 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
 
     static func forEvent(
         eventID: Event.ID
-    ) -> some SelectStatementOf<ScheduleViewerState> {
+    ) -> some SelectStatementOf<ScheduleListState> {
         Self
             .where { $0.id.eventID.eq(eventID) }
     }
 
     static func rows(
         eventID: Event.ID,
-        scheduleDivision: ScheduleViewer.ScheduleDivision
-    ) -> some SelectStatementOf<ScheduleViewerState> {
+        scheduleDivision: ScheduleList.ScheduleDivision
+    ) -> some SelectStatementOf<ScheduleListState> {
         Self
             .where { $0.id.eventID.eq(eventID) }
             .where { $0.id.category.eq(scheduleDivision.id) }
@@ -187,10 +187,10 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         from oldValue: Self,
         to newValue: Self,
         eventID: Event.ID,
-        scheduleDivision: ScheduleViewer.ScheduleDivision,
+        scheduleDivision: ScheduleList.ScheduleDivision,
         in db: Database
     ) throws {
-        var storedValue = try ScheduleViewerStateRequest(
+        var storedValue = try ScheduleListStateRequest(
             eventID: eventID,
             scheduleDivision: scheduleDivision
         )
@@ -222,12 +222,12 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     }
 }
 
-struct ScheduleViewerStateRequest: FetchKeyRequest {
+struct ScheduleListStateRequest: FetchKeyRequest {
     let eventID: Event.ID
-    let scheduleDivision: ScheduleViewer.ScheduleDivision
+    let scheduleDivision: ScheduleList.ScheduleDivision
 
-    func fetch(_ db: Database) throws -> ScheduleViewerState {
-        if let state = try ScheduleViewerState
+    func fetch(_ db: Database) throws -> ScheduleListState {
+        if let state = try ScheduleListState
             .rows(eventID: eventID, scheduleDivision: scheduleDivision)
             .fetchOne(db)
         {
@@ -236,8 +236,8 @@ struct ScheduleViewerStateRequest: FetchKeyRequest {
             return state
         }
 
-        return ScheduleViewerState(
-            id: ScheduleViewerState.ID(
+        return ScheduleListState(
+            id: ScheduleListState.ID(
                 eventID: eventID,
                 category: scheduleDivision.id
             )

@@ -46,7 +46,7 @@ public struct ChannelDeleteConfirmation: Prompt {
 }
 
 @Feature
-public struct CommunicationsViewer {
+public struct SocialCategoryList {
     public init() {}
 
     public struct State {
@@ -72,8 +72,8 @@ public struct CommunicationsViewer {
             self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.eventID = eventID
             self.destination = destination
-            _channels = FetchAll(CommunicationsViewer.channelsQuery(eventID: eventID))
-            _channelPreferences = FetchAll(CommunicationsViewer.channelPreferencesQuery(eventID: eventID))
+            _channels = FetchAll(SocialCategoryList.channelsQuery(eventID: eventID))
+            _channelPreferences = FetchAll(SocialCategoryList.channelPreferencesQuery(eventID: eventID))
             _event = FetchOne(Event.where { $0.id.eq(eventID) })
             _unreadPostCounts = Fetch(
                 wrappedValue: CommsUnreadPostCounts(),
@@ -140,8 +140,8 @@ public struct CommunicationsViewer {
 
     @Feature
     public enum Destination {
-        case channelForm(ChannelForm)
-        case channelDetail(CommunicationChannelDetail)
+        case channelForm(SocialCategoryForm)
+        case channelDetail(SocialCategoryDetail)
         case deleteChannelConfirmation(ChannelDeleteConfirmation)
     }
 
@@ -168,12 +168,12 @@ public struct CommunicationsViewer {
             case .addChannelButtonTapped:
                 guard state.canManageChannels else { return }
                 state.destination = .channelForm(
-                    ChannelForm.State(eventID: state.eventID)
+                    SocialCategoryForm.State(eventID: state.eventID)
                 )
 
             case let .channelButtonTapped(channelID):
                 state.destination = .channelDetail(
-                    CommunicationChannelDetail.State(
+                    SocialCategoryDetail.State(
                         channelID: channelID,
                         eventID: state.eventID
                     )
@@ -216,7 +216,7 @@ public struct CommunicationsViewer {
                 }
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(ChannelForm.State(category: channel))
+                state.destination = .channelForm(SocialCategoryForm.State(category: channel))
 
             case let .markAllPostsReadButtonTapped(channelID):
                 store.addTask {
@@ -311,10 +311,10 @@ public struct CommunicationsViewer {
     }
 }
 
-public struct CommunicationsViewerView: View {
-    @Bindable var store: StoreOf<CommunicationsViewer>
+public struct SocialCategoryListView: View {
+    @Bindable var store: StoreOf<SocialCategoryList>
 
-    public init(store: StoreOf<CommunicationsViewer>) {
+    public init(store: StoreOf<SocialCategoryList>) {
         self.store = store
     }
 
@@ -412,11 +412,11 @@ public struct CommunicationsViewerView: View {
         }
         .navigationTitle("Comms")
         .navigationDestination(item: $store.scope(\.destination).channelDetail) { detailStore in
-            CommunicationChannelDetailView(store: detailStore)
+            SocialCategoryDetailView(store: detailStore)
         }
         .sheet(item: $store.scope(\.destination).channelForm) { formStore in
             NavigationStack {
-                ChannelFormView(store: formStore)
+                SocialCategoryFormView(store: formStore)
             }
         }
         .toolbar {
@@ -473,7 +473,7 @@ public struct CommunicationsViewerView: View {
 }
 
 struct CommunicationChannelListRow: View {
-    let store: StoreOf<CommunicationsViewer>
+    let store: StoreOf<SocialCategoryList>
     let row: CommunicationChannelRow
 
     var body: some View {
@@ -501,7 +501,7 @@ struct CommunicationChannelListRow: View {
 }
 
 struct CommunicationChannelNotificationSwipeActions: View {
-    let store: StoreOf<CommunicationsViewer>
+    let store: StoreOf<SocialCategoryList>
     let row: CommunicationChannelRow
 
     var body: some View {
@@ -542,7 +542,7 @@ struct CommunicationChannelNotificationSwipeActions: View {
 }
 
 struct CommunicationChannelAuthoringSwipeActions: View {
-    let store: StoreOf<CommunicationsViewer>
+    let store: StoreOf<SocialCategoryList>
     let row: CommunicationChannelRow
 
     var body: some View {
@@ -567,7 +567,7 @@ struct CommunicationChannelAuthoringSwipeActions: View {
 }
 
 struct CommunicationChannelContextActions: View {
-    let store: StoreOf<CommunicationsViewer>
+    let store: StoreOf<SocialCategoryList>
     let row: CommunicationChannelRow
 
     var body: some View {

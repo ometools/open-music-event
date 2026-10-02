@@ -30,7 +30,7 @@ struct CanonicalSocialPostEditingTests {
                 eventID: eventID,
                 fields: .init(
                     name: "Announcements",
-                    defaultNotificationState: .subscribed,
+                    defaultNotificationState: .known(.subscribed),
                     notificationsRequired: false
                 ),
                 createdAt: try Date("2026-09-02T18:00:00Z", strategy: .iso8601),

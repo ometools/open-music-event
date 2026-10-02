@@ -75,7 +75,7 @@ struct CanonicalSocialCategoryEditingTests {
                 eventID: eventID,
                 fields: .init(
                     name: "Announcements",
-                    defaultNotificationState: .unsubscribed,
+                    defaultNotificationState: .known(.unsubscribed),
                     notificationsRequired: false
                 ),
                 createdAt: try Date("2026-09-02T18:00:00Z", strategy: .iso8601),
@@ -95,7 +95,7 @@ struct CanonicalSocialCategoryEditingTests {
                 fields: .init(
                     name: "Important updates",
                     description: "Organizer announcements",
-                    defaultNotificationState: .unsubscribed,
+                    defaultNotificationState: .known(.unsubscribed),
                     notificationsRequired: true
                 ),
                 in: db
@@ -155,13 +155,13 @@ struct CanonicalSocialCategoryEditingTests {
         let categoryIDs = try database.write { db in
             let general = try SocialCategoryRecordEditing.create(
                 eventID: eventID,
-                fields: .init(name: "General", defaultNotificationState: .subscribed, notificationsRequired: false),
+                fields: .init(name: "General", defaultNotificationState: .known(.subscribed), notificationsRequired: false),
                 createdAt: try Date("2026-09-02T18:00:00Z", strategy: .iso8601),
                 in: db
             )
             let safety = try SocialCategoryRecordEditing.create(
                 eventID: eventID,
-                fields: .init(name: "Safety", defaultNotificationState: .subscribed, notificationsRequired: true),
+                fields: .init(name: "Safety", defaultNotificationState: .known(.subscribed), notificationsRequired: true),
                 createdAt: try Date("2026-09-02T18:00:01Z", strategy: .iso8601),
                 in: db
             )

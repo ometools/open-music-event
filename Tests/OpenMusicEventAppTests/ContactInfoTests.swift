@@ -55,8 +55,8 @@ struct ContactInfoTests {
             $0.defaultEventID = eventID
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            Store(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 

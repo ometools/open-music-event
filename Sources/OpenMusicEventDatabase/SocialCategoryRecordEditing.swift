@@ -15,17 +15,20 @@ public enum SocialCategoryRecordEditing {
     public struct Fields: Equatable, Sendable {
         public var name: String
         public var description: String?
-        public var defaultNotificationState: Social.Category.NotificationState
-        public var notificationsRequired: Bool
+        public var media: [Open<OME.Media>]?
+        public var defaultNotificationState: Open<Social.Category.NotificationState>?
+        public var notificationsRequired: Bool?
 
         public init(
             name: String,
             description: String? = nil,
-            defaultNotificationState: Social.Category.NotificationState,
-            notificationsRequired: Bool
+            media: [Open<OME.Media>]? = nil,
+            defaultNotificationState: Open<Social.Category.NotificationState>?,
+            notificationsRequired: Bool?
         ) {
             self.name = name
             self.description = description
+            self.media = media
             self.defaultNotificationState = defaultNotificationState
             self.notificationsRequired = notificationsRequired
         }
@@ -33,9 +36,9 @@ public enum SocialCategoryRecordEditing {
         fileprivate func apply(to category: inout Social.Category) {
             category.name = name
             category.description = description
-            category.defaultNotificationState = .known(
-                notificationsRequired ? .subscribed : defaultNotificationState
-            )
+            category.media = media
+            category.defaultNotificationState = notificationsRequired == true
+                ? .known(.subscribed) : defaultNotificationState
             category.notificationsRequired = notificationsRequired
         }
     }

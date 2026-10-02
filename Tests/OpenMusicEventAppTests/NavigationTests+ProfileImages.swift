@@ -192,7 +192,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            let state = ContributorsViewer.State(eventID: selectedEventID)
+            let state = ContributorList.State(eventID: selectedEventID)
             let row = try #require(state.contributorRows.first {
                 $0.contributorID == contributorID
             })

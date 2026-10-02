@@ -24,7 +24,7 @@ import SwiftUI
 import Tagged
 
 @Feature
-public struct StagesViewer {
+public struct EventPlaceList {
     public init() {}
 
     public struct State {
@@ -35,7 +35,7 @@ public struct StagesViewer {
             self.eventID = eventID
             self.destination = destination
             _eventPlaces = FetchAll(
-                StagesViewer.stagesQuery(eventID: eventID)
+                EventPlaceList.stagesQuery(eventID: eventID)
             )
         }
 
@@ -58,17 +58,27 @@ public struct StagesViewer {
                 }
         }
 
+        public var places: [EventPlace] {
+            eventPlaces.sorted { lhs, rhs in
+                let left = lhs.stageUse?.sortIndex ?? Int.max
+                let right = rhs.stageUse?.sortIndex ?? Int.max
+                return left == right
+                    ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                    : left < right
+            }
+        }
+
         public var canCopyStagesFromOtherEvent: Bool {
             stages.isEmpty
         }
 
-        public var filteredStages: [EventPlace] {
+        public var filteredPlaces: [EventPlace] {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return stages }
+            guard !query.isEmpty else { return places }
 
-            return stages.filter { stage in
-                stage.name.localizedStandardContains(query)
-                    || stage.stageUse?.category?.localizedStandardContains(query) == true
+            return places.filter { place in
+                place.name.localizedStandardContains(query)
+                    || place.stageUse?.category?.localizedStandardContains(query) == true
             }
         }
     }
@@ -83,7 +93,7 @@ public struct StagesViewer {
 
     @Feature
     public enum Destination {
-        case stageDetail(Spawn<StageDetail>)
+        case stageDetail(Spawn<EventPlaceDetail>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -102,7 +112,7 @@ public struct StagesViewer {
                 store.addTask {
                     let task = try store.post(
                         key: EventEditingRequested.self,
-                        value: .createStage(eventID)
+                        value: .createPlace(eventID)
                     )
                     await task?.value
                 }
@@ -125,7 +135,7 @@ public struct StagesViewer {
                         }
                     } catch {
                         try store.modify {
-                            $0.errorMessage = "Unable to delete event stage."
+                            $0.errorMessage = "Unable to delete event place."
                         }
                     }
                 }
@@ -453,7 +463,7 @@ public struct CopyStagesFromEvent {
         eventID: Event.ID,
         in db: Database
     ) throws -> [EventPlace] {
-        try StagesViewer
+        try EventPlaceList
             .stagesQuery(eventID: eventID)
             .fetchAll(db)
             .filter { $0.stageUse != nil }
@@ -487,12 +497,12 @@ private extension CopyStagesFromEvent.SourceEventOption {
     }
 }
 
-public struct StagesViewerView: View {
-    @Bindable var store: StoreOf<StagesViewer>
+public struct EventPlaceListView: View {
+    @Bindable var store: StoreOf<EventPlaceList>
     let showsAuthoringControls: Bool
 
     public init(
-        store: StoreOf<StagesViewer>,
+        store: StoreOf<EventPlaceList>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
@@ -501,8 +511,8 @@ public struct StagesViewerView: View {
 
     public var body: some View {
         Group {
-            if store.stages.isEmpty {
-                EmptyStagesView(
+            if store.places.isEmpty {
+                EmptyPlacesView(
                     errorMessage: store.errorMessage,
                     showsAuthoringControls: showsAuthoringControls,
                     onAddStage: {
@@ -512,11 +522,11 @@ public struct StagesViewerView: View {
                         store.send(.fromOtherEventButtonTapped)
                     }
                 )
-            } else if store.filteredStages.isEmpty {
+            } else if store.filteredPlaces.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "square.grid.2x2",
-                    description: "No stages match your search."
+                    description: "No places match your search."
                 )
             } else {
                 List {
@@ -528,33 +538,44 @@ public struct StagesViewerView: View {
                         }
                     }
 
-                    ForEach(store.filteredStages) { stage in
+                    ForEach(store.filteredPlaces) { place in
                         Button {
-                            store.send(.stageButtonTapped(stage.id))
+                            store.send(.stageButtonTapped(place.id))
                         } label: {
-                            EventPlaceStageRowView(place: stage)
+                            if place.stageUse != nil {
+                                EventPlaceStageRowView(place: place)
+                            } else {
+                                HStack {
+                                    Text(place.name)
+                                    Spacer()
+                                    Text(place.kindLabel)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
                         }
                         .navigationLinkListRowStyle()
                         .accessibilityIdentifier(
-                            "button.stage.\(stage.id.description)"
+                            "button.\(place.stageUse == nil ? "place" : "stage").\(place.id.description)"
                         )
                     }
                     .onDelete { offsets in
-                        deleteStages(at: offsets)
+                        deletePlaces(at: offsets)
                     }
                     .deleteDisabled(!showsAuthoringControls)
                 }
                 .listStyle(.plain)
             }
         }
-        .searchable(text: $store.searchText, prompt: "Search Stages")
+        .searchable(text: $store.searchText, prompt: "Search Places")
         .autocorrectionDisabled()
         #if os(iOS)
         .textInputAutocapitalization(.never)
         #endif
-        .navigationTitle("Stages")
+        .navigationTitle("Places")
         .toolbar {
-            if showsAuthoringControls, store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
+            if showsAuthoringControls, store.canCopyStagesFromOtherEvent && !store.places.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         store.send(.fromOtherEventButtonTapped)
@@ -571,13 +592,13 @@ public struct StagesViewerView: View {
                         store.send(.addButtonTapped)
                     } label: {
                         Image(systemName: "plus")
-                            .accessibilityLabel("Add Event Stage")
+                            .accessibilityLabel("Add Event Place")
                     }
                 }
             }
         }
         .navigationDestination(item: $store.scope(\.destination).stageDetail) { detailStore in
-            StageDetailView(
+            EventPlaceDetailView(
                 store: detailStore,
                 showsAuthoringControls: showsAuthoringControls
             )
@@ -587,17 +608,29 @@ public struct StagesViewerView: View {
         )
     }
 
-    func deleteStages(at offsets: IndexSet) {
+    func deletePlaces(at offsets: IndexSet) {
         let stageIDs = offsets.compactMap { offset in
-            store.filteredStages.indices.contains(offset)
-                ? store.filteredStages[offset].id
+            store.filteredPlaces.indices.contains(offset)
+                ? store.filteredPlaces[offset].id
                 : nil
         }
         store.send(.deleteStages(stageIDs))
     }
 }
 
-struct EmptyStagesView: View {
+private extension EventPlace {
+    var kindLabel: String {
+        switch kind {
+        case .some(.known(.stage)): "Stage"
+        case .some(.known(.entrance)): "Entrance"
+        case .some(.known(.camping)): "Camping"
+        case .some(.known(.info)): "Information"
+        case .some(.unknown), .none: "Place"
+        }
+    }
+}
+
+struct EmptyPlacesView: View {
     var errorMessage: String?
     var showsAuthoringControls: Bool
     var onAddStage: () -> Void
@@ -612,9 +645,9 @@ struct EmptyStagesView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
-                Text("Stages")
+                Text("Places")
                     .font(.title2.weight(.semibold))
-                Text("No stages have been added to this event yet.")
+                Text("No places have been added to this event yet.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -632,7 +665,7 @@ struct EmptyStagesView: View {
                     Button {
                         onAddStage()
                     } label: {
-                        Label("Add Stage", systemImage: "plus")
+                        Label("Add Place", systemImage: "plus")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -649,7 +682,7 @@ struct EmptyStagesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
-        .navigationTitle("Stages")
+        .navigationTitle("Places")
     }
 }
 
@@ -786,7 +819,7 @@ public struct CopyStagesFromEventView: View {
 }
 
 @Feature
-public struct StageDetail {
+public struct EventPlaceDetail {
     public init() {}
 
     public struct State: Identifiable {
@@ -798,8 +831,8 @@ public struct StageDetail {
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
-        public var eventViewerState: EventViewerState
-        @FetchOne var persistedEventViewerState: EventViewerState?
+        public var eventViewerState: EventDetailState
+        @FetchOne var persistedEventViewerState: EventDetailState?
         @FetchOne public var stage: EventPlace?
         @FetchAll var contributors: [ContributorProfile]
         @FetchAll public var performanceRows: [PerformanceRow]
@@ -811,32 +844,32 @@ public struct StageDetail {
             stageID: EventPlace.ID,
             eventID: Event.ID? = nil
         ) {
-            @Dependency(EventViewerContext.self) var eventViewer
+            @Dependency(EventDetailContext.self) var eventViewer
 
             self.stageID = stageID
             self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: self.eventID)
             )
-            eventViewerState = EventViewerState(id: self.eventID)
+            eventViewerState = EventDetailState(id: self.eventID)
             _persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
-                EventViewerState.none
+                EventDetailState.none
             )
             _stage = FetchOne(
-                StageDetail.stageQuery(
+                EventPlaceDetail.stageQuery(
                     stageID: stageID,
                     eventID: self.eventID
                 )
             )
             _contributors = FetchAll(
-                ContributorsViewer.contributorProfilesQuery(
+                ContributorList.contributorProfilesQuery(
                     eventID: self.eventID,
                     hydration: .bskyActorProfile
                 )
             )
             _performanceRows = FetchAll(PerformanceRow.all(eventID: self.eventID))
-            _schedules = FetchAll(ScheduleViewer.schedulesQuery(eventID: self.eventID))
+            _schedules = FetchAll(ScheduleList.schedulesQuery(eventID: self.eventID))
             _event = FetchOne(Event.where { $0.id.eq(self.eventID) })
             _programs = FetchAll(Program.where { $0.event.eq(self.eventID) })
         }
@@ -856,7 +889,7 @@ public struct StageDetail {
         }
 
         var resolvedSelectedScheduleID: Schedule.ID? {
-            ScheduleViewer.resolvedSelectedScheduleID(
+            ScheduleList.resolvedSelectedScheduleID(
                 eventViewerState.selectedScheduleID,
                 schedules: schedules
             )
@@ -869,7 +902,7 @@ public struct StageDetail {
                   }),
                   let timeZone
             else { return "Select Schedule" }
-            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
+            return ScheduleList.scheduleTitle(schedule, in: timeZone)
         }
 
         var selectedSchedulePerformances: [ProgramItem] {
@@ -882,8 +915,8 @@ public struct StageDetail {
                 }
         }
 
-        var scheduleDivision: ScheduleViewer.ScheduleDivision {
-            ScheduleViewer.scheduleDivisions(event: event, programs: programs)
+        var scheduleDivision: ScheduleList.ScheduleDivision {
+            ScheduleList.scheduleDivisions(event: event, programs: programs)
                 .first { $0.eventPlaces.contains(stageID) } ?? .schedule
         }
     }
@@ -896,7 +929,7 @@ public struct StageDetail {
 
     @Feature
     public enum Destination {
-        case performanceDetail(Spawn<PerformanceDetail>)
+        case performanceDetail(Spawn<ProgramItemDetail>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -923,9 +956,9 @@ public struct StageDetail {
                 store.addTask {
                     let task = try store.post(
                         key: EventEditingRequested.self,
-                        value: .editStage(
+                        value: .editPlace(
                             eventID: eventID,
-                            stageID: stageID
+                            placeID: stageID
                         )
                     )
                     await task?.value
@@ -938,7 +971,7 @@ public struct StageDetail {
                 store.withDependencies {
                     state.destination = .performanceDetail(
                         Spawn(
-                            PerformanceDetail.State(
+                            ProgramItemDetail.State(
                                 performanceID: performanceID,
                                 eventID: state.eventID
                             )
@@ -980,7 +1013,7 @@ public struct StageDetail {
             guard state.persistedEventViewerState != viewerState else { return }
             do {
                 try database.write { db in
-                    try EventViewerState.persistChanges(
+                    try EventDetailState.persistChanges(
                         from: oldViewerState,
                         to: viewerState,
                         in: db
@@ -995,7 +1028,7 @@ public struct StageDetail {
             let persistedEventViewerState = state.$persistedEventViewerState
             store.addTask {
                 try await persistedEventViewerState.load(
-                    EventViewerState.where { $0.id.eq(eventID) }
+                    EventDetailState.where { $0.id.eq(eventID) }
                 )
                 .task
             }
@@ -1003,13 +1036,13 @@ public struct StageDetail {
     }
 }
 
-public struct StageDetailView: View {
-    @Bindable var store: StoreOf<StageDetail>
+public struct EventPlaceDetailView: View {
+    @Bindable var store: StoreOf<EventPlaceDetail>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
-        store: StoreOf<StageDetail>,
+        store: StoreOf<EventPlaceDetail>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
@@ -1034,7 +1067,7 @@ public struct StageDetailView: View {
                         EventPlaceStageIconFallback(place: stage, size: 150)
                     }
                 } content: {
-                    if !store.schedules.isEmpty {
+                    if stage.stageUse != nil && !store.schedules.isEmpty {
                         Section("Schedule") {
                             StageScheduleView(
                                 stage: stage,
@@ -1044,8 +1077,11 @@ public struct StageDetailView: View {
                         }
                     }
 
-                    if stage.hasDisplayDetails {
+                    if stage.hasDisplayDetails || stage.stageUse == nil {
                         Section("Details") {
+                            if stage.stageUse == nil {
+                                LabeledContent("Kind", value: stage.kindLabel)
+                            }
                             if let description = stage.description {
                                 Text(description)
                             }
@@ -1078,12 +1114,13 @@ public struct StageDetailView: View {
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                                     .labelStyle(.iconOnly)
+                                    .accessibilityIdentifier("button.edit-place")
                             }
                         }
                     }
                 }
                 .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
-                    PerformanceDetailView(
+                    ProgramItemDetailView(
                         store: detailStore,
                         showsAuthoringControls: false
                     )
@@ -1093,17 +1130,17 @@ public struct StageDetailView: View {
                     if showsTechnicalDetails {
                         ContentUnavailableView {
                             Label(
-                                "Stage",
+                                "Place",
                                 mappedSystemImage: "square.grid.2x2"
                             )
                         } description: {
                             Text(verbatim: store.stageID.description)
                         }
                     } else {
-                        ContentUnavailableView("Stage unavailable", systemImage: "square.grid.2x2")
+                        ContentUnavailableView("Place unavailable", systemImage: "square.grid.2x2")
                     }
                 }
-                .navigationTitle("Stage")
+                .navigationTitle("Place")
             }
         }
         .accessibilityIdentifier(
@@ -1114,7 +1151,7 @@ public struct StageDetailView: View {
 
 struct StageScheduleView: View {
     let stage: EventPlace
-    @Bindable var store: StoreOf<StageDetail>
+    @Bindable var store: StoreOf<EventPlaceDetail>
     @Binding var selectedScheduleID: Schedule.ID?
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
@@ -1123,7 +1160,7 @@ struct StageScheduleView: View {
 
     init(
         stage: EventPlace,
-        store: StoreOf<StageDetail>,
+        store: StoreOf<EventPlaceDetail>,
         selectedScheduleID: Binding<Schedule.ID?>
     ) {
         self.stage = stage
@@ -1155,7 +1192,7 @@ struct StageScheduleView: View {
                         memberships: [],
                         selectedScheduleID: nil
                     ),
-                    emptyTitle: ScheduleViewer.emptyStageTitle(
+                    emptyTitle: ScheduleList.emptyStageTitle(
                         scheduleDivision: store.state.scheduleDivision,
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
@@ -1171,7 +1208,7 @@ struct StageScheduleView: View {
                 )
             } else {
                 ScheduleEmptyView(
-                    title: ScheduleViewer.emptyStageTitle(
+                    title: ScheduleList.emptyStageTitle(
                         scheduleDivision: store.state.scheduleDivision,
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
@@ -1220,7 +1257,7 @@ struct StageScheduleDaySelector: View {
                     Button {
                         selectedScheduleID = schedule.id
                     } label: {
-                        Text(ScheduleViewer.scheduleTitle(schedule, in: timeZone))
+                        Text(ScheduleList.scheduleTitle(schedule, in: timeZone))
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                             .padding(.horizontal, 12)
@@ -1252,7 +1289,7 @@ struct StageScheduleDaySelector: View {
     }
 
     var resolvedSelectedScheduleID: Schedule.ID? {
-        ScheduleViewer.resolvedSelectedScheduleID(
+        ScheduleList.resolvedSelectedScheduleID(
             selectedScheduleID,
             schedules: schedules
         )
@@ -1269,10 +1306,14 @@ struct StageScheduleDaySelector: View {
 }
 
 @Feature
-public struct EditStage {
+public struct EventPlaceForm {
     public init() {}
 
     public struct FormValue: Equatable {
+        enum KindChoice: String, CaseIterable, Sendable {
+            case stage, entrance, camping, info, unspecified, unrecognized
+        }
+
         var category = ""
         var color = OME.Color(rawValue: 0x336699)!
         var description = ""
@@ -1282,12 +1323,21 @@ public struct EditStage {
         var persistentStageID: OpenMusicEventLexicon.Stage.ID?
         var shortLabel = ""
         var name = ""
+        var kindChoice: KindChoice = .stage
         var sortIndex = ""
         var iconName = ""
 
         init() {}
 
         init(place: EventPlace) {
+            kindChoice = switch place.kind {
+            case .none: .unspecified
+            case .some(.unknown): .unrecognized
+            case .some(.known(.stage)): .stage
+            case .some(.known(.entrance)): .entrance
+            case .some(.known(.camping)): .camping
+            case .some(.known(.info)): .info
+            }
             category = place.stageUse?.category ?? ""
             color = place.stageUse?.color ?? Self().color
             description = place.description ?? ""
@@ -1404,9 +1454,9 @@ public struct EditStage {
         var navigationTitle: String {
             switch mode {
             case .create:
-                return "New Event Stage"
+                return "New Event Place"
             case .edit:
-                return "Edit Event Stage"
+                return "Edit Event Place"
             }
         }
 
@@ -1435,6 +1485,7 @@ public struct EditStage {
             let shortLabel: String?
             let originalPlace: EventPlace?
             let mediaEntries: [MediaEntry]
+            let kindChoice: FormValue.KindChoice
 
             init(state: State) {
                 self.eventID = state.eventID
@@ -1454,6 +1505,7 @@ public struct EditStage {
                 self.shortLabel = state.trimmedShortLabel.nilIfEmpty
                 self.originalPlace = state.originalPlace
                 self.mediaEntries = state.mediaEntries
+                self.kindChoice = state.form.value.kindChoice
             }
 
             func fields() throws -> EventPlaceRecordEditing.Fields {
@@ -1463,15 +1515,23 @@ public struct EditStage {
                 fields.description = description
                 fields.links = links
                 fields.locators = locators
-                fields.kind = .known(.stage(.init(
-                    stage: persistentStageID,
-                    color: color,
-                    category: category,
-                    sortIndex: sortIndex,
-                    icon: icon,
-                    shortLabel: shortLabel,
-                    lineup: lineup
-                )))
+                fields.kind = switch kindChoice {
+                case .stage:
+                    .known(.stage(.init(
+                        stage: persistentStageID,
+                        color: color,
+                        category: category,
+                        sortIndex: sortIndex,
+                        icon: icon,
+                        shortLabel: shortLabel,
+                        lineup: lineup
+                    )))
+                case .entrance: .known(.entrance(.init()))
+                case .camping: .known(.camping(.init()))
+                case .info: .known(.info(.init()))
+                case .unspecified: nil
+                case .unrecognized: originalPlace?.kind
+                }
                 fields.media = try RecordMediaEditing.preparedMedia(mediaEntries)
                 return fields
             }
@@ -1488,7 +1548,8 @@ public struct EditStage {
                 return "Enter a name."
             }
 
-            if !trimmedSortIndex.isEmpty, parsedSortIndex == nil {
+            if form.value.kindChoice == .stage,
+               !trimmedSortIndex.isEmpty, parsedSortIndex == nil {
                 return "Enter a valid sort index."
             }
 
@@ -1620,7 +1681,7 @@ public struct EditStage {
     public enum Destination {
         case imageInfo(Spawn<ImageInfo>)
         case importImages(Spawn<ImportImages>)
-        case persistentStageEditor(Spawn<EditPersistentStage>)
+        case persistentStageEditor(Spawn<StageForm>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -1670,7 +1731,7 @@ public struct EditStage {
 
             case .createPersistentStageTapped:
                 state.destination = .persistentStageEditor(
-                    Spawn(EditPersistentStage.State(eventID: state.eventID))
+                    Spawn(StageForm.State(eventID: state.eventID))
                 )
 
             case .destination:
@@ -1690,7 +1751,7 @@ public struct EditStage {
                 guard id.authority == state.eventID.authority,
                       state.persistentStages.contains(where: { $0.id == id }) else { return }
                 state.destination = .persistentStageEditor(
-                    Spawn(EditPersistentStage.State(stageID: id, eventID: state.eventID))
+                    Spawn(StageForm.State(stageID: id, eventID: state.eventID))
                 )
 
             case .form:
@@ -1699,7 +1760,7 @@ public struct EditStage {
             case .formSubmitted:
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
-                    state.errorMessage = "This event stage could not be loaded."
+                    state.errorMessage = "This event place could not be loaded."
                     return
                 }
                 if let validationMessage = state.validationMessage {
@@ -1739,7 +1800,7 @@ public struct EditStage {
                         try store.dismiss()
                     } catch {
                         try store.modify {
-                            $0.errorMessage = "Unable to save event stage."
+                            $0.errorMessage = "Unable to save event place."
                             $0.isSaving = false
                         }
                     }
@@ -1832,7 +1893,7 @@ public struct EditStage {
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
-                    state.errorMessage = "This event stage could not be loaded."
+                    state.errorMessage = "This event place could not be loaded."
                     return
                 }
 
@@ -1861,7 +1922,7 @@ public struct EditStage {
                     }
                 }
                 .ifCaseLet(\.persistentStageEditor) {
-                    EditPersistentStage()
+                    StageForm()
                 }
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
@@ -1886,7 +1947,7 @@ public struct EditStage {
 
             do {
                 if let stage = try database.read({ db in
-                    try StageDetail.stageQuery(
+                    try EventPlaceDetail.stageQuery(
                         stageID: stageID,
                         eventID: state.eventID
                     )
@@ -1894,21 +1955,21 @@ public struct EditStage {
                 }) {
                     state.load(stage)
                 } else {
-                    state.errorMessage = "This event stage could not be loaded."
+                    state.errorMessage = "This event place could not be loaded."
                 }
             } catch {
-                state.errorMessage = "This event stage could not be loaded."
+                state.errorMessage = "This event place could not be loaded."
             }
         }
     }
 }
 
-private enum EditStageFormFieldID {
-    static var name: AnyHashable { AnyHashable(\EditStage.FormValue.name) }
-    static var sortIndex: AnyHashable { AnyHashable(\EditStage.FormValue.sortIndex) }
+private enum EventPlaceFormFormFieldID {
+    static var name: AnyHashable { AnyHashable(\EventPlaceForm.FormValue.name) }
+    static var sortIndex: AnyHashable { AnyHashable(\EventPlaceForm.FormValue.sortIndex) }
 }
 
-private extension EditStage.FormFeature {
+private extension EventPlaceForm.FormFeature {
     init() {
         self.init {
             Self.Field(\.name) {
@@ -1929,17 +1990,17 @@ private extension EditStage.FormFeature {
     }
 }
 
-public struct EditStageView: View {
-    @Bindable var store: StoreOf<EditStage>
+public struct EventPlaceFormView: View {
+    @Bindable var store: StoreOf<EventPlaceForm>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @FocusState var focusedField: AnyHashable?
 
-    public init(store: StoreOf<EditStage>) {
+    public init(store: StoreOf<EventPlaceForm>) {
         self.store = store
     }
 
     public var body: some View {
-        EditStageContent(
+        EventPlaceFormContent(
             store: store,
             focusedField: $focusedField
         )
@@ -1952,10 +2013,10 @@ public struct EditStageView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                EditStageCancelButton(store: store)
+                EventPlaceFormCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                EditStageSaveButton(store: store)
+                EventPlaceFormSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
@@ -1971,7 +2032,7 @@ public struct EditStageView: View {
         }
         .sheet(item: $store.scope(\.destination).persistentStageEditor) { profileStore in
             NavigationStack {
-                EditPersistentStageView(store: profileStore)
+                StageFormView(store: profileStore)
             }
         }
     }
@@ -1989,13 +2050,13 @@ public struct EditStageView: View {
     }
 }
 
-struct EditStageLoadedForm: View {
-    @Bindable var store: StoreOf<EditStage>
+struct EventPlaceFormLoadedForm: View {
+    @Bindable var store: StoreOf<EventPlaceForm>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let focusedField: FocusState<AnyHashable?>.Binding
 
     init(
-        store: StoreOf<EditStage>,
+        store: StoreOf<EventPlaceForm>,
         focusedField: FocusState<AnyHashable?>.Binding
     ) {
         self.store = store
@@ -2004,12 +2065,14 @@ struct EditStageLoadedForm: View {
 
     var body: some View {
         SwiftUI.Form {
-            eventStageSection
+            eventPlaceSection
             StagePlaceLocatorEditor(store: store)
             StagePlaceLinkEditor(store: store)
-            StagePlaceLineupEditor(store: store)
-            StagePlaceIdentityEditor(store: store)
-            if showsTechnicalDetails {
+            if store.form.value.kindChoice == .stage {
+                StagePlaceLineupEditor(store: store)
+                StagePlaceIdentityEditor(store: store)
+            }
+            if showsTechnicalDetails && store.form.value.kindChoice == .stage {
                 iconSection
             }
             mediaSection
@@ -2017,9 +2080,20 @@ struct EditStageLoadedForm: View {
         }
     }
 
-    private var eventStageSection: some View {
-        Section("Event Stage") {
+    private var eventPlaceSection: some View {
+        Section("Event Place") {
             nameField
+
+            Picker("Kind", selection: $store.form.value.kindChoice) {
+                Text("Stage").tag(EventPlaceForm.FormValue.KindChoice.stage)
+                Text("Entrance").tag(EventPlaceForm.FormValue.KindChoice.entrance)
+                Text("Camping").tag(EventPlaceForm.FormValue.KindChoice.camping)
+                Text("Information").tag(EventPlaceForm.FormValue.KindChoice.info)
+                Text("Unspecified").tag(EventPlaceForm.FormValue.KindChoice.unspecified)
+                if store.form.value.kindChoice == .unrecognized {
+                    Text("Unrecognized kind").tag(EventPlaceForm.FormValue.KindChoice.unrecognized)
+                }
+            }
 
             PortableTextField(
                 "Description",
@@ -2028,12 +2102,14 @@ struct EditStageLoadedForm: View {
             )
             .portableLineLimit(2...6)
 
-            TextField("Category", text: $store.form.value.category)
+            if store.form.value.kindChoice == .stage {
+                TextField("Category", text: $store.form.value.category)
 
-            if showsTechnicalDetails {
-                sortIndexField
+                if showsTechnicalDetails {
+                    sortIndexField
+                }
+                colorField
             }
-            colorField
         }
     }
 
@@ -2224,25 +2300,25 @@ struct EditStageLoadedForm: View {
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused(focusedField, equals: EditStageFormFieldID.name)
+                .focused(focusedField, equals: EventPlaceFormFormFieldID.name)
                 .onSubmit {
-                    store.send(.form(.fieldSubmitted(EditStageFormFieldID.name)))
+                    store.send(.form(.fieldSubmitted(EventPlaceFormFormFieldID.name)))
                 }
-            validationStatus(for: EditStageFormFieldID.name)
+            validationStatus(for: EventPlaceFormFormFieldID.name)
         }
     }
 
     private var sortIndexField: some View {
         VStack(alignment: .leading) {
             TextField("Sort Index", text: $store.form.value.sortIndex)
-                .focused(focusedField, equals: EditStageFormFieldID.sortIndex)
+                .focused(focusedField, equals: EventPlaceFormFormFieldID.sortIndex)
                 .onSubmit {
-                    store.send(.form(.fieldSubmitted(EditStageFormFieldID.sortIndex)))
+                    store.send(.form(.fieldSubmitted(EventPlaceFormFormFieldID.sortIndex)))
                 }
             #if os(iOS)
                 .keyboardType(.numbersAndPunctuation)
             #endif
-            validationStatus(for: EditStageFormFieldID.sortIndex)
+            validationStatus(for: EventPlaceFormFormFieldID.sortIndex)
         }
     }
 
@@ -2264,13 +2340,13 @@ struct EditStageLoadedForm: View {
     }
 }
 
-struct EditStageContent: View {
-    let store: StoreOf<EditStage>
+struct EventPlaceFormContent: View {
+    let store: StoreOf<EventPlaceForm>
     let focusedField: FocusState<AnyHashable?>.Binding
 
     var body: some View {
         if store.hasLoadedDraft {
-            EditStageLoadedForm(
+            EventPlaceFormLoadedForm(
                 store: store,
                 focusedField: focusedField
             )
@@ -2278,14 +2354,14 @@ struct EditStageContent: View {
             ViewerPlaceholderView(
                 title: store.navigationTitle,
                 systemImage: "square.grid.2x2",
-                description: "This event stage could not be loaded."
+                description: "This event place could not be loaded."
             )
         }
     }
 }
 
-struct EditStageCancelButton: View {
-    let store: StoreOf<EditStage>
+struct EventPlaceFormCancelButton: View {
+    let store: StoreOf<EventPlaceForm>
 
     var body: some View {
         Button {
@@ -2297,8 +2373,8 @@ struct EditStageCancelButton: View {
     }
 }
 
-struct EditStageSaveButton: View {
-    let store: StoreOf<EditStage>
+struct EventPlaceFormSaveButton: View {
+    let store: StoreOf<EventPlaceForm>
 
     var body: some View {
         SubmitButton(
@@ -2424,7 +2500,7 @@ private extension String {
     }
 }
 
-private extension EditStage.State {
+private extension EventPlaceForm.State {
     static func formatHexColor(_ color: OME.Color) -> String {
         String(format: "#%06X", color.rawValue & 0xFFFFFF)
     }

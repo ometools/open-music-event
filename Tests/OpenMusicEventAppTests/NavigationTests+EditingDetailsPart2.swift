@@ -48,9 +48,9 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: ChannelForm.State(
+                initialState: SocialCategoryForm.State(
                     eventID: eventID,
-                    formValue: ChannelForm.FormValue(
+                    formValue: SocialCategoryForm.FormValue(
                         name: "  General Updates  ",
                         description: "  Important information for everyone.  ",
                         defaultNotificationState: .unsubscribed,
@@ -58,13 +58,13 @@ extension NavigationTests {
                     )
                 )
             ) {
-                ChannelForm()
+                SocialCategoryForm()
             }
         }
 
         await store.send(
-            ChannelForm.Action.formSubmitted(
-                ChannelForm.FormValue(
+            SocialCategoryForm.Action.formSubmitted(
+                SocialCategoryForm.FormValue(
                     name: "  General Updates  ",
                     description: "  Important information for everyone.  ",
                     defaultNotificationState: .unsubscribed,
@@ -75,7 +75,7 @@ extension NavigationTests {
 
         let channel = try await database.read { db in
             try #require(
-                try CommunicationsViewer
+                try SocialCategoryList
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
                     .first(where: { $0.id != existingID })
@@ -105,7 +105,7 @@ extension NavigationTests {
 
         let channel = try await database.read { db in
             try #require(
-                try CommunicationsViewer
+                try SocialCategoryList
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
                     .first
@@ -115,14 +115,14 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: ChannelForm.State(category: channel)) {
-                ChannelForm()
+            TestStore(initialState: SocialCategoryForm.State(category: channel)) {
+                SocialCategoryForm()
             }
         }
 
         await store.send(
             .formSubmitted(
-                ChannelForm.FormValue(
+                SocialCategoryForm.FormValue(
                     name: "  Camp Updates  ",
                     description: "  Messages for campers.  ",
                     defaultNotificationState: .subscribed,
@@ -133,7 +133,7 @@ extension NavigationTests {
 
         let savedChannel = try await database.read { db in
             try #require(
-                try CommunicationsViewer
+                try SocialCategoryList
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
                     .first
@@ -149,6 +149,105 @@ extension NavigationTests {
     }
 
     @Test
+    func categoryFormAddsAndReordersMediaOnTheCanonicalRecord() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "Updates")
+        }
+        let category = try await database.read { db in
+            try #require(try Social.Category.find(categoryID).fetchOne(db))
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: SocialCategoryForm.State(category: category)) {
+                SocialCategoryForm()
+            }
+        }
+
+        // The organizer adds two public media links and moves the second one to the top.
+        for (title, url) in [
+            ("Header", "https://example.com/header"),
+            ("Icon", "https://example.com/icon"),
+        ] {
+            await store.send(.addExternalMediaButtonTapped)?.value
+            await store.send(.mediaDraftURIChanged(url))?.value
+            await store.send(.mediaDraftTitleChanged(title))?.value
+            await store.send(.mediaDraftSaveButtonTapped)?.value
+        }
+        let iconID = store.state.mediaEntries[1].id
+        await store.send(.mediaMoveButtonTapped(iconID, -1))?.value
+        #expect(store.state.mediaEntries.map(\.title) == ["Icon", "Header"])
+
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(\.formSubmitted, .equals(submittedValue), timeout: .seconds(1))
+        await save?.value
+        await submission?.value
+
+        let saved = try await database.read { db in
+            try #require(try Social.Category.find(categoryID).fetchOne(db))
+        }
+        #expect(saved.description == nil)
+        let media = (saved.media ?? []).compactMap { value -> OME.Media.External? in
+            guard case let .known(.external(external)) = value else { return nil }
+            return external
+        }
+        #expect(media.map(\.title) == ["Icon", "Header"])
+        #expect(media.map(\.uri.absoluteString) == [
+            "https://example.com/icon", "https://example.com/header",
+        ])
+    }
+
+    @Test
+    func categoryFormPreservesAnUnknownNotificationDefault() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "Updates")
+            var category = try #require(try Social.Category.find(categoryID).fetchOne(db))
+            category.defaultNotificationState = .unknown("digest")
+            category.notificationsRequired = nil
+            try Social.Category.upsert { category }.execute(db)
+        }
+        let category = try await database.read { db in
+            try #require(try Social.Category.find(categoryID).fetchOne(db))
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: SocialCategoryForm.State(category: category)) {
+                SocialCategoryForm()
+            }
+        }
+
+        #expect(store.state.form.value.defaultNotificationState == .unrecognized)
+        store.modify { $0.form.value.name = "Event News" }
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(\.formSubmitted, .equals(submittedValue), timeout: .seconds(1))
+        await save?.value
+        await submission?.value
+
+        let saved = try await database.read { db in
+            try #require(try Social.Category.find(categoryID).fetchOne(db))
+        }
+        #expect(saved.name == "Event News")
+        #expect(saved.description == nil)
+        #expect(saved.defaultNotificationState == .unknown("digest"))
+        #expect(saved.notificationsRequired == nil)
+    }
+
+    @Test
     func communicationsViewerChannelActionsEditAndDeleteTheSelectedChannel() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
@@ -159,7 +258,7 @@ extension NavigationTests {
         }
         let channel = try await database.read { db in
             try #require(
-                try CommunicationsViewer
+                try SocialCategoryList
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
                     .first
@@ -170,8 +269,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            TestStore(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 
@@ -192,7 +291,7 @@ extension NavigationTests {
         )?.value
 
         let channels = try await database.read { db in
-            try CommunicationsViewer.channelsQuery(eventID: eventID).fetchAll(db)
+            try SocialCategoryList.channelsQuery(eventID: eventID).fetchAll(db)
         }
         #expect(channels.isEmpty)
     }
@@ -215,7 +314,7 @@ extension NavigationTests {
         }
         let channel = try await database.read { db in
             try #require(
-                try CommunicationsViewer
+                try SocialCategoryList
                     .channelsQuery(eventID: eventID)
                     .fetchAll(db)
                 .first
@@ -242,12 +341,12 @@ extension NavigationTests {
             Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
                 .withLock { $0 = session }
             return TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 

@@ -15,14 +15,14 @@ public struct ScheduleSingleStageAtOnce {
     public struct State {
         public init(
             eventID: Event.ID,
-            scheduleDivision: ScheduleViewer.ScheduleDivision
+            scheduleDivision: ScheduleList.ScheduleDivision
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
-            let scheduleViewerState = ScheduleViewerState(
+            let scheduleViewerState = ScheduleListState(
                 eventID: eventID,
                 scheduleDivision: scheduleDivision
             )
@@ -30,16 +30,16 @@ public struct ScheduleSingleStageAtOnce {
             self.scheduleViewerStateBaseline = scheduleViewerState
             self._persistedScheduleViewerState = FetchOne(
                 wrappedValue: nil,
-                ScheduleViewerState.none
+                ScheduleListState.none
             )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
             _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: eventID)
+                ScheduleList.schedulesQuery(eventID: eventID)
             )
             _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: eventID)
+                ScheduleList.stagesQuery(eventID: eventID)
             )
             _event = FetchOne(Event.where { $0.id.eq(eventID) })
             _programs = FetchAll(Program.where { $0.event.eq(eventID) })
@@ -50,10 +50,10 @@ public struct ScheduleSingleStageAtOnce {
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
-        public let scheduleDivision: ScheduleViewer.ScheduleDivision
-        public var scheduleViewerState: ScheduleViewerState
-        var scheduleViewerStateBaseline: ScheduleViewerState
-        @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
+        public let scheduleDivision: ScheduleList.ScheduleDivision
+        public var scheduleViewerState: ScheduleListState
+        var scheduleViewerStateBaseline: ScheduleListState
+        @FetchOne var persistedScheduleViewerState: ScheduleListState?
 
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
@@ -63,13 +63,13 @@ public struct ScheduleSingleStageAtOnce {
 
         public var selectedStageID: EventPlace.ID? {
             get {
-                ScheduleViewer.normalizedSelectedStageID(
+                ScheduleList.normalizedSelectedStageID(
                     selectedStageID: scheduleViewerState.selectedStageID,
                     stages: visibleStages
                 )
             }
             set {
-                let selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+                let selectedStageID = ScheduleList.normalizedSelectedStageID(
                     selectedStageID: newValue,
                     stages: visibleStages
                 )
@@ -78,7 +78,7 @@ public struct ScheduleSingleStageAtOnce {
         }
 
         mutating func normalizeSelectedStageID() {
-            scheduleViewerState.selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+            scheduleViewerState.selectedStageID = ScheduleList.normalizedSelectedStageID(
                 selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
             )
@@ -94,7 +94,7 @@ public struct ScheduleSingleStageAtOnce {
         public func visiblePerformanceRows(
             selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
-            ScheduleViewer.visiblePerformances(
+            ScheduleList.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
                 division: scheduleDivision
@@ -112,14 +112,14 @@ public struct ScheduleSingleStageAtOnce {
         public func resolvedSelectedScheduleID(
             _ selectedScheduleID: Schedule.ID?
         ) -> Schedule.ID? {
-            ScheduleViewer.resolvedSelectedScheduleID(
+            ScheduleList.resolvedSelectedScheduleID(
                 selectedScheduleID,
                 schedules: schedules
             )
         }
 
         public var resolvedSelectedStageID: EventPlace.ID? {
-            ScheduleViewer.resolvedSelectedStageID(
+            ScheduleList.resolvedSelectedStageID(
                 selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
             )
@@ -131,7 +131,7 @@ public struct ScheduleSingleStageAtOnce {
         }
 
         public var visibleStages: [EventPlace] {
-            ScheduleViewer.visibleStages(
+            ScheduleList.visibleStages(
                 stages: stages,
                 division: scheduleDivision
             )
@@ -142,7 +142,7 @@ public struct ScheduleSingleStageAtOnce {
         case deletePerformanceButtonTapped(ProgramItem.ID)
         case editPerformanceButtonTapped(ProgramItem.ID)
         case newUserScheduleButtonTapped(ProgramItem.ID)
-        case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
+        case scheduleDivisionButtonTapped(ScheduleList.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             ProgramItem.ID,
             UserSchedule.ID
@@ -216,7 +216,7 @@ public struct ScheduleSingleStageAtOnce {
             guard state.scheduleViewerStateBaseline != viewerState else { return }
             do {
                 try database.write { db in
-                    try ScheduleViewerState.persistChanges(
+                    try ScheduleListState.persistChanges(
                         from: oldViewerState,
                         to: viewerState,
                         eventID: state.eventID,
@@ -240,14 +240,14 @@ public struct ScheduleSingleStageAtOnce {
             let persistedState = state.$persistedScheduleViewerState
             store.addTask {
                 let subscription = try await persistedState.load(
-                    ScheduleViewerState.rows(
+                    ScheduleListState.rows(
                         eventID: eventID,
                         scheduleDivision: scheduleDivision
                     )
                 )
                 if persistedState.wrappedValue == nil {
                     let defaultState = try await database.read { db in
-                        try ScheduleViewerStateRequest(
+                        try ScheduleListStateRequest(
                             eventID: eventID,
                             scheduleDivision: scheduleDivision
                         )
@@ -345,7 +345,7 @@ public struct ScheduleSingleStageAtOnceView: View {
     var timeline: some View {
         if visibleStages.isEmpty {
             ScheduleEmptyView(
-                title: ScheduleViewer.emptyScheduleTitle(
+                title: ScheduleList.emptyScheduleTitle(
                     scheduleDivision: store.scheduleDivision,
                     scheduleTitle: selectedScheduleTitle
                 ),
@@ -402,14 +402,14 @@ public struct ScheduleSingleStageAtOnceView: View {
     }
 
     var unavailableStageIDs: Set<EventPlace.ID> {
-        ScheduleViewer.unavailableStageIDs(
+        ScheduleList.unavailableStageIDs(
             stages: visibleStages,
             performances: visiblePerformances
         )
     }
 
-    var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
-        ScheduleViewer.scheduleDivisions(event: store.event, programs: store.programs)
+    var otherScheduleDivisions: [ScheduleList.ScheduleDivision] {
+        ScheduleList.scheduleDivisions(event: store.event, programs: store.programs)
             .filter { $0 != store.scheduleDivision }
     }
 
@@ -418,7 +418,7 @@ public struct ScheduleSingleStageAtOnceView: View {
               let schedule = store.schedules.first(where: { $0.id == scheduleID }),
               let timeZone = store.timeZone
         else { return "Select Schedule" }
-        return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
+        return ScheduleList.scheduleTitle(schedule, in: timeZone)
     }
 
     var timeRange: DateInterval? {
@@ -443,8 +443,8 @@ public struct ScheduleSingleStageAtOnceView: View {
 
 struct ScheduleEmptyView: View {
     let title: String
-    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
-    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+    let otherScheduleDivisions: [ScheduleList.ScheduleDivision]
+    let onScheduleDivisionTapped: (ScheduleList.ScheduleDivision) -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -487,9 +487,9 @@ struct ScheduleStagePager: View {
     let timeRange: DateInterval?
     let pageHeight: CGFloat?
     let userScheduleOverlay: UserScheduleOverlay
-    let scheduleDivision: ScheduleViewer.ScheduleDivision
+    let scheduleDivision: ScheduleList.ScheduleDivision
     let scheduleTitle: String
-    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
+    let otherScheduleDivisions: [ScheduleList.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         ProgramItem.ID,
@@ -499,7 +499,7 @@ struct ScheduleStagePager: View {
     let onEditPerformanceTapped: (ProgramItem.ID) -> Void
     let onDeletePerformanceTapped: (ProgramItem.ID) -> Void
     let onPerformanceTapped: (ProgramItem.ID) -> Void
-    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+    let onScheduleDivisionTapped: (ScheduleList.ScheduleDivision) -> Void
 
     @ViewBuilder
     var body: some View {
@@ -530,7 +530,7 @@ struct ScheduleStagePager: View {
                 HorizontalPageView(page: $selectedStageID) {
                     ForEach(stages) { stage in
                         ScheduleEmptyView(
-                            title: ScheduleViewer.emptyStageTitle(
+                            title: ScheduleList.emptyStageTitle(
                                 scheduleDivision: scheduleDivision,
                                 scheduleTitle: scheduleTitle,
                                 stage: stage
@@ -562,7 +562,7 @@ struct ScheduleStagePager: View {
             timeRange: timeRange,
             pageHeight: pageHeight,
             userScheduleOverlay: userScheduleOverlay,
-            emptyTitle: ScheduleViewer.emptyStageTitle(
+            emptyTitle: ScheduleList.emptyStageTitle(
                 scheduleDivision: scheduleDivision,
                 scheduleTitle: scheduleTitle,
                 stage: stage
@@ -609,7 +609,7 @@ struct ScheduleFixedStageTimeline: View {
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
-    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
+    let otherScheduleDivisions: [ScheduleList.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         ProgramItem.ID,
@@ -619,7 +619,7 @@ struct ScheduleFixedStageTimeline: View {
     let onEditPerformanceTapped: (ProgramItem.ID) -> Void
     let onDeletePerformanceTapped: (ProgramItem.ID) -> Void
     let onPerformanceTapped: (ProgramItem.ID) -> Void
-    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+    let onScheduleDivisionTapped: (ScheduleList.ScheduleDivision) -> Void
 
     init(
         stage: EventPlace,
@@ -628,7 +628,7 @@ struct ScheduleFixedStageTimeline: View {
         pageHeight: CGFloat,
         userScheduleOverlay: UserScheduleOverlay,
         emptyTitle: String,
-        otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] = [],
+        otherScheduleDivisions: [ScheduleList.ScheduleDivision] = [],
         showsAuthoringControls: Bool,
         onUserScheduleMembershipTapped: @escaping (
             ProgramItem.ID,
@@ -638,7 +638,7 @@ struct ScheduleFixedStageTimeline: View {
         onEditPerformanceTapped: @escaping (ProgramItem.ID) -> Void,
         onDeletePerformanceTapped: @escaping (ProgramItem.ID) -> Void,
         onPerformanceTapped: @escaping (ProgramItem.ID) -> Void,
-        onScheduleDivisionTapped: @escaping (ScheduleViewer.ScheduleDivision) -> Void = { _ in }
+        onScheduleDivisionTapped: @escaping (ScheduleList.ScheduleDivision) -> Void = { _ in }
     ) {
         self.stage = stage
         self.performances = performances
@@ -687,7 +687,7 @@ struct ScheduleStageTimelinePage: View {
     let timeRange: DateInterval
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
-    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
+    let otherScheduleDivisions: [ScheduleList.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         ProgramItem.ID,
@@ -697,7 +697,7 @@ struct ScheduleStageTimelinePage: View {
     let onEditPerformanceTapped: (ProgramItem.ID) -> Void
     let onDeletePerformanceTapped: (ProgramItem.ID) -> Void
     let onPerformanceTapped: (ProgramItem.ID) -> Void
-    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+    let onScheduleDivisionTapped: (ScheduleList.ScheduleDivision) -> Void
 
     var body: some View {
         if let eventTimePresentation {

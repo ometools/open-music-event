@@ -76,7 +76,7 @@ extension NavigationTests {
         }
 
         let schedules = try await database.read { db in
-            try ScheduleViewer.schedulesQuery(eventID: selectedEventID).fetchAll(db)
+            try ScheduleList.schedulesQuery(eventID: selectedEventID).fetchAll(db)
         }
         expectNoDifference(schedules.map { $0.id }, [earlyID, lateID, saturdayID])
     }

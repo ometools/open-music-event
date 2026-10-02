@@ -3,10 +3,10 @@ import ComposableForms
 import OpenMusicEventComponents
 import SwiftUI
 
-public struct EditPersistentStageView: View {
-    @Bindable var store: StoreOf<EditPersistentStage>
+public struct StageFormView: View {
+    @Bindable var store: StoreOf<StageForm>
 
-    public init(store: StoreOf<EditPersistentStage>) {
+    public init(store: StoreOf<StageForm>) {
         self.store = store
     }
 
@@ -73,7 +73,7 @@ public struct EditPersistentStageView: View {
             Section("Stage Profile") {
                 TextField("Name", text: $store.form.value.name)
                 FormFieldValidationStatus(
-                    validation: store.form.validation[AnyHashable(\EditPersistentStage.FormValue.name)]
+                    validation: store.form.validation[AnyHashable(\StageForm.FormValue.name)]
                 )
                 PortableTextField(
                     "Description", text: $store.form.value.description, axis: .vertical

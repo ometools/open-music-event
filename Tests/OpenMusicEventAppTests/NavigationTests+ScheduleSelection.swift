@@ -56,7 +56,7 @@ extension NavigationTests {
             $0.date = .constant(now)
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
         state.selectedFeature = .contributors
 
@@ -110,7 +110,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(
+            ScheduleList.State(
                 eventID: eventID,
                 scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
             )
@@ -167,7 +167,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(
+            ScheduleList.State(
                 eventID: eventID,
                 scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
             )
@@ -215,7 +215,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(
+            ScheduleList.State(
                 eventID: eventID,
                 scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
             )

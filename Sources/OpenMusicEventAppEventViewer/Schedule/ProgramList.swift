@@ -10,7 +10,7 @@ import SwiftUI
 #endif
 
 @Feature
-public struct ManagePrograms {
+public struct ProgramList {
     public init() {}
 
     public struct State: Identifiable {
@@ -44,7 +44,7 @@ public struct ManagePrograms {
 
     @Feature
     public enum Destination {
-        case editor(Spawn<EditProgram>)
+        case editor(Spawn<ProgramForm>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -54,14 +54,14 @@ public struct ManagePrograms {
             switch action {
             case .addButtonTapped:
                 guard state.event != nil else { return }
-                state.destination = .editor(Spawn(EditProgram.State(
+                state.destination = .editor(Spawn(ProgramForm.State(
                     eventID: state.eventID,
                     places: state.places
                 )))
 
             case let .editButtonTapped(id):
                 guard let program = state.orderedPrograms.first(where: { $0.id == id }) else { return }
-                state.destination = .editor(Spawn(EditProgram.State(
+                state.destination = .editor(Spawn(ProgramForm.State(
                     eventID: state.eventID,
                     program: program,
                     places: state.places
@@ -98,10 +98,10 @@ public struct ManagePrograms {
     }
 }
 
-public struct ManageProgramsView: View {
-    @Bindable var store: StoreOf<ManagePrograms>
+public struct ProgramListView: View {
+    @Bindable var store: StoreOf<ProgramList>
 
-    public init(store: StoreOf<ManagePrograms>) {
+    public init(store: StoreOf<ProgramList>) {
         self.store = store
     }
 
@@ -153,7 +153,7 @@ public struct ManageProgramsView: View {
             }
         }
         .navigationDestination(item: $store.scope(\.destination).editor) { editorStore in
-            EditProgramView(store: editorStore)
+            ProgramFormView(store: editorStore)
         }
     }
 }

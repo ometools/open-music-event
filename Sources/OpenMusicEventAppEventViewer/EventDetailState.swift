@@ -4,7 +4,7 @@ import Foundation
 import SQLiteData
 
 @Table("eventViewerState")
-public struct EventViewerState: Equatable, Sendable, Identifiable {
+public struct EventDetailState: Equatable, Sendable, Identifiable {
     public init(
         id: Event.ID,
         selectedScheduleID: Schedule.ID? = nil,
@@ -44,7 +44,7 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
         to newValue: Self,
         in db: Database
     ) throws {
-        var storedValue = try EventViewerStateRequest(eventID: newValue.id).fetch(db)
+        var storedValue = try EventDetailStateRequest(eventID: newValue.id).fetch(db)
         var hasChanges = false
 
         if oldValue.selectedScheduleID != newValue.selectedScheduleID {
@@ -65,13 +65,13 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
     }
 }
 
-struct EventViewerStateRequest: FetchKeyRequest {
+struct EventDetailStateRequest: FetchKeyRequest {
     let eventID: Event.ID
 
-    func fetch(_ db: Database) throws -> EventViewerState {
-        try EventViewerState
+    func fetch(_ db: Database) throws -> EventDetailState {
+        try EventDetailState
             .where { $0.id.eq(eventID) }
             .fetchOne(db)
-        ?? EventViewerState(id: eventID)
+        ?? EventDetailState(id: eventID)
     }
 }

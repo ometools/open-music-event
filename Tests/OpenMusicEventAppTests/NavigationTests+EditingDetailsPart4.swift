@@ -62,8 +62,8 @@ extension NavigationTests {
         } operation: {
             Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
                 .withLock { $0 = session }
-            return Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
-                CommunicationsViewer()
+            return Store(initialState: SocialCategoryList.State(eventID: eventID)) {
+                SocialCategoryList()
             }
         }
 

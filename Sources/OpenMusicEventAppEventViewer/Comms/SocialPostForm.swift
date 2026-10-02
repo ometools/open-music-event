@@ -1,9 +1,12 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import ATProto
 import ATProtoTypes
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import Sharing
+import SQLiteData
 import SwiftUI
 
 public struct CommsPostDraft: Equatable, Sendable {
@@ -31,7 +34,7 @@ public struct CommsPostDraft: Equatable, Sendable {
 }
 
 @Feature
-public struct CommsPostComposer {
+public struct SocialPostForm {
     public init() {}
 
     public struct State {
@@ -49,6 +52,7 @@ public struct CommsPostComposer {
             self.imagePicker = ImageAssetPicker.State(
                 configuration: .communicationPostPhotos
             )
+            self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
 
         public init(post: Social.Post, eventID: Event.ID, author: DID) {
@@ -70,10 +74,12 @@ public struct CommsPostComposer {
             self.imagePicker = ImageAssetPicker.State(
                 configuration: .communicationPostPhotos
             )
+            self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
 
         public var eventID: Event.ID
         public var categoryID: Social.Category.ID?
+        @FetchAll public var categories: [Social.Category]
         public var author: DID
         public var editingPost: Social.Post?
         public var destination: Destination.State?
@@ -82,10 +88,13 @@ public struct CommsPostComposer {
         public var imagePicker: ImageAssetPicker.State
         public var isPreviewing = false
         public var isSaving = false
+        public var removedEmbed = false
 
         public var canSubmit: Bool {
             (editingPost != nil || !draft.trimmedTitle.isEmpty)
-                && (!draft.trimmedMarkdown.isEmpty || editingPost?.embed != nil)
+                && (!draft.trimmedMarkdown.isEmpty
+                    || !imagePicker.images.isEmpty
+                    || (editingPost?.embed != nil && !removedEmbed))
                 && !isSaving
                 && (draft.delivery != .emergency || canRequestEmergency)
         }
@@ -105,6 +114,7 @@ public struct CommsPostComposer {
         case cancelButtonTapped
         case destination(Destination.Action)
         case imagePicker(ImageAssetPicker.Action)
+        case removeEmbedButtonTapped
         case saveButtonTapped
     }
 
@@ -143,23 +153,29 @@ public struct CommsPostComposer {
             case .imagePicker:
                 break
 
+            case .removeEmbedButtonTapped:
+                state.removedEmbed = true
+
             case .saveButtonTapped:
                 guard state.canSubmit else { return }
-                guard state.imagePicker.images.isEmpty else {
-                    state.errorMessage = "Photos require a PDS upload before this post can be saved."
-                    return
-                }
                 let eventID = state.eventID
                 let categoryID = state.categoryID
                 let author = state.author
                 let draft = state.draft
                 let editingPost = state.editingPost
+                let images = state.imagePicker.images
+                let removedEmbed = state.removedEmbed
                 let hasUnknownDelivery = state.hasUnknownDelivery
                 let timestamp = date()
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
+                        let embed = try Self.preparedEmbed(
+                            images: images,
+                            existing: editingPost?.embed,
+                            removed: removedEmbed
+                        )
                         try await database.write { db in
                             var fields = SocialPostRecordEditing.Fields(
                                 title: draft.trimmedTitle.isEmpty ? nil : draft.trimmedTitle,
@@ -170,7 +186,7 @@ public struct CommsPostComposer {
                             if let editingPost {
                                 fields.facets = fields.text == editingPost.text
                                     ? editingPost.facets : nil
-                                fields.embed = editingPost.embed
+                                fields.embed = embed
                                 if hasUnknownDelivery {
                                     fields.delivery = editingPost.delivery
                                 }
@@ -184,6 +200,7 @@ public struct CommsPostComposer {
                                     in: db
                                 )
                             } else {
+                                fields.embed = embed
                                 _ = try SocialPostRecordEditing.create(
                                     eventID: eventID,
                                     categoryID: categoryID,
@@ -230,12 +247,51 @@ public struct CommsPostComposer {
         }
     }
 
+    private enum EmbedError: Error {
+        case imageUnavailable
+    }
+
+    private static func preparedEmbed(
+        images: [ImageAssetPicker.ImageValue],
+        existing: Social.Post.Embed?,
+        removed: Bool
+    ) throws -> Social.Post.Embed? {
+        guard !images.isEmpty else { return removed ? nil : existing }
+        let entries: [Lexicon.JSONValue] = try images.map { value in
+            let blob: ATProto.Blob
+            if let imported = value.importedImage {
+                blob = try stageLocalImageBlob(
+                    imported.data,
+                    mimeType: ATProto.MIMEType(rawValue: imported.mimeType)
+                )
+            } else if case let .known(.blob(existingBlob)) = value.image.source {
+                blob = existingBlob
+            } else {
+                throw EmbedError.imageUnavailable
+            }
+            var blobObject: [String: Lexicon.JSONValue] = [
+                "$type": "blob",
+                "ref": .object(["$link": .string(blob.ref.rawValue)]),
+                "mimeType": .string(blob.mimeType.rawValue),
+            ]
+            if let size = blob.size { blobObject["size"] = .integer(Int64(size)) }
+            return .object([
+                "alt": .string(value.image.alt?.rawValue ?? ""),
+                "image": .object(blobObject),
+            ])
+        }
+        return Social.Post.Embed([
+            "$type": "app.bsky.embed.images",
+            "images": .array(entries),
+        ])
+    }
+
 }
 
-public struct CommsPostComposerView: View {
-    @Bindable var store: StoreOf<CommsPostComposer>
+public struct SocialPostFormView: View {
+    @Bindable var store: StoreOf<SocialPostForm>
 
-    public init(store: StoreOf<CommsPostComposer>) {
+    public init(store: StoreOf<SocialPostForm>) {
         self.store = store
     }
 
@@ -267,6 +323,15 @@ public struct CommsPostComposerView: View {
                 }
             }
 
+            Section("Category") {
+                Picker("Category", selection: $store.categoryID) {
+                    Text("None").tag(Social.Category.ID?.none)
+                    ForEach(store.categories, id: \.id) { category in
+                        Text(category.name).tag(Optional(category.id))
+                    }
+                }
+            }
+
             Section("Notification") {
                 if store.hasUnknownDelivery {
                     Text("This post uses an unrecognized delivery setting. It will be preserved.")
@@ -292,6 +357,15 @@ public struct CommsPostComposerView: View {
                     Text(errorMessage)
                         .font(.footnote)
                         .foregroundStyle(.red)
+                }
+            }
+
+            if store.editingPost?.embed != nil && !store.removedEmbed && store.imagePicker.images.isEmpty {
+                Section("Embed") {
+                    Text("This post has an existing embed.")
+                    Button("Remove Embed", role: .destructive) {
+                        store.send(.removeEmbedButtonTapped)
+                    }
                 }
             }
 

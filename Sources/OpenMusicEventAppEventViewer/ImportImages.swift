@@ -266,6 +266,16 @@ public extension ImportImages {
             )
         }
 
+        public static var socialCategoryMedia: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Category Images",
+                role: .icon(.init()),
+                renderingMode: .template,
+                imageInfoConfiguration: .allImages
+            )
+        }
+
         public static var programItemImages: Self {
             Self(
                 cardinality: .multiple,

@@ -77,7 +77,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            PerformanceDetail.State(
+            ProgramItemDetail.State(
                 performanceID: performanceID,
                 eventID: eventID
             )
@@ -98,12 +98,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: PerformanceDetail.State(
+                initialState: ProgramItemDetail.State(
                     performanceID: performanceID,
                     eventID: eventID
                 )
             ) {
-                PerformanceDetail()
+                ProgramItemDetail()
             }
         }
         store.send(.contributorButtonTapped(stylustID))

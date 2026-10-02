@@ -15,7 +15,7 @@ import SwiftUI
 import Tagged
 
 @Feature
-public struct EditPerformance {
+public struct ProgramItemForm {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
@@ -744,7 +744,7 @@ public struct EditPerformance {
 
                     state.errorMessage = nil
                     state.isSaving = true
-                    let request = EditPerformanceSaveRequest(
+                    let request = ProgramItemFormSaveRequest(
                         state: state,
                         programID: programID
                     )
@@ -753,7 +753,7 @@ public struct EditPerformance {
                     store.addTask {
                         do {
                             try database.write { db in
-                                try EditPerformanceDrafts.save(request, createdAt: createdAt, in: db)
+                                try ProgramItemFormDrafts.save(request, createdAt: createdAt, in: db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
@@ -799,12 +799,12 @@ public struct EditPerformance {
 
 }
 
-fileprivate struct EditPerformanceSaveRequest: Sendable {
-    let contributions: [EditPerformance.State.Contribution]
+fileprivate struct ProgramItemFormSaveRequest: Sendable {
+    let contributions: [ProgramItemForm.State.Contribution]
     let description: String?
     let endTime: Date?
     let eventID: Event.ID
-    let mediaEntries: [EditPerformance.State.MediaEntry]
+    let mediaEntries: [ProgramItemForm.State.MediaEntry]
     let performanceID: ProgramItem.ID?
     let programID: Program.ID
     let scheduleID: Schedule.ID?
@@ -812,7 +812,7 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     let startTime: Date?
     let title: String
 
-    init(state: EditPerformance.State, programID: Program.ID) {
+    init(state: ProgramItemForm.State, programID: Program.ID) {
         contributions = state.contributions
         description = state.trimmedDescription.nilIfEmpty
         endTime = state.isAssignedToSchedule && state.hasStartTime && state.hasEndTime
@@ -837,9 +837,9 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     }
 }
 
-fileprivate enum EditPerformanceDrafts {
+fileprivate enum ProgramItemFormDrafts {
     static func save(
-        _ request: EditPerformanceSaveRequest,
+        _ request: ProgramItemFormSaveRequest,
         createdAt: Date,
         in db: Database
     ) throws {
@@ -856,7 +856,7 @@ fileprivate enum EditPerformanceDrafts {
         if let performanceID = request.performanceID {
             guard let item = try ProgramItem.find(performanceID).fetchOne(db),
                   item.event == request.eventID
-            else { throw EditPerformanceSaveError() }
+            else { throw ProgramItemFormSaveError() }
             fields = ProgramItemRecordEditing.Fields(item)
         } else {
             fields = ProgramItemRecordEditing.Fields(
@@ -892,7 +892,7 @@ fileprivate enum EditPerformanceDrafts {
     }
 
     private static func credit(
-        for contribution: EditPerformance.State.Contribution,
+        for contribution: ProgramItemForm.State.Contribution,
         eventID: Event.ID,
         createdAt: Date,
         in db: Database
@@ -974,14 +974,14 @@ fileprivate enum EditPerformanceDrafts {
     }
 }
 
-private struct EditPerformanceSaveError: Error {}
+private struct ProgramItemFormSaveError: Error {}
 
-public struct EditPerformanceView: View {
+public struct ProgramItemFormView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
-    @Bindable var store: StoreOf<EditPerformance>
+    @Bindable var store: StoreOf<ProgramItemForm>
 
-    public init(store: StoreOf<EditPerformance>) {
+    public init(store: StoreOf<ProgramItemForm>) {
         self.store = store
     }
 
@@ -1172,14 +1172,14 @@ public struct EditPerformanceView: View {
                     Picker("Schedule", selection: $store.selectedScheduleID) {
                         Text("Choose a day").tag(Schedule.ID?.none)
                         ForEach(store.schedules) { schedule in
-                            Text(ScheduleViewer.scheduleTitle(schedule, in: store.timeZone))
+                            Text(ScheduleList.scheduleTitle(schedule, in: store.timeZone))
                                 .tag(Optional(schedule.id))
                         }
                     }
                 } else if let schedule = store.schedule {
                     LabeledContent(
                         "Schedule",
-                        value: ScheduleViewer.scheduleTitle(schedule, in: store.timeZone)
+                        value: ScheduleList.scheduleTitle(schedule, in: store.timeZone)
                     )
                 }
                 Toggle("Set start time", isOn: $store.hasStartTime)
@@ -1228,7 +1228,7 @@ public struct EditPerformanceView: View {
 
     @ViewBuilder
     private func contributionRows(
-        _ contributions: [EditPerformance.State.Contribution]
+        _ contributions: [ProgramItemForm.State.Contribution]
     ) -> some View {
         if !contributions.isEmpty {
             ForEach(contributions) { contribution in
@@ -1236,7 +1236,7 @@ public struct EditPerformanceView: View {
                     for: contribution.selection,
                     showsTechnicalDetails: showsTechnicalDetails
                 )
-                EditPerformanceContributionRow(
+                ProgramItemFormContributionRow(
                     title: contribution.creditName ?? summary?.title ?? "Contributor",
                     subtitle: summary?.subtitle,
                     isPrimary: contribution.billing == .known(.primary),
@@ -1418,13 +1418,13 @@ public struct EditPerformanceView: View {
     }
 }
 
-struct EditPerformanceContributionRow: View {
+struct ProgramItemFormContributionRow: View {
     let title: String
     let subtitle: String?
     let isPrimary: Bool
     let roleTitle: String
-    let roleSelection: EditPerformance.State.RelationshipRoleSelection?
-    let roleChanged: (EditPerformance.State.RelationshipRoleSelection?) -> Void
+    let roleSelection: ProgramItemForm.State.RelationshipRoleSelection?
+    let roleChanged: (ProgramItemForm.State.RelationshipRoleSelection?) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1448,9 +1448,9 @@ struct EditPerformanceContributionRow: View {
 
             Picker("Role", selection: roleSelectionBinding) {
                 Text("No role")
-                    .tag(EditPerformance.State.RelationshipRoleSelection?.none)
+                    .tag(ProgramItemForm.State.RelationshipRoleSelection?.none)
                 ForEach(
-                    EditPerformance.State.RelationshipRoleSelection.allCases,
+                    ProgramItemForm.State.RelationshipRoleSelection.allCases,
                     id: \.self
                 ) { role in
                     Text(title(for: role))
@@ -1462,7 +1462,7 @@ struct EditPerformanceContributionRow: View {
         .padding(.vertical, 2)
     }
 
-    private var roleSelectionBinding: Binding<EditPerformance.State.RelationshipRoleSelection?> {
+    private var roleSelectionBinding: Binding<ProgramItemForm.State.RelationshipRoleSelection?> {
         Binding(
             get: { roleSelection },
             set: { roleChanged($0) }
@@ -1470,7 +1470,7 @@ struct EditPerformanceContributionRow: View {
     }
 
     private func title(
-        for role: EditPerformance.State.RelationshipRoleSelection
+        for role: ProgramItemForm.State.RelationshipRoleSelection
     ) -> String {
         role == .custom && roleSelection == .custom
             ? roleTitle

@@ -46,12 +46,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: EditContributor.State(
+                initialState: ContributorForm.State(
                     contributorID: contributorID,
                     eventID: eventID
                 )
             ) {
-                EditContributor()
+                ContributorForm()
             }
         }
 

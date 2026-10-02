@@ -17,7 +17,7 @@ import Tagged
 import SwiftUI
 
 @Feature
-public struct ContributorsViewer {
+public struct ContributorList {
     public init() {}
 
     public struct State {
@@ -28,7 +28,7 @@ public struct ContributorsViewer {
             self.eventID = eventID
             self.destination = destination
             _contributorRows = FetchAll(
-                ContributorsViewer.contributorRowsQuery(
+                ContributorList.contributorRowsQuery(
                     eventID: eventID,
                     hydration: .bskyActorProfile
                 )
@@ -178,12 +178,12 @@ public struct ContributorsViewer {
     }
 }
 
-public struct ContributorsViewerView: View {
-    @Bindable var store: StoreOf<ContributorsViewer>
+public struct ContributorListView: View {
+    @Bindable var store: StoreOf<ContributorList>
     let showsAuthoringControls: Bool
 
     public init(
-        store: StoreOf<ContributorsViewer>,
+        store: StoreOf<ContributorList>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
@@ -359,13 +359,38 @@ struct ContributorsRowView: View {
 }
 
 @Feature
-public struct EditContributor {
+public struct ContributorForm {
     public init() {}
+
+    public struct EditableRole: Equatable, Identifiable {
+        public let id: UUID
+        public var name: String
+
+        public init(id: UUID = UUID(), name: String = "") {
+            self.id = id
+            self.name = name
+        }
+
+        init(_ role: Open<Contributor.Role>) {
+            switch role {
+            case let .known(value): self.init(name: value.rawValue)
+            case let .unknown(value): self.init(name: value.string ?? "")
+            }
+        }
+
+        var preparedRole: Open<Contributor.Role>? {
+            let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+            if let known = Contributor.Role(rawValue: value) { return .known(known) }
+            return .unknown(.string(value))
+        }
+    }
 
     public struct FormValue: Equatable {
         var bio = ""
         var links: [EditableLink] = []
         var name = ""
+        var roles: [EditableRole] = []
 
         init() {}
 
@@ -373,6 +398,7 @@ public struct EditContributor {
             bio = contributor.description ?? ""
             links = (contributor.links ?? []).map(EditableLink.init)
             name = contributor.name
+            roles = (contributor.roles ?? []).map(EditableRole.init)
         }
     }
 
@@ -490,6 +516,7 @@ public struct EditContributor {
             let name: String
             let originalContributor: Contributor?
             let photoImages: [ImageAssetPicker.ImageValue]
+            let roles: [Open<Contributor.Role>]?
 
             init(state: State) {
                 self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -501,6 +528,8 @@ public struct EditContributor {
                 self.name = state.trimmedName
                 self.originalContributor = state.originalContributor
                 self.photoImages = state.photoImagePicker.images
+                let roles = state.form.value.roles.compactMap(\.preparedRole)
+                self.roles = roles.isEmpty ? nil : roles
             }
 
             func fields() throws -> ContributorRecordEditing.Fields {
@@ -511,6 +540,7 @@ public struct EditContributor {
                 fields.description = bio
                 fields.links = links
                 fields.media = try preparedMedia()
+                fields.roles = roles
                 return fields
             }
 
@@ -644,6 +674,7 @@ public struct EditContributor {
     public enum Action {
         case onAppear
         case addLinkButtonTapped
+        case addRoleButtonTapped
         case actorIdentityTapped(ActorIdentity)
         case actorSearchSubmitted
         case actorSearchQueryChanged(String)
@@ -656,8 +687,10 @@ public struct EditContributor {
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
         case moveLinkButtonTapped(UUID, Int)
+        case moveRoleButtonTapped(UUID, Int)
         case photoImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(UUID)
+        case removeRoleButtonTapped(UUID)
         case saveButtonTapped
         case saveFailed(String)
         case saveSucceeded
@@ -696,6 +729,9 @@ public struct EditContributor {
                 let link = EditableLink()
                 state.form.value.links.append(link)
                 state.editingLinkID = link.id
+
+            case .addRoleButtonTapped:
+                state.form.value.roles.append(EditableRole())
 
             case let .actorIdentityTapped(identity):
                 state.contributorDID = identity.did
@@ -844,6 +880,11 @@ public struct EditContributor {
                       state.form.value.links.indices.contains(index + offset) else { return }
                 state.form.value.links.swapAt(index, index + offset)
 
+            case let .moveRoleButtonTapped(id, offset):
+                guard let index = state.form.value.roles.firstIndex(where: { $0.id == id }),
+                      state.form.value.roles.indices.contains(index + offset) else { return }
+                state.form.value.roles.swapAt(index, index + offset)
+
             case .photoImagePicker(.addButtonTapped):
                 state.destination = .photoImportImages(
                     Spawn(state.photoImagePicker.importImagesState())
@@ -861,6 +902,9 @@ public struct EditContributor {
             case let .removeLinkButtonTapped(id):
                 state.form.value.links.removeAll { $0.id == id }
                 if state.editingLinkID == id { state.editingLinkID = nil }
+
+            case let .removeRoleButtonTapped(id):
+                state.form.value.roles.removeAll { $0.id == id }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -986,12 +1030,13 @@ public struct EditContributor {
     )
 }
 
-private enum EditContributorFormFieldID {
-    static var links: AnyHashable { AnyHashable(\EditContributor.FormValue.links) }
-    static var name: AnyHashable { AnyHashable(\EditContributor.FormValue.name) }
+private enum ContributorFormFormFieldID {
+    static var links: AnyHashable { AnyHashable(\ContributorForm.FormValue.links) }
+    static var name: AnyHashable { AnyHashable(\ContributorForm.FormValue.name) }
+    static var roles: AnyHashable { AnyHashable(\ContributorForm.FormValue.roles) }
 }
 
-private extension EditContributor.FormFeature {
+private extension ContributorForm.FormFeature {
     init() {
         self.init {
             Self.Field(\.name) {
@@ -1008,20 +1053,29 @@ private extension EditContributor.FormFeature {
                     return .invalid(message)
                 }
             }
+
+            Self.Field(\.roles) {
+                Validation { roles -> ValidationResult in
+                    let names = roles.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    guard !names.contains("") else { return .invalid("Enter a role or delete the empty row.") }
+                    guard Set(names).count == names.count else { return .invalid("A role can only appear once.") }
+                    return .valid
+                }
+            }
         }
     }
 }
 
-public struct EditContributorView: View {
-    @Bindable var store: StoreOf<EditContributor>
+public struct ContributorFormView: View {
+    @Bindable var store: StoreOf<ContributorForm>
     @FocusState var focusedField: AnyHashable?
 
-    public init(store: StoreOf<EditContributor>) {
+    public init(store: StoreOf<ContributorForm>) {
         self.store = store
     }
 
     public var body: some View {
-        EditContributorContent(
+        ContributorFormContent(
             store: store,
             focusedField: $focusedField
         )
@@ -1037,10 +1091,10 @@ public struct EditContributorView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                EditContributorCancelButton(store: store)
+                ContributorFormCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                EditContributorSaveButton(store: store)
+                ContributorFormSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
@@ -1079,13 +1133,13 @@ public struct EditContributorView: View {
     }
 }
 
-struct EditContributorContent: View {
-    let store: StoreOf<EditContributor>
+struct ContributorFormContent: View {
+    let store: StoreOf<ContributorForm>
     let focusedField: FocusState<AnyHashable?>.Binding
 
     var body: some View {
         if store.hasLoadedDraft {
-            EditContributorLoadedForm(
+            ContributorFormLoadedForm(
                 store: store,
                 focusedField: focusedField
             )
@@ -1099,12 +1153,12 @@ struct EditContributorContent: View {
     }
 }
 
-struct EditContributorLoadedForm: View {
-    @Bindable var store: StoreOf<EditContributor>
+struct ContributorFormLoadedForm: View {
+    @Bindable var store: StoreOf<ContributorForm>
     let focusedField: FocusState<AnyHashable?>.Binding
 
     init(
-        store: StoreOf<EditContributor>,
+        store: StoreOf<ContributorForm>,
         focusedField: FocusState<AnyHashable?>.Binding
     ) {
         self.store = store
@@ -1117,7 +1171,7 @@ struct EditContributorLoadedForm: View {
                 nameField
             }
 
-            EditContributorActorProfileSection(
+            ContributorFormActorProfileSection(
                 query: $store.actorSearchQuery,
                 actor: store.contributorActor,
                 sections: store.actorSearchSections,
@@ -1139,6 +1193,30 @@ struct EditContributorLoadedForm: View {
                     .portableLineLimit(4...8)
             }
 
+            Section("Roles") {
+                ForEach(store.form.value.roles) { role in
+                    if let index = store.form.value.roles.firstIndex(where: { $0.id == role.id }) {
+                        HStack {
+                            TextField("Role", text: $store.form.value.roles[index].name)
+                            Menu {
+                                Button("Move Up") { store.send(.moveRoleButtonTapped(role.id, -1)) }
+                                    .disabled(index == 0)
+                                Button("Move Down") { store.send(.moveRoleButtonTapped(role.id, 1)) }
+                                    .disabled(index == store.form.value.roles.count - 1)
+                                Button("Delete", role: .destructive) {
+                                    store.send(.removeRoleButtonTapped(role.id))
+                                }
+                            } label: {
+                                Label("Role Actions", systemImage: "ellipsis.circle")
+                                    .labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                }
+                Button("Add Role") { store.send(.addRoleButtonTapped) }
+                FormFieldValidationStatus(validation: store.form.validation[ContributorFormFormFieldID.roles])
+            }
+
             ImageAssetPickerSection(
                 store: store.scope(\.photoImagePicker)
             )
@@ -1147,7 +1225,7 @@ struct EditContributorLoadedForm: View {
                 store: store.scope(\.logoImagePicker)
             )
 
-            EditContributorLinkSections(store: store)
+            ContributorFormLinkSections(store: store)
 
             if let errorMessage = store.errorMessage {
                 Section {
@@ -1162,11 +1240,11 @@ struct EditContributorLoadedForm: View {
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused(focusedField, equals: EditContributorFormFieldID.name)
+                .focused(focusedField, equals: ContributorFormFormFieldID.name)
                 .onSubmit {
-                    store.send(.form(.fieldSubmitted(EditContributorFormFieldID.name)))
+                    store.send(.form(.fieldSubmitted(ContributorFormFormFieldID.name)))
                 }
-            FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.name])
+            FormFieldValidationStatus(validation: store.form.validation[ContributorFormFormFieldID.name])
         }
     }
 
@@ -1183,8 +1261,8 @@ struct EditContributorLoadedForm: View {
     }
 }
 
-struct EditContributorCancelButton: View {
-    let store: StoreOf<EditContributor>
+struct ContributorFormCancelButton: View {
+    let store: StoreOf<ContributorForm>
 
     var body: some View {
         Button {
@@ -1196,8 +1274,8 @@ struct EditContributorCancelButton: View {
     }
 }
 
-struct EditContributorSaveButton: View {
-    let store: StoreOf<EditContributor>
+struct ContributorFormSaveButton: View {
+    let store: StoreOf<ContributorForm>
 
     var body: some View {
         SubmitButton(
@@ -1209,7 +1287,7 @@ struct EditContributorSaveButton: View {
     }
 }
 
-struct EditContributorActorProfileSection: View {
+struct ContributorFormActorProfileSection: View {
     @Binding var query: String
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let actor: DID?
@@ -1290,10 +1368,10 @@ struct EditContributorActorProfileSection: View {
     }
 }
 
-struct EditContributorLinkSections: View {
-    @Bindable var store: StoreOf<EditContributor>
+struct ContributorFormLinkSections: View {
+    @Bindable var store: StoreOf<ContributorForm>
 
-    init(store: StoreOf<EditContributor>) {
+    init(store: StoreOf<ContributorForm>) {
         self.store = store
     }
 
@@ -1330,7 +1408,7 @@ struct EditContributorLinkSections: View {
             Button("Add Link") {
                 store.send(.addLinkButtonTapped)
             }
-            FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
+            FormFieldValidationStatus(validation: store.form.validation[ContributorFormFormFieldID.links])
         }
         if let index = store.form.value.links.firstIndex(where: { $0.id == store.editingLinkID }) {
             Section("Edit Link") {

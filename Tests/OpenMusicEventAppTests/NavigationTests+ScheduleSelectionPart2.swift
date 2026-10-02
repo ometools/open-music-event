@@ -39,10 +39,10 @@ extension NavigationTests {
         let eventID = canonicalRouteEventID
         let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
         let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
-        let mainDivision = ScheduleViewer.ScheduleDivision(
+        let mainDivision = ScheduleList.ScheduleDivision(
             programID: mainProgramID, title: "Schedule", eventPlaces: [stageID]
         )
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq"),
             title: "Workshops"
         )
@@ -59,8 +59,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID, scheduleDivision: mainDivision)) {
-                ScheduleViewer()
+            TestStore(initialState: ScheduleList.State(eventID: eventID, scheduleDivision: mainDivision)) {
+                ScheduleList()
             }
         }
 
@@ -72,7 +72,7 @@ extension NavigationTests {
         }?.value
 
         let storedState = try await database.read { db in
-            try ScheduleViewerStateRequest(
+            try ScheduleListStateRequest(
                 eventID: eventID,
                 scheduleDivision: mainDivision
             )
@@ -84,8 +84,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: ScheduleViewer.State(eventID: eventID, scheduleDivision: mainDivision)) {
-                ScheduleViewer()
+            Store(initialState: ScheduleList.State(eventID: eventID, scheduleDivision: mainDivision)) {
+                ScheduleList()
             }
         }
 
@@ -99,12 +99,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: ScheduleViewer.State(
+                initialState: ScheduleList.State(
                     eventID: eventID,
                     scheduleDivision: workshopDivision
                 )
             ) {
-                ScheduleViewer()
+                ScheduleList()
             }
         }
 
@@ -122,7 +122,7 @@ extension NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
-        var storedState = ScheduleViewerState(
+        var storedState = ScheduleListState(
             eventID: eventID,
             scheduleDivision: .schedule
         )
@@ -132,10 +132,10 @@ extension NavigationTests {
         storedState.syncScheduleKindStorage()
         let stateToStore = storedState
         try await database.write { db in
-            try ScheduleViewerState.insert { stateToStore }.execute(db)
+            try ScheduleListState.insert { stateToStore }.execute(db)
         }
 
-        let staleState = ScheduleViewerState(
+        let staleState = ScheduleListState(
             eventID: eventID,
             scheduleDivision: .schedule
         )
@@ -143,7 +143,7 @@ extension NavigationTests {
         changedState.scheduleKind = .list
         let stateToPersist = changedState
         try await database.write { db in
-            try ScheduleViewerState.persistChanges(
+            try ScheduleListState.persistChanges(
                 from: staleState,
                 to: stateToPersist,
                 eventID: eventID,
@@ -153,7 +153,7 @@ extension NavigationTests {
         }
 
         let mergedState = try await database.read { db in
-            try ScheduleViewerStateRequest(
+            try ScheduleListStateRequest(
                 eventID: eventID,
                 scheduleDivision: .schedule
             )
@@ -178,11 +178,11 @@ extension NavigationTests {
         }
 
         let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            try ScheduleList.stagesQuery(eventID: eventID).fetchAll(db)
         }
-        let orderedStages = ScheduleViewer.visibleStages(
+        let orderedStages = ScheduleList.visibleStages(
             stages: stages,
-            division: ScheduleViewer.ScheduleDivision(
+            division: ScheduleList.ScheduleDivision(
                 programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae"),
                 title: "Schedule",
                 eventPlaces: [mainID, lateID]
@@ -190,19 +190,19 @@ extension NavigationTests {
         )
 
         #expect(
-            ScheduleViewer.resolvedSelectedStageID(
+            ScheduleList.resolvedSelectedStageID(
                 selectedStageID: nil,
                 stages: orderedStages
             ) == mainID
         )
         #expect(
-            ScheduleViewer.resolvedSelectedStageID(
+            ScheduleList.resolvedSelectedStageID(
                 selectedStageID: missingID,
                 stages: orderedStages
             ) == mainID
         )
         #expect(
-            ScheduleViewer.resolvedSelectedStageID(
+            ScheduleList.resolvedSelectedStageID(
                 selectedStageID: lateID,
                 stages: orderedStages
             ) == lateID
@@ -222,12 +222,12 @@ extension NavigationTests {
             )
         }
 
-        func state() -> EventViewer.State {
+        func state() -> EventDetail.State {
             withDependencies {
                 $0.context = .test
                 $0.defaultDatabase = database
             } operation: {
-                EventViewer.State(eventID: eventID)
+                EventDetail.State(eventID: eventID)
             }
         }
 
@@ -280,7 +280,7 @@ extension NavigationTests {
                 programs: try Program.where { $0.event.eq(eventID) }.fetchAll(db)
             )
         }
-        let divisions = ScheduleViewer.scheduleDivisions(event: records.event, programs: records.programs)
+        let divisions = ScheduleList.scheduleDivisions(event: records.event, programs: records.programs)
 
         #expect(divisions.map(\.programID) == [mainProgramID, workshopProgramID])
         #expect(divisions.map(\.title) == ["Schedule", "Workshops"])

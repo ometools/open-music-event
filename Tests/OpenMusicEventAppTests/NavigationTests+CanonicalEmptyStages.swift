@@ -34,6 +34,68 @@ import ATProto
 
 extension NavigationTests {
     @Test
+    func eventPlaceFormCreatesAndEditsNonStagePlaces() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Sparse Friday")
+        }
+
+        let creator = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EventPlaceForm.State(eventID: eventID)
+            state.form.value.name = "North Gate"
+            state.form.value.kindChoice = .entrance
+            return TestStore(initialState: state) { EventPlaceForm() }
+        }
+        await creator.send(.saveButtonTapped)?.value
+        await waitUntil { !creator.state.isSaving && !creator.isPresented }
+
+        let entrance = try await database.read { db in
+            try #require(try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db).first)
+        }
+        guard case .known(.entrance) = entrance.kind else {
+            Issue.record("Expected an entrance place")
+            return
+        }
+
+        let list = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EventPlaceList.State(eventID: eventID)) { EventPlaceList() }
+        }
+        expectNoDifference(list.state.places.map(\.id), [entrance.id])
+        #expect(list.state.stages.isEmpty)
+
+        let editor = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: EventPlaceForm.State(stageID: entrance.id, eventID: eventID)) {
+                EventPlaceForm()
+            }
+        }
+        #expect(editor.state.form.value.kindChoice == .entrance)
+        editor.modify { $0.form.value.kindChoice = .camping }
+        await editor.send(.saveButtonTapped)?.value
+        await waitUntil { !editor.state.isSaving && !editor.isPresented }
+
+        let camping = try await database.read { db in
+            try #require(try EventPlace.find(entrance.id).fetchOne(db))
+        }
+        guard case .known(.camping) = camping.kind else {
+            Issue.record("Expected a camping place")
+            return
+        }
+        expectNoDifference(camping.id, entrance.id)
+    }
+
+    @Test
     func scheduledCanonicalPlacesLeadWhileEmptyPlacesRemainVisible() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
@@ -101,11 +163,11 @@ extension NavigationTests {
         }
 
         let places = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            try ScheduleList.stagesQuery(eventID: eventID).fetchAll(db)
         }
-        let visible = ScheduleViewer.visibleStages(
+        let visible = ScheduleList.visibleStages(
             stages: places,
-            division: ScheduleViewer.ScheduleDivision(
+            division: ScheduleList.ScheduleDivision(
                 programID: programID,
                 title: "Main Schedule",
                 eventPlaces: [meadowID, ampID, groveID, lakeID]
@@ -119,14 +181,14 @@ extension NavigationTests {
             visible.map { $0.id }, [meadowID, ampID, groveID, lakeID]
         )
         expectNoDifference(
-            ScheduleViewer.unavailableStageIDs(
+            ScheduleList.unavailableStageIDs(
                 stages: visible, performances: performances
             ),
             Set([meadowID, groveID])
         )
         let meadow = try #require(places.first { $0.id == meadowID })
         expectNoDifference(
-            ScheduleViewer.emptyStageTitle(
+            ScheduleList.emptyStageTitle(
                 scheduleDivision: .schedule,
                 scheduleTitle: "Friday",
                 stage: meadow

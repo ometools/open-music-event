@@ -17,7 +17,7 @@ enum PersistentStageDeleted: FeatureEventKey {
 }
 
 @Feature
-public struct EditPersistentStage {
+public struct StageForm {
     public init() {}
 
     public struct FormValue: Equatable {
@@ -443,7 +443,7 @@ public struct EditPersistentStage {
     }
 }
 
-private extension EditPersistentStage.FormFeature {
+private extension StageForm.FormFeature {
     init() {
         self.init {
             Self.Field(\.name) {

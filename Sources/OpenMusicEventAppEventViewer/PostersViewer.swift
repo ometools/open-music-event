@@ -54,7 +54,7 @@ public struct PostersViewer {
             destination: Destination.State? = nil,
             importImages: Spawn<ImportImages>? = nil
         ) {
-            @Dependency(EventViewerContext.self) var eventViewer
+            @Dependency(EventDetailContext.self) var eventViewer
             let eventID = eventID ?? eventViewer.eventID
             self.eventID = eventID
             self.destination = destination

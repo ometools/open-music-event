@@ -574,8 +574,8 @@ struct WorkspaceAuthoringStoryTests {
                 $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             } operation: {
                 try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
-                let store = Store(initialState: EventViewer.State(eventID: eventID)) {
-                    EventViewer()
+                let store = Store(initialState: EventDetail.State(eventID: eventID)) {
+                    EventDetail()
                 }
                 let settings = try #require(store.spawn(\.eventSettings))
 

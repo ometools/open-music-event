@@ -24,21 +24,21 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 #endif
 
-public struct EventViewerDismissalRequested: FeatureEventKey {
+public struct EventDetailDismissalRequested: FeatureEventKey {
     public typealias Value = Event.ID
 
     public init() {}
 }
 
-struct EventViewerContext: Sendable {
+struct EventDetailContext: Sendable {
     let eventID: Event.ID
 }
 
-extension EventViewerContext: DependencyKey {
+extension EventDetailContext: DependencyKey {
     static var liveValue: Self {
         Self(
             eventID: unimplemented(
-                "EventViewerContext.eventID",
+                "EventDetailContext.eventID",
                 placeholder: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         )
@@ -47,7 +47,7 @@ extension EventViewerContext: DependencyKey {
     static var testValue: Self {
         Self(
             eventID: unimplemented(
-                "EventViewerContext.eventID",
+                "EventDetailContext.eventID",
                 placeholder: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         )
@@ -66,8 +66,8 @@ private enum DefaultEventTimeZoneKey: DependencyKey {
 
 extension DependencyValues {
     public var defaultEventID: Event.ID {
-        get { self[EventViewerContext.self].eventID }
-        set { self[EventViewerContext.self] = EventViewerContext(eventID: newValue) }
+        get { self[EventDetailContext.self].eventID }
+        set { self[EventDetailContext.self] = EventDetailContext(eventID: newValue) }
     }
 
     var defaultEventTimeZone: SharedReader<TimeZone> {
@@ -122,7 +122,7 @@ extension SharedReader where Value == AuthoringGrant? {
 
 extension Event {
   static var defaultEvent: some SelectStatementOf<Event> {
-    @Dependency(EventViewerContext.self) var eventViewer
+    @Dependency(EventDetailContext.self) var eventViewer
     return Self.where { $0.id.eq(eventViewer.eventID) }
   }
 }
@@ -143,7 +143,7 @@ extension OpenMusicEventViewers.EventFeature {
         let divisions: [ScheduleDivision] = (try? database.read { db -> [ScheduleDivision] in
             let event = try Event.find(eventID).fetchOne(db)
             let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
-            return ScheduleViewer.scheduleDivisions(event: event, programs: programs)
+            return ScheduleList.scheduleDivisions(event: event, programs: programs)
         }) ?? []
         return features(
             scheduleDivisions: divisions,
@@ -163,7 +163,7 @@ extension OpenMusicEventViewers.EventFeature {
 }
 
 @Feature
-public struct EventViewer {
+public struct EventDetail {
     public init() {}
 
     public typealias EventFeature = OpenMusicEventViewers.EventFeature
@@ -209,12 +209,12 @@ public struct EventViewer {
             self._event = FetchOne(
                 Event.where { $0.id.eq(eventID) }
             )
-            self.eventViewerState = EventViewerState(id: eventID)
+            self.eventViewerState = EventDetailState(id: eventID)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
-                EventViewerState.none
+                EventDetailState.none
             )
-            self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
+            self._stages = FetchAll(ScheduleList.stagesQuery(eventID: eventID))
             self._programs = FetchAll(Program.where { $0.event.eq(eventID) })
             self._reactions = FetchAll(
                 PerformanceReaction.forEvent(eventID: eventID)
@@ -244,11 +244,11 @@ public struct EventViewer {
             let existingPostersViewer = self.postersViewer
             let existingScheduleViewers = self.scheduleViewers
             let existingSiteMapViewer = self.siteMapViewer
-            let existingStagesViewer = self.stagesViewer
+            let existingEventPlaceList = self.eventPlaceList
 
             self.scheduleViewers = []
             self.contributorsViewer = nil
-            self.stagesViewer = nil
+            self.eventPlaceList = nil
             self.communicationsViewer = nil
             self.contactInfoViewer = nil
             self.locationViewer = nil
@@ -269,7 +269,7 @@ public struct EventViewer {
                             existingScheduleViewers.first {
                                 $0.state.scheduleDivision == division
                             } ?? Spawn(
-                                ScheduleViewer.State(
+                                ScheduleList.State(
                                     eventID: eventID,
                                     scheduleDivision: division
                                 )
@@ -277,13 +277,13 @@ public struct EventViewer {
                         )
                     case .contributors:
                         self.contributorsViewer = existingContributorsViewer
-                            ?? Spawn(ContributorsViewer.State(eventID: eventID))
+                            ?? Spawn(ContributorList.State(eventID: eventID))
                     case .stages:
-                        self.stagesViewer = existingStagesViewer
-                            ?? Spawn(StagesViewer.State(eventID: eventID))
+                        self.eventPlaceList = existingEventPlaceList
+                            ?? Spawn(EventPlaceList.State(eventID: eventID))
                     case .communications:
                         self.communicationsViewer = existingCommunicationsViewer
-                            ?? CommunicationsViewer.State(eventID: eventID)
+                            ?? SocialCategoryList.State(eventID: eventID)
                     case .contactInfo:
                         self.contactInfoViewer = existingContactInfoViewer
                             ?? Spawn(ContactInfoViewer.State(eventID: eventID))
@@ -377,8 +377,8 @@ public struct EventViewer {
         @Trigger public var workspaceSourcePrepared
         public let eventID: Event.ID
         @FetchOne public var event: Event?
-        public var eventViewerState: EventViewerState
-        @FetchOne var persistedEventViewerState: EventViewerState?
+        public var eventViewerState: EventDetailState
+        @FetchOne var persistedEventViewerState: EventDetailState?
         @FetchAll public var stages: [EventPlace]
         @FetchAll public var programs: [Program]
         @FetchAll public var reactions: [PerformanceReaction]
@@ -386,10 +386,10 @@ public struct EventViewer {
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
-        public var scheduleViewers: [Spawn<ScheduleViewer>] = []
-        public var contributorsViewer: Spawn<ContributorsViewer>?
-        public var stagesViewer: Spawn<StagesViewer>?
-        public var communicationsViewer: CommunicationsViewer.State?
+        public var scheduleViewers: [Spawn<ScheduleList>] = []
+        public var contributorsViewer: Spawn<ContributorList>?
+        public var eventPlaceList: Spawn<EventPlaceList>?
+        public var communicationsViewer: SocialCategoryList.State?
         public var contactInfoViewer: Spawn<ContactInfoViewer>?
         public var locationViewer: Spawn<LocationViewer>?
         public var siteMapViewer: Spawn<SiteMapViewer>?
@@ -437,7 +437,7 @@ public struct EventViewer {
             guard let target else {
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
                 return
             }
 
@@ -448,12 +448,12 @@ public struct EventViewer {
                 let eventID = self.eventID
                 if self.communicationsViewer == nil {
                     self.communicationsViewer = withEventDependencies {
-                        CommunicationsViewer.State(eventID: eventID)
+                        SocialCategoryList.State(eventID: eventID)
                     }
                 }
-                let destination: CommunicationsViewer.Destination.State = withEventDependencies {
+                let destination: SocialCategoryList.Destination.State = withEventDependencies {
                     .channelDetail(
-                        CommunicationChannelDetail.State(
+                        SocialCategoryDetail.State(
                             channelID: channelID,
                             eventID: eventID
                         )
@@ -464,16 +464,16 @@ public struct EventViewer {
                 let eventID = self.eventID
                 if self.communicationsViewer == nil {
                     self.communicationsViewer = withEventDependencies {
-                        CommunicationsViewer.State(eventID: eventID)
+                        SocialCategoryList.State(eventID: eventID)
                     }
                 }
-                let destination: CommunicationsViewer.Destination.State = withEventDependencies {
+                let destination: SocialCategoryList.Destination.State = withEventDependencies {
                     .channelDetail(
-                        CommunicationChannelDetail.State(
+                        SocialCategoryDetail.State(
                             channelID: channelID,
                             eventID: eventID,
                             destination: .postDetail(
-                                CommsPostDetail.State(postID: postID, eventID: eventID)
+                                SocialPostDetail.State(postID: postID, eventID: eventID)
                             )
                         )
                     )
@@ -486,11 +486,11 @@ public struct EventViewer {
                 }
                 if self.contributorsViewer == nil {
                     self.contributorsViewer = withEventDependencies {
-                        Spawn(ContributorsViewer.State(eventID: eventID))
+                        Spawn(ContributorList.State(eventID: eventID))
                     }
                 }
                 let destination = withEventDependencies {
-                    ContributorsViewer.Destination.State.contributorDetail(
+                    ContributorList.Destination.State.contributorDetail(
                         Spawn(
                             ContributorDetail.State(
                                 contributorID: contributorID
@@ -499,37 +499,37 @@ public struct EventViewer {
                     )
                 }
                 self.contributorsViewer?.state.destination = destination
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             case .contributors:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             case let .stage(stageID):
                 let eventID = self.eventID
                 self.eventSearch.state = withEventDependencies {
                     EventSearch.State(eventID: eventID)
                 }
                 self.contributorsViewer?.state.destination = nil
-                if self.stagesViewer == nil {
-                    self.stagesViewer = withEventDependencies {
-                        Spawn(StagesViewer.State(eventID: eventID))
+                if self.eventPlaceList == nil {
+                    self.eventPlaceList = withEventDependencies {
+                        Spawn(EventPlaceList.State(eventID: eventID))
                     }
                 }
                 let destination = withEventDependencies {
-                    StagesViewer.Destination.State.stageDetail(
+                    EventPlaceList.Destination.State.stageDetail(
                         Spawn(
-                            StageDetail.State(
+                            EventPlaceDetail.State(
                                 stageID: stageID
                             )
                         )
                     )
                 }
-                self.stagesViewer?.state.destination = destination
+                self.eventPlaceList?.state.destination = destination
             case let .performance(performanceID):
                 let eventID = self.eventID
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
                 for index in self.scheduleViewers.indices {
                     self.scheduleViewers[index].state.destination = nil
                 }
@@ -544,7 +544,7 @@ public struct EventViewer {
                 self.scheduleViewers[scheduleViewerIndex].state.destination = withEventDependencies {
                     .performanceDetail(
                         Spawn(
-                            PerformanceDetail.State(
+                            ProgramItemDetail.State(
                                 performanceID: performanceID
                             )
                         )
@@ -553,19 +553,19 @@ public struct EventViewer {
             case .stages:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             case .search:
                 self.eventSearch.state = EventSearch.State.route(eventID: eventID, target: target)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             case .workspace:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
-                self.stagesViewer?.state.destination = nil
+                self.eventPlaceList?.state.destination = nil
             }
         }
 
@@ -602,13 +602,13 @@ public struct EventViewer {
             case let .createContributor(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .contributorForm(EditContributor.State(eventID: eventID))
+                    .contributorForm(ContributorForm.State(eventID: eventID))
                 }
 
-            case let .createStage(eventID):
+            case let .createPlace(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .stageForm(EditStage.State(eventID: eventID))
+                    .eventPlaceForm(EventPlaceForm.State(eventID: eventID))
                 }
 
             case let .deletePerformance(eventID, _):
@@ -625,7 +625,7 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
                     .contributorForm(
-                        EditContributor.State(
+                        ContributorForm.State(
                             contributorID: contributorID,
                             eventID: eventID
                         )
@@ -649,12 +649,12 @@ public struct EventViewer {
                 }) else { return }
                 self.destination = .performanceForm(editPerformance)
 
-            case let .editStage(eventID, stageID):
+            case let .editPlace(eventID, placeID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .stageForm(
-                        EditStage.State(
-                            stageID: stageID,
+                    .eventPlaceForm(
+                        EventPlaceForm.State(
+                            stageID: placeID,
                             eventID: eventID
                         )
                     )
@@ -673,7 +673,7 @@ public struct EventViewer {
             scheduleID: Schedule.ID?,
             programID: Program.ID?,
             stageID: EventPlace.ID?
-        ) -> EditPerformance.State? {
+        ) -> ProgramItemForm.State? {
             @Dependency(\.defaultDatabase) var database
 
             do {
@@ -681,7 +681,7 @@ public struct EventViewer {
                     let event = try Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)
-                    var schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
+                    var schedules = try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
                     let loadedPrograms = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
                     let programsByID = Dictionary(uniqueKeysWithValues: loadedPrograms.map { ($0.id, $0) })
                     var programs = (event?.programs ?? []).compactMap { programsByID[$0] }
@@ -744,7 +744,7 @@ public struct EventViewer {
                         initialStartTime = nil
                     }
 
-                    return EditPerformance.State(
+                    return ProgramItemForm.State(
                         eventID: eventID,
                         schedule: schedule,
                         schedules: schedules,
@@ -786,14 +786,14 @@ public struct EventViewer {
 
         private func editPerformanceState(
             performanceID: ProgramItem.ID
-        ) -> EditPerformance.State? {
+        ) -> ProgramItemForm.State? {
             @Dependency(\.defaultDatabase) var database
 
             do {
                 return try database.read { db in
                     let event = try Event.find(eventID).fetchOne(db)
                     let performanceRows = try PerformanceRow.all(eventID: eventID).fetchAll(db)
-                    let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
+                    let schedules = try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
                     let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
                         .filter { event?.programs?.contains($0.id) == true }
                     let stages = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
@@ -805,7 +805,7 @@ public struct EventViewer {
                     }) else { return nil }
                     let schedule = schedules.first { $0.id == row.performance.schedule }
 
-                    return EditPerformance.State(
+                    return ProgramItemForm.State(
                         eventID: eventID,
                         schedule: schedule,
                         schedules: schedules,
@@ -821,7 +821,7 @@ public struct EventViewer {
             }
         }
 
-        private func editScheduleState() -> EditSchedule.State {
+        private func editScheduleState() -> ScheduleForm.State {
             @Dependency(\.defaultDatabase) var database
 
             let initialDate: LocalDate?
@@ -838,7 +838,7 @@ public struct EventViewer {
                 initialDate = nil
             }
 
-            return EditSchedule.State(
+            return ScheduleForm.State(
                 eventID: eventID,
                 initialDate: initialDate,
                 timeZone: eventTimeZone
@@ -849,7 +849,7 @@ public struct EventViewer {
             let eventID = self.eventID
             let eventTimeZone = self.eventTimeZoneReader
             return withDependencies {
-                $0[EventViewerContext.self] = EventViewerContext(eventID: eventID)
+                $0[EventDetailContext.self] = EventDetailContext(eventID: eventID)
                 $0.defaultEventTimeZone = eventTimeZone
             } operation: {
                 operation()
@@ -859,7 +859,7 @@ public struct EventViewer {
 
     public enum Action {
         case closeButtonTapped
-        case communicationsViewer(CommunicationsViewer.Action)
+        case communicationsViewer(SocialCategoryList.Action)
         case destination(Destination.Action)
         case editEventInfoButtonTapped
         case eventSearch(EventSearch.Action)
@@ -877,13 +877,13 @@ public struct EventViewer {
     @Feature
     public enum Destination {
         case contactInfoForm(EditContactInfo)
-        case contributorForm(EditContributor)
+        case contributorForm(ContributorForm)
         case copyStagesFromEvent(CopyStagesFromEvent)
-        case eventInfoForm(EditEventInfo)
+        case eventInfoForm(EventForm)
         case locationForm(EditLocation)
-        case performanceForm(EditPerformance)
-        case scheduleForm(EditSchedule)
-        case stageForm(EditStage)
+        case performanceForm(ProgramItemForm)
+        case scheduleForm(ScheduleForm)
+        case eventPlaceForm(EventPlaceForm)
     }
 
     private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
@@ -962,7 +962,7 @@ public struct EventViewer {
         guard state.eventWorkspace?.workspace.id == source.workspace.id else { return }
         precondition(
             source.applicationDatabaseID == ObjectIdentifier(database),
-            "A prepared source must use EventViewer's application database."
+            "A prepared source must use EventDetail's application database."
         )
         state.withEventDependencies {
             state.eventWorkspace?.changes = WorkspaceChanges.State(
@@ -982,7 +982,7 @@ public struct EventViewer {
                         let eventID = state.eventID
                         store.addTask {
                             let dismissal = try store.post(
-                                key: EventViewerDismissalRequested.self,
+                                key: EventDetailDismissalRequested.self,
                                 value: eventID
                             )
                             await dismissal?.value
@@ -1000,7 +1000,7 @@ public struct EventViewer {
                               let event = state.event
                         else { break }
                         state.destination = state.withEventDependencies {
-                            .eventInfoForm(EditEventInfo.State(event: event))
+                            .eventInfoForm(EventForm.State(event: event))
                         }
 
                     case .eventSearch:
@@ -1058,7 +1058,7 @@ public struct EventViewer {
                     guard state.persistedEventViewerState != viewerState else { return }
                     do {
                         try database.write { db in
-                            try EventViewerState.persistChanges(
+                            try EventDetailState.persistChanges(
                                 from: oldViewerState,
                                 to: viewerState,
                                 in: db
@@ -1078,7 +1078,7 @@ public struct EventViewer {
                     let persistedEventViewerState = state.$persistedEventViewerState
                     store.addTask {
                         try await persistedEventViewerState.load(
-                            EventViewerState.where { $0.id.eq(eventID) }
+                            EventDetailState.where { $0.id.eq(eventID) }
                         )
                         .task
                     }
@@ -1239,19 +1239,19 @@ public struct EventViewer {
             AnyFeature(
                 Features {
                     EmptyFeature<State, Action>().forEach(\.scheduleViewers) {
-                        ScheduleViewer()
+                        ScheduleList()
                     }
                     EmptyFeature<State, Action>().ifLet(\.contributorsViewer) {
-                        ContributorsViewer()
+                        ContributorList()
                     }
-                    EmptyFeature<State, Action>().ifLet(\.stagesViewer) {
-                        StagesViewer()
+                    EmptyFeature<State, Action>().ifLet(\.eventPlaceList) {
+                        EventPlaceList()
                     }
                     EmptyFeature<State, Action>().spawn(\.eventSearch) {
                         EventSearch()
                     }
                     EmptyFeature<State, Action>().ifLet(\.communicationsViewer) {
-                        CommunicationsViewer()
+                        SocialCategoryList()
                     }
                     EmptyFeature<State, Action>().ifLet(\.contactInfoViewer) {
                         ContactInfoViewer()
@@ -1307,15 +1307,15 @@ public struct EventViewer {
         }
         .ifLet(\.destination) {
             Destination.body
-                .dependency(EventViewerContext(eventID: store.eventID))
+                .dependency(EventDetailContext(eventID: store.eventID))
                 .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
         }
-        .dependency(EventViewerContext(eventID: store.eventID))
+        .dependency(EventDetailContext(eventID: store.eventID))
         .dependency(\.defaultEventTimeZone, store.eventTimeZoneReader)
     }
 }
 
-extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
+extension EventDetail.Destination.StoreEnumeration: @MainActor Identifiable {
     public typealias ID = AnyHashable
 
     @MainActor
@@ -1335,8 +1335,8 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
             destinationID("performanceForm", store.eventID, store.performanceID)
         case let .scheduleForm(store):
             destinationID("scheduleForm", store.eventID)
-        case let .stageForm(store):
-            destinationID("stageForm", store.eventID, store.stageID)
+        case let .eventPlaceForm(store):
+            destinationID("eventPlaceForm", store.eventID, store.stageID)
         }
     }
 
@@ -1345,13 +1345,13 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
     }
 }
 
-public struct EventViewerView: View {
-    public init(store: StoreOf<EventViewer>) {
+public struct EventDetailView: View {
+    public init(store: StoreOf<EventDetail>) {
         self.store = store
         self.accountStore = store.spawn(\.account)
     }
 
-    @Bindable var store: StoreOf<EventViewer>
+    @Bindable var store: StoreOf<EventDetail>
     @Bindable var accountStore: StoreOf<Account>
 
     public var body: some View {
@@ -1368,7 +1368,7 @@ public struct EventViewerView: View {
             .sheet(item: $store.scope(\.destination)) { _ in
                 if let destinationStore = store.scope(\.destination) {
                     NavigationStack {
-                        destinationContent(EventViewer.Destination.switch(store: destinationStore))
+                        destinationContent(EventDetail.Destination.switch(store: destinationStore))
                     }
                     .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
                 }
@@ -1393,25 +1393,25 @@ public struct EventViewerView: View {
 
     @ViewBuilder
     private func destinationContent(
-        _ destinationStore: EventViewer.Destination.StoreEnumeration
+        _ destinationStore: EventDetail.Destination.StoreEnumeration
     ) -> some View {
         switch destinationStore {
         case let .copyStagesFromEvent(copyStore):
             CopyStagesFromEventView(store: copyStore)
         case let .eventInfoForm(formStore):
-            EditEventInfoView(store: formStore)
+            EventFormView(store: formStore)
         case let .contributorForm(formStore):
-            EditContributorView(store: formStore)
-        case let .stageForm(formStore):
-            EditStageView(store: formStore)
+            ContributorFormView(store: formStore)
+        case let .eventPlaceForm(formStore):
+            EventPlaceFormView(store: formStore)
         case let .contactInfoForm(formStore):
             EditContactInfoView(store: formStore)
         case let .locationForm(formStore):
             EditLocationView(store: formStore)
         case let .performanceForm(formStore):
-            EditPerformanceView(store: formStore)
+            ProgramItemFormView(store: formStore)
         case let .scheduleForm(formStore):
-            EditScheduleView(store: formStore)
+            ScheduleFormView(store: formStore)
         }
     }
 
@@ -1440,7 +1440,7 @@ public struct EventViewerView: View {
     @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
     #endif
     struct TabFeaturesViewer: View {
-        @Bindable var store: StoreOf<EventViewer>
+        @Bindable var store: StoreOf<EventDetail>
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
@@ -1457,7 +1457,7 @@ public struct EventViewerView: View {
                 }
 
                 for featureStore in store.spawn(\.scheduleViewers) {
-                    let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
+                    let feature = EventDetail.EventFeature.schedule(featureStore.scheduleDivision)
                     TabFeature(
                         feature,
                         title: feature.title,
@@ -1465,7 +1465,7 @@ public struct EventViewerView: View {
                         labelTint: feature.labelTint,
                         navigation: .stack
                     ) {
-                        ScheduleViewerView(
+                        ScheduleListView(
                             store: featureStore,
                             selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                             pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
@@ -1477,27 +1477,27 @@ public struct EventViewerView: View {
                 if let featureStore = store.spawn(\.contributorsViewer) {
                     TabFeature(
                         .contributors,
-                        title: EventViewer.EventFeature.contributors.title,
-                        systemImage: EventViewer.EventFeature.contributors.systemImage,
-                        labelTint: EventViewer.EventFeature.contributors.labelTint,
+                        title: EventDetail.EventFeature.contributors.title,
+                        systemImage: EventDetail.EventFeature.contributors.systemImage,
+                        labelTint: EventDetail.EventFeature.contributors.labelTint,
                         navigation: .stack
                     ) {
-                        ContributorsViewerView(
+                        ContributorListView(
                             store: featureStore,
                             showsAuthoringControls: store.showsAuthoringControls
                         )
                     }
                 }
 
-                if let featureStore = store.spawn(\.stagesViewer) {
+                if let featureStore = store.spawn(\.eventPlaceList) {
                     TabFeature(
                         .stages,
-                        title: EventViewer.EventFeature.stages.title,
-                        systemImage: EventViewer.EventFeature.stages.systemImage,
-                        labelTint: EventViewer.EventFeature.stages.labelTint,
+                        title: EventDetail.EventFeature.stages.title,
+                        systemImage: EventDetail.EventFeature.stages.systemImage,
+                        labelTint: EventDetail.EventFeature.stages.labelTint,
                         navigation: .stack
                     ) {
-                        StagesViewerView(
+                        EventPlaceListView(
                             store: featureStore,
                             showsAuthoringControls: store.showsAuthoringControls
                         )
@@ -1507,13 +1507,13 @@ public struct EventViewerView: View {
                 if let featureStore = store.scope(\.communicationsViewer) {
                     TabFeature(
                         .communications,
-                        title: EventViewer.EventFeature.communications.title,
-                        systemImage: EventViewer.EventFeature.communications.systemImage,
-                        labelTint: EventViewer.EventFeature.communications.labelTint,
+                        title: EventDetail.EventFeature.communications.title,
+                        systemImage: EventDetail.EventFeature.communications.systemImage,
+                        labelTint: EventDetail.EventFeature.communications.labelTint,
                         badgeValue: featureStore.unreadPostCount,
                         navigation: .stack
                     ) {
-                        CommunicationsViewerView(store: featureStore)
+                        SocialCategoryListView(store: featureStore)
                     }
                 }
 
@@ -1521,9 +1521,9 @@ public struct EventViewerView: View {
                     if let featureStore = store.spawn(\.contactInfoViewer) {
                         TabFeature(
                             .contactInfo,
-                            title: EventViewer.EventFeature.contactInfo.title,
-                            systemImage: EventViewer.EventFeature.contactInfo.systemImage,
-                            labelTint: EventViewer.EventFeature.contactInfo.labelTint,
+                            title: EventDetail.EventFeature.contactInfo.title,
+                            systemImage: EventDetail.EventFeature.contactInfo.systemImage,
+                            labelTint: EventDetail.EventFeature.contactInfo.labelTint,
                             navigation: .stack
                         ) {
                             ContactInfoViewerView(
@@ -1536,9 +1536,9 @@ public struct EventViewerView: View {
                     if let featureStore = store.spawn(\.locationViewer) {
                         TabFeature(
                             .location,
-                            title: EventViewer.EventFeature.location.title,
-                            systemImage: EventViewer.EventFeature.location.systemImage,
-                            labelTint: EventViewer.EventFeature.location.labelTint,
+                            title: EventDetail.EventFeature.location.title,
+                            systemImage: EventDetail.EventFeature.location.systemImage,
+                            labelTint: EventDetail.EventFeature.location.labelTint,
                             navigation: .stack
                         ) {
                             LocationViewerView(
@@ -1552,8 +1552,8 @@ public struct EventViewerView: View {
                         TabFeature(
                             .siteMap,
                             title: featureStore.featureTitle,
-                            systemImage: EventViewer.EventFeature.siteMap.systemImage,
-                            labelTint: EventViewer.EventFeature.siteMap.labelTint,
+                            systemImage: EventDetail.EventFeature.siteMap.systemImage,
+                            labelTint: EventDetail.EventFeature.siteMap.labelTint,
                             navigation: .stack
                         ) {
                             SiteMapViewerView(
@@ -1567,9 +1567,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.spawn(\.postersViewer) {
                     TabFeature(
                         .posters,
-                        title: EventViewer.EventFeature.posters.title,
-                        systemImage: EventViewer.EventFeature.posters.systemImage,
-                        labelTint: EventViewer.EventFeature.posters.labelTint,
+                        title: EventDetail.EventFeature.posters.title,
+                        systemImage: EventDetail.EventFeature.posters.systemImage,
+                        labelTint: EventDetail.EventFeature.posters.labelTint,
                         navigation: .stack
                     ) {
                         PostersViewerView(
@@ -1582,9 +1582,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.spawn(\.notificationsViewer) {
                     TabFeature(
                         .notifications,
-                        title: EventViewer.EventFeature.notifications.title,
-                        systemImage: EventViewer.EventFeature.notifications.systemImage,
-                        labelTint: EventViewer.EventFeature.notifications.labelTint,
+                        title: EventDetail.EventFeature.notifications.title,
+                        systemImage: EventDetail.EventFeature.notifications.systemImage,
+                        labelTint: EventDetail.EventFeature.notifications.labelTint,
                         navigation: .stack
                     ) {
                         NotificationsViewerView(store: featureStore)
@@ -1594,9 +1594,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.spawn(\.eventSettings) {
                     TabFeature(
                         .settings,
-                        title: EventViewer.EventFeature.settings.title,
-                        systemImage: EventViewer.EventFeature.settings.systemImage,
-                        labelTint: EventViewer.EventFeature.settings.labelTint,
+                        title: EventDetail.EventFeature.settings.title,
+                        systemImage: EventDetail.EventFeature.settings.systemImage,
+                        labelTint: EventDetail.EventFeature.settings.labelTint,
                         badgeValue: featureStore.permissions.notificationSetupBadgeValue,
                         navigation: .stack
                     ) {
@@ -1607,9 +1607,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.scope(\.eventWorkspace) {
                     TabFeature(
                         .workspace,
-                        title: EventViewer.EventFeature.workspace.title,
-                        systemImage: EventViewer.EventFeature.workspace.systemImage,
-                        labelTint: EventViewer.EventFeature.workspace.labelTint,
+                        title: EventDetail.EventFeature.workspace.title,
+                        systemImage: EventDetail.EventFeature.workspace.systemImage,
+                        labelTint: EventDetail.EventFeature.workspace.labelTint,
                         badgeValue: featureStore.badgeCount,
                         navigation: .stack
                     ) {
@@ -1620,9 +1620,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.scope(\.canonicalWorkspace) {
                     TabFeature(
                         .workspace,
-                        title: EventViewer.EventFeature.workspace.title,
-                        systemImage: EventViewer.EventFeature.workspace.systemImage,
-                        labelTint: EventViewer.EventFeature.workspace.labelTint,
+                        title: EventDetail.EventFeature.workspace.title,
+                        systemImage: EventDetail.EventFeature.workspace.systemImage,
+                        labelTint: EventDetail.EventFeature.workspace.labelTint,
                         badgeValue: featureStore.badgeCount,
                         navigation: .stack
                     ) {
@@ -1636,9 +1636,9 @@ public struct EventViewerView: View {
                 if let featureStore = store.spawn(\.eventInfoViewer) {
                     TabFeature(
                         .about,
-                        title: EventViewer.EventFeature.about.title,
-                        systemImage: EventViewer.EventFeature.about.systemImage,
-                        labelTint: EventViewer.EventFeature.about.labelTint,
+                        title: EventDetail.EventFeature.about.title,
+                        systemImage: EventDetail.EventFeature.about.systemImage,
+                        labelTint: EventDetail.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
                         EventInfoViewerView(
@@ -1662,9 +1662,9 @@ public struct EventViewerView: View {
 //                if store.installedFeatures.contains(.share) {
 //                    TabFeature(
 //                        .share,
-//                        title: EventViewer.EventFeature.share.title,
-//                        systemImage: EventViewer.EventFeature.share.systemImage,
-//                        labelTint: EventViewer.EventFeature.share.labelTint,
+//                        title: EventDetail.EventFeature.share.title,
+//                        systemImage: EventDetail.EventFeature.share.systemImage,
+//                        labelTint: EventDetail.EventFeature.share.labelTint,
 //                        navigation: .stack
 //                    ) {
 //                        TestFlightShareView()
@@ -1701,7 +1701,7 @@ public struct EventViewerView: View {
                 #endif
             }
             .onChange(of: store.installedFeatures, initial: true) { _, features in
-                tabLayout = EventViewer.EventFeature.preferredTabLayout(for: features)
+                tabLayout = EventDetail.EventFeature.preferredTabLayout(for: features)
             }
         }
 
@@ -1711,9 +1711,9 @@ public struct EventViewerView: View {
     private var legacyiOSTabView: some View {
         TabView(selection: $store.selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
-                let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
+                let feature = EventDetail.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
-                    ScheduleViewerView(
+                    ScheduleListView(
                         store: featureStore,
                         selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                         pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
@@ -1725,22 +1725,22 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contributorsViewer) {
                 viewerTab(.contributors) {
-                    ContributorsViewerView(
+                    ContributorListView(
                         store: featureStore,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.contributors)
+                .tag(EventDetail.EventFeature.contributors)
             }
 
-            if let featureStore = store.spawn(\.stagesViewer) {
+            if let featureStore = store.spawn(\.eventPlaceList) {
                 viewerTab(.stages) {
-                    StagesViewerView(
+                    EventPlaceListView(
                         store: featureStore,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.stages)
+                .tag(EventDetail.EventFeature.stages)
             }
 
             if let featureStore = store.scope(\.communicationsViewer) {
@@ -1748,9 +1748,9 @@ public struct EventViewerView: View {
                     .communications,
                     badgeValue: featureStore.unreadPostCount
                 ) {
-                    CommunicationsViewerView(store: featureStore)
+                    SocialCategoryListView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.communications)
+                .tag(EventDetail.EventFeature.communications)
             }
 
             if let featureStore = store.spawn(\.contactInfoViewer) {
@@ -1760,7 +1760,7 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.contactInfo)
+                .tag(EventDetail.EventFeature.contactInfo)
             }
 
             if let featureStore = store.spawn(\.locationViewer) {
@@ -1770,14 +1770,14 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.location)
+                .tag(EventDetail.EventFeature.location)
             }
 
             if store.installedFeatures.contains(.search) {
                 viewerTab(.search) {
                     EventSearchView(store: store.spawn(\.eventSearch))
                 }
-                .tag(EventViewer.EventFeature.search)
+                .tag(EventDetail.EventFeature.search)
             }
 
             if let featureStore = store.spawn(\.siteMapViewer) {
@@ -1787,7 +1787,7 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.siteMap)
+                .tag(EventDetail.EventFeature.siteMap)
             }
 
             if let featureStore = store.spawn(\.postersViewer) {
@@ -1797,14 +1797,14 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.posters)
+                .tag(EventDetail.EventFeature.posters)
             }
 
             if let featureStore = store.spawn(\.notificationsViewer) {
                 viewerTab(.notifications) {
                     NotificationsViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.notifications)
+                .tag(EventDetail.EventFeature.notifications)
             }
 
             if let featureStore = store.spawn(\.eventSettings) {
@@ -1814,14 +1814,14 @@ public struct EventViewerView: View {
                 ) {
                     EventSettingsView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.settings)
+                .tag(EventDetail.EventFeature.settings)
             }
 
             if let featureStore = store.scope(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.workspace)
+                .tag(EventDetail.EventFeature.workspace)
             }
 
             if let featureStore = store.scope(\.canonicalWorkspace) {
@@ -1831,7 +1831,7 @@ public struct EventViewerView: View {
                         onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
                     )
                 }
-                .tag(EventViewer.EventFeature.workspace)
+                .tag(EventDetail.EventFeature.workspace)
             }
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
@@ -1842,7 +1842,7 @@ public struct EventViewerView: View {
                         onEdit: { store.send(.editEventInfoButtonTapped) }
                     )
                 }
-                .tag(EventViewer.EventFeature.about)
+                .tag(EventDetail.EventFeature.about)
             }
 
         }
@@ -1852,9 +1852,9 @@ public struct EventViewerView: View {
     private var defaultTabView: some View {
         TabView(selection: $store.selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
-                let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
+                let feature = EventDetail.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
-                    ScheduleViewerView(
+                    ScheduleListView(
                         store: featureStore,
                         selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                         pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
@@ -1866,22 +1866,22 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contributorsViewer) {
                 viewerTab(.contributors) {
-                    ContributorsViewerView(
+                    ContributorListView(
                         store: featureStore,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.contributors)
+                .tag(EventDetail.EventFeature.contributors)
             }
 
-            if let featureStore = store.spawn(\.stagesViewer) {
+            if let featureStore = store.spawn(\.eventPlaceList) {
                 viewerTab(.stages) {
-                    StagesViewerView(
+                    EventPlaceListView(
                         store: featureStore,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.stages)
+                .tag(EventDetail.EventFeature.stages)
             }
 
             if let featureStore = store.scope(\.communicationsViewer) {
@@ -1889,9 +1889,9 @@ public struct EventViewerView: View {
                     .communications,
                     badgeValue: featureStore.unreadPostCount
                 ) {
-                    CommunicationsViewerView(store: featureStore)
+                    SocialCategoryListView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.communications)
+                .tag(EventDetail.EventFeature.communications)
             }
 
             if let featureStore = store.spawn(\.contactInfoViewer) {
@@ -1901,7 +1901,7 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.contactInfo)
+                .tag(EventDetail.EventFeature.contactInfo)
             }
 
             if let featureStore = store.spawn(\.locationViewer) {
@@ -1911,7 +1911,7 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.location)
+                .tag(EventDetail.EventFeature.location)
             }
 
             if let featureStore = store.spawn(\.siteMapViewer) {
@@ -1921,7 +1921,7 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.siteMap)
+                .tag(EventDetail.EventFeature.siteMap)
             }
 
             if let featureStore = store.spawn(\.postersViewer) {
@@ -1931,14 +1931,14 @@ public struct EventViewerView: View {
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
-                .tag(EventViewer.EventFeature.posters)
+                .tag(EventDetail.EventFeature.posters)
             }
 
             if let featureStore = store.spawn(\.notificationsViewer) {
                 viewerTab(.notifications) {
                     NotificationsViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.notifications)
+                .tag(EventDetail.EventFeature.notifications)
             }
 
             if let featureStore = store.spawn(\.eventSettings) {
@@ -1948,14 +1948,14 @@ public struct EventViewerView: View {
                 ) {
                     EventSettingsView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.settings)
+                .tag(EventDetail.EventFeature.settings)
             }
 
             if let featureStore = store.scope(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     EventWorkspaceView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.workspace)
+                .tag(EventDetail.EventFeature.workspace)
             }
 
             if let featureStore = store.scope(\.canonicalWorkspace) {
@@ -1965,7 +1965,7 @@ public struct EventViewerView: View {
                         onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
                     )
                 }
-                .tag(EventViewer.EventFeature.workspace)
+                .tag(EventDetail.EventFeature.workspace)
             }
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
@@ -1976,20 +1976,20 @@ public struct EventViewerView: View {
                         onEdit: { store.send(.editEventInfoButtonTapped) }
                     )
                 }
-                .tag(EventViewer.EventFeature.about)
+                .tag(EventDetail.EventFeature.about)
             }
 
             if store.installedFeatures.contains(.search) {
                 viewerTab(.search) {
                     EventSearchView(store: store.spawn(\.eventSearch))
                 }
-                .tag(EventViewer.EventFeature.search)
+                .tag(EventDetail.EventFeature.search)
             }
         }
     }
 
     private func viewerTab<Content: View>(
-        _ feature: EventViewer.EventFeature,
+        _ feature: EventDetail.EventFeature,
         badgeValue: Int? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -2016,8 +2016,8 @@ public struct EventViewerView: View {
 
 }
 
-private extension EventViewer.State {
-    mutating func enterAuthoringEntry(_ entry: EventViewer.EditorEntry) {
+private extension EventDetail.State {
+    mutating func enterAuthoringEntry(_ entry: EventDetail.EditorEntry) {
         switch entry {
         case let .feature(feature):
             selectAuthoringFeature(feature)
@@ -2030,7 +2030,7 @@ private extension EventViewer.State {
         }
     }
 
-    mutating func selectAuthoringFeature(_ feature: EventViewer.EventFeature) {
+    mutating func selectAuthoringFeature(_ feature: EventDetail.EventFeature) {
         guard installedFeatures.contains(feature) else { return }
         selectedFeature = feature
         switch feature {
@@ -2068,13 +2068,13 @@ private extension EventEditingIntent {
              let .addSchedule(eventID),
              let .copyStagesFromEvent(eventID),
              let .createContributor(eventID),
-             let .createStage(eventID),
+             let .createPlace(eventID),
              let .deletePerformance(eventID, _),
              let .editContactInfo(eventID),
              let .editContributor(eventID, _),
              let .editLocation(eventID),
              let .editPerformance(eventID, _),
-             let .editStage(eventID, _),
+             let .editPlace(eventID, _),
              let .eventSettings(eventID),
              let .eventWorkspace(eventID):
             return eventID
@@ -2171,13 +2171,13 @@ struct TestFlightShareView: View {
 
 #if !os(Android)
 #Preview {
-    EventViewerView(
+    EventDetailView(
         store: Store(
-            initialState: EventViewer.State(
+            initialState: EventDetail.State(
                 eventID: Event.ID("at://did:web:example.com/events.openmusic.event/3jzfcijpj2z2a")!
             )
         ) {
-            EventViewer()
+            EventDetail()
         }
     )
 }

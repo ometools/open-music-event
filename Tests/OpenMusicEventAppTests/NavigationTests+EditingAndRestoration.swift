@@ -50,12 +50,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: EditContributor.State(
+                initialState: ContributorForm.State(
                     contributorID: contributorID,
                     eventID: eventID
                 )
             ) {
-                EditContributor()
+                ContributorForm()
             }
         }
 
@@ -93,8 +93,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -146,8 +146,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: ContributorsViewer.State(eventID: eventID)) {
-                ContributorsViewer()
+            Store(initialState: ContributorList.State(eventID: eventID)) {
+                ContributorList()
             }
         }
 
@@ -173,8 +173,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
         editStore.modify { $0.form.value.name = "New Name" }
@@ -241,11 +241,11 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditContributor.State(
+            Store(initialState: ContributorForm.State(
                 contributorID: contributor.id,
                 eventID: contributor.event
             )) {
-                EditContributor()
+                ContributorForm()
             }
         }
 

@@ -234,7 +234,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         case .contributors:
             "Contributors"
         case .stages:
-            "Stages"
+            "Places"
         case .communications:
             "Comms"
         case .contactInfo:

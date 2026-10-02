@@ -60,7 +60,7 @@ struct CanonicalEventSearchTests {
                 eventID: eventID,
                 fields: .init(
                     name: "Announcements",
-                    defaultNotificationState: .subscribed,
+                    defaultNotificationState: .known(.subscribed),
                     notificationsRequired: false
                 ),
                 createdAt: createdAt,

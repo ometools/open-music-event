@@ -87,9 +87,9 @@ extension NavigationTests {
         }
 
         let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            try ScheduleList.stagesQuery(eventID: eventID).fetchAll(db)
         }
-        let visibleStages = ScheduleViewer.visibleStages(
+        let visibleStages = ScheduleList.visibleStages(
             stages: stages,
             division: .init(programID: programID, title: "Schedule", eventPlaces: [lateID, mainID])
         )

@@ -137,7 +137,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            ScheduleList.State(eventID: eventID)
         }
         let eventTimePresentation = try #require(state.eventTimePresentation)
 

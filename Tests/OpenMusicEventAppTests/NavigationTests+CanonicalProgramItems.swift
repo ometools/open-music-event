@@ -134,7 +134,7 @@ extension NavigationTests {
         }
 
         let items = try await database.read { db in
-            try ScheduleViewer.performancesQuery(
+            try ScheduleList.performancesQuery(
                 eventID: selectedEventID,
                 scheduleID: fridayID
             ).fetchAll(db)

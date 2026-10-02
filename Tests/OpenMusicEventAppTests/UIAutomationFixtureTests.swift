@@ -141,30 +141,30 @@ struct UIAutomationFixtureTests {
             let performanceRows = try await database.read { db in
                 try PerformanceRow.all(eventID: graph.event.id).fetchAll(db)
             }
-            let divisions = ScheduleViewer.scheduleDivisions(event: graph.event, programs: graph.programs)
+            let divisions = ScheduleList.scheduleDivisions(event: graph.event, programs: graph.programs)
             #expect(divisions.compactMap(\.programID) == graph.event.programs ?? [])
             let musicDivision = try #require(divisions.first)
             let workshopDivision = try #require(divisions.last)
-            let musicStages = ScheduleViewer.visibleStages(stages: graph.places, division: musicDivision)
-            #expect(!ScheduleViewer.State(eventID: graph.event.id).showStageNameLabels)
-            let workshopStages = ScheduleViewer.visibleStages(
+            let musicStages = ScheduleList.visibleStages(stages: graph.places, division: musicDivision)
+            #expect(!ScheduleList.State(eventID: graph.event.id).showStageNameLabels)
+            let workshopStages = ScheduleList.visibleStages(
                 stages: graph.places,
                 division: workshopDivision
             )
             #expect(musicStages.map(\.name) == ["Meadow", "Canopy"])
             #expect(workshopStages.map(\.name) == ["Workshop Grove"])
             let saturdayID = OpenMusicEventUIAutomationFixture.canonicalSaturdayID
-            #expect(ScheduleViewer.visiblePerformances(
+            #expect(ScheduleList.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: saturdayID,
                 division: musicDivision
             ).map(\.title) == ["Opening Set", "Sunset Session", "Collaborative Set", "Late Night Set"])
-            #expect(ScheduleViewer.visiblePerformances(
+            #expect(ScheduleList.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: saturdayID,
                 division: workshopDivision
             ).map(\.title) == ["Movement Workshop"])
-            #expect(ScheduleViewer.currentTimeDestination(
+            #expect(ScheduleList.currentTimeDestination(
                 currentDate: OpenMusicEventUIAutomationFixture.now,
                 selectedScheduleID: saturdayID,
                 schedules: graph.schedules,
@@ -225,7 +225,7 @@ struct UIAutomationFixtureTests {
                 scheduleID: personalSchedule.id,
                 performanceID: OpenMusicEventUIAutomationFixture.canonicalCollaborativeSetID
             )
-            let viewerState = EventViewerState(
+            let viewerState = EventDetailState(
                 id: eventID,
                 selectedScheduleID: OpenMusicEventUIAutomationFixture.canonicalSaturdayID,
                 selectedUserScheduleID: personalSchedule.id,
@@ -239,7 +239,7 @@ struct UIAutomationFixtureTests {
             try await database.write { db in
                 try UserSchedule.insert { personalSchedule }.execute(db)
                 try UserSchedule.Performance.insert { membership }.execute(db)
-                try EventViewerState.insert { viewerState }.execute(db)
+                try EventDetailState.insert { viewerState }.execute(db)
                 try ChannelPreferences.insert { preference }.execute(db)
                 try CommsPostRead.insert { read }.execute(db)
             }
@@ -260,7 +260,7 @@ struct UIAutomationFixtureTests {
                         .fetchOne(db),
                     schedule: try UserSchedule.find(personalSchedule.id).fetchOne(db),
                     memberships: try UserSchedule.Performance.fetchAll(db),
-                    viewerState: try EventViewerStateRequest(eventID: eventID).fetch(db),
+                    viewerState: try EventDetailStateRequest(eventID: eventID).fetch(db),
                     preference: try ChannelPreferences.find(preference.id).fetchOne(db),
                     read: try CommsPostRead.find(read.id).fetchOne(db)
                 )

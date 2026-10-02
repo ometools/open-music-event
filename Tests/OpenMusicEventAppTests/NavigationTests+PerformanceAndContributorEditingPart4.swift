@@ -45,8 +45,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 

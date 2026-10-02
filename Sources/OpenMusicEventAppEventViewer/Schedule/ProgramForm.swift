@@ -12,7 +12,7 @@ import SwiftUI
 #endif
 
 @Feature
-public struct EditProgram {
+public struct ProgramForm {
     public init() {}
 
     public struct State: Identifiable {
@@ -150,12 +150,12 @@ public struct EditProgram {
     }
 }
 
-public struct EditProgramView: View {
+public struct ProgramFormView: View {
     @Environment(\.dismiss) var dismiss
     @State var isDeleteConfirmationPresented = false
-    @Bindable var store: StoreOf<EditProgram>
+    @Bindable var store: StoreOf<ProgramForm>
 
-    public init(store: StoreOf<EditProgram>) {
+    public init(store: StoreOf<ProgramForm>) {
         self.store = store
     }
 

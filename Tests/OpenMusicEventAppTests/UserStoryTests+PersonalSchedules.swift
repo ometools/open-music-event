@@ -27,9 +27,9 @@ extension UserStoryTests {
             $0.uuid = .incrementing
         } operation: {
             let firstVisit = Store(
-                initialState: ScheduleViewer.State(eventID: eventID)
+                initialState: ScheduleList.State(eventID: eventID)
             ) {
-                ScheduleViewer()
+                ScheduleList()
             }
 
             // On the attendee's first visit, the app offers one personal schedule without
@@ -49,9 +49,9 @@ extension UserStoryTests {
 
             // Returning to the event restores the attendee's chosen personal schedule.
             let returnVisit = Store(
-                initialState: ScheduleViewer.State(eventID: eventID)
+                initialState: ScheduleList.State(eventID: eventID)
             ) {
-                ScheduleViewer()
+                ScheduleList()
             }
             await waitUntil {
                 returnVisit.state.userScheduleOverlay.selectedSchedule?.title == "My Schedule"
@@ -81,9 +81,9 @@ extension UserStoryTests {
 
             // A later visit stays on the full schedule; deleting My Schedule is durable.
             let afterDeletion = Store(
-                initialState: ScheduleViewer.State(eventID: eventID)
+                initialState: ScheduleList.State(eventID: eventID)
             ) {
-                ScheduleViewer()
+                ScheduleList()
             }
             await waitUntil {
                 afterDeletion.state.eventViewerState.didInitializeUserSchedules
@@ -92,7 +92,7 @@ extension UserStoryTests {
             let (savedSchedules, savedViewerState) = try await database.read { db in
                 (
                     try UserSchedule.all(eventID: eventID).fetchAll(db),
-                    try EventViewerStateRequest(eventID: eventID).fetch(db)
+                    try EventDetailStateRequest(eventID: eventID).fetch(db)
                 )
             }
             #expect(savedSchedules.isEmpty)

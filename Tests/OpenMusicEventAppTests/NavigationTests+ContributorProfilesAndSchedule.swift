@@ -78,7 +78,7 @@ extension NavigationTests {
 
         let row = try await database.read { db in
             try #require(
-                ContributorsViewer.contributorRowsQuery(
+                ContributorList.contributorRowsQuery(
                     eventID: selectedEventID,
                     hydration: .bskyActorProfile
                 )
@@ -165,8 +165,8 @@ extension NavigationTests {
                 }
             )
         } operation: {
-            Store(initialState: ContributorsViewer.State(eventID: selectedEventID)) {
-                ContributorsViewer()
+            Store(initialState: ContributorList.State(eventID: selectedEventID)) {
+                ContributorList()
             }
         }
 
@@ -180,7 +180,7 @@ extension NavigationTests {
     }
 
     @Test
-    func stagesViewerFetchesCanonicalStagePlacesInOrder() async throws {
+    func eventPlaceListFetchesCanonicalStagePlacesInOrder() async throws {
         let database = try makePreparedDatabase()
         let selectedEventID = canonicalRouteEventID
         let otherEventID = canonicalRouteRecordID(
@@ -212,7 +212,7 @@ extension NavigationTests {
         let stages = withDependencies {
             $0.defaultDatabase = database
         } operation: {
-            StagesViewer.State(eventID: selectedEventID).stages
+            EventPlaceList.State(eventID: selectedEventID).stages
         }
         expectNoDifference(stages.map { $0.id }, [mainID, lateID])
         expectNoDifference(stages.map { $0.name }, ["Main", "Late"])
@@ -243,14 +243,14 @@ extension NavigationTests {
         }
 
         let stage = try await database.read { db in
-            try StageDetail.stageQuery(
+            try EventPlaceDetail.stageQuery(
                 stageID: selectedPlaceID,
                 eventID: selectedEventID
             ).fetchOne(db)
         }
         expectNoDifference(stage?.name, "Main")
         let wrongEvent = try await database.read { db in
-            try StageDetail.stageQuery(
+            try EventPlaceDetail.stageQuery(
                 stageID: selectedPlaceID,
                 eventID: otherEventID
             ).fetchOne(db)
@@ -339,7 +339,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            StageDetail.State(stageID: meadowID, eventID: eventID)
+            EventPlaceDetail.State(stageID: meadowID, eventID: eventID)
         }
         state.eventViewerState.selectedScheduleID = fridayID
         expectNoDifference(state.resolvedSelectedScheduleID, fridayID)
@@ -398,8 +398,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: StageDetail.State(stageID: meadowID, eventID: eventID)) {
-                StageDetail()
+            Store(initialState: EventPlaceDetail.State(stageID: meadowID, eventID: eventID)) {
+                EventPlaceDetail()
             }
         }
         await store.send(.performanceButtonTapped(itemID))?.value

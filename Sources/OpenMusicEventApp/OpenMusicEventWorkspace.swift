@@ -6,12 +6,12 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventSourceEditing
 import SourceEditing
 
-/// OME's integration of the package-owned authoring workspace with `EventViewer`.
+/// OME's integration of the package-owned authoring workspace with `EventDetail`.
 ///
 /// This feature adds no state machine. It installs OME's eligibility-aware authoring client and
 /// workspace client, then translates application requests into the package's actions.
 public struct OpenMusicEventWorkspace: FeatureProtocol {
-    public typealias Composition = OpenMusicEventAuthoringWorkspace<EventViewer>
+    public typealias Composition = OpenMusicEventAuthoringWorkspace<EventDetail>
     public typealias State = Composition.State
     public typealias Action = Composition.Action
 
@@ -19,7 +19,7 @@ public struct OpenMusicEventWorkspace: FeatureProtocol {
 
     public var body: some FeatureProtocol<State, Action> {
         Composition {
-            EventViewer()
+            EventDetail()
         }
             .modifier(OpenMusicEventWorkspaceLifecycle())
             .dependency(
@@ -39,7 +39,7 @@ public struct OpenMusicEventWorkspace: FeatureProtocol {
 }
 
 struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
-    typealias WorkspaceAuthoring = OpenMusicEventAuthoringWorkspace<EventViewer>
+    typealias WorkspaceAuthoring = OpenMusicEventAuthoringWorkspace<EventDetail>
     typealias State = WorkspaceAuthoring.State
     typealias Action = WorkspaceAuthoring.Action
 
@@ -106,7 +106,7 @@ struct OpenMusicEventWorkspaceLifecycle: FeatureModifier {
                     let reset = try store.modify { state in
                         guard state.authoring.grant == nil else { return }
                         // Published content is already committed to SQLite. Preserve the mounted
-                        // EventViewer read model, but discard the authorized source/phase so a
+                        // EventDetail read model, but discard the authorized source/phase so a
                         // later authoring entry must restore the selected branch.
                         let content = state.authoring.content.content
                         state.authoring.content = WorkspaceAuthoring.WorkspaceFeature.State(

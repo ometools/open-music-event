@@ -52,12 +52,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
                     .onEvent(NotificationSubscriptionsRefreshRequested.self) { _, _ in
                         refreshCount.withLock { $0 += 1 }
                     }
@@ -95,12 +95,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 
@@ -134,12 +134,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 
@@ -186,12 +186,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             Store(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 
@@ -215,12 +215,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             Store(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 
@@ -249,12 +249,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommunicationChannelDetail.State(
+                initialState: SocialCategoryDetail.State(
                     channelID: channelID,
                     eventID: eventID
                 )
             ) {
-                CommunicationChannelDetail()
+                SocialCategoryDetail()
             }
         }
 

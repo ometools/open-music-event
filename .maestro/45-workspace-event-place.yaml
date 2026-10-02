@@ -1,0 +1,54 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: helpers/back.yaml
+- tapOn: More
+- tapOn:
+    id: tab-feature.stages
+- extendedWaitUntil:
+    visible:
+      id: view.stages.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn: Add Event Place
+- assertVisible: New Event Place
+- tapOn: Name
+- inputText: North Gate
+- tapOn: Kind
+- tapOn: Entrance
+- tapOn: Save
+- extendedWaitUntil:
+    visible: North Gate
+    timeout: 15000
+- tapOn: North Gate
+- assertVisible: "Kind, Entrance"
+- tapOn:
+    id: button.edit-place
+- assertVisible: Edit Event Place
+- tapOn: Kind
+- tapOn: Camping
+- tapOn: Save
+- extendedWaitUntil:
+    visible: "Kind, Camping"
+    timeout: 15000
+- takeScreenshot: 94-workspace-event-place

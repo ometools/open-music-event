@@ -356,22 +356,22 @@ struct PerformanceReactionTests {
             $0.uuid = .incrementing
         } operation: {
             let scheduleStore = Store(
-                initialState: ScheduleViewer.State(eventID: eventID)
+                initialState: ScheduleList.State(eventID: eventID)
             ) {
-                ScheduleViewer()
+                ScheduleList()
             }
             let detailStore = Store(
-                initialState: PerformanceDetail.State(
+                initialState: ProgramItemDetail.State(
                     performanceID: performanceID,
                     eventID: eventID
                 )
             ) {
-                PerformanceDetail()
+                ProgramItemDetail()
             }
             let eventViewerStore = Store(
-                initialState: EventViewer.State(eventID: eventID)
+                initialState: EventDetail.State(eventID: eventID)
             ) {
-                EventViewer()
+                EventDetail()
             }
 
             await scheduleStore.send(

@@ -23,11 +23,11 @@ extension EnvironmentValues {
 }
 
 public struct ScheduleAddMenu: View {
-    @Bindable var store: StoreOf<ScheduleViewer>
+    @Bindable var store: StoreOf<ScheduleList>
     let selectedScheduleID: Schedule.ID?
 
     public init(
-        store: StoreOf<ScheduleViewer>,
+        store: StoreOf<ScheduleList>,
         selectedScheduleID: Schedule.ID?
     ) {
         self.store = store
@@ -48,7 +48,7 @@ public struct ScheduleAddMenu: View {
                 Label("Add Performance", systemImage: "music.mic")
             }
             .disabled(
-                !ScheduleViewer.canAddPerformance(
+                !ScheduleList.canAddPerformance(
                     selectedScheduleID: selectedScheduleID,
                     schedules: store.schedules,
                     division: store.scheduleDivision,
@@ -71,16 +71,16 @@ public struct ScheduleAddMenu: View {
 }
 
 public struct ScheduleKindMenu: View {
-    @Bindable var store: StoreOf<ScheduleViewer>
+    @Bindable var store: StoreOf<ScheduleList>
 
-    public init(store: StoreOf<ScheduleViewer>) {
+    public init(store: StoreOf<ScheduleList>) {
         self.store = store
     }
 
     public var body: some View {
         Menu {
             Section("Mode") {
-                ForEach(ScheduleViewer.ScheduleKind.allCases, id: \.self) { scheduleKind in
+                ForEach(ScheduleList.ScheduleKind.allCases, id: \.self) { scheduleKind in
                     scheduleKindButton(scheduleKind)
                 }
             }
@@ -93,7 +93,7 @@ public struct ScheduleKindMenu: View {
     }
 
     @ViewBuilder
-    func scheduleKindButton(_ scheduleKind: ScheduleViewer.ScheduleKind) -> some View {
+    func scheduleKindButton(_ scheduleKind: ScheduleList.ScheduleKind) -> some View {
         Button {
             store.send(.scheduleKindButtonTapped(scheduleKind))
         } label: {
@@ -139,9 +139,9 @@ public struct ScheduleKindMenu: View {
 }
 
 public struct UserScheduleFilterMenu: View {
-    @Bindable var store: StoreOf<ScheduleViewer>
+    @Bindable var store: StoreOf<ScheduleList>
 
-    public init(store: StoreOf<ScheduleViewer>) {
+    public init(store: StoreOf<ScheduleList>) {
         self.store = store
     }
 
@@ -200,20 +200,20 @@ public struct UserScheduleFilterMenu: View {
     }
 }
 
-public struct ScheduleViewerView: View {
+public struct ScheduleListView: View {
     @Dependency(\.date.now) var now
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
-    @Bindable var store: StoreOf<ScheduleViewer>
+    @Bindable var store: StoreOf<ScheduleList>
     @Binding var selectedScheduleID: Schedule.ID?
-    @Binding var pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction?
+    @Binding var pendingScheduleLaunchAction: EventDetail.ScheduleLaunchAction?
     @State var nowScrollRequest: ScheduleNowScrollRequest?
     @State var nowScrollSequence = 0
     let showsAuthoringControls: Bool
 
     public init(
-        store: StoreOf<ScheduleViewer>,
+        store: StoreOf<ScheduleList>,
         selectedScheduleID: Binding<Schedule.ID?>,
-        pendingScheduleLaunchAction: Binding<EventViewer.ScheduleLaunchAction?>,
+        pendingScheduleLaunchAction: Binding<EventDetail.ScheduleLaunchAction?>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
@@ -245,7 +245,7 @@ public struct ScheduleViewerView: View {
                 Text("This removes the performance from this schedule.")
             }
             .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
-                PerformanceDetailView(
+                ProgramItemDetailView(
                     store: detailStore,
                     showsAuthoringControls: showsAuthoringControls
                 )
@@ -257,7 +257,7 @@ public struct ScheduleViewerView: View {
                 UserSchedulesListView(store: schedulesStore)
             }
             .navigationDestination(item: $store.scope(\.destination).programs) { programsStore in
-                ManageProgramsView(store: programsStore)
+                ProgramListView(store: programsStore)
             }
             .navigationDestination(item: $store.scope(\.destination).userScheduleForm) { formStore in
                 UserScheduleFormView(store: formStore)
@@ -321,7 +321,7 @@ public struct ScheduleViewerView: View {
             .toolbarTitleMenu {
                 if let timeZone = store.timeZone {
                     ForEach(store.schedules) { schedule in
-                        Button(ScheduleViewer.scheduleTitle(schedule, in: timeZone)) {
+                        Button(ScheduleList.scheduleTitle(schedule, in: timeZone)) {
                             selectedScheduleID = schedule.id
                         }
                         .accessibilityIdentifier(
@@ -399,7 +399,7 @@ public struct ScheduleViewerView: View {
         )
     }
 
-    var currentTimeDestination: ScheduleViewer.CurrentTimeDestination? {
+    var currentTimeDestination: ScheduleList.CurrentTimeDestination? {
         store.state.currentTimeDestination(
             currentDate: now,
             selectedScheduleID: selectedScheduleID,

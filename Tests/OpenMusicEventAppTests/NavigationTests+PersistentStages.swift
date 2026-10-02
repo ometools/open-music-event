@@ -31,8 +31,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditPersistentStage.State(eventID: eventID)) {
-                EditPersistentStage()
+            TestStore(initialState: StageForm.State(eventID: eventID)) {
+                StageForm()
             }
         }
         var link = EditableLink()
@@ -81,8 +81,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditPersistentStage.State(stageID: stageID, eventID: eventID)) {
-                EditPersistentStage()
+            TestStore(initialState: StageForm.State(stageID: stageID, eventID: eventID)) {
+                StageForm()
             }
         }
         #expect(store.state.hasLoadedDraft)
@@ -105,8 +105,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditPersistentStage.State(stageID: stageID, eventID: eventID)) {
-                EditPersistentStage()
+            TestStore(initialState: StageForm.State(stageID: stageID, eventID: eventID)) {
+                StageForm()
             }
         }
         await deleteStore.send(.deleteButtonTapped)?.value
@@ -129,8 +129,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditStage.State(eventID: eventID)) {
-                EditStage()
+            Store(initialState: EventPlaceForm.State(eventID: eventID)) {
+                EventPlaceForm()
             }
         }
         store.send(.createPersistentStageTapped)

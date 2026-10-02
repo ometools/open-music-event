@@ -51,7 +51,7 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommsPostComposer.State(
+                initialState: SocialPostForm.State(
                     eventID: eventID,
                     categoryID: categoryID,
                     author: author,
@@ -61,7 +61,7 @@ extension NavigationTests {
                     )
                 )
             ) {
-                CommsPostComposer()
+                SocialPostForm()
             }
         }
 
@@ -88,15 +88,91 @@ extension NavigationTests {
     }
 
     @Test
+    func `an author saves imported photos as a local canonical post embed`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let author = try #require(DID("did:plc:organizer"))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "ome-post-embed-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileStore = LocalImageFileStoreClient(
+            existingFileURL: { key, _ in
+                let url = directory.appending(path: key).appendingPathExtension("png")
+                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            },
+            write: { key, data, _ in
+                let url = directory.appending(path: key).appendingPathExtension("png")
+                try data.write(to: url, options: .atomic)
+                return url
+            }
+        )
+        let bytes = Data("Wicked Woods photo".utf8)
+        let photo = ImportImages.Configuration.communicationPostPhotos.importedImage(
+            title: "The gates",
+            mimeType: "image/png",
+            data: bytes
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.localImageFileStore = fileStore
+            $0.date.now = Date(timeIntervalSince1970: 0)
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    eventID: eventID, categoryID: categoryID, author: author,
+                    draft: CommsPostDraft(title: "The gates", markdown: "")
+                )
+            ) { SocialPostForm() }
+        }
+        store.modify { $0.imagePicker.append([photo]) }
+        #expect(store.state.canSubmit)
+
+        await store.send(.saveButtonTapped) { $0.isSaving = true }?.value
+        #expect(store.isPresented == false)
+
+        let post = try await database.read { db in
+            try #require(try Social.Post.where { $0.category.eq(categoryID) }.fetchAll(db).first)
+        }
+        let embed = try #require(post.embed)
+        #expect(embed.object["$type"] == "app.bsky.embed.images")
+        guard case let .array(images) = try #require(embed.object["images"]) else {
+            Issue.record("Expected an images embed")
+            return
+        }
+        #expect(images.count == 1)
+        guard case let .object(image) = try #require(images.first),
+              case let .object(blob) = try #require(image["image"]),
+              case let .object(ref) = try #require(blob["ref"]),
+              case let .string(cid) = try #require(ref["$link"])
+        else {
+            Issue.record("Expected an image blob reference")
+            return
+        }
+        #expect(cid.hasPrefix("bafkrei"))
+        #expect(try Data(contentsOf: directory.appending(path: cid).appendingPathExtension("png")) == bytes)
+    }
+
+    @Test
     func `an author edits a canonical post without changing its identity`() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let destinationCategoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcao")
         let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
         let author = try #require(DID("did:plc:organizer"))
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+            try Self.insertCanonicalCategory(db, id: destinationCategoryID, eventID: eventID, name: "Updates")
             try Self.insertCanonicalPost(
                 db, id: postID, eventID: eventID, categoryID: categoryID,
                 title: "Gates are open", text: "Welcome to the woods."
@@ -114,16 +190,17 @@ extension NavigationTests {
             @Dependency(\.date) var date
             #expect(date() == Date(timeIntervalSince1970: 300))
             return TestStore(
-                initialState: CommsPostComposer.State(
+                initialState: SocialPostForm.State(
                     post: post, eventID: eventID, author: author
                 )
             ) {
-                CommsPostComposer()
+                SocialPostForm()
             }
         }
         editor.modify {
             $0.draft.title = "Gates are open now"
             $0.draft.delivery = .silent
+            $0.categoryID = destinationCategoryID
         }
         let save = withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 300)
@@ -138,6 +215,7 @@ extension NavigationTests {
         expectNoDifference(edited.id, post.id)
         expectNoDifference(edited.createdAt, post.createdAt)
         expectNoDifference(edited.title, "Gates are open now")
+        expectNoDifference(edited.category, destinationCategoryID)
         expectNoDifference(edited.delivery, .known(.silent))
         expectNoDifference(edited.updatedAt, "1970-01-01T00:05:00Z")
     }
@@ -169,11 +247,11 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: CommsPostComposer.State(
+                initialState: SocialPostForm.State(
                     post: futurePost, eventID: eventID, author: author
                 )
             ) {
-                CommsPostComposer()
+                SocialPostForm()
             }
         }
         #expect(futureEditor.state.hasUnknownDelivery)
@@ -205,7 +283,7 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            var state = EditStage.State(eventID: eventID)
+            var state = EventPlaceForm.State(eventID: eventID)
             state.form.value.name = " New Meadow "
             state.category = " workshop "
             state.sortIndex = " 4 "
@@ -224,7 +302,7 @@ extension NavigationTests {
             ]
 
             return TestStore(initialState: state) {
-                EditStage()
+                EventPlaceForm()
             }
         }
 
@@ -270,10 +348,10 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            var state = EditStage.State(eventID: eventID)
+            var state = EventPlaceForm.State(eventID: eventID)
             state.form.value.name = "Meadow Stage"
             return TestStore(initialState: state) {
-                EditStage()
+                EventPlaceForm()
             }
         }
 
@@ -281,7 +359,7 @@ extension NavigationTests {
         await waitUntil { !store.state.isSaving && !store.isPresented }
 
         let places = try await database.read { db in
-            try StagesViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            try EventPlaceList.stagesQuery(eventID: eventID).fetchAll(db)
         }
         expectNoDifference(places.map(\.name), ["Meadow Stage"])
         #expect(places.first?.id.authority == eventID.authority)
@@ -305,8 +383,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditStage.State(eventID: eventID)) {
-                EditStage()
+            Store(initialState: EventPlaceForm.State(eventID: eventID)) {
+                EventPlaceForm()
             }
         }
 
@@ -325,7 +403,7 @@ extension NavigationTests {
     }
 
     @Test
-    func stagesViewerDeleteRemovesEventStage() async throws {
+    func eventPlaceListDeleteRemovesEventStage() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
@@ -338,8 +416,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
-                StagesViewer()
+            TestStore(initialState: EventPlaceList.State(eventID: eventID)) {
+                EventPlaceList()
             }
         }
 
@@ -348,7 +426,7 @@ extension NavigationTests {
         #expect(store.state.errorMessage == nil)
 
         let stage = try await database.read { db in
-            try StageDetail.stageQuery(
+            try EventPlaceDetail.stageQuery(
                 stageID: stageID,
                 eventID: eventID
             )

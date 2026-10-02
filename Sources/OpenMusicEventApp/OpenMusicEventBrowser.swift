@@ -1224,7 +1224,7 @@ public struct EventBrowseDetail {
         }
 
         @FetchOne public var record: Event?
-        public var eventInfoForm: EditEventInfo.State?
+        public var eventInfoForm: EventForm.State?
         public var title: String { record?.name ?? event.name }
         public var eventDescription: String? {
             if let record { return record.description }
@@ -1294,7 +1294,7 @@ public struct EventBrowseDetail {
     public enum Action {
         case enterEventButtonTapped
         case editButtonTapped
-        case eventInfoForm(EditEventInfo.Action)
+        case eventInfoForm(EventForm.Action)
         case organizationDetail(OrganizationDetail.Action)
         case organizerButtonTapped
         case rsvpButtonTapped(EventRSVP.Status)
@@ -1312,7 +1312,7 @@ public struct EventBrowseDetail {
             switch action {
             case .editButtonTapped:
                 guard let record = state.record else { return }
-                state.eventInfoForm = EditEventInfo.State(event: record)
+                state.eventInfoForm = EventForm.State(event: record)
 
             case .eventInfoForm:
                 break
@@ -1425,7 +1425,7 @@ public struct EventBrowseDetail {
             }
         }
         .ifLet(\.eventInfoForm) {
-            EditEventInfo()
+            EventForm()
         }
         .ifLet(\.organizationDetail) {
             OrganizationDetail()
@@ -1583,7 +1583,7 @@ public struct EventBrowseDetailView: View {
         }
         .sheet(item: $store.scope(\.eventInfoForm)) { formStore in
             NavigationStack {
-                EditEventInfoView(store: formStore)
+                EventFormView(store: formStore)
             }
         }
         .navigationDestination(

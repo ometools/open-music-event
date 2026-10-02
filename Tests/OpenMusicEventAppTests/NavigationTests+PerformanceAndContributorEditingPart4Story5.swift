@@ -47,7 +47,7 @@ extension NavigationTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
         state.handleEditingIntent(.editContactInfo(eventID))
 
@@ -58,13 +58,13 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: state) {
-                EventViewer()
+                EventDetail()
             }
         }
 
         let destinationStore = try #require(store.scope(\.destination))
         let contactInfoStore: StoreOf<EditContactInfo>
-        switch EventViewer.Destination.switch(store: destinationStore) {
+        switch EventDetail.Destination.switch(store: destinationStore) {
         case let .contactInfoForm(store):
             contactInfoStore = store
         default:

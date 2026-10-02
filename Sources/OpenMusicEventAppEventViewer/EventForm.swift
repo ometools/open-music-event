@@ -14,7 +14,7 @@ import SwiftUI
 #endif
 
 @Feature
-public struct EditEventInfo {
+public struct EventForm {
     public init() {}
 
     public struct State {
@@ -166,10 +166,10 @@ public struct EditEventInfo {
     }
 }
 
-public struct EditEventInfoView: View {
-    @Bindable var store: StoreOf<EditEventInfo>
+public struct EventFormView: View {
+    @Bindable var store: StoreOf<EventForm>
 
-    public init(store: StoreOf<EditEventInfo>) {
+    public init(store: StoreOf<EventForm>) {
         self.store = store
     }
 
@@ -237,7 +237,7 @@ public struct EditEventInfoView: View {
             }
             Section("Details") {
                 Picker("Status", selection: $store.draft.editStatus) {
-                    ForEach(EditEventInfoStatus.allCases, id: \.self) { status in
+                    ForEach(EventFormStatus.allCases, id: \.self) { status in
                         Text(status.title).tag(status)
                     }
                 }
@@ -245,7 +245,7 @@ public struct EditEventInfoView: View {
                     TextField("Custom Status", text: $store.draft.customStatusText)
                 }
                 Picker("Mode", selection: $store.draft.editMode) {
-                    ForEach(EditEventInfoMode.allCases, id: \.self) { mode in
+                    ForEach(EventFormMode.allCases, id: \.self) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
@@ -342,7 +342,7 @@ private extension Optional where Wrapped == Open<Event.Time> {
     }
 }
 
-public enum EditEventInfoStatus: String, CaseIterable, Hashable, Sendable {
+public enum EventFormStatus: String, CaseIterable, Hashable, Sendable {
     case unspecified
     case planned
     case scheduled
@@ -412,7 +412,7 @@ public enum EditEventInfoStatus: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
+public enum EventFormMode: String, CaseIterable, Hashable, Sendable {
     case unspecified
     case inPerson
     case virtual
@@ -483,7 +483,7 @@ private extension Open where Known == Event.Mode {
 }
 
 private extension Event {
-    var editStatus: EditEventInfoStatus {
+    var editStatus: EventFormStatus {
         get { .init(status) }
         set { status = newValue.openValue(customValue: status?.customValue ?? "") }
     }
@@ -493,7 +493,7 @@ private extension Event {
         set { status = .some(.unknown(.string(newValue))) }
     }
 
-    var editMode: EditEventInfoMode {
+    var editMode: EventFormMode {
         get { .init(mode) }
         set { mode = newValue.openValue(customValue: mode?.customValue ?? "") }
     }

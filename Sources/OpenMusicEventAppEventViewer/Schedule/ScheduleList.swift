@@ -196,11 +196,11 @@ extension Event {
 }
 
 @Feature
-public struct ScheduleViewer {
+public struct ScheduleList {
     public init() {}
 
     public typealias ScheduleDivision = OpenMusicEventViewers.ScheduleDivision
-    public typealias ScheduleKind = ScheduleViewerState.ScheduleKind
+    public typealias ScheduleKind = ScheduleListState.ScheduleKind
 
     struct CurrentTimeDestination: Equatable, Sendable {
         let scheduleID: Schedule.ID
@@ -217,7 +217,7 @@ public struct ScheduleViewer {
                 Event.timeZoneQuery(eventID: eventID)
             )
             self.scheduleDivision = scheduleDivision
-            let scheduleViewerState = ScheduleViewerState(
+            let scheduleViewerState = ScheduleListState(
                 eventID: eventID,
                 scheduleDivision: scheduleDivision
             )
@@ -225,12 +225,12 @@ public struct ScheduleViewer {
             self.scheduleViewerStateBaseline = scheduleViewerState
             self._persistedScheduleViewerState = FetchOne(
                 wrappedValue: nil,
-                ScheduleViewerState.none
+                ScheduleListState.none
             )
-            self.eventViewerState = EventViewerState(id: eventID)
+            self.eventViewerState = EventDetailState(id: eventID)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
-                EventViewerState.none
+                EventDetailState.none
             )
             self.singleStageAtOnce = Spawn(
                 ScheduleSingleStageAtOnce.State(
@@ -257,10 +257,10 @@ public struct ScheduleViewer {
                 PerformanceRow.all(eventID: eventID)
             )
             _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: eventID)
+                ScheduleList.schedulesQuery(eventID: eventID)
             )
             _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: eventID)
+                ScheduleList.stagesQuery(eventID: eventID)
             )
             _reactions = FetchAll(
                 PerformanceReaction.forEvent(eventID: eventID)
@@ -286,11 +286,11 @@ public struct ScheduleViewer {
         public var singleStageAtOnce: Spawn<ScheduleSingleStageAtOnce>
         public var manyStagesAtOnce: Spawn<ScheduleManyStagesAtOnce>
         public var performanceList: Spawn<SchedulePerformanceList>
-        public var scheduleViewerState: ScheduleViewerState
-        var scheduleViewerStateBaseline: ScheduleViewerState
-        @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
-        public var eventViewerState: EventViewerState
-        @FetchOne var persistedEventViewerState: EventViewerState?
+        public var scheduleViewerState: ScheduleListState
+        var scheduleViewerStateBaseline: ScheduleListState
+        @FetchOne var persistedScheduleViewerState: ScheduleListState?
+        public var eventViewerState: EventDetailState
+        @FetchOne var persistedEventViewerState: EventDetailState?
 
         @FetchOne public var event: Event?
         public var scheduleKind: ScheduleKind {
@@ -308,13 +308,13 @@ public struct ScheduleViewer {
 
         public var selectedStageID: EventPlace.ID? {
             get {
-                ScheduleViewer.normalizedSelectedStageID(
+                ScheduleList.normalizedSelectedStageID(
                     selectedStageID: scheduleViewerState.selectedStageID,
                     stages: visibleStages
                 )
             }
             set {
-                let selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+                let selectedStageID = ScheduleList.normalizedSelectedStageID(
                     selectedStageID: newValue,
                     stages: visibleStages
                 )
@@ -378,7 +378,7 @@ public struct ScheduleViewer {
         func visiblePerformanceRows(
             selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
-            ScheduleViewer.visiblePerformances(
+            ScheduleList.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
                 division: scheduleDivision
@@ -398,7 +398,7 @@ public struct ScheduleViewer {
             selectedScheduleID: Schedule.ID?,
             buffer: TimeInterval
         ) -> CurrentTimeDestination? {
-            ScheduleViewer.currentTimeDestination(
+            ScheduleList.currentTimeDestination(
                 currentDate: currentDate,
                 selectedScheduleID: selectedScheduleID,
                 schedules: schedules,
@@ -419,7 +419,7 @@ public struct ScheduleViewer {
         }
 
         var resolvedSelectedStageID: EventPlace.ID? {
-            ScheduleViewer.resolvedSelectedStageID(
+            ScheduleList.resolvedSelectedStageID(
                 selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
             )
@@ -431,7 +431,7 @@ public struct ScheduleViewer {
             guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
                   let timeZone
             else { return "Select Schedule" }
-            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
+            return ScheduleList.scheduleTitle(schedule, in: timeZone)
         }
 
         var selectedStage: EventPlace? {
@@ -444,7 +444,7 @@ public struct ScheduleViewer {
         }
 
         var visibleStages: [EventPlace] {
-            ScheduleViewer.visibleStages(
+            ScheduleList.visibleStages(
                 stages: stages,
                 division: scheduleDivision
             )
@@ -472,8 +472,8 @@ public struct ScheduleViewer {
     @Feature
     public enum Destination {
         case deletePerformanceConfirmation(DeletePerformanceConfirmation)
-        case performanceDetail(Spawn<PerformanceDetail>)
-        case programs(Spawn<ManagePrograms>)
+        case performanceDetail(Spawn<ProgramItemDetail>)
+        case programs(Spawn<ProgramList>)
         case reactionEntry(PerformanceReactionEntry)
         case userScheduleForm(Spawn<UserScheduleForm>)
         case userSchedulesList(Spawn<UserSchedulesList>)
@@ -771,7 +771,7 @@ public struct ScheduleViewer {
                 store.withDependencies {
                     state.destination = .performanceDetail(
                         Spawn(
-                            PerformanceDetail.State(
+                            ProgramItemDetail.State(
                                 performanceID: performanceID,
                                 eventID: state.eventID
                             )
@@ -780,7 +780,7 @@ public struct ScheduleViewer {
                 }
 
             case .programsButtonTapped:
-                state.destination = .programs(Spawn(ManagePrograms.State(eventID: state.eventID)))
+                state.destination = .programs(Spawn(ProgramList.State(eventID: state.eventID)))
 
             case let .reactionButtonTapped(performanceID, emoji):
                 let id = uuid()
@@ -925,7 +925,7 @@ public struct ScheduleViewer {
             guard state.scheduleViewerStateBaseline != viewerState else { return }
             do {
                 try database.write { db in
-                    try ScheduleViewerState.persistChanges(
+                    try ScheduleListState.persistChanges(
                         from: oldViewerState,
                         to: viewerState,
                         eventID: state.eventID,
@@ -950,7 +950,7 @@ public struct ScheduleViewer {
             guard state.persistedEventViewerState != viewerState else { return }
             do {
                 try database.write { db in
-                    try EventViewerState.persistChanges(
+                    try EventDetailState.persistChanges(
                         from: oldViewerState,
                         to: viewerState,
                         in: db
@@ -974,14 +974,14 @@ public struct ScheduleViewer {
             let persistedEventViewerState = state.$persistedEventViewerState
             store.addTask {
                 let subscription = try await persistedScheduleViewerState.load(
-                    ScheduleViewerState.rows(
+                    ScheduleListState.rows(
                         eventID: eventID,
                         scheduleDivision: scheduleDivision
                     )
                 )
                 if persistedScheduleViewerState.wrappedValue == nil {
                     let defaultState = try await database.read { db in
-                        try ScheduleViewerStateRequest(
+                        try ScheduleListStateRequest(
                             eventID: eventID,
                             scheduleDivision: scheduleDivision
                         )
@@ -999,7 +999,7 @@ public struct ScheduleViewer {
             }
             store.addTask {
                 try await persistedEventViewerState.load(
-                    EventViewerState.where { $0.id.eq(eventID) }
+                    EventDetailState.where { $0.id.eq(eventID) }
                 )
                 .task
             }
@@ -1010,7 +1010,7 @@ public struct ScheduleViewer {
             store.addTask {
                 do {
                     try await database.write { db in
-                        var viewerState = try EventViewerStateRequest(eventID: eventID).fetch(db)
+                        var viewerState = try EventDetailStateRequest(eventID: eventID).fetch(db)
                         guard !viewerState.didInitializeUserSchedules else { return }
 
                         try UserSchedule.insert {
@@ -1023,7 +1023,7 @@ public struct ScheduleViewer {
                         }
                         .execute(db)
                         viewerState.didInitializeUserSchedules = true
-                        try EventViewerState.upsert { viewerState }.execute(db)
+                        try EventDetailState.upsert { viewerState }.execute(db)
                     }
                     try store.modify {
                         $0.eventViewerState.didInitializeUserSchedules = true

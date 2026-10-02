@@ -2,7 +2,7 @@ import ComposableArchitecture2
 import OpenMusicEventLexicon
 
 public enum ScheduleDivisionRequested: FeatureEventKey {
-    public typealias Value = ScheduleViewer.ScheduleDivision
+    public typealias Value = ScheduleList.ScheduleDivision
 }
 
 public enum SchedulePerformanceDeleteRequested: FeatureEventKey {

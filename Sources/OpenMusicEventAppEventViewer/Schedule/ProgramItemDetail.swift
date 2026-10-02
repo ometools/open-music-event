@@ -15,7 +15,7 @@ import SwiftUI
 import Tagged
 
 @Feature
-public struct PerformanceDetail {
+public struct ProgramItemDetail {
     public init() {}
 
     public struct State: Identifiable {
@@ -23,7 +23,7 @@ public struct PerformanceDetail {
             performanceID: ProgramItem.ID,
             eventID: Event.ID? = nil
         ) {
-            @Dependency(EventViewerContext.self) var eventViewer
+            @Dependency(EventDetailContext.self) var eventViewer
             self.eventID = eventID ?? eventViewer.eventID
             self.performanceID = performanceID
             self._timeZone = FetchOne(
@@ -31,7 +31,7 @@ public struct PerformanceDetail {
             )
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
-                EventViewerState.none
+                EventDetailState.none
             )
             _contributors = FetchAll(
                 ContributorProfile.forProgramItem(
@@ -41,13 +41,13 @@ public struct PerformanceDetail {
                 )
             )
             _performance = FetchOne(
-                PerformanceDetail.performanceQuery(
+                ProgramItemDetail.performanceQuery(
                     performanceID: performanceID,
                     eventID: self.eventID
                 )
             )
             _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: self.eventID)
+                ScheduleList.schedulesQuery(eventID: self.eventID)
             )
             _stages = FetchAll(EventPlace.where { $0.event.eq(self.eventID) })
             _reactions = FetchAll(
@@ -73,9 +73,9 @@ public struct PerformanceDetail {
 
         @FetchAll var contributors: [ContributorProfile]
         public var destination: Destination.State?
-        @FetchOne var persistedEventViewerState: EventViewerState?
-        public var eventViewerState: EventViewerState {
-            persistedEventViewerState ?? EventViewerState(id: eventID)
+        @FetchOne var persistedEventViewerState: EventDetailState?
+        public var eventViewerState: EventDetailState {
+            persistedEventViewerState ?? EventDetailState(id: eventID)
         }
         @FetchOne public var performance: ProgramItem?
         @FetchAll public var schedules: [Schedule]
@@ -332,7 +332,7 @@ public struct PerformanceDetail {
             let persistedEventViewerState = state.$persistedEventViewerState
             store.addTask {
                 try await persistedEventViewerState.load(
-                    EventViewerState.where { $0.id.eq(eventID) }
+                    EventDetailState.where { $0.id.eq(eventID) }
                 )
                 .task
             }
@@ -340,13 +340,13 @@ public struct PerformanceDetail {
     }
 }
 
-public struct PerformanceDetailView: View {
-    @Bindable var store: StoreOf<PerformanceDetail>
+public struct ProgramItemDetailView: View {
+    @Bindable var store: StoreOf<ProgramItemDetail>
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
-        store: StoreOf<PerformanceDetail>,
+        store: StoreOf<ProgramItemDetail>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
@@ -492,9 +492,9 @@ public struct PerformanceDetailView: View {
 }
 
 public struct PerformanceUserScheduleMenu: View {
-    @Bindable var store: StoreOf<PerformanceDetail>
+    @Bindable var store: StoreOf<ProgramItemDetail>
 
-    public init(store: StoreOf<PerformanceDetail>) {
+    public init(store: StoreOf<ProgramItemDetail>) {
         self.store = store
     }
 
@@ -548,7 +548,7 @@ struct PerformanceHeroView: View {
     let contributorNames: [String]
 
     var body: some View {
-        let summary = PerformanceDetailSummary(
+        let summary = ProgramItemDetailSummary(
             stage: stage,
             contributors: contributors,
             contributorNames: contributorNames
@@ -579,7 +579,7 @@ struct PerformanceSummaryRow: View {
     let eventTimePresentation: EventTimePresentation
 
     var body: some View {
-        let summary = PerformanceDetailSummary(
+        let summary = ProgramItemDetailSummary(
             stage: stage,
             contributors: contributors,
             contributorNames: contributorNames
@@ -656,7 +656,7 @@ struct PerformanceSummaryRow: View {
     }
 }
 
-struct PerformanceDetailSummary {
+struct ProgramItemDetailSummary {
     let stage: EventPlace?
     let contributors: [ContributorProfile]
     let contributorNames: [String]

@@ -88,8 +88,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: ContributorsViewer.State(eventID: eventID)) {
-                ContributorsViewer()
+            TestStore(initialState: ContributorList.State(eventID: eventID)) {
+                ContributorList()
             }
         }
 

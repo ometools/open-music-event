@@ -74,7 +74,7 @@ extension NavigationTests {
 
         let row = try await database.read { db in
             try #require(
-                ContributorsViewer.contributorRowsQuery(
+                ContributorList.contributorRowsQuery(
                     eventID: selectedEventID,
                     hydration: .bskyActorProfile
                 )

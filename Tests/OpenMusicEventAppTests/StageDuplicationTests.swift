@@ -170,7 +170,7 @@ struct StageDuplicationTests {
 
         let rows = try await database.read { db in
             (
-                places: try StagesViewer.stagesQuery(eventID: fixture.currentEventID).fetchAll(db),
+                places: try EventPlaceList.stagesQuery(eventID: fixture.currentEventID).fetchAll(db),
                 stages: try CopyStagesFromEvent.sourceStages(
                     eventID: fixture.currentEventID, in: db
                 )
@@ -254,13 +254,13 @@ struct StageDuplicationTests {
     private func makeStagesViewerStore(
         eventID: Event.ID,
         database: DatabaseQueue
-    ) -> TestStore<StagesViewer> {
+    ) -> TestStore<EventPlaceList> {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
-                StagesViewer()
+            TestStore(initialState: EventPlaceList.State(eventID: eventID)) {
+                EventPlaceList()
             }
         }
     }

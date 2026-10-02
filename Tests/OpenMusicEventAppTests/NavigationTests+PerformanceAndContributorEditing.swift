@@ -39,7 +39,7 @@ extension NavigationTests {
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
             title: "Workshops",
             eventPlaces: [workshopID]
@@ -54,7 +54,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = ScheduleViewer.State(
+            var state = ScheduleList.State(
                 eventID: eventID,
                 scheduleDivision: workshopDivision
             )
@@ -77,7 +77,7 @@ extension NavigationTests {
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
             title: "Workshops",
             eventPlaces: [workshopID]
@@ -117,7 +117,7 @@ extension NavigationTests {
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
             title: "Workshops",
             eventPlaces: [workshopID]
@@ -165,8 +165,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            let store = Store(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
+            let store = Store(initialState: ScheduleList.State(eventID: eventID)) {
+                ScheduleList()
             }
             await store.send(.performanceButtonTapped(performanceID))?.value
 
@@ -223,7 +223,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            PerformanceDetail.State(performanceID: performanceID, eventID: eventID)
+            ProgramItemDetail.State(performanceID: performanceID, eventID: eventID)
         }
 
         #expect(detail.performance?.title == "Opening")

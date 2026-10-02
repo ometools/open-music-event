@@ -190,12 +190,12 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = EditContributor.State(eventID: eventID)
+            var state = ContributorForm.State(eventID: eventID)
             state.form.value.name = " New Contributor "
             state.form.value.bio = " Bio "
 
             return TestStore(initialState: state) {
-                EditContributor()
+                ContributorForm()
             }
         }
 

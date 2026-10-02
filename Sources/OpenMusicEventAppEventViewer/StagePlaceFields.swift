@@ -4,7 +4,7 @@ import OpenMusicEventLexicon
 import SwiftUI
 
 struct StagePlaceLocatorEditor: View {
-    @Bindable var store: StoreOf<EditStage>
+    @Bindable var store: StoreOf<EventPlaceForm>
 
     var body: some View {
         Section("Locators") {
@@ -43,7 +43,7 @@ struct StagePlaceLocatorEditor: View {
 }
 
 struct StagePlaceLinkEditor: View {
-    @Bindable var store: StoreOf<EditStage>
+    @Bindable var store: StoreOf<EventPlaceForm>
 
     var body: some View {
         Section("Links") {
@@ -78,7 +78,7 @@ struct StagePlaceLinkEditor: View {
 }
 
 struct StagePlaceLineupEditor: View {
-    @Bindable var store: StoreOf<EditStage>
+    @Bindable var store: StoreOf<EventPlaceForm>
 
     var body: some View {
         Section("Stage Lineup") {
@@ -114,7 +114,7 @@ struct StagePlaceLineupEditor: View {
 }
 
 struct StagePlaceIdentityEditor: View {
-    @Bindable var store: StoreOf<EditStage>
+    @Bindable var store: StoreOf<EventPlaceForm>
 
     var body: some View {
         Section("Persistent Stage") {

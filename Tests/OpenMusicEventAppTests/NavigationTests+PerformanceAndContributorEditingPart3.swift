@@ -45,8 +45,8 @@ extension NavigationTests {
             $0.defaultDatabase = database
             $0.continuousClock = ContinuousClock()
         } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -147,8 +147,8 @@ extension NavigationTests {
             $0.defaultDatabase = database
             $0.continuousClock = ContinuousClock()
         } operation: {
-            TestStore(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -194,6 +194,63 @@ extension NavigationTests {
     }
 
     @Test
+    func editContributorAddsReordersAndDeletesRoles() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        _ = try await insertCanonicalContributor(into: database, name: "Artist One")
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+
+        // The organizer adds an established role and a custom role, then changes their order.
+        await store.send(.addRoleButtonTapped)?.value
+        await store.send(.addRoleButtonTapped)?.value
+        store.modify {
+            $0.form.value.roles[0].name = "performer"
+            $0.form.value.roles[1].name = "visualArtist"
+        }
+        let customRoleID = store.state.form.value.roles[1].id
+        await store.send(.moveRoleButtonTapped(customRoleID, -1))?.value
+        #expect(store.state.form.value.roles.map(\.name) == ["visualArtist", "performer"])
+
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(\.formSubmitted, .equals(submittedValue), timeout: .seconds(1))
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
+
+        let saved = try await database.read { db in
+            try #require(try Contributor.find(contributorID).fetchOne(db))
+        }
+        #expect(saved.roles == [.unknown("visualArtist"), .known(.performer)])
+
+        // Reopening the same form exposes every saved role for editing or removal.
+        let reopened = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+        #expect(reopened.state.form.value.roles.map(\.name) == ["visualArtist", "performer"])
+        let performerID = reopened.state.form.value.roles[1].id
+        await reopened.send(.removeRoleButtonTapped(performerID))?.value
+        #expect(reopened.state.form.value.roles.map(\.name) == ["visualArtist"])
+    }
+
+    @Test
     func editContributorImagePickerImportAddsImageThroughParentDestination() async throws {
         let eventID = canonicalRouteEventID
         let image = ImportImages.Configuration.contributorPhoto.importedImage(
@@ -205,8 +262,8 @@ extension NavigationTests {
             data: Data("contributor-photo".utf8)
         )
 
-        @Bindable var store = Store(initialState: EditContributor.State(eventID: eventID)) {
-            EditContributor()
+        @Bindable var store = Store(initialState: ContributorForm.State(eventID: eventID)) {
+            ContributorForm()
         }
 
         store.send(.photoImagePicker(.addButtonTapped))
@@ -236,11 +293,11 @@ extension NavigationTests {
                 role: .known(.photo)
             )
         )
-        var state = EditContributor.State(eventID: eventID)
+        var state = ContributorForm.State(eventID: eventID)
         state.photoImagePicker.images = [image]
 
         @Bindable var store = Store(initialState: state) {
-            EditContributor()
+            ContributorForm()
         }
 
         store.send(.photoImagePicker(.imageInfoButtonTapped(imageID)))
@@ -297,12 +354,12 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
+            var state = ContributorForm.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
             state.form.value.name = "New Name"
 
             return TestStore(initialState: state) {
-                EditContributor()
+                ContributorForm()
             }
         }
 
@@ -340,8 +397,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            Store(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 

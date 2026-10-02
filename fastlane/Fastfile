@@ -667,7 +667,10 @@ desc "Run canonical Event Workspace editing on iOS with a deterministic owner ac
 lane :ios_workspace_ui_tests do |options|
   UI.user_error!("Maestro is unavailable") unless executable_available?("maestro")
   flow = File.join(repo_root, ".maestro", "40-workspace-owner.yaml")
-  UI.user_error!("Maestro flow does not exist: #{flow}") unless File.file?(flow)
+  place_flow = File.join(repo_root, ".maestro", "45-workspace-event-place.yaml")
+  [flow, place_flow].each do |path|
+    UI.user_error!("Maestro flow does not exist: #{path}") unless File.file?(path)
+  end
 
   ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
   ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
@@ -686,9 +689,11 @@ lane :ios_workspace_ui_tests do |options|
   UI.user_error!("iOS app product is missing at #{ios_app_path}") unless File.directory?(ios_app_path)
   reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: place_flow)
   snapshot_action = options[:snapshot_action] || "compare"
   UI.user_error!("snapshot_action must be compare or record") unless %w[compare record].include?(snapshot_action)
-  %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset].each do |milestone|
+  %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place].each do |milestone|
     run_snapshot_comparator(snapshot_action, platform: "ios", milestone: milestone)
   end
 end

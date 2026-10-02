@@ -27,12 +27,12 @@ struct ScheduleAuthoringTests {
         let friday = try #require(LocalDate("2026-08-07"))
         let saturday = try #require(LocalDate("2026-08-08"))
         let store = TestStore(
-            initialState: EditSchedule.State(
+            initialState: ScheduleForm.State(
                 eventID: eventID,
                 initialDate: friday,
                 timeZone: timeZone
             )
-        ) { EditSchedule() }
+        ) { ScheduleForm() }
 
         expectNoDifference(store.state.customTitle, "")
         expectNoDifference(store.state.inferredTitle, "Friday")
@@ -54,12 +54,12 @@ struct ScheduleAuthoringTests {
         let friday = try #require(LocalDate("2026-08-07"))
         let saturday = try #require(LocalDate("2026-08-08"))
         let store = TestStore(
-            initialState: EditSchedule.State(
+            initialState: ScheduleForm.State(
                 eventID: eventID,
                 initialDate: friday,
                 timeZone: timeZone
             )
-        ) { EditSchedule() }
+        ) { ScheduleForm() }
 
         store.modify {
             $0.customTitle = "Opening Workshops"
@@ -112,7 +112,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.uuid = .incrementing
         } operation: {
-            var state = ScheduleViewer.State(
+            var state = ScheduleList.State(
                 eventID: fixture.event.id,
                 scheduleDivision: .init(
                     programID: fixture.program.id,
@@ -122,7 +122,7 @@ struct ScheduleAuthoringTests {
             )
             state.scheduleViewerState.selectedStageID = meadowID
             return TestStore(initialState: state) {
-                ScheduleViewer()
+                ScheduleList()
             }
         }
         #expect(store.state.visibleStages.map(\.id).contains(meadowID))
@@ -150,7 +150,7 @@ struct ScheduleAuthoringTests {
     @Test
     func scheduleViewerCanAddPerformanceWhileSchedulelessEventIsLoading() {
         expectNoDifference(
-            ScheduleViewer.canAddPerformance(
+            ScheduleList.canAddPerformance(
                 selectedScheduleID: nil,
                 schedules: [],
                 division: .schedule,
@@ -180,12 +180,12 @@ struct ScheduleAuthoringTests {
             try ProgramItem.insert { unplacedItem }.execute(db)
         }
 
-        func viewerState() -> ScheduleViewer.State {
+        func viewerState() -> ScheduleList.State {
             withDependencies {
                 $0.context = .test
                 $0.defaultDatabase = database
             } operation: {
-                ScheduleViewer.State(
+                ScheduleList.State(
                     eventID: fixture.event.id,
                     scheduleDivision: .init(program: fixture.program)
                 )
@@ -375,7 +375,7 @@ struct ScheduleAuthoringTests {
             $0.defaultEventID = eventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
 
         withDependencies {
@@ -509,7 +509,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.date.now = now
         } operation: {
-            TestStore(initialState: editor) { EditPerformance() }
+            TestStore(initialState: editor) { ProgramItemForm() }
         }
         store.modify { $0.title = "Location TBA" }
         await store.send(.saveButtonTapped)?.value
@@ -521,7 +521,7 @@ struct ScheduleAuthoringTests {
         #expect(item.startsAt == nil)
         #expect(try await database.read { try Schedule.all.fetchCount($0) } == 0)
 
-        let division = ScheduleViewer.ScheduleDivision(
+        let division = ScheduleList.ScheduleDivision(
             programID: fixture.program.id,
             title: fixture.program.title,
             eventPlaces: fixture.program.eventPlaces
@@ -530,7 +530,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: fixture.event.id, scheduleDivision: division)
+            ScheduleList.State(eventID: fixture.event.id, scheduleDivision: division)
         }
         #expect(scheduleViewer.requiresListPresentation(selectedScheduleID: nil))
         #expect(scheduleViewer.unscheduledPerformanceRows.map(\.performanceID) == [item.id])
@@ -549,7 +549,7 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: fixture.event.timeZone)
             $0.date.now = now
         } operation: {
-            EventViewer.State(eventID: fixture.event.id)
+            EventDetail.State(eventID: fixture.event.id)
         }
         withDependencies {
             $0.context = .test
@@ -590,7 +590,7 @@ struct ScheduleAuthoringTests {
         #expect(item.endsAt == nil)
         try item.validateReferences()
 
-        let division = ScheduleViewer.ScheduleDivision(
+        let division = ScheduleList.ScheduleDivision(
             programID: fixture.program.id,
             title: fixture.program.title,
             eventPlaces: fixture.program.eventPlaces
@@ -599,7 +599,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: fixture.event.id, scheduleDivision: division)
+            ScheduleList.State(eventID: fixture.event.id, scheduleDivision: division)
         }
         #expect(viewer.requiresListPresentation(selectedScheduleID: fixture.schedule.id))
 
@@ -1536,7 +1536,7 @@ struct ScheduleAuthoringTests {
                 .all(eventID: fixture.event.id, hydration: .none)
                 .fetchAll(db)
         }
-        var initialState = EditPerformance.State(
+        var initialState = ProgramItemForm.State(
             eventID: fixture.event.id,
             schedule: fixture.schedule,
             schedules: [fixture.schedule],
@@ -1551,7 +1551,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: initialState) {
-                EditPerformance()
+                ProgramItemForm()
             }
         }
 
@@ -1561,7 +1561,7 @@ struct ScheduleAuthoringTests {
             )
         ) {
             $0.contributions = [
-                EditPerformance.State.Contribution(
+                ProgramItemForm.State.Contribution(
                     id: 0,
                     selection: .existingContributor(fixture.contributor.id)
                 )
@@ -1588,7 +1588,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: EditPerformance.State(
+                initialState: ProgramItemForm.State(
                     eventID: fixture.event.id,
                     schedule: fixture.schedule,
                     schedules: [fixture.schedule],
@@ -1598,7 +1598,7 @@ struct ScheduleAuthoringTests {
                     contributors: contributors
                 )
             ) {
-                EditPerformance()
+                ProgramItemForm()
             }
         }
 
@@ -1608,7 +1608,7 @@ struct ScheduleAuthoringTests {
             )
         ) {
             $0.contributions = [
-                EditPerformance.State.Contribution(
+                ProgramItemForm.State.Contribution(
                     id: 0,
                     selection: .existingContributor(fixture.contributor.id)
                 )
@@ -1623,11 +1623,11 @@ struct ScheduleAuthoringTests {
         }
         store.send(.contributorRelationshipPicker(.performanceDisplayNameButtonTapped)) {
             $0.contributions = [
-                EditPerformance.State.Contribution(
+                ProgramItemForm.State.Contribution(
                     id: 0,
                     selection: .existingContributor(fixture.contributor.id)
                 ),
-                EditPerformance.State.Contribution(
+                ProgramItemForm.State.Contribution(
                     id: 1,
                     selection: .performanceDisplayName(name: "Guest Artist"),
                     billing: .known(.supporting)
@@ -1674,7 +1674,7 @@ struct ScheduleAuthoringTests {
             $0.defaultEventID = fixture.event.id
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
-            EventViewer.State(eventID: fixture.event.id)
+            EventDetail.State(eventID: fixture.event.id)
         }
         state.selectedFeature = .contributors
 
@@ -1723,12 +1723,12 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
-                initialState: PerformanceDetail.State(
+                initialState: ProgramItemDetail.State(
                     performanceID: performance.id,
                     eventID: fixture.event.id
                 )
             ) {
-                PerformanceDetail()
+                ProgramItemDetail()
             }
         }
 
@@ -1767,12 +1767,12 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             TestStore(
-                initialState: PerformanceDetail.State(
+                initialState: ProgramItemDetail.State(
                     performanceID: performance.id,
                     eventID: fixture.event.id
                 )
             ) {
-                PerformanceDetail()
+                ProgramItemDetail()
             }
         }
 
@@ -1810,8 +1810,8 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
             $0.uuid = .incrementing
         } operation: {
-            let store = Store(initialState: ScheduleViewer.State(eventID: fixture.event.id)) {
-                ScheduleViewer()
+            let store = Store(initialState: ScheduleList.State(eventID: fixture.event.id)) {
+                ScheduleList()
             }
             let scheduleStore: StoreOf<ScheduleSingleStageAtOnce> = store.spawn(\.singleStageAtOnce)
 
@@ -1862,18 +1862,18 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
         } operation: {
-            let manager = Store(initialState: ManagePrograms.State(eventID: fixture.event.id)) {
-                ManagePrograms()
+            let manager = Store(initialState: ProgramList.State(eventID: fixture.event.id)) {
+                ProgramList()
             }
             #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id])
             await manager.send(.editButtonTapped(fixture.program.id))?.value
             #expect(manager.destination?.editor?.programID == fixture.program.id)
 
-            let editor = TestStore(initialState: EditProgram.State(
+            let editor = TestStore(initialState: ProgramForm.State(
                 eventID: fixture.event.id,
                 program: fixture.program,
                 places: [fixture.stage, secondPlace]
-            )) { EditProgram() }
+            )) { ProgramForm() }
             await editor.send(.addPlaceButtonTapped(secondPlace.id))?.value
             await editor.send(.movePlaceButtonTapped(secondPlace.id, -1))?.value
             editor.modify {
@@ -1910,8 +1910,8 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            let manager = Store(initialState: ManagePrograms.State(eventID: fixture.event.id)) {
-                ManagePrograms()
+            let manager = Store(initialState: ProgramList.State(eventID: fixture.event.id)) {
+                ProgramList()
             }
             #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id, secondProgramID])
             await manager.send(.moveButtonTapped(secondProgramID, -1))?.value
@@ -2078,7 +2078,7 @@ struct ScheduleAuthoringTests {
         fixture: CanonicalScheduleAuthoringFixture,
         scheduleID: Schedule.ID?,
         stageID: EventPlace.ID?
-    ) throws -> EditPerformance.State {
+    ) throws -> ProgramItemForm.State {
         let eventID = fixture.event.id
         let timeZone = fixture.event.timeZone
         var state = withDependencies {
@@ -2088,7 +2088,7 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
             $0.date.now = Date(timeIntervalSince1970: 1_780_000_000)
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
         withDependencies {
             $0.context = .test
@@ -2114,8 +2114,8 @@ struct ScheduleAuthoringTests {
         fixture: CanonicalScheduleAuthoringFixture,
         schedules: [Schedule]? = nil,
         performance: ProgramItem? = nil,
-        update: (inout EditPerformance.State) throws -> Void
-    ) throws -> TestStore<EditPerformance> {
+        update: (inout ProgramItemForm.State) throws -> Void
+    ) throws -> TestStore<ProgramItemForm> {
         let now = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
         return try withDependencies {
             $0.context = .test
@@ -2128,9 +2128,9 @@ struct ScheduleAuthoringTests {
                     .all(eventID: fixture.event.id, hydration: .none)
                     .fetchAll(db)
             }
-            var state: EditPerformance.State
+            var state: ProgramItemForm.State
             if let performance {
-                state = EditPerformance.State(
+                state = ProgramItemForm.State(
                     eventID: fixture.event.id,
                     schedule: fixture.schedule,
                     schedules: schedules ?? [fixture.schedule],
@@ -2141,7 +2141,7 @@ struct ScheduleAuthoringTests {
                     contributors: contributors
                 )
             } else {
-                state = EditPerformance.State(
+                state = ProgramItemForm.State(
                     eventID: fixture.event.id,
                     schedule: fixture.schedule,
                     schedules: schedules ?? [fixture.schedule],
@@ -2153,7 +2153,7 @@ struct ScheduleAuthoringTests {
                 )
             }
             try update(&state)
-            return TestStore(initialState: state) { EditPerformance() }
+            return TestStore(initialState: state) { ProgramItemForm() }
         }
     }
 

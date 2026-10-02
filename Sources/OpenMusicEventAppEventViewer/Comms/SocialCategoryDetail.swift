@@ -12,7 +12,7 @@ import SwiftUI
 import Tagged
 
 @Feature
-public struct CommunicationChannelDetail {
+public struct SocialCategoryDetail {
     public init() {}
 
     public struct State: Identifiable {
@@ -27,16 +27,16 @@ public struct CommunicationChannelDetail {
             self.eventID = eventID
             self.destination = destination
             _channel = FetchOne(
-                CommunicationChannelDetail.channelQuery(channelID: channelID)
+                SocialCategoryDetail.channelQuery(channelID: channelID)
             )
             _preference = FetchOne(
-                CommunicationChannelDetail.preferenceQuery(channelID: channelID)
+                SocialCategoryDetail.preferenceQuery(channelID: channelID)
             )
             _posts = FetchAll(
-                CommunicationChannelDetail.postsQuery(channelID: channelID)
+                SocialCategoryDetail.postsQuery(channelID: channelID)
             )
             _postReads = FetchAll(
-                CommunicationChannelDetail.postReadsQuery()
+                SocialCategoryDetail.postReadsQuery()
             )
         }
 
@@ -114,11 +114,11 @@ public struct CommunicationChannelDetail {
 
     @Feature
     public enum Destination {
-        case channelForm(ChannelForm)
-        case composer(CommsPostComposer)
+        case channelForm(SocialCategoryForm)
+        case composer(SocialPostForm)
         case deleteChannelConfirmation(ChannelDeleteConfirmation)
         case postDeleteConfirmation(PostDeleteConfirmation)
-        case postDetail(CommsPostDetail)
+        case postDetail(SocialPostDetail)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -156,7 +156,7 @@ public struct CommunicationChannelDetail {
                 )
 
             case let .editChannelButtonTapped(channel):
-                state.destination = .channelForm(ChannelForm.State(category: channel))
+                state.destination = .channelForm(SocialCategoryForm.State(category: channel))
 
             case let .markPostReadButtonTapped(postID):
                 updateReadState(true, postID: postID)
@@ -176,7 +176,7 @@ public struct CommunicationChannelDetail {
                       state.canEditPost(post),
                       let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
-                    CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
+                    SocialPostForm.State(post: post, eventID: state.eventID, author: author)
                 )
 
             case let .pinPostButtonTapped(postID):
@@ -213,7 +213,7 @@ public struct CommunicationChannelDetail {
                 guard state.canEditChannel,
                       let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
-                    CommsPostComposer.State(
+                    SocialPostForm.State(
                         eventID: state.eventID,
                         categoryID: state.channelID,
                         author: author
@@ -229,7 +229,7 @@ public struct CommunicationChannelDetail {
 
             case let .postButtonTapped(postID):
                 state.destination = .postDetail(
-                    CommsPostDetail.State(postID: postID, eventID: state.eventID)
+                    SocialPostDetail.State(postID: postID, eventID: state.eventID)
                 )
 
             case .destination(.postDetail(.deleteButtonTapped)):
@@ -291,7 +291,7 @@ public struct CommunicationChannelDetail {
 
     private func updateNotificationState(
         _ notificationState: Social.Category.NotificationState,
-        state: CommunicationChannelDetail.State
+        state: SocialCategoryDetail.State
     ) {
         guard state.channel != nil else { return }
 
@@ -384,10 +384,10 @@ public struct PostDeleteConfirmation: Prompt {
     }
 }
 
-public struct CommunicationChannelDetailView: View {
-    @Bindable var store: StoreOf<CommunicationChannelDetail>
+public struct SocialCategoryDetailView: View {
+    @Bindable var store: StoreOf<SocialCategoryDetail>
 
-    public init(store: StoreOf<CommunicationChannelDetail>) {
+    public init(store: StoreOf<SocialCategoryDetail>) {
         self.store = store
     }
 
@@ -407,7 +407,7 @@ public struct CommunicationChannelDetailView: View {
             item: $store.scope(\.destination).composer
         ) { composerStore in
             NavigationStack {
-                CommsPostComposerView(store: composerStore)
+                SocialPostFormView(store: composerStore)
             }
         }
         .accessibilityIdentifier(
@@ -417,11 +417,11 @@ public struct CommunicationChannelDetailView: View {
 }
 
 struct CommunicationChannelControlsView: View {
-    @Bindable var store: StoreOf<CommunicationChannelDetail>
+    @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     init(
-        store: StoreOf<CommunicationChannelDetail>,
+        store: StoreOf<SocialCategoryDetail>,
         channel: Social.Category
     ) {
         self.store = store
@@ -490,11 +490,11 @@ struct CommunicationChannelControlsView: View {
 }
 
 struct CommunicationChannelFormSheetView: View {
-    @Bindable var store: StoreOf<CommunicationChannelDetail>
+    @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     init(
-        store: StoreOf<CommunicationChannelDetail>,
+        store: StoreOf<SocialCategoryDetail>,
         channel: Social.Category
     ) {
         self.store = store
@@ -507,18 +507,18 @@ struct CommunicationChannelFormSheetView: View {
                 item: $store.scope(\.destination).channelForm
             ) { formStore in
                 NavigationStack {
-                    ChannelFormView(store: formStore)
+                    SocialCategoryFormView(store: formStore)
                 }
             }
     }
 }
 
 struct CommunicationChannelComposerSheetView: View {
-    @Bindable var store: StoreOf<CommunicationChannelDetail>
+    @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     init(
-        store: StoreOf<CommunicationChannelDetail>,
+        store: StoreOf<SocialCategoryDetail>,
         channel: Social.Category
     ) {
         self.store = store
@@ -531,11 +531,11 @@ struct CommunicationChannelComposerSheetView: View {
 }
 
 struct CommunicationChannelPostDestinationView: View {
-    @Bindable var store: StoreOf<CommunicationChannelDetail>
+    @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     init(
-        store: StoreOf<CommunicationChannelDetail>,
+        store: StoreOf<SocialCategoryDetail>,
         channel: Social.Category
     ) {
         self.store = store
@@ -543,18 +543,18 @@ struct CommunicationChannelPostDestinationView: View {
     }
 
     var body: some View {
-        CommunicationChannelDetailList(store: store, channel: channel)
+        SocialCategoryDetailList(store: store, channel: channel)
             .navigationTitle(channel.name)
             .navigationDestination(
                 item: $store.scope(\.destination).postDetail
             ) { postStore in
-                CommsPostDetailView(store: postStore)
+                SocialPostDetailView(store: postStore)
             }
     }
 }
 
-struct CommunicationChannelDetailList: View {
-    let store: StoreOf<CommunicationChannelDetail>
+struct SocialCategoryDetailList: View {
+    let store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     var body: some View {
@@ -606,7 +606,7 @@ struct CommunicationChannelDetailList: View {
 }
 
 struct CommunicationChannelPostRow: View {
-    let store: StoreOf<CommunicationChannelDetail>
+    let store: StoreOf<SocialCategoryDetail>
     let post: Social.Post
 
     var body: some View {
@@ -730,7 +730,7 @@ struct CommsPostRowView: View {
 }
 
 struct CommunicationChannelSettingsMenu: View {
-    let store: StoreOf<CommunicationChannelDetail>
+    let store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     var body: some View {
@@ -759,7 +759,7 @@ struct CommunicationChannelSettingsMenu: View {
 }
 
 struct CommunicationChannelNotificationMenu: View {
-    let store: StoreOf<CommunicationChannelDetail>
+    let store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
     private var notificationState: Social.Category.NotificationState {

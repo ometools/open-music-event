@@ -15,7 +15,7 @@ public struct SchedulePerformanceList {
     public struct State {
         public init(
             eventID: Event.ID,
-            scheduleDivision: ScheduleViewer.ScheduleDivision
+            scheduleDivision: ScheduleList.ScheduleDivision
         ) {
             self.eventID = eventID
             self._timeZone = FetchOne(
@@ -26,10 +26,10 @@ public struct SchedulePerformanceList {
                 PerformanceRow.all(eventID: eventID)
             )
             _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: eventID)
+                ScheduleList.schedulesQuery(eventID: eventID)
             )
             _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: eventID)
+                ScheduleList.stagesQuery(eventID: eventID)
             )
             _event = FetchOne(Event.where { $0.id.eq(eventID) })
             _programs = FetchAll(Program.where { $0.event.eq(eventID) })
@@ -40,7 +40,7 @@ public struct SchedulePerformanceList {
         var eventTimePresentation: EventTimePresentation? {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
-        public let scheduleDivision: ScheduleViewer.ScheduleDivision
+        public let scheduleDivision: ScheduleList.ScheduleDivision
 
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
@@ -63,13 +63,13 @@ public struct SchedulePerformanceList {
             guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
                   let timeZone
             else { return "Select Schedule" }
-            return ScheduleViewer.scheduleTitle(schedule, in: timeZone)
+            return ScheduleList.scheduleTitle(schedule, in: timeZone)
         }
 
         public func visiblePerformanceRows(
             selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
-            ScheduleViewer.visiblePerformances(
+            ScheduleList.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
                 division: scheduleDivision
@@ -86,14 +86,14 @@ public struct SchedulePerformanceList {
         public func resolvedSelectedScheduleID(
             _ selectedScheduleID: Schedule.ID?
         ) -> Schedule.ID? {
-            ScheduleViewer.resolvedSelectedScheduleID(
+            ScheduleList.resolvedSelectedScheduleID(
                 selectedScheduleID,
                 schedules: schedules
             )
         }
 
         public var visibleStages: [EventPlace] {
-            ScheduleViewer.visibleStages(
+            ScheduleList.visibleStages(
                 stages: stages,
                 division: scheduleDivision
             )
@@ -102,7 +102,7 @@ public struct SchedulePerformanceList {
 
     public enum Action {
         case newUserScheduleButtonTapped(ProgramItem.ID)
-        case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
+        case scheduleDivisionButtonTapped(ScheduleList.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             ProgramItem.ID,
             UserSchedule.ID
@@ -179,7 +179,7 @@ public struct SchedulePerformanceListView: View {
                 .listStyle(.plain)
                 .overlay {
                     ScheduleEmptyView(
-                        title: ScheduleViewer.emptyScheduleTitle(
+                        title: ScheduleList.emptyScheduleTitle(
                             scheduleDivision: store.scheduleDivision,
                             scheduleTitle: store.state.selectedScheduleTitle(
                                 selectedScheduleID: selectedScheduleID
@@ -267,8 +267,8 @@ public struct SchedulePerformanceListView: View {
         }
     }
 
-    var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
-        ScheduleViewer.scheduleDivisions(event: store.event, programs: store.programs)
+    var otherScheduleDivisions: [ScheduleList.ScheduleDivision] {
+        ScheduleList.scheduleDivisions(event: store.event, programs: store.programs)
             .filter { $0 != store.scheduleDivision }
     }
 

@@ -78,12 +78,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             let store = Store(
-                initialState: EventViewer.State(
+                initialState: EventDetail.State(
                     eventID: selectedEventID,
                     features: [.schedule(.schedule), .contributors]
                 )
             ) {
-                EventViewer()
+                EventDetail()
             }
             let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
             let contributorsStore = try #require(store.spawn(\.contributorsViewer))
@@ -156,12 +156,12 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             let store = Store(
-                initialState: EventViewer.State(
+                initialState: EventDetail.State(
                     eventID: selectedEventID,
                     features: [.schedule(.schedule), .contributors, .stages]
                 )
             ) {
-                EventViewer()
+                EventDetail()
             }
             let scheduleStore = try #require(store.spawn(\.scheduleViewers).first)
             let singleStageStore: StoreOf<ScheduleSingleStageAtOnce> =
@@ -226,7 +226,7 @@ extension NavigationTests {
             )
             let schedule = try #require(scheduleStore.schedules.first)
             expectNoDifference(
-                ScheduleViewer.scheduleTitle(schedule, in: eventTimeZone),
+                ScheduleList.scheduleTitle(schedule, in: eventTimeZone),
                 "Friday"
             )
 
@@ -240,7 +240,7 @@ extension NavigationTests {
                 eventTimeZone.identifier
             )
 
-            let stagesStore = try #require(store.spawn(\.stagesViewer))
+            let stagesStore = try #require(store.spawn(\.eventPlaceList))
             await stagesStore.send(.stageButtonTapped(stageID))?.value
             let stageDetail = try #require(stagesStore.destination?.stageDetail)
             expectNoDifference(

@@ -45,8 +45,8 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditContributor.State(eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -56,7 +56,7 @@ extension NavigationTests {
         #expect(store.state.errorMessage == nil)
         #expect(store.isPresented)
         #expect(
-            store.state.form.validation[AnyHashable(\EditContributor.FormValue.name)]?.errors.map(\.message)
+            store.state.form.validation[AnyHashable(\ContributorForm.FormValue.name)]?.errors.map(\.message)
                 == ["Enter a name."]
         )
 
@@ -81,15 +81,15 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: StageDetail.State(stageID: stageID, eventID: eventID)) {
-                StageDetail()
+            TestStore(initialState: EventPlaceDetail.State(stageID: stageID, eventID: eventID)) {
+                EventPlaceDetail()
             }
         }
 
         let editTask = store.send(.editButtonTapped)
         await store.receive(
             key: EventEditingRequested.self,
-            value: .equals(.editStage(eventID: eventID, stageID: stageID)),
+            value: .equals(.editPlace(eventID: eventID, placeID: stageID)),
             timeout: .seconds(1)
         )
         await editTask?.value
@@ -143,8 +143,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditStage.State(stageID: stageID, eventID: eventID)) {
-                EditStage()
+            TestStore(initialState: EventPlaceForm.State(stageID: stageID, eventID: eventID)) {
+                EventPlaceForm()
             }
         }
 
@@ -184,7 +184,7 @@ extension NavigationTests {
 
         let stage = try await database.read { db in
             try #require(
-                try StageDetail.stageQuery(
+                try EventPlaceDetail.stageQuery(
                     stageID: stageID,
                     eventID: eventID
                 )
@@ -256,8 +256,8 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditStage.State(stageID: stageID, eventID: eventID)) {
-                EditStage()
+            TestStore(initialState: EventPlaceForm.State(stageID: stageID, eventID: eventID)) {
+                EventPlaceForm()
             }
         }
         #expect(store.state.mediaEntries.count == 3)
@@ -290,22 +290,22 @@ extension NavigationTests {
     }
 
     @Test
-    func stagesViewerAddButtonEmitsCreateStageEditorRequest() async throws {
+    func eventPlaceListAddButtonEmitsCreateStageEditorRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
-                StagesViewer()
+            TestStore(initialState: EventPlaceList.State(eventID: eventID)) {
+                EventPlaceList()
             }
         }
 
         let addTask = store.send(.addButtonTapped)
         await store.receive(
             key: EventEditingRequested.self,
-            value: .equals(.createStage(eventID)),
+            value: .equals(.createPlace(eventID)),
             timeout: .seconds(1)
         )
         await addTask?.value
@@ -330,7 +330,7 @@ extension NavigationTests {
         }
 
         let channels = try await database.read { db in
-            try CommunicationsViewer.channelsQuery(eventID: selectedEventID).fetchAll(db)
+            try SocialCategoryList.channelsQuery(eventID: selectedEventID).fetchAll(db)
         }
 
         expectNoDifference(

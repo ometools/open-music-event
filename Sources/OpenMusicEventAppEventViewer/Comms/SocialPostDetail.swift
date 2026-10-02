@@ -12,7 +12,7 @@ import SwiftUI
 import Tagged
 
 @Feature
-public struct CommsPostDetail {
+public struct SocialPostDetail {
     public init() {}
 
     public struct State: Identifiable {
@@ -69,7 +69,7 @@ public struct CommsPostDetail {
 
     @Feature
     public enum Destination {
-        case composer(CommsPostComposer)
+        case composer(SocialPostForm)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -85,7 +85,7 @@ public struct CommsPostDetail {
                       let post = state.post,
                       let author = state.validatedWorkspaceSession?.actorID else { return }
                 state.destination = .composer(
-                    CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
+                    SocialPostForm.State(post: post, eventID: state.eventID, author: author)
                 )
 
             case .destination:
@@ -113,16 +113,16 @@ public struct CommsPostDetail {
         .ifLet(\.destination) {
             EmptyFeature()
                 .ifCaseLet(\.composer) {
-                    CommsPostComposer()
+                    SocialPostForm()
                 }
         }
     }
 }
 
-public struct CommsPostDetailView: View {
-    @Bindable var store: StoreOf<CommsPostDetail>
+public struct SocialPostDetailView: View {
+    @Bindable var store: StoreOf<SocialPostDetail>
 
-    public init(store: StoreOf<CommsPostDetail>) {
+    public init(store: StoreOf<SocialPostDetail>) {
         self.store = store
     }
 
@@ -194,7 +194,7 @@ public struct CommsPostDetailView: View {
         }
         .sheet(item: $store.scope(\.destination).composer) { composerStore in
             NavigationStack {
-                CommsPostComposerView(store: composerStore)
+                SocialPostFormView(store: composerStore)
             }
         }
         .accessibilityIdentifier("view.communication-post.\(store.postID.description)")

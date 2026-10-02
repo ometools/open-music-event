@@ -71,8 +71,8 @@ extension NavigationTests {
                 return exactIdentity
             }
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
-                EditContributor()
+            Store(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -148,11 +148,11 @@ extension NavigationTests {
             )
         } operation: {
             TestStore(
-                initialState: EditContributor.State(
+                initialState: ContributorForm.State(
                     contributorID: contributor.id, eventID: eventID
                 )
             ) {
-                EditContributor()
+                ContributorForm()
             }
         }
         await store.send(.onAppear)?.value
@@ -228,8 +228,8 @@ extension NavigationTests {
                 refreshProfileIfNeeded: { _, _, _ in profile }
             )
         } operation: {
-            TestStore(initialState: EditContributor.State(eventID: eventID)) {
-                EditContributor()
+            TestStore(initialState: ContributorForm.State(eventID: eventID)) {
+                ContributorForm()
             }
         }
 
@@ -311,12 +311,12 @@ extension NavigationTests {
                 refreshProfileIfNeeded: { _, _, _ in profile }
             )
         } operation: {
-            var state = EditContributor.State(eventID: eventID)
+            var state = ContributorForm.State(eventID: eventID)
             state.form.value.name = "Manual Artist"
             state.form.value.bio = "Manual bio"
             state.imageURL = manualPhotoURL.absoluteString
             return Store(initialState: state) {
-                EditContributor()
+                ContributorForm()
             }
         }
 

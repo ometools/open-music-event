@@ -36,14 +36,14 @@ extension NavigationTests {
     @Test
     func `empty schedule titles are friendly`() {
         expectNoDifference(
-            ScheduleViewer.emptyScheduleTitle(
+            ScheduleList.emptyScheduleTitle(
                 scheduleDivision: .schedule,
                 scheduleTitle: "Friday"
             ),
             "No Schedule on Friday"
         )
         expectNoDifference(
-            ScheduleViewer.emptyScheduleTitle(
+            ScheduleList.emptyScheduleTitle(
                 scheduleDivision: .init(programID: nil, title: "Workshops"),
                 scheduleTitle: "Friday"
             ),
@@ -168,7 +168,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            ScheduleList.State(eventID: eventID)
         }
 
         #expect(state.scheduleKind == .singleStageAtOnce)

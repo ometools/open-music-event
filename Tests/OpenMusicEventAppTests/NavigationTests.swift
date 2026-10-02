@@ -72,9 +72,9 @@ func navigationStageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-extension EventViewer.State {
-    var stageDetailSpawn: Spawn<StageDetail>? {
-        stagesViewer?.state.destination?.stageDetail
+extension EventDetail.State {
+    var stageDetailSpawn: Spawn<EventPlaceDetail>? {
+        eventPlaceList?.state.destination?.stageDetail
     }
 }
 
@@ -617,8 +617,8 @@ struct NavigationTests {
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Wicked Woods")
             try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
-            try EventViewerState.insert {
-                EventViewerState(id: eventID, didInitializeUserSchedules: true)
+            try EventDetailState.insert {
+                EventDetailState(id: eventID, didInitializeUserSchedules: true)
             }.execute(db)
         }
         let store = makeCanonicalRootHarnessStore(
@@ -766,13 +766,13 @@ struct NavigationTests {
 
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
-            store.state.root.destination?.eventViewer?.stagesViewer?
+            store.state.root.destination?.eventViewer?.eventPlaceList?
                 .state.destination?.stageDetail?.state.stageID == stageID
         }
 
         #expect(store.state.root.destination?.eventViewer?.selectedFeature == .stages)
         #expect(
-            store.state.root.destination?.eventViewer?.stagesViewer?
+            store.state.root.destination?.eventViewer?.eventPlaceList?
                 .state.destination?.stageDetail?.state.stageID == stageID
         )
     }
@@ -1126,7 +1126,7 @@ struct NavigationTests {
     }
 
     func waitForContributorListBlueskyProfile(
-        in store: StoreOf<ContributorsViewer>,
+        in store: StoreOf<ContributorList>,
         contributorID: Contributor.ID
     ) async throws {
         for _ in 0..<100 {
@@ -1435,15 +1435,15 @@ struct NavigationTests {
     func makeEventViewerHarnessStore(
         eventID: Event.ID = canonicalRouteEventID,
         database: (any DatabaseWriter)? = nil
-    ) throws -> TestStore<EventViewerHarness> {
+    ) throws -> TestStore<EventDetailHarness> {
         let database = try database ?? makePreparedDatabase()
         return withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
-                EventViewerHarness()
+            TestStore(initialState: EventDetailHarness.State(eventID: eventID)) {
+                EventDetailHarness()
             }
         }
     }
@@ -1505,10 +1505,10 @@ struct MyEventsEventHarness {
 }
 
 @Feature
-struct EventViewerHarness {
+struct EventDetailHarness {
     struct State {
         init(eventID: Event.ID = canonicalRouteEventID) {
-            self.eventViewer = EventViewer.State.route(
+            self.eventViewer = EventDetail.State.route(
                 eventID: eventID,
                 target: nil
             )
@@ -1516,7 +1516,7 @@ struct EventViewerHarness {
 
         var lastRequest: NavigationRequest?
         @DebugSnapshotIgnored
-        var eventViewer: EventViewer.State
+        var eventViewer: EventDetail.State
 
         var eventInfoViewer: Spawn<EventInfoViewer> {
             get { eventViewer.eventInfoViewer! }
@@ -1526,12 +1526,12 @@ struct EventViewerHarness {
     }
 
     enum Action {
-        case eventViewer(EventViewer.Action)
+        case eventViewer(EventDetail.Action)
     }
 
     var body: some Feature {
         Scope(\.eventViewer) {
-            EventViewer()
+            EventDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request

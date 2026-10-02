@@ -13,7 +13,7 @@ import SwiftUI
 #endif
 
 @Feature
-public struct EditSchedule {
+public struct ScheduleForm {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
@@ -172,12 +172,12 @@ public struct EditSchedule {
     }
 }
 
-public struct EditScheduleView: View {
+public struct ScheduleFormView: View {
     @Environment(\.dismiss) var dismiss
     @State var isDeleteConfirmationPresented = false
-    @Bindable var store: StoreOf<EditSchedule>
+    @Bindable var store: StoreOf<ScheduleForm>
 
-    public init(store: StoreOf<EditSchedule>) {
+    public init(store: StoreOf<ScheduleForm>) {
         self.store = store
     }
 

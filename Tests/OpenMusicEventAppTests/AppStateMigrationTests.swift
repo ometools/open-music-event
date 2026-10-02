@@ -34,18 +34,18 @@ struct AppStateMigrationTests {
         let eventID = try #require(Event.ID(
             "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
         ))
-        let viewerState = EventViewerState(id: eventID, didInitializeUserSchedules: true)
-        let scheduleState = ScheduleViewerState(
+        let viewerState = EventDetailState(id: eventID, didInitializeUserSchedules: true)
+        let scheduleState = ScheduleListState(
             id: .init(eventID: eventID, category: "schedule"),
             filteringFavorites: true
         )
         try database.write { db in
-            try EventViewerState.insert { viewerState }.execute(db)
-            try ScheduleViewerState.insert { scheduleState }.execute(db)
+            try EventDetailState.insert { viewerState }.execute(db)
+            try ScheduleListState.insert { scheduleState }.execute(db)
         }
 
         let savedViewer = try database.read { db in
-            try EventViewerState.where { $0.id.eq(eventID) }.fetchOne(db)
+            try EventDetailState.where { $0.id.eq(eventID) }.fetchOne(db)
         }
         #expect(savedViewer == viewerState)
         let savedScheduleID = try database.read { db in

@@ -103,9 +103,9 @@ public struct UserScheduleForm {
                                     .execute(db)
                                 }
 
-                                var viewerState = try EventViewerStateRequest(eventID: eventID).fetch(db)
+                                var viewerState = try EventDetailStateRequest(eventID: eventID).fetch(db)
                                 viewerState.selectedUserScheduleID = scheduleID
-                                try EventViewerState.upsert { viewerState }.execute(db)
+                                try EventDetailState.upsert { viewerState }.execute(db)
                             } else {
                                 try UserSchedule
                                     .where { $0.id.eq(scheduleID) }
@@ -180,10 +180,10 @@ public struct UserSchedulesList {
     public struct State {
         public init(eventID: Event.ID) {
             self.eventID = eventID
-            self.eventViewerState = EventViewerState(id: eventID)
+            self.eventViewerState = EventDetailState(id: eventID)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
-                EventViewerState.none
+                EventDetailState.none
             )
             self._schedules = FetchAll(UserSchedule.all(eventID: eventID))
             self._memberships = FetchAll(UserSchedule.Performance.all)
@@ -192,8 +192,8 @@ public struct UserSchedulesList {
 
         public let eventID: Event.ID
         public var destination: Destination.State?
-        public var eventViewerState: EventViewerState
-        @FetchOne var persistedEventViewerState: EventViewerState?
+        public var eventViewerState: EventDetailState
+        @FetchOne var persistedEventViewerState: EventDetailState?
         @FetchAll public var schedules: [UserSchedule]
         @FetchAll public var memberships: [UserSchedule.Performance]
         @FetchAll public var performanceRows: [PerformanceRow]
@@ -287,10 +287,10 @@ public struct UserSchedulesList {
                                 .delete()
                                 .execute(db)
 
-                            var viewerState = try EventViewerStateRequest(eventID: eventID).fetch(db)
+                            var viewerState = try EventDetailStateRequest(eventID: eventID).fetch(db)
                             if viewerState.selectedUserScheduleID == scheduleID {
                                 viewerState.selectedUserScheduleID = nil
-                                try EventViewerState.upsert { viewerState }.execute(db)
+                                try EventDetailState.upsert { viewerState }.execute(db)
                             }
                         }
                     } catch {
@@ -368,7 +368,7 @@ public struct UserSchedulesList {
             guard state.persistedEventViewerState != viewerState else { return }
             do {
                 try database.write { db in
-                    try EventViewerState.persistChanges(
+                    try EventDetailState.persistChanges(
                         from: oldViewerState,
                         to: viewerState,
                         in: db
@@ -383,7 +383,7 @@ public struct UserSchedulesList {
             let persistedEventViewerState = state.$persistedEventViewerState
             store.addTask {
                 try await persistedEventViewerState.load(
-                    EventViewerState.where { $0.id.eq(eventID) }
+                    EventDetailState.where { $0.id.eq(eventID) }
                 )
                 .task
             }

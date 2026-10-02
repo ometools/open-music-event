@@ -46,7 +46,7 @@ extension NavigationTests {
         let workshopItemID = canonicalRouteRecordID("events.openmusic.programItem", "3mrdbziccpcaq")
         let date = try #require(LocalDate("2026-08-07"))
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: workshopProgramID,
             title: "Workshops",
             eventPlaces: [workshopID]
@@ -79,7 +79,7 @@ extension NavigationTests {
         }
 
         let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            try ScheduleList.stagesQuery(eventID: eventID).fetchAll(db)
         }
         let performanceRows = try await database.read { db in
             try PerformanceRow.all(
@@ -88,11 +88,11 @@ extension NavigationTests {
             )
             .fetchAll(db)
         }
-        let visibleStages = ScheduleViewer.visibleStages(
+        let visibleStages = ScheduleList.visibleStages(
             stages: stages,
             division: workshopDivision
         )
-        let visiblePerformances = ScheduleViewer.visiblePerformances(
+        let visiblePerformances = ScheduleList.visiblePerformances(
             performanceRows: performanceRows,
             scheduleID: scheduleID,
             division: workshopDivision
@@ -136,7 +136,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
 
         #expect(Array(state.installedFeatures.prefix(2).map(\.description)) == [
@@ -156,10 +156,10 @@ extension NavigationTests {
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcaq")
         let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
         let workshopProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq")
-        let mainDivision = ScheduleViewer.ScheduleDivision(
+        let mainDivision = ScheduleList.ScheduleDivision(
             programID: mainProgramID, title: "Schedule", eventPlaces: [mainID]
         )
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: workshopProgramID, title: "Workshops", eventPlaces: [workshopID]
         )
         try await database.write { db in
@@ -184,8 +184,8 @@ extension NavigationTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            Store(initialState: EventDetail.State(eventID: eventID)) {
+                EventDetail()
             }
         }
         let scheduleStore = try #require(
@@ -226,7 +226,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(eventID: eventID)
+            EventDetail.State(eventID: eventID)
         }
 
         #expect(state.authoringAccess == .attendee)
@@ -258,8 +258,8 @@ extension NavigationTests {
                     .appending(path: "OME-OwnerEditing-\(UUID())", directoryHint: .isDirectory)
             )
         } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            Store(initialState: EventDetail.State(eventID: eventID)) {
+                EventDetail()
             }
         }
         let settings = try #require(store.spawn(\.eventSettings))
@@ -289,7 +289,7 @@ extension NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let scheduleID = canonicalRouteRecordID("events.openmusic.schedule", "3mrdbziccpcae")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(
+        let workshopDivision = ScheduleList.ScheduleDivision(
             programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq"),
             title: "Workshops"
         )
@@ -306,7 +306,7 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: EventViewer.State(
+                initialState: EventDetail.State(
                     eventID: eventID,
                     features: [
                         .schedule(.schedule),
@@ -314,7 +314,7 @@ extension NavigationTests {
                     ]
                 )
             ) {
-                EventViewer()
+                EventDetail()
             }
         }
 
@@ -323,7 +323,7 @@ extension NavigationTests {
         }?.value
 
         let storedState = try await database.read { db in
-            try EventViewerStateRequest(eventID: eventID).fetch(db)
+            try EventDetailStateRequest(eventID: eventID).fetch(db)
         }
         await firstVisit.dismount()
 
@@ -332,7 +332,7 @@ extension NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             Store(
-                initialState: EventViewer.State(
+                initialState: EventDetail.State(
                     eventID: eventID,
                     features: [
                         .schedule(.schedule),
@@ -340,7 +340,7 @@ extension NavigationTests {
                     ]
                 )
             ) {
-                EventViewer()
+                EventDetail()
             }
         }
 

@@ -18,14 +18,14 @@ public enum EventEditingIntent: Equatable, Sendable {
     case addSchedule(Event.ID)
     case copyStagesFromEvent(Event.ID)
     case createContributor(Event.ID)
-    case createStage(Event.ID)
+    case createPlace(Event.ID)
     case deletePerformance(eventID: Event.ID, performanceID: ProgramItem.ID)
     case editContactInfo(Event.ID)
     case editContributor(eventID: Event.ID, contributorID: Contributor.ID)
     case eventWorkspace(Event.ID)
     case editLocation(Event.ID)
     case editPerformance(eventID: Event.ID, performanceID: ProgramItem.ID)
-    case editStage(eventID: Event.ID, stageID: EventPlace.ID)
+    case editPlace(eventID: Event.ID, placeID: EventPlace.ID)
     case eventSettings(Event.ID)
 }
 

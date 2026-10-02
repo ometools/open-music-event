@@ -115,8 +115,8 @@ public struct EventSearch {
     @Feature
     public enum Destination {
         case contributorDetail(Spawn<ContributorDetail>)
-        case performanceDetail(Spawn<PerformanceDetail>)
-        case stageDetail(Spawn<StageDetail>)
+        case performanceDetail(Spawn<ProgramItemDetail>)
+        case stageDetail(Spawn<EventPlaceDetail>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -248,10 +248,10 @@ public struct EventSearchView: View {
                 ContributorDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.destination).performanceDetail) { detailStore in
-                PerformanceDetailView(store: detailStore)
+                ProgramItemDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.destination).stageDetail) { detailStore in
-                StageDetailView(store: detailStore)
+                EventPlaceDetailView(store: detailStore)
             }
         }
         .searchable(text: $searchFieldText, prompt: "Search this event")

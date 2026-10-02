@@ -70,7 +70,7 @@ extension NavigationTests {
         }
 
         let contributors = try await database.read { db in
-            try ContributorsViewer.contributorProfilesQuery(
+            try ContributorList.contributorProfilesQuery(
                 eventID: selectedEventID
             ).fetchAll(db)
         }
