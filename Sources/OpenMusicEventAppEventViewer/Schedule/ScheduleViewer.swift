@@ -359,10 +359,19 @@ public struct ScheduleViewer {
         }
 
         public func requiresListPresentation(selectedScheduleID: Schedule.ID?) -> Bool {
+            if !unscheduledPerformanceRows.isEmpty { return true }
             let visibleStageIDs = Set(visibleStages.map(\.id))
             return visiblePerformances(selectedScheduleID: selectedScheduleID).contains { item in
+                if item.startDate == nil || item.endDate == nil { return true }
                 guard let eventPlace = item.eventPlace else { return true }
                 return !visibleStageIDs.contains(eventPlace)
+            }
+        }
+
+        public var unscheduledPerformanceRows: [PerformanceRow] {
+            guard let programID = scheduleDivision.programID else { return [] }
+            return performanceRows.filter {
+                $0.performance.program == programID && $0.performance.schedule == nil
             }
         }
 
@@ -671,7 +680,7 @@ public struct ScheduleViewer {
         ) != nil {
             return true
         }
-        return schedules.isEmpty && (event.map { $0.start?.date(in: $0.timeZone) != nil } ?? true)
+        return schedules.isEmpty
     }
 
     static func resolvedSelectedScheduleID(

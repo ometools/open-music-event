@@ -346,7 +346,8 @@ public struct ScheduleViewerView: View {
     @ViewBuilder
     var content: some View {
         Group {
-            if store.schedules.isEmpty {
+            if store.schedules.isEmpty
+                && !store.state.requiresListPresentation(selectedScheduleID: selectedScheduleID) {
                 ViewerPlaceholderView(
                     title: "Schedule coming soon",
                     systemImage: "calendar",

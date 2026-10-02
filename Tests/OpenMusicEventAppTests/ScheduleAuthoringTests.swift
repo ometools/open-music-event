@@ -148,10 +148,7 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
-    func scheduleViewerCanAddPerformanceWhileSchedulelessEventIsLoading() throws {
-        let eventID = try #require(Event.ID(
-            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
-        ))
+    func scheduleViewerCanAddPerformanceWhileSchedulelessEventIsLoading() {
         expectNoDifference(
             ScheduleViewer.canAddPerformance(
                 selectedScheduleID: nil,
@@ -164,7 +161,7 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
-    func unplacedProgramItemUsesListUntilAssignedToAVisiblePlace() async throws {
+    func untimedProgramItemUsesListEvenAfterAssigningAVisiblePlace() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
         let itemID = try #require(ProgramItem.ID(
@@ -202,7 +199,7 @@ struct ScheduleAuthoringTests {
         try await database.write { db in
             try ProgramItem.upsert { placedItem }.execute(db)
         }
-        #expect(!viewerState().requiresListPresentation(selectedScheduleID: fixture.schedule.id))
+        #expect(viewerState().requiresListPresentation(selectedScheduleID: fixture.schedule.id))
     }
 
     @Test
@@ -237,7 +234,7 @@ struct ScheduleAuthoringTests {
             stageID: selectedContext.stage.id
         )
         expectNoDifference(
-            editPerformance.schedule.id,
+            try #require(editPerformance.schedule).id,
             selectedContext.schedule.id
         )
         expectNoDifference(
@@ -399,7 +396,7 @@ struct ScheduleAuthoringTests {
         }
 
         let editPerformance = try #require(state.destination?.performanceForm)
-        expectNoDifference(editPerformance.schedule.date, scheduleDate)
+        expectNoDifference(try #require(editPerformance.schedule).date, scheduleDate)
         expectNoDifference(editPerformance.selectedStageID, stageID)
         let saved = try await database.read { db in
             (
@@ -409,7 +406,7 @@ struct ScheduleAuthoringTests {
         }
         let schedule = try #require(saved.schedules.first)
         #expect(saved.schedules.count == 1)
-        #expect(schedule.id == editPerformance.schedule.id)
+        #expect(schedule.id == editPerformance.schedule?.id)
         #expect(schedule.date == scheduleDate)
         #expect(schedule.event == eventID)
         expectNoDifference(editPerformance.schedules.map(\.id), [schedule.id])
@@ -462,6 +459,239 @@ struct ScheduleAuthoringTests {
         #expect(credit.billing == .known(.primary))
         #expect(credit.role == nil)
         try performance.validateReferences()
+    }
+
+    @Test
+    func createsAnUnscheduledProgramItemWithoutInventingATime() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
+            $0.title = "Lineup TBA"
+            $0.isAssignedToSchedule = false
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let item = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        #expect(store.state.errorMessage == nil)
+        #expect(item.schedule == nil)
+        #expect(item.startsAt == nil)
+        #expect(item.endsAt == nil)
+        #expect(item.eventPlace == fixture.stage.id)
+        try item.validateReferences()
+    }
+
+    @Test
+    func schedulelessEventCanCreateAndReopenAnUnscheduledProgramItem() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        try await database.write { db in
+            try ScheduleRecordEditing.delete(
+                fixture.schedule.id, eventID: fixture.event.id, in: db
+            )
+        }
+        let editor = try addCanonicalPerformanceEditorState(
+            database: database,
+            fixture: fixture,
+            scheduleID: nil,
+            stageID: fixture.stage.id
+        )
+        #expect(editor.schedule == nil)
+        #expect(editor.schedules.isEmpty)
+        #expect(!editor.isAssignedToSchedule)
+        #expect(!editor.hasStartTime)
+
+        let now = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date.now = now
+        } operation: {
+            TestStore(initialState: editor) { EditPerformance() }
+        }
+        store.modify { $0.title = "Location TBA" }
+        await store.send(.saveButtonTapped)?.value
+
+        let item = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        #expect(item.schedule == nil)
+        #expect(item.startsAt == nil)
+        #expect(try await database.read { try Schedule.all.fetchCount($0) } == 0)
+
+        let division = ScheduleViewer.ScheduleDivision(
+            programID: fixture.program.id,
+            title: fixture.program.title,
+            eventPlaces: fixture.program.eventPlaces
+        )
+        let scheduleViewer = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            ScheduleViewer.State(eventID: fixture.event.id, scheduleDivision: division)
+        }
+        #expect(scheduleViewer.requiresListPresentation(selectedScheduleID: nil))
+        #expect(scheduleViewer.unscheduledPerformanceRows.map(\.performanceID) == [item.id])
+        let performanceList = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            SchedulePerformanceList.State(eventID: fixture.event.id, scheduleDivision: division)
+        }
+        #expect(performanceList.unscheduledPerformanceRows.map(\.performanceID) == [item.id])
+
+        var viewer = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.event.id
+            $0.defaultEventTimeZone = SharedReader(value: fixture.event.timeZone)
+            $0.date.now = now
+        } operation: {
+            EventViewer.State(eventID: fixture.event.id)
+        }
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.event.id
+            $0.defaultEventTimeZone = SharedReader(value: fixture.event.timeZone)
+            $0.date.now = now
+        } operation: {
+            viewer.handleEditingIntent(
+                .editPerformance(eventID: fixture.event.id, performanceID: item.id)
+            )
+        }
+        let reopened = try #require(viewer.destination?.performanceForm)
+        #expect(reopened.performanceID == item.id)
+        #expect(reopened.schedule == nil)
+        #expect(!reopened.isAssignedToSchedule)
+    }
+
+    @Test
+    func preservesAScheduleDayWithoutRequiringAnEndTime() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let start = try #require(fixture.schedule.date.at(hour: 20, in: fixture.event.timeZone))
+        let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
+            $0.title = "Doors"
+            $0.startTimeSelection = start
+            $0.hasEndTime = false
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let item = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        #expect(store.state.errorMessage == nil)
+        #expect(item.schedule == fixture.schedule.id)
+        #expect(item.startDate == start)
+        #expect(item.endsAt == nil)
+        try item.validateReferences()
+
+        let division = ScheduleViewer.ScheduleDivision(
+            programID: fixture.program.id,
+            title: fixture.program.title,
+            eventPlaces: fixture.program.eventPlaces
+        )
+        let viewer = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            ScheduleViewer.State(eventID: fixture.event.id, scheduleDivision: division)
+        }
+        #expect(viewer.requiresListPresentation(selectedScheduleID: fixture.schedule.id))
+
+        let editStore = try makeCanonicalPerformanceStore(
+            database: database, fixture: fixture, performance: item
+        ) { _ in }
+        #expect(editStore.state.isAssignedToSchedule)
+        #expect(editStore.state.hasStartTime)
+        #expect(!editStore.state.hasEndTime)
+    }
+
+    @Test
+    func creditRowActionsEditNameAndReorder() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
+            $0.title = "Shared Set"
+            $0.titleIsGenerated = false
+            $0.appendContribution(selection: .existingContributor(fixture.contributor.id))
+            $0.appendContribution(selection: .performanceDisplayName(name: "Guest"))
+        }
+
+        store.send(.contributionEditButtonTapped(1)) {
+            $0.contributions[1].creditName = "Guest"
+            $0.editingContributionID = 1
+        }
+        store.send(.contributionNameChanged(1, "Special Guest")) {
+            $0.contributions[1].creditName = "Special Guest"
+        }
+        store.send(.contributionEditDoneButtonTapped) {
+            $0.editingContributionID = nil
+        }
+        await store.send(.contributionMoveButtonTapped(1, -1))?.value
+        #expect(store.state.contributions.map(\.id) == [1, 0])
+
+        await store.send(.saveButtonTapped)?.value
+
+        let item = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        #expect(item.credits?.map(\.name) == ["Special Guest", fixture.contributor.name])
+        #expect(item.credits?.first?.contributor == nil)
+        try item.validateReferences()
+    }
+
+    @Test
+    func programItemPhotoCanBeRemovedWithoutChangingIdentityOrOtherMedia() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let photo = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/set.jpg")))),
+            role: .known(.photo),
+            renderingMode: .known(.original)
+        )
+        let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
+            $0.title = "Photo Set"
+            $0.photoImagePicker.images = [
+                ImageAssetPicker.ImageValue(id: UUID(), image: photo)
+            ]
+        }
+        await store.send(.saveButtonTapped)?.value
+
+        let created = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        #expect(created.media == [.known(.image(photo))])
+
+        let external = OME.Media.External(
+            uri: try #require(URL(string: "https://example.com/set-video")),
+            title: "Set video"
+        )
+        var updated = created
+        updated.media = [.known(.image(photo)), .known(.external(external))]
+        let withExternal = updated
+        try await database.write { db in
+            try ProgramItem.upsert { withExternal }.execute(db)
+        }
+
+        let editStore = try makeCanonicalPerformanceStore(
+            database: database, fixture: fixture, performance: withExternal
+        ) { state in
+            #expect(state.photoImagePicker.images.count == 1)
+            state.photoImagePicker.images = []
+        }
+        await editStore.send(.saveButtonTapped)?.value
+
+        let edited = try await database.read { db in
+            try #require(try ProgramItem.find(created.id).fetchOne(db))
+        }
+        #expect(edited.id == created.id)
+        #expect(edited.createdAt == created.createdAt)
+        #expect(edited.media == [.known(.external(external))])
     }
 
     @Test
@@ -1737,6 +1967,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
+            $0.date.now = Date(timeIntervalSince1970: 1_780_000_000)
         } operation: {
             EventViewer.State(eventID: eventID)
         }
@@ -1745,6 +1976,7 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
+            $0.date.now = Date(timeIntervalSince1970: 1_780_000_000)
         } operation: {
             state.handleEditingIntent(
                 .addPerformance(
@@ -1770,6 +2002,7 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.date.now = now
+            $0.uuid = .incrementing
         } operation: {
             let contributors = try database.read { db in
                 try ContributorProfile

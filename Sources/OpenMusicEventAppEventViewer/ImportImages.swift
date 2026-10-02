@@ -266,6 +266,15 @@ public extension ImportImages {
             )
         }
 
+        public static var programItemPhotos: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Program Item Photos",
+                role: .photo,
+                renderingMode: .original
+            )
+        }
+
         public static var stageHero: Self {
             Self(
                 cardinality: .single,

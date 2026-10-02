@@ -686,18 +686,22 @@ public struct EventViewer {
                         schedules.append(insertedSchedule)
                         schedule = insertedSchedule
                     }
-                    guard let schedule else { return nil }
                     let selectedProgram = programs.first(where: { $0.id == programID }) ?? programs.first
                     let resolvedStageID = stageID.flatMap { stageID in
                         selectedProgram?.eventPlaces.contains(stageID) == true ? stageID : nil
                     } ?? selectedProgram?.eventPlaces.first
-                    let initialStartTime = try ProgramItem
-                        .where { $0.event.eq(eventID) }
-                        .where { $0.schedule.eq(schedule.id) }
-                        .fetchAll(db)
-                        .filter { $0.eventPlace == resolvedStageID }
-                        .compactMap(\.endDate)
-                        .max()
+                    let initialStartTime: Date?
+                    if let schedule {
+                        initialStartTime = try ProgramItem
+                            .where { $0.event.eq(eventID) }
+                            .where { $0.schedule.eq(schedule.id) }
+                            .fetchAll(db)
+                            .filter { $0.eventPlace == resolvedStageID }
+                            .compactMap(\.endDate)
+                            .max()
+                    } else {
+                        initialStartTime = nil
+                    }
 
                     return EditPerformance.State(
                         eventID: eventID,
@@ -755,11 +759,10 @@ public struct EventViewer {
                     let contributors = try ContributorProfile
                         .all(eventID: eventID, hydration: .none)
                         .fetchAll(db)
-                    guard
-                        let row = performanceRows.first(where: { $0.performanceID == performanceID }),
-                        let scheduleID = row.performance.schedule,
-                        let schedule = schedules.first(where: { $0.id == scheduleID })
-                    else { return nil }
+                    guard let row = performanceRows.first(where: {
+                        $0.performanceID == performanceID
+                    }) else { return nil }
+                    let schedule = schedules.first { $0.id == row.performance.schedule }
 
                     return EditPerformance.State(
                         eventID: eventID,

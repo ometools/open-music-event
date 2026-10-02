@@ -189,6 +189,7 @@ public struct ImageAssetPicker {
     public enum Action {
         case addButtonTapped
         case imageInfoButtonTapped(ImageValue.ID)
+        case moveButtonTapped(ImageValue.ID, Int)
         case removeButtonTapped(ImageValue.ID)
     }
 
@@ -200,6 +201,11 @@ public struct ImageAssetPicker {
 
             case .imageInfoButtonTapped:
                 break
+
+            case let .moveButtonTapped(id, offset):
+                guard let index = state.images.firstIndex(where: { $0.id == id }),
+                      state.images.indices.contains(index + offset) else { return }
+                state.images.swapAt(index, index + offset)
 
             case let .removeButtonTapped(id):
                 state.images.removeAll { $0.id == id }
@@ -218,13 +224,20 @@ public struct ImageAssetPickerSection: View {
     public var body: some View {
         Section(store.sectionTitle) {
             ForEach(store.images) { image in
+                let index = store.images.firstIndex(where: { $0.id == image.id })
                 ImageAssetPickerRowView(
                     recordID: store.recordID,
-                    image: image
+                    image: image,
+                    canMoveUp: index.map { $0 > 0 } ?? false,
+                    canMoveDown: index.map { $0 + 1 < store.images.count } ?? false
                 ) {
                     store.send(.imageInfoButtonTapped(image.id))
                 } onRemove: {
                     store.send(.removeButtonTapped(image.id))
+                } onMoveUp: {
+                    store.send(.moveButtonTapped(image.id, -1))
+                } onMoveDown: {
+                    store.send(.moveButtonTapped(image.id, 1))
                 }
             }
 
@@ -242,8 +255,12 @@ public struct ImageAssetPickerSection: View {
 struct ImageAssetPickerRowView: View {
     let recordID: Event.ID?
     let image: ImageAssetPicker.ImageValue
+    let canMoveUp: Bool
+    let canMoveDown: Bool
     let onEditInfo: () -> Void
     let onRemove: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -263,21 +280,19 @@ struct ImageAssetPickerRowView: View {
 
             Spacer()
 
-            Button {
-                onEditInfo()
+            Menu {
+                Button("Edit Image") { onEditInfo() }
+                if canMoveUp {
+                    Button("Move Up") { onMoveUp() }
+                }
+                if canMoveDown {
+                    Button("Move Down") { onMoveDown() }
+                }
+                Button("Delete", role: .destructive) { onRemove() }
             } label: {
-                Image(systemName: "info.circle")
-                    .accessibilityLabel("Image Info")
+                Label("Image Actions", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
             }
-            .buttonStyle(.borderless)
-
-            Button(role: .destructive) {
-                onRemove()
-            } label: {
-                Image(systemName: "trash")
-                    .accessibilityLabel("Remove Image")
-            }
-            .buttonStyle(.borderless)
         }
         .padding(.vertical, 4)
     }

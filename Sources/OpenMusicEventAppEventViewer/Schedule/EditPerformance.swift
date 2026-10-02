@@ -152,7 +152,7 @@ public struct EditPerformance {
 
         public init(
             eventID: Event.ID,
-            schedule: Schedule,
+            schedule: Schedule?,
             schedules: [Schedule],
             programs: [Program],
             stages: [EventPlace],
@@ -162,16 +162,27 @@ public struct EditPerformance {
             initialStartTime: Date? = nil,
             contributors: [ContributorProfile] = []
         ) {
-            let defaultStartTime = schedule.date.at(hour: 12, in: timeZone)
-                ?? schedule.date.atStartOfDay(in: timeZone)
+            @Dependency(\.date.now) var now
+            let defaultStartTime = schedule?.date.at(hour: 12, in: timeZone)
+                ?? schedule?.date.atStartOfDay(in: timeZone)
+                ?? now
             let startTime = initialStartTime ?? defaultStartTime
             let endTime = initialStartTime.map { $0.addingTimeInterval(60 * 60) }
-                ?? schedule.date.at(hour: 13, in: timeZone)
-                ?? schedule.date.atStartOfDay(in: timeZone)
+                ?? schedule?.date.at(hour: 13, in: timeZone)
+                ?? schedule?.date.atStartOfDay(in: timeZone)
+                ?? startTime.addingTimeInterval(60 * 60)
             self.eventID = eventID
             self.schedule = schedule
             self.schedules = schedules
             self.programs = programs
+            self.isAssignedToSchedule = schedule != nil
+            self.hasStartTime = schedule != nil
+            self.hasEndTime = schedule != nil
+            self.photoImagePicker = ImageAssetPicker.State(
+                configuration: .programItemPhotos,
+                recordImages: nil,
+                recordID: eventID
+            )
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
@@ -194,7 +205,7 @@ public struct EditPerformance {
                 start: startTime,
                 end: endTime,
                 timeZone: timeZone,
-                anchorDate: schedule.date.atStartOfDay(in: timeZone),
+                anchorDate: schedule?.date.atStartOfDay(in: timeZone) ?? startTime,
                 preferredWindow: nil
             )
             self.timeZone = timeZone
@@ -202,7 +213,7 @@ public struct EditPerformance {
 
         public init(
             eventID: Event.ID,
-            schedule: Schedule,
+            schedule: Schedule?,
             schedules: [Schedule],
             programs: [Program],
             stages: [EventPlace],
@@ -224,16 +235,35 @@ public struct EditPerformance {
             self.performanceID = performance.id
             self.selectedProgramID = performance.program
             self.selectedStageID = performance.eventPlace
+            if let assignedSchedule = schedules.first(where: { $0.id == performance.schedule }) {
+                self.selectedScheduleID = assignedSchedule.id
+            } else {
+                self.selectedScheduleID = nil
+            }
+            self.isAssignedToSchedule = performance.schedule != nil
+            self.hasStartTime = performance.startsAt != nil
+            self.hasEndTime = performance.endsAt != nil
             self.timeRangeSelection.end = performance.endDate ?? performance.startDate ?? self.timeRangeSelection.end
             self.timeRangeSelection.start = performance.startDate ?? self.timeRangeSelection.start
             self.title = performance.title
             self.media = performance.media
+            self.photoImagePicker = ImageAssetPicker.State(
+                configuration: .programItemPhotos,
+                recordImages: (performance.media ?? []).compactMap { medium -> OME.Image? in
+                    guard case let .known(.image(image)) = medium,
+                          image.role == .known(.photo),
+                          image.displayImageAsset(recordID: eventID) != nil
+                    else { return nil }
+                    return image
+                },
+                recordID: eventID
+            )
             self.loadContributions(performance.credits ?? [])
             self.titleIsGenerated = !self.generatedTitle.isEmpty && self.title == self.generatedTitle
         }
 
         public let eventID: Event.ID
-        public var schedule: Schedule
+        public var schedule: Schedule?
         public let schedules: [Schedule]
         public let programs: [Program]
         public let allStageOptions: [StageOption]
@@ -244,16 +274,22 @@ public struct EditPerformance {
         var contributorRelationshipPicker: ContributorRelationshipPicker.State
         public var contributions: [Contribution] = []
         public var description = ""
+        public var destination: Destination.State?
         public var errorMessage: String?
         @DebugSnapshotTracked
         var generatedTitle = ""
         public var isSaving = false
+        public var isAssignedToSchedule = true
+        public var hasStartTime = true
+        public var hasEndTime = true
+        public var editingContributionID: Int?
         @DebugSnapshotTracked
         var nextContributionID = 0
         public var performanceID: ProgramItem.ID?
         public var selectedProgramID: Program.ID?
         public var selectedStageID: EventPlace.ID?
         public var media: [Open<OME.Media>]?
+        public var photoImagePicker: ImageAssetPicker.State
         @DebugSnapshotTracked
         var titleIsGenerated = true
         public var timeRangeSelection: DateTimeRangeSelection
@@ -276,14 +312,17 @@ public struct EditPerformance {
             }
         }
 
-        public var selectedScheduleID: Schedule.ID {
-            get { schedule.id }
+        public var selectedScheduleID: Schedule.ID? {
+            get { schedule?.id }
             set {
-                guard newValue != schedule.id,
-                      let selectedSchedule = schedules.first(where: {
-                          $0.id == newValue
-                      })
-                else { return }
+                guard newValue != schedule?.id else { return }
+                guard let newValue else {
+                    schedule = nil
+                    return
+                }
+                guard let selectedSchedule = schedules.first(where: { $0.id == newValue }) else {
+                    return
+                }
 
                 let startDayOffset = timeRangeSelection.startDayOffset
                 schedule = selectedSchedule
@@ -334,14 +373,23 @@ public struct EditPerformance {
             if selectedProgramID == nil {
                 return "Choose a program."
             }
+            if isAssignedToSchedule && schedule == nil {
+                return "Choose a festival day."
+            }
             if let selectedStageID, !stageOptions.contains(where: { $0.id == selectedStageID }) {
                 return "Choose a place in this program."
             }
-            if endTimeSelection <= startTimeSelection {
+            if isAssignedToSchedule && hasStartTime && hasEndTime
+                && endTimeSelection <= startTimeSelection {
                 return "End time must be after the start time."
             }
             if contributions.contains(where: \.hasEmptyCustomRelationshipRole) {
                 return "Enter a relationship role."
+            }
+            if contributions.contains(where: {
+                $0.creditName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            }) {
+                return "Enter a contributor name."
             }
             return nil
         }
@@ -388,6 +436,28 @@ public struct EditPerformance {
 
         mutating func deleteContribution(id: Int) {
             contributions.removeAll { $0.id == id }
+            if editingContributionID == id { editingContributionID = nil }
+            refreshGeneratedTitle()
+        }
+
+        mutating func editContribution(id: Int) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            if contributions[index].creditName == nil {
+                contributions[index].creditName = contributorRelationshipPicker
+                    .summary(for: contributions[index].selection)?.title
+            }
+            editingContributionID = id
+        }
+
+        mutating func moveContribution(id: Int, offset: Int) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }),
+                  contributions.indices.contains(index + offset) else { return }
+            contributions.swapAt(index, index + offset)
+        }
+
+        mutating func setContributionName(id: Int, name: String) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            contributions[index].creditName = name
             refreshGeneratedTitle()
         }
 
@@ -484,16 +554,31 @@ public struct EditPerformance {
         )
         case contributionCustomRoleChanged(Int, String)
         case contributionDeleteButtonTapped(Int)
+        case contributionEditButtonTapped(Int)
+        case contributionEditDoneButtonTapped
+        case contributionMoveButtonTapped(Int, Int)
+        case contributionNameChanged(Int, String)
         case contributionRoleButtonTapped(Int, State.RelationshipRoleSelection?)
         case contributorRelationshipPicker(ContributorRelationshipPicker.Action)
+        case destination(Destination.Action)
+        case photoImagePicker(ImageAssetPicker.Action)
         case programChanged(Program.ID?)
         case saveButtonTapped
         case titleTextChanged(String)
     }
 
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
+        case importImages(Spawn<ImportImages>)
+    }
+
     public var body: some Feature {
         Scope(\.contributorRelationshipPicker) {
             ContributorRelationshipPicker()
+        }
+        Scope(\.photoImagePicker) {
+            ImageAssetPicker()
         }
         Update { state, action in
             switch action {
@@ -511,6 +596,35 @@ public struct EditPerformance {
 
             case let .contributionDeleteButtonTapped(id):
                 state.deleteContribution(id: id)
+
+            case let .contributionEditButtonTapped(id):
+                state.editContribution(id: id)
+
+            case .contributionEditDoneButtonTapped:
+                state.editingContributionID = nil
+
+            case let .contributionMoveButtonTapped(id, offset):
+                state.moveContribution(id: id, offset: offset)
+
+            case let .contributionNameChanged(id, name):
+                state.setContributionName(id: id, name: name)
+
+            case .destination:
+                break
+
+            case .photoImagePicker(.addButtonTapped):
+                state.destination = .importImages(
+                    Spawn(state.photoImagePicker.importImagesState())
+                )
+
+            case let .photoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfo = state.photoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .imageInfo(Spawn(imageInfo))
+
+            case .photoImagePicker:
+                break
 
             case let .contributionRoleButtonTapped(id, roleSelection):
                 state.setContributionRole(
@@ -583,6 +697,21 @@ public struct EditPerformance {
                 state.setTitleFromEditor(title)
             }
         }
+        .ifLet(\.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.importImages) { ImportImages() }
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, image in
+                        try store.modify {
+                            $0.photoImagePicker.updateImageInfo(imageID: imageID, image: image)
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            guard case .importImages = state.destination else { return }
+            state.photoImagePicker.append(images)
+        }
     }
 
 }
@@ -590,30 +719,64 @@ public struct EditPerformance {
 fileprivate struct EditPerformanceSaveRequest: Sendable {
     let contributions: [EditPerformance.State.Contribution]
     let description: String?
-    let endTime: Date
+    let endTime: Date?
     let eventID: Event.ID
+    let media: [Open<OME.Media>]?
     let performanceID: ProgramItem.ID?
+    let photos: [ImageAssetPicker.ImageValue]
     let programID: Program.ID
-    let scheduleID: Schedule.ID
+    let scheduleID: Schedule.ID?
     let stageID: EventPlace.ID?
-    let startTime: Date
+    let startTime: Date?
     let title: String
 
     init(state: EditPerformance.State, programID: Program.ID) {
         contributions = state.contributions
         description = state.trimmedDescription.nilIfEmpty
-        endTime = state.endTimeSelection
+        endTime = state.isAssignedToSchedule && state.hasStartTime && state.hasEndTime
+            ? state.endTimeSelection : nil
         eventID = state.eventID
+        media = state.media
         performanceID = state.performanceID
+        photos = state.photoImagePicker.images
         self.programID = programID
-        scheduleID = state.selectedScheduleID
+        scheduleID = state.isAssignedToSchedule ? state.selectedScheduleID : nil
         stageID = state.selectedStageID
-        startTime = state.startTimeSelection
+        startTime = state.isAssignedToSchedule && state.hasStartTime
+            ? state.startTimeSelection : nil
         title = state.trimmedTitle
     }
 
     var errorMessage: String {
         performanceID == nil ? "Unable to create performance." : "Unable to save performance."
+    }
+
+    func preparedMedia() throws -> [Open<OME.Media>]? {
+        var photos = try photos.map { value -> OME.Image in
+            var image = value.image
+            if let importedImage = value.importedImage {
+                image.source = .known(.blob(try stageLocalImageBlob(
+                    importedImage.data,
+                    mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
+                )))
+            }
+            image.role = .known(.photo)
+            return image
+        }
+        var prepared: [Open<OME.Media>] = []
+        for existing in media ?? [] {
+            if case let .known(.image(image)) = existing,
+               image.role == .known(.photo),
+               image.displayImageAsset(recordID: eventID) != nil {
+                if !photos.isEmpty {
+                    prepared.append(.known(.image(photos.removeFirst())))
+                }
+            } else {
+                prepared.append(existing)
+            }
+        }
+        prepared.append(contentsOf: photos.map { .known(.image($0)) })
+        return prepared.isEmpty ? nil : prepared
     }
 }
 
@@ -626,8 +789,12 @@ fileprivate enum EditPerformanceDrafts {
         let credits = try request.contributions.compactMap {
             try credit(for: $0, eventID: request.eventID, createdAt: createdAt, in: db)
         }
-        let start = ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: request.startTime))
-        let end = ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: request.endTime))
+        let start = request.startTime.map {
+            ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: $0))
+        }
+        let end = request.endTime.map {
+            ATProto.DateTime(rawValue: ISO8601DateFormatter().string(from: $0))
+        }
         var fields: ProgramItemRecordEditing.Fields
         if let performanceID = request.performanceID {
             guard let item = try ProgramItem.find(performanceID).fetchOne(db),
@@ -648,6 +815,7 @@ fileprivate enum EditPerformanceDrafts {
         fields.startsAt = start
         fields.endsAt = end
         fields.credits = credits.isEmpty ? nil : credits
+        fields.media = try request.preparedMedia()
 
         if let performanceID = request.performanceID {
             try ProgramItemRecordEditing.update(
@@ -765,6 +933,7 @@ public struct EditPerformanceView: View {
             lineupSection
             performanceSection
             timeSection
+            ImageAssetPickerSection(store: store.scope(\.photoImagePicker))
             messages
         }
         .disabled(store.isSaving)
@@ -786,6 +955,12 @@ public struct EditPerformanceView: View {
                     store.send(.saveButtonTapped)
                 }
             }
+        }
+        .sheet(item: $store.scope(\.destination).importImages) { importStore in
+            NavigationStack { ImportImagesView(store: importStore) }
+        }
+        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
+            NavigationStack { ImageInfoView(store: imageInfoStore) }
         }
     }
 
@@ -815,7 +990,7 @@ public struct EditPerformanceView: View {
                 }
             }
 
-            contributionRows(store.primaryContributions + store.supportingContributions)
+            contributionRows(store.contributions)
             ContributorRelationshipPickerRows(
                 store: store.scope(\.contributorRelationshipPicker)
             )
@@ -824,15 +999,45 @@ public struct EditPerformanceView: View {
 
     private var timeSection: some View {
         Section("Time") {
-            if store.schedules.count > 1 {
-                Picker("Schedule", selection: $store.selectedScheduleID) {
-                    ForEach(store.schedules) { schedule in
-                        Text(ScheduleViewer.scheduleTitle(schedule, in: store.timeZone))
-                            .tag(schedule.id)
+            Toggle("Assign festival day", isOn: $store.isAssignedToSchedule)
+            if store.isAssignedToSchedule {
+                if store.schedules.count > 1 || store.schedule == nil {
+                    Picker("Schedule", selection: $store.selectedScheduleID) {
+                        Text("Choose a day").tag(Schedule.ID?.none)
+                        ForEach(store.schedules) { schedule in
+                            Text(ScheduleViewer.scheduleTitle(schedule, in: store.timeZone))
+                                .tag(Optional(schedule.id))
+                        }
+                    }
+                } else if let schedule = store.schedule {
+                    LabeledContent(
+                        "Schedule",
+                        value: ScheduleViewer.scheduleTitle(schedule, in: store.timeZone)
+                    )
+                }
+                Toggle("Set start time", isOn: $store.hasStartTime)
+                if store.hasStartTime {
+                    Toggle("Set end time", isOn: $store.hasEndTime)
+                    if store.hasEndTime {
+                        DateTimeRangePicker(selection: $store.timeRangeSelection)
+                    } else {
+                        DatePicker(
+                            "Starts",
+                            selection: $store.timeRangeSelection.startClockTimeSelection,
+                            displayedComponents: .hourAndMinute
+                        )
+                        .environment(\.timeZone, store.timeZone)
+                        if store.timeRangeSelection.shouldChooseStartDayExplicitly {
+                            Picker("Start Day", selection: $store.timeRangeSelection.startDayOffset) {
+                                ForEach(store.timeRangeSelection.startDayOffsetOptions, id: \.self) { offset in
+                                    Text(offset == 0 ? "Same day" : offset == 1 ? "Next day" : "Previous day")
+                                        .tag(offset)
+                                }
+                            }
+                        }
                     }
                 }
             }
-            DateTimeRangePicker(selection: $store.timeRangeSelection)
         }
     }
 
@@ -865,7 +1070,7 @@ public struct EditPerformanceView: View {
                     showsTechnicalDetails: showsTechnicalDetails
                 )
                 EditPerformanceContributionRow(
-                    title: summary?.title ?? "Contributor",
+                    title: contribution.creditName ?? summary?.title ?? "Contributor",
                     subtitle: summary?.subtitle,
                     isPrimary: contribution.billing == .known(.primary),
                     roleTitle: contribution.roleTitle,
@@ -899,6 +1104,20 @@ public struct EditPerformanceView: View {
                     }
                 }
                 .contextMenu {
+                    Button("Edit") {
+                        store.send(.contributionEditButtonTapped(contribution.id))
+                    }
+                    let index = store.contributions.firstIndex(where: { $0.id == contribution.id })
+                    if let index, index > 0 {
+                        Button("Move Up") {
+                            store.send(.contributionMoveButtonTapped(contribution.id, -1))
+                        }
+                    }
+                    if let index, index + 1 < store.contributions.count {
+                        Button("Move Down") {
+                            store.send(.contributionMoveButtonTapped(contribution.id, 1))
+                        }
+                    }
                     if contribution.billing == .known(.primary) {
                         Button("Remove as primary") {
                             store.send(
@@ -916,6 +1135,21 @@ public struct EditPerformanceView: View {
                                     .known(.primary)
                                 )
                             )
+                        }
+                    }
+                    Button("Delete", role: .destructive) {
+                        store.send(.contributionDeleteButtonTapped(contribution.id))
+                    }
+                }
+
+                if store.editingContributionID == contribution.id {
+                    HStack {
+                        TextField(
+                            "Credit Name",
+                            text: contributionNameBinding(for: contribution.id)
+                        )
+                        Button("Done") {
+                            store.send(.contributionEditDoneButtonTapped)
                         }
                     }
                 }
@@ -939,6 +1173,13 @@ public struct EditPerformanceView: View {
         Binding(
             get: { store.title },
             set: { store.send(.titleTextChanged($0)) }
+        )
+    }
+
+    private func contributionNameBinding(for id: Int) -> Binding<String> {
+        Binding(
+            get: { store.contributions.first(where: { $0.id == id })?.creditName ?? "" },
+            set: { store.send(.contributionNameChanged(id, $0)) }
         )
     }
 

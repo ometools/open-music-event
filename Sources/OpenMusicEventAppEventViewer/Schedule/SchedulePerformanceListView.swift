@@ -76,6 +76,13 @@ public struct SchedulePerformanceList {
             )
         }
 
+        public var unscheduledPerformanceRows: [PerformanceRow] {
+            guard let programID = scheduleDivision.programID else { return [] }
+            return performanceRows.filter {
+                $0.performance.program == programID && $0.performance.schedule == nil
+            }
+        }
+
         public func resolvedSelectedScheduleID(
             _ selectedScheduleID: Schedule.ID?
         ) -> Schedule.ID? {
@@ -166,7 +173,8 @@ public struct SchedulePerformanceListView: View {
 
     public var body: some View {
         let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
-        if rows.isEmpty {
+        let unscheduledRows = store.state.unscheduledPerformanceRows
+        if rows.isEmpty && unscheduledRows.isEmpty {
             List {}
                 .listStyle(.plain)
                 .overlay {
@@ -184,58 +192,18 @@ public struct SchedulePerformanceListView: View {
                     )
                     .padding()
                 }
-        } else if let eventTimePresentation {
+        } else if eventTimePresentation != nil {
             PeriodicTimelineView(every: 1) { currentDate in
                 ScrollViewReader { proxy in
-                    List(rows) { row in
-                        Button {
-                            performanceButtonTapped(row.performanceID)
-                        } label: {
-                            SchedulePerformanceRow(
-                                row: row,
-                                timeRangeText: eventTimePresentation.programItemRowTimeRange(
-                                    for: row.performance
-                                ),
-                                daySegmentText: row.performance.startDate.map {
-                                    eventTimePresentation.daySegment(
-                                        for: $0,
-                                        policy: dateTimeRangeResolutionPolicy
-                                    )
-                                },
-                                userScheduleOverlay: userScheduleOverlay,
-                                now: currentDate
-                            )
+                    List {
+                        ForEach(rows) { row in
+                            performanceRow(row, now: currentDate)
                         }
-                        .id(row.performanceID)
-                        .accessibilityIdentifier(
-                            "button.performance.\(row.performanceID.description)"
-                        )
-                        .navigationLinkListRowStyle()
-                        .contextMenu {
-                            PerformanceReactionMenuContent(
-                                performanceID: row.performance.id,
-                                context: reactionMenuContext
-                            )
-
-                            if let selectedSchedule = userScheduleOverlay.selectedSchedule {
-                                membershipButton(
-                                    row: row,
-                                    schedule: selectedSchedule
-                                )
-                                Divider()
-                            }
-
-                            ForEach(userScheduleOverlay.schedules) { schedule in
-                                membershipButton(
-                                    row: row,
-                                    schedule: schedule
-                                )
-                            }
-
-                            Button {
-                                store.send(.newUserScheduleButtonTapped(row.performanceID))
-                            } label: {
-                                Label("Add to a new schedule", systemImage: "plus")
+                        if !unscheduledRows.isEmpty {
+                            Section("Unscheduled") {
+                                ForEach(unscheduledRows) { row in
+                                    performanceRow(row, now: currentDate)
+                                }
                             }
                         }
                     }
@@ -250,6 +218,50 @@ public struct SchedulePerformanceListView: View {
                             proxy.scrollTo(request.performanceID, anchor: .center)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func performanceRow(_ row: PerformanceRow, now: Date) -> some View {
+        if let eventTimePresentation {
+            Button {
+                performanceButtonTapped(row.performanceID)
+            } label: {
+                SchedulePerformanceRow(
+                    row: row,
+                    timeRangeText: eventTimePresentation.programItemRowTimeRange(
+                        for: row.performance
+                    ),
+                    daySegmentText: row.performance.startDate.map {
+                        eventTimePresentation.daySegment(
+                            for: $0, policy: dateTimeRangeResolutionPolicy
+                        )
+                    },
+                    userScheduleOverlay: userScheduleOverlay,
+                    now: now
+                )
+            }
+            .id(row.performanceID)
+            .accessibilityIdentifier("button.performance.\(row.performanceID.description)")
+            .navigationLinkListRowStyle()
+            .contextMenu {
+                PerformanceReactionMenuContent(
+                    performanceID: row.performance.id,
+                    context: reactionMenuContext
+                )
+                if let selectedSchedule = userScheduleOverlay.selectedSchedule {
+                    membershipButton(row: row, schedule: selectedSchedule)
+                    Divider()
+                }
+                ForEach(userScheduleOverlay.schedules) { schedule in
+                    membershipButton(row: row, schedule: schedule)
+                }
+                Button {
+                    store.send(.newUserScheduleButtonTapped(row.performanceID))
+                } label: {
+                    Label("Add to a new schedule", systemImage: "plus")
                 }
             }
         }
