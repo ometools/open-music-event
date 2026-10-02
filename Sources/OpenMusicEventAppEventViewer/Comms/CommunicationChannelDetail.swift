@@ -96,6 +96,7 @@ public struct CommunicationChannelDetail {
         case markPostReadButtonTapped(Social.Post.ID)
         case markPostUnreadButtonTapped(Social.Post.ID)
         case deletePostButtonTapped(Social.Post.ID)
+        case editPostButtonTapped(Social.Post.ID)
         case pinPostButtonTapped(Social.Post.ID)
         case unpinPostButtonTapped(Social.Post.ID)
         case movePinnedPostButtonTapped(Social.Post.ID, Int)
@@ -162,6 +163,14 @@ public struct CommunicationChannelDetail {
                       state.canEditPost(post) else { return }
                 state.destination = .postDeleteConfirmation(
                     PostDeleteConfirmation.State(postID: postID)
+                )
+
+            case let .editPostButtonTapped(postID):
+                guard let post = state.posts.first(where: { $0.id == postID }),
+                      state.canEditPost(post),
+                      let author = state.authoringGrant?.principal.actorID else { return }
+                state.destination = .composer(
+                    CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
                 )
 
             case let .pinPostButtonTapped(postID):
@@ -617,6 +626,13 @@ struct CommunicationChannelPostRow: View {
                         Button("Unpin Post") { store.send(.unpinPostButtonTapped(post.id)) }
                     } else {
                         Button("Pin Post") { store.send(.pinPostButtonTapped(post.id)) }
+                    }
+                    if store.state.canEditPost(post) {
+                        Divider()
+                        Button("Edit Post") { store.send(.editPostButtonTapped(post.id)) }
+                        Button("Delete Post", role: .destructive) {
+                            store.send(.deletePostButtonTapped(post.id))
+                        }
                     }
                 } label: {
                     Label("Post Actions", systemImage: "ellipsis-horizontal-circle")

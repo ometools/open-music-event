@@ -17,7 +17,7 @@ public enum SocialPostRecordEditing {
         public var text: String
         public var facets: [Social.Post.Facet]?
         public var embed: Social.Post.Embed?
-        public var delivery: Social.Post.Delivery?
+        public var delivery: Open<Social.Post.Delivery>?
 
         public init(
             title: String? = nil,
@@ -30,7 +30,7 @@ public enum SocialPostRecordEditing {
             self.text = text
             self.facets = facets
             self.embed = embed
-            self.delivery = delivery
+            self.delivery = delivery.map(Open.known)
         }
 
         fileprivate func apply(to post: inout Social.Post) {
@@ -38,7 +38,7 @@ public enum SocialPostRecordEditing {
             post.text = text
             post.facets = facets
             post.embed = embed
-            post.delivery = delivery.map(Open.known)
+            post.delivery = delivery
         }
     }
 

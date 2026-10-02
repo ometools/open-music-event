@@ -88,6 +88,105 @@ extension NavigationTests {
     }
 
     @Test
+    func `an author edits a canonical post without changing its identity`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
+        let author = try #require(DID("did:plc:organizer"))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: categoryID,
+                title: "Gates are open", text: "Welcome to the woods."
+            )
+        }
+        let post = try await database.read {
+            try #require(try Social.Post.find(postID).fetchOne($0))
+        }
+
+        let editor = withDependencies {
+            $0.context = .test
+            $0.date.now = Date(timeIntervalSince1970: 300)
+            $0.defaultDatabase = database
+        } operation: {
+            @Dependency(\.date) var date
+            #expect(date() == Date(timeIntervalSince1970: 300))
+            return TestStore(
+                initialState: CommsPostComposer.State(
+                    post: post, eventID: eventID, author: author
+                )
+            ) {
+                CommsPostComposer()
+            }
+        }
+        editor.modify {
+            $0.draft.title = "Gates are open now"
+            $0.draft.delivery = .silent
+        }
+        let save = withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 300)
+        } operation: {
+            editor.send(.saveButtonTapped) { $0.isSaving = true }
+        }
+        await save?.value
+        #expect(editor.isPresented == false)
+        let edited = try await database.read {
+            try #require(try Social.Post.find(post.id).fetchOne($0))
+        }
+        expectNoDifference(edited.id, post.id)
+        expectNoDifference(edited.createdAt, post.createdAt)
+        expectNoDifference(edited.title, "Gates are open now")
+        expectNoDifference(edited.delivery, .known(.silent))
+        expectNoDifference(edited.updatedAt, "1970-01-01T00:05:00Z")
+    }
+
+    @Test
+    func `editing a post preserves an unknown delivery value`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
+        let author = try #require(DID("did:plc:organizer"))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: categoryID,
+                title: "Gates are open", text: "Welcome to the woods."
+            )
+            var post = try #require(try Social.Post.find(postID).fetchOne(db))
+            post.delivery = .unknown(.string("future-priority"))
+            try Social.Post.upsert { post }.execute(db)
+        }
+        let futurePost = try await database.read {
+            try #require(try Social.Post.find(postID).fetchOne($0))
+        }
+        let futureEditor = withDependencies {
+            $0.context = .test
+            $0.date.now = Date(timeIntervalSince1970: 600)
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommsPostComposer.State(
+                    post: futurePost, eventID: eventID, author: author
+                )
+            ) {
+                CommsPostComposer()
+            }
+        }
+        #expect(futureEditor.state.hasUnknownDelivery)
+        futureEditor.modify { $0.draft.title = "" }
+        await futureEditor.send(.saveButtonTapped) { $0.isSaving = true }?.value
+        let cleared = try await database.read {
+            try #require(try Social.Post.find(postID).fetchOne($0))
+        }
+        #expect(cleared.title == nil)
+        #expect(cleared.delivery == .unknown(.string("future-priority")))
+    }
+
+    @Test
     func createStageSavesNewCanonicalEventPlace() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

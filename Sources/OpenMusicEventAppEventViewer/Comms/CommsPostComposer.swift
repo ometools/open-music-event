@@ -7,22 +7,18 @@ import OpenMusicEventLexicon
 import SwiftUI
 
 public struct CommsPostDraft: Equatable, Sendable {
-    public var delivery: Social.Post.Delivery
+    public var delivery: Social.Post.Delivery?
     public var markdown: String
     public var title: String
 
     public init(
         title: String = "",
         markdown: String = "",
-        delivery: Social.Post.Delivery = .standard
+        delivery: Social.Post.Delivery? = .standard
     ) {
         self.delivery = delivery
         self.markdown = markdown
         self.title = title
-    }
-
-    public var canSubmit: Bool {
-        !trimmedTitle.isEmpty && !trimmedMarkdown.isEmpty
     }
 
     public var trimmedMarkdown: String {
@@ -41,22 +37,45 @@ public struct CommsPostComposer {
     public struct State {
         public init(
             eventID: Event.ID,
-            categoryID: Social.Category.ID,
+            categoryID: Social.Category.ID?,
             author: DID,
             draft: CommsPostDraft = CommsPostDraft()
         ) {
             self.eventID = eventID
             self.categoryID = categoryID
             self.author = author
+            self.editingPost = nil
             self.draft = draft
             self.imagePicker = ImageAssetPicker.State(
                 configuration: .communicationPostPhotos
             )
         }
 
+        public init(post: Social.Post, eventID: Event.ID, author: DID) {
+            self.eventID = eventID
+            self.categoryID = post.category
+            self.author = author
+            self.editingPost = post
+            let delivery: Social.Post.Delivery?
+            if case let .some(.known(known)) = post.delivery {
+                delivery = known
+            } else {
+                delivery = nil
+            }
+            self.draft = CommsPostDraft(
+                title: post.title ?? "",
+                markdown: post.text,
+                delivery: delivery
+            )
+            self.imagePicker = ImageAssetPicker.State(
+                configuration: .communicationPostPhotos
+            )
+        }
+
         public var eventID: Event.ID
-        public var categoryID: Social.Category.ID
+        public var categoryID: Social.Category.ID?
         public var author: DID
+        public var editingPost: Social.Post?
         public var destination: Destination.State?
         public var draft: CommsPostDraft
         public var errorMessage: String?
@@ -65,9 +84,16 @@ public struct CommsPostComposer {
         public var isSaving = false
 
         public var canSubmit: Bool {
-            draft.canSubmit
+            (editingPost != nil || !draft.trimmedTitle.isEmpty)
+                && (!draft.trimmedMarkdown.isEmpty || editingPost?.embed != nil)
                 && !isSaving
                 && (draft.delivery != .emergency || canRequestEmergency)
+        }
+
+        public var hasUnknownDelivery: Bool {
+            guard let delivery = editingPost?.delivery else { return false }
+            if case .unknown = delivery { return true }
+            return false
         }
 
         public var canRequestEmergency: Bool {
@@ -88,7 +114,7 @@ public struct CommsPostComposer {
         case importImages(Spawn<ImportImages>)
     }
 
-    @Dependency(\.date.now) var now
+    @Dependency(\.date) var date
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
@@ -127,24 +153,46 @@ public struct CommsPostComposer {
                 let categoryID = state.categoryID
                 let author = state.author
                 let draft = state.draft
-                let timestamp = now
+                let editingPost = state.editingPost
+                let hasUnknownDelivery = state.hasUnknownDelivery
+                let timestamp = date()
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
                         try await database.write { db in
-                            _ = try SocialPostRecordEditing.create(
-                                eventID: eventID,
-                                categoryID: categoryID,
-                                author: author,
-                                fields: .init(
-                                    title: draft.trimmedTitle,
-                                    text: draft.trimmedMarkdown,
-                                    delivery: draft.delivery
-                                ),
-                                createdAt: timestamp,
-                                in: db
+                            var fields = SocialPostRecordEditing.Fields(
+                                title: draft.trimmedTitle.isEmpty ? nil : draft.trimmedTitle,
+                                text: editingPost?.text == draft.markdown
+                                    ? draft.markdown : draft.trimmedMarkdown,
+                                delivery: draft.delivery
                             )
+                            if let editingPost {
+                                fields.facets = fields.text == editingPost.text
+                                    ? editingPost.facets : nil
+                                fields.embed = editingPost.embed
+                                if hasUnknownDelivery {
+                                    fields.delivery = editingPost.delivery
+                                }
+                                try SocialPostRecordEditing.update(
+                                    editingPost.id,
+                                    eventID: eventID,
+                                    categoryID: categoryID,
+                                    author: author,
+                                    fields: fields,
+                                    updatedAt: timestamp,
+                                    in: db
+                                )
+                            } else {
+                                _ = try SocialPostRecordEditing.create(
+                                    eventID: eventID,
+                                    categoryID: categoryID,
+                                    author: author,
+                                    fields: fields,
+                                    createdAt: timestamp,
+                                    in: db
+                                )
+                            }
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -220,10 +268,17 @@ public struct CommsPostComposerView: View {
             }
 
             Section("Notification") {
-                Picker("Delivery", selection: $store.draft.delivery) {
-                    Text("Standard").tag(Social.Post.Delivery.standard)
-                    Text("Emergency").tag(Social.Post.Delivery.emergency)
-                        .disabled(!store.canRequestEmergency)
+                if store.hasUnknownDelivery {
+                    Text("This post uses an unrecognized delivery setting. It will be preserved.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Delivery", selection: $store.draft.delivery) {
+                        Text("Unspecified").tag(Social.Post.Delivery?.none)
+                        Text("Silent").tag(Social.Post.Delivery?.some(.silent))
+                        Text("Standard").tag(Social.Post.Delivery?.some(.standard))
+                        Text("Emergency").tag(Social.Post.Delivery?.some(.emergency))
+                            .disabled(!store.canRequestEmergency)
+                    }
                 }
                 Text(
                     "Emergency alerts use the operating system's urgent presentation and expire after \(emergencyLifetimeInMinutes) minutes."
@@ -244,7 +299,7 @@ public struct CommsPostComposerView: View {
                 store: store.scope(\.imagePicker)
             )
         }
-        .navigationTitle("New Post")
+        .navigationTitle(store.editingPost == nil ? "New Post" : "Edit Post")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { store.send(.cancelButtonTapped) }

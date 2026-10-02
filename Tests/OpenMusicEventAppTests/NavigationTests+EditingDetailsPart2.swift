@@ -264,6 +264,14 @@ extension NavigationTests {
             try Social.Category.find(channelID).fetchOne($0)?.pinnedPosts
         } == nil)
 
+        store.send(.postButtonTapped(postID))
+        await waitUntil { store.state.destination?.postDetail?.post != nil }
+        store.send(.destination(.postDetail(.editButtonTapped)))
+        #expect(store.state.destination?.postDetail?.destination?.composer?.editingPost?.id == postID)
+
+        store.send(.editPostButtonTapped(postID))
+        #expect(store.state.destination?.composer?.editingPost?.id == postID)
+
         store.send(.newPostButtonTapped)
 
         #expect(store.state.destination?.composer?.categoryID == channel.id)

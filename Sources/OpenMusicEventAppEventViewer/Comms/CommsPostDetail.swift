@@ -34,6 +34,7 @@ public struct CommsPostDetail {
         @SharedReader
         public var authoringGrant: AuthoringGrant?
         @FetchOne public var post: Social.Post?
+        public var destination: Destination.State?
         public var errorMessage: String?
         public var id: Social.Post.ID { postID }
 
@@ -56,7 +57,14 @@ public struct CommsPostDetail {
 
     public enum Action {
         case deleteButtonTapped
+        case editButtonTapped
+        case destination(Destination.Action)
         case postBecameVisible
+    }
+
+    @Feature
+    public enum Destination {
+        case composer(CommsPostComposer)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -65,6 +73,17 @@ public struct CommsPostDetail {
         Update { state, action in
             switch action {
             case .deleteButtonTapped:
+                break
+
+            case .editButtonTapped:
+                guard state.canDelete,
+                      let post = state.post,
+                      let author = state.authoringGrant?.principal.actorID else { return }
+                state.destination = .composer(
+                    CommsPostComposer.State(post: post, eventID: state.eventID, author: author)
+                )
+
+            case .destination:
                 break
 
             case .postBecameVisible:
@@ -86,11 +105,17 @@ public struct CommsPostDetail {
                 }
             }
         }
+        .ifLet(\.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.composer) {
+                    CommsPostComposer()
+                }
+        }
     }
 }
 
 public struct CommsPostDetailView: View {
-    let store: StoreOf<CommsPostDetail>
+    @Bindable var store: StoreOf<CommsPostDetail>
 
     public init(store: StoreOf<CommsPostDetail>) {
         self.store = store
@@ -148,6 +173,9 @@ public struct CommsPostDetailView: View {
             if store.canDelete {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        Button("Edit Post") {
+                            store.send(.editButtonTapped)
+                        }
                         Button(role: .destructive) {
                             store.send(.deleteButtonTapped)
                         } label: {
@@ -157,6 +185,11 @@ public struct CommsPostDetailView: View {
                         Label("Post Actions", systemImage: "gearshape")
                     }
                 }
+            }
+        }
+        .sheet(item: $store.scope(\.destination).composer) { composerStore in
+            NavigationStack {
+                CommsPostComposerView(store: composerStore)
             }
         }
         .accessibilityIdentifier("view.communication-post.\(store.postID.description)")
