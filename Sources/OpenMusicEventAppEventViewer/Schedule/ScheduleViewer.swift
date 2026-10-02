@@ -441,6 +441,7 @@ public struct ScheduleViewer {
         case destination(Destination.Action)
         case otherReactionButtonTapped(ProgramItem.ID)
         case performanceButtonTapped(ProgramItem.ID)
+        case programsButtonTapped
         case reactionButtonTapped(ProgramItem.ID, PerformanceReaction.Emoji)
         case scheduleKindButtonTapped(ScheduleKind)
         case schedulesButtonTapped
@@ -455,6 +456,7 @@ public struct ScheduleViewer {
     public enum Destination {
         case deletePerformanceConfirmation(DeletePerformanceConfirmation)
         case performanceDetail(Spawn<PerformanceDetail>)
+        case programs(Spawn<ManagePrograms>)
         case reactionEntry(PerformanceReactionEntry)
         case userScheduleForm(Spawn<UserScheduleForm>)
         case userSchedulesList(Spawn<UserSchedulesList>)
@@ -789,6 +791,9 @@ public struct ScheduleViewer {
                         )
                     )
                 }
+
+            case .programsButtonTapped:
+                state.destination = .programs(Spawn(ManagePrograms.State(eventID: state.eventID)))
 
             case let .reactionButtonTapped(performanceID, emoji):
                 let id = uuid()

@@ -55,6 +55,14 @@ public struct ScheduleAddMenu: View {
                     event: store.event
                 )
             )
+
+            Divider()
+
+            Button {
+                store.send(.programsButtonTapped)
+            } label: {
+                Label("Programs…", systemImage: "calendar")
+            }
         } label: {
             Label("Add", systemImage: "plus")
                 .labelStyle(.iconOnly)
@@ -247,6 +255,9 @@ public struct ScheduleViewerView: View {
             }
             .navigationDestination(item: $store.scope(\.destination).userSchedulesList) { schedulesStore in
                 UserSchedulesListView(store: schedulesStore)
+            }
+            .navigationDestination(item: $store.scope(\.destination).programs) { programsStore in
+                ManageProgramsView(store: programsStore)
             }
             .navigationDestination(item: $store.scope(\.destination).userScheduleForm) { formStore in
                 UserScheduleFormView(store: formStore)

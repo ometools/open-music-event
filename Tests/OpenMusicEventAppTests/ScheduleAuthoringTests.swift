@@ -1454,6 +1454,84 @@ struct ScheduleAuthoringTests {
         #expect(rows.contributors.map(\.id) == [fixture.contributor.id])
     }
 
+    @Test
+    func programManagementEditsCanonicalProgramAndOrderedPlaces() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let secondPlace = try EventPlace(
+            id: #require(EventPlace.ID(
+                "at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcae"
+            )),
+            event: fixture.event.id,
+            name: "Meadow",
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        try await database.write { try EventPlace.insert { secondPlace }.execute($0) }
+
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 0)
+        } operation: {
+            let manager = Store(initialState: ManagePrograms.State(eventID: fixture.event.id)) {
+                ManagePrograms()
+            }
+            #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id])
+            await manager.send(.editButtonTapped(fixture.program.id))?.value
+            #expect(manager.destination?.editor?.programID == fixture.program.id)
+
+            let editor = TestStore(initialState: EditProgram.State(
+                eventID: fixture.event.id,
+                program: fixture.program,
+                places: [fixture.stage, secondPlace]
+            )) { EditProgram() }
+            await editor.send(.addPlaceButtonTapped(secondPlace.id))?.value
+            await editor.send(.movePlaceButtonTapped(secondPlace.id, -1))?.value
+            editor.modify {
+                $0.title = "Main Music"
+                $0.description = "The main event program"
+                $0.iconName = "calendar"
+            }
+            #expect(editor.selectedPlaceIDs == [secondPlace.id, fixture.stage.id])
+            await editor.send(.saveButtonTapped)?.value
+        }
+
+        let saved = try await database.read { db in
+            (
+                program: try #require(try Program.find(fixture.program.id).fetchOne(db)),
+                event: try #require(try Event.find(fixture.event.id).fetchOne(db))
+            )
+        }
+        #expect(saved.program.title == "Main Music")
+        #expect(saved.program.description == "The main event program")
+        #expect(saved.program.icon == .calendar)
+        #expect(saved.program.eventPlaces == [secondPlace.id, fixture.stage.id])
+        #expect(saved.event.programs == [fixture.program.id])
+
+        let secondProgramID = try await database.write { db in
+            try ProgramRecordEditing.create(
+                eventID: fixture.event.id,
+                title: "Workshops",
+                eventPlaces: [secondPlace.id],
+                createdAt: Date(timeIntervalSince1970: 1_780_000_000),
+                in: db
+            )
+        }
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            let manager = Store(initialState: ManagePrograms.State(eventID: fixture.event.id)) {
+                ManagePrograms()
+            }
+            #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id, secondProgramID])
+            await manager.send(.moveButtonTapped(secondProgramID, -1))?.value
+            #expect(manager.state.orderedPrograms.map(\.id) == [secondProgramID, fixture.program.id])
+        }
+        #expect(try await database.read { try Event.find(fixture.event.id).fetchOne($0)?.programs }
+            == [secondProgramID, fixture.program.id])
+    }
+
     private func canonicalPerformanceDatabase() throws -> DatabaseQueue {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()
