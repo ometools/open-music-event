@@ -45,6 +45,7 @@ public struct CommunicationChannelDetail {
         public var authoringGrant: AuthoringGrant?
         public var destination: Destination.State?
         public var errorMessage: String?
+        public var isSavingPins = false
 
         @FetchOne public var channel: Social.Category?
         @FetchOne public var preference: ChannelPreferences?
@@ -95,6 +96,9 @@ public struct CommunicationChannelDetail {
         case markPostReadButtonTapped(Social.Post.ID)
         case markPostUnreadButtonTapped(Social.Post.ID)
         case deletePostButtonTapped(Social.Post.ID)
+        case pinPostButtonTapped(Social.Post.ID)
+        case unpinPostButtonTapped(Social.Post.ID)
+        case movePinnedPostButtonTapped(Social.Post.ID, Int)
         case newPostButtonTapped
         case notificationStateButtonTapped(Social.Category.NotificationState)
         case postButtonTapped(Social.Post.ID)
@@ -159,6 +163,36 @@ public struct CommunicationChannelDetail {
                 state.destination = .postDeleteConfirmation(
                     PostDeleteConfirmation.State(postID: postID)
                 )
+
+            case let .pinPostButtonTapped(postID):
+                guard state.canEditChannel, !state.isSavingPins,
+                      state.channel != nil,
+                      state.posts.contains(where: { $0.id == postID }) else { return }
+                var pinned = state.channel?.pinnedPosts ?? []
+                guard !pinned.contains(postID) else { return }
+                pinned.append(postID)
+                state.isSavingPins = true
+                savePinnedPosts(pinned, eventID: state.eventID, categoryID: state.channelID)
+
+            case let .unpinPostButtonTapped(postID):
+                guard state.canEditChannel, !state.isSavingPins,
+                      let pinned = state.channel?.pinnedPosts,
+                      pinned.contains(postID) else { return }
+                state.isSavingPins = true
+                savePinnedPosts(
+                    pinned.filter { $0 != postID },
+                    eventID: state.eventID,
+                    categoryID: state.channelID
+                )
+
+            case let .movePinnedPostButtonTapped(postID, offset):
+                guard state.canEditChannel, !state.isSavingPins,
+                      var pinned = state.channel?.pinnedPosts,
+                      let index = pinned.firstIndex(of: postID),
+                      pinned.indices.contains(index + offset) else { return }
+                pinned.swapAt(index, index + offset)
+                state.isSavingPins = true
+                savePinnedPosts(pinned, eventID: state.eventID, categoryID: state.channelID)
 
             case .newPostButtonTapped:
                 guard state.canEditChannel,
@@ -284,6 +318,34 @@ public struct CommunicationChannelDetail {
                     $0.errorMessage = isRead
                         ? "Unable to mark this post as read."
                         : "Unable to mark this post as unread."
+                }
+            }
+        }
+    }
+
+    private func savePinnedPosts(
+        _ postIDs: [Social.Post.ID],
+        eventID: Event.ID,
+        categoryID: Social.Category.ID
+    ) {
+        store.addTask {
+            do {
+                try await database.write { db in
+                    try SocialCategoryRecordEditing.setPinnedPosts(
+                        postIDs,
+                        categoryID: categoryID,
+                        eventID: eventID,
+                        in: db
+                    )
+                }
+                try store.modify {
+                    $0.errorMessage = nil
+                    $0.isSavingPins = false
+                }
+            } catch {
+                try store.modify {
+                    $0.errorMessage = "Unable to update pinned posts."
+                    $0.isSavingPins = false
                 }
             }
         }
@@ -507,21 +569,21 @@ struct CommunicationChannelDetailList: View {
                 }
             }
 
-            if channel.notificationsRequired == true || store.errorMessage != nil {
+            if channel.notificationsRequired == true {
                 Section("Notifications") {
-                    if channel.notificationsRequired == true {
-                        Label(
-                            "Notifications are required for this channel.",
-                            mappedSystemImage: "bell.badge"
-                        )
-                        .foregroundStyle(.secondary)
-                    }
+                    Label(
+                        "Notifications are required for this channel.",
+                        mappedSystemImage: "bell.badge"
+                    )
+                    .foregroundStyle(.secondary)
+                }
+            }
 
-                    if let errorMessage = store.errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -534,14 +596,35 @@ struct CommunicationChannelPostRow: View {
 
     var body: some View {
         let isRead = store.readPostIDs.contains(post.id)
-        Button {
-            store.send(.postButtonTapped(post.id))
-        } label: {
-            CommsPostRowView(post: post, isRead: isRead)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        let pinned = store.channel?.pinnedPosts ?? []
+        HStack {
+            Button {
+                store.send(.postButtonTapped(post.id))
+            } label: {
+                CommsPostRowView(post: post, isRead: isRead)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("button.communication-post.\(post.id.description)")
+
+            if store.canEditChannel {
+                Menu {
+                    if pinned.contains(post.id) {
+                        Button("Move Up") { store.send(.movePinnedPostButtonTapped(post.id, -1)) }
+                            .disabled(pinned.first == post.id)
+                        Button("Move Down") { store.send(.movePinnedPostButtonTapped(post.id, 1)) }
+                            .disabled(pinned.last == post.id)
+                        Button("Unpin Post") { store.send(.unpinPostButtonTapped(post.id)) }
+                    } else {
+                        Button("Pin Post") { store.send(.pinPostButtonTapped(post.id)) }
+                    }
+                } label: {
+                    Label("Post Actions", systemImage: "ellipsis-horizontal-circle")
+                        .labelStyle(.iconOnly)
+                }
+                .disabled(store.isSavingPins)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("button.communication-post.\(post.id.description)")
         .contextMenu {
             Button {
                 store.send(.markPostReadButtonTapped(post.id))

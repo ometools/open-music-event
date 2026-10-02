@@ -9,6 +9,7 @@ public enum SocialCategoryRecordEditing {
         case eventUnavailable
         case categoryUnavailable
         case categoryInUse
+        case postUnavailable
     }
 
     public struct Fields: Equatable, Sendable {
@@ -111,5 +112,30 @@ public enum SocialCategoryRecordEditing {
         event.categories = remaining?.isEmpty == true ? nil : remaining
         try event.validateReferences()
         try Event.upsert { event }.execute(db)
+    }
+
+    public static func setPinnedPosts(
+        _ postIDs: [Social.Post.ID],
+        categoryID: Social.Category.ID,
+        eventID: Event.ID,
+        in db: Database
+    ) throws {
+        guard let event = try Event.find(eventID).fetchOne(db),
+              var category = try Social.Category.find(categoryID).fetchOne(db),
+              category.event == eventID else {
+            throw Error.categoryUnavailable
+        }
+        let availableIDs = Set(
+            try Social.Post.where { $0.category.eq(categoryID) }
+                .fetchAll(db)
+                .filter { $0.event == eventID }
+                .map(\.id)
+        )
+        guard postIDs.allSatisfy(availableIDs.contains) else {
+            throw Error.postUnavailable
+        }
+        category.pinnedPosts = postIDs.isEmpty ? nil : postIDs
+        try category.validateGraph(event: event)
+        try Social.Category.upsert { category }.execute(db)
     }
 }

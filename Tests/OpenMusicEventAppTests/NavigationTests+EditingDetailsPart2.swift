@@ -198,13 +198,18 @@ extension NavigationTests {
     }
 
     @Test
-    func communicationChannelDetailAuthoringActionsOpenTheComposerEditorAndDeleteTheChannel() async throws {
+    func communicationChannelDetailAuthoringActionsManagePinsAndOpenTheComposerEditor() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let channelID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalCategory(db, id: channelID, eventID: eventID, name: "General")
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: channelID,
+                title: "Welcome", text: "Welcome to the event."
+            )
         }
         let channel = try await database.read { db in
             try #require(
@@ -245,6 +250,19 @@ extension NavigationTests {
         }
 
         #expect(store.state.canEditChannel)
+        await waitUntil {
+            store.state.channel != nil && store.state.posts.contains { $0.id == postID }
+        }
+
+        await store.send(.pinPostButtonTapped(postID))?.value
+        #expect(try await database.read {
+            try Social.Category.find(channelID).fetchOne($0)?.pinnedPosts
+        } == [postID])
+        await waitUntil { store.state.channel?.pinnedPosts == [postID] }
+        await store.send(.unpinPostButtonTapped(postID))?.value
+        #expect(try await database.read {
+            try Social.Category.find(channelID).fetchOne($0)?.pinnedPosts
+        } == nil)
 
         store.send(.newPostButtonTapped)
 
