@@ -1,7 +1,8 @@
 appId: ${APP_ID}
 ---
 # A clean automation install enters the canonical Testival event.
-- launchApp
+- launchApp:
+    clearState: true
 - extendedWaitUntil:
     visible:
       id: button.browse-event.3mrdbziccpcah

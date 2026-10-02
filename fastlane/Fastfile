@@ -112,7 +112,9 @@ def with_ios_environment
     "SKIP_ACTION" => "none",
     "OME_ANDROID_APP_BUILD" => nil
   ) do
-    yield
+    with_environment("OME_TCA26_PATH" => prepared_ios_tca26_path) do
+      yield
+    end
   end
 end
 
@@ -128,7 +130,65 @@ def booted_ios_device_id
 end
 
 def ios_ui_derived_data_path
-  File.join(repo_root, ".build", "fastlane-ios-derived-data")
+  File.join(repo_root, ".build", "fastlane-ios-derived-data-tca26-sharing-defaults")
+end
+
+def ios_tca_source_derived_data_path
+  File.join(repo_root, ".build", "fastlane-ios-tca-source")
+end
+
+def prepared_ios_tca26_path
+  if (explicit_path = ENV["OME_TCA26_PATH"]) && !explicit_path.empty?
+    path = File.expand_path(explicit_path)
+    UI.user_error!("OME_TCA26_PATH is unavailable at #{path}") unless File.directory?(path)
+    return path
+  end
+
+  pins = JSON.parse(File.read(File.join(repo_root, "Package.resolved"))).fetch("pins")
+  revision = pins.find { |pin| pin["identity"] == "tca26" }&.dig("state", "revision")
+  UI.user_error!("Package.resolved has no pinned TCA26 revision") unless revision
+
+  checkout = File.join(ios_tca_source_derived_data_path, "SourcePackages", "checkouts", "TCA26")
+  checkout_head = File.join(checkout, ".git", "HEAD")
+  unless File.file?(checkout_head) && File.read(checkout_head).strip == revision
+    run_in_repo(
+      "xcodebuild", "-resolvePackageDependencies",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEvent App",
+      "-derivedDataPath", ios_tca_source_derived_data_path,
+      "-skipPackagePluginValidation", "-skipMacroValidation"
+    )
+  end
+  UI.user_error!("Xcode did not check out pinned TCA26 #{revision}") unless
+    File.file?(checkout_head) && File.read(checkout_head).strip == revision
+
+  output_parent = File.join(repo_root, ".build", "ios-tca")
+  output = File.join(output_parent, "TCA26")
+  stamp = File.join(output_parent, "source-revision")
+  alternate_manifest = File.join(output, "Package@swift-6.3.swift")
+  if File.file?(stamp) && File.read(stamp).strip == revision &&
+      File.file?(alternate_manifest) &&
+      !File.read(alternate_manifest).include?(%q{traits: [.defaults, "CasePaths"]})
+    return output
+  end
+
+  FileUtils.rm_rf(output)
+  FileUtils.mkdir_p(output)
+  Dir.children(checkout).each do |entry|
+    next if entry == ".git"
+    FileUtils.cp_r(File.join(checkout, entry), File.join(output, entry))
+  end
+  ["Package.swift", "Package@swift-6.3.swift"].each do |name|
+    manifest = File.join(output, name)
+    contents = File.read(manifest)
+    old_traits = %q{traits: [.defaults, "CasePaths"]}
+    UI.user_error!("Pinned TCA26 #{name} has changed its Sharing traits") unless
+      contents.scan(old_traits).length == 1
+    File.chmod(0o644, manifest)
+    File.write(manifest, contents.sub(old_traits, "traits: [.defaults]"))
+  end
+  File.write(stamp, revision)
+  output
 end
 
 def build_ios_ui_app(device:, profile: "attendee")
@@ -390,6 +450,7 @@ lane :ios_tests do |options|
       "-workspace", File.join(repo_root, "Project.xcworkspace"),
       "-scheme", "OpenMusicEventAppTests",
       "-destination", "platform=iOS Simulator,id=#{device}",
+      "-derivedDataPath", ios_ui_derived_data_path,
       "-skipPackagePluginValidation",
       "-skipMacroValidation",
       "-parallel-testing-enabled", "NO",

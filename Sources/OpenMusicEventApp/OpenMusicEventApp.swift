@@ -752,7 +752,7 @@ struct OpenMusicEventApplicationRuntime {
             variant: variant,
             environment: environment,
             bootstrapsDatabase: false,
-            restoresSelectedEvent: uiAutomation == .normal
+            restoresSelectedEvent: uiAutomation != .authentication
         )
     }
 

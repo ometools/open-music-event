@@ -2,7 +2,8 @@ appId: ${APP_ID}
 ---
 # Fastlane has already installed the UI-marked app and cleared its data. The
 # app prepares canonical Testival records before Browse appears.
-- launchApp
+- launchApp:
+    clearState: true
 - extendedWaitUntil:
     visible:
       id: button.browse-event.3mrdbziccpcah
