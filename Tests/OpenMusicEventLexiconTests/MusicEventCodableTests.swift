@@ -14,7 +14,6 @@ struct MusicEventCodableTests {
         requiresCodable(OME.Schedule.self)
         requiresCodable(OME.Performance.self)
         requiresCodable(OME.Contributor.self)
-        requiresCodable(OME.Contributor.Claim.self)
         requiresCodable(OME.Channel.self)
         requiresCodable(OME.Poster.self)
         requiresCodable(OME.Relationship.self)

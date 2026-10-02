@@ -683,18 +683,6 @@ extension OpenMusicEvent {
     }
 }
 
-// MARK: - Contributor.Claim  (app.openmusicevent.contributor.claim)
-
-extension OpenMusicEvent.Contributor {
-    @Table("app.openmusicevent.contributor.claim")
-    public struct Claim: Codable, Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.contributor.claim")
-
-        @Column(primaryKey: true) public var id: OME.ID<Self>
-        public var contributorID: OpenMusicEvent.Contributor.ID
-    }
-}
-
 // MARK: - Channel  (app.openmusicevent.channel)
 
 extension OpenMusicEvent {
