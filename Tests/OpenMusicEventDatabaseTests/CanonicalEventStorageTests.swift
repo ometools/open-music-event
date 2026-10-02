@@ -76,6 +76,86 @@ struct CanonicalEventStorageTests {
     }
 
     @Test
+    func eventRefreshKeepsTheAttendeesInstallationChoice() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        let id = try #require(ATProto.URI("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"))
+        let event = try Event(
+            id: id,
+            name: "Wicked Woods",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: try #require(TimeZone(identifier: "America/Denver"))
+        )
+        try database.write { db in
+            try Event.insert { event }.execute(db)
+            try InstalledEvent.insert { InstalledEvent(id: id) }.execute(db)
+        }
+
+        // A refresh may remove the record before writing the newly fetched version.
+        try database.write { try Event.find(id).delete().execute($0) }
+        #expect(try database.read { try Event.find(id).fetchOne($0) } == nil)
+        expectNoDifference(
+            try database.read { try InstalledEvent.find(id).fetchOne($0) },
+            InstalledEvent(id: id)
+        )
+
+        // The unchanged URI becomes visible in the installed library again when it arrives.
+        try database.write { try Event.insert { event }.execute($0) }
+        let visibleEvents = try database.read { db in
+            try Event.where { event in
+                InstalledEvent.where { $0.id.eq(event.id) }.exists()
+            }.fetchAll(db)
+        }
+        expectNoDifference(visibleEvents, [event])
+    }
+
+    @Test
+    func existingCanonicalInstallationRowsSurviveTheForeignKeyRemoval() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Track installed canonical Events")
+
+        let id = try #require(ATProto.URI("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"))
+        let event = try Event(
+            id: id,
+            name: "Wicked Woods",
+            createdAt: "2026-09-01T12:00:00Z",
+            timeZone: try #require(TimeZone(identifier: "America/Denver"))
+        )
+        try database.write { db in
+            try Event.insert { event }.execute(db)
+            // This is the table shape used by earlier WIP builds.
+            try #sql("DROP TABLE installedEventRecords").execute(db)
+            try #sql("""
+                CREATE TABLE installedEventRecords (
+                  id TEXT PRIMARY KEY NOT NULL
+                    REFERENCES "events.openmusic.event"(id) ON DELETE CASCADE
+                ) STRICT
+                """).execute(db)
+            try InstalledEvent.insert { InstalledEvent(id: id) }.execute(db)
+        }
+
+        try migrator.migrate(database)
+        expectNoDifference(
+            try database.read { try InstalledEvent.find(id).fetchOne($0) },
+            InstalledEvent(id: id)
+        )
+        #expect(try database.read {
+            try Int.fetchOne($0, sql: "SELECT count(*) FROM pragma_foreign_key_list('installedEventRecords')")
+        } == 0)
+
+        try database.write { try Event.find(id).delete().execute($0) }
+        expectNoDifference(
+            try database.read { try InstalledEvent.find(id).fetchOne($0) },
+            InstalledEvent(id: id)
+        )
+    }
+
+    @Test
     func installingCanonicalStoragePreservesExistingEventAndAttendeeRows() throws {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()

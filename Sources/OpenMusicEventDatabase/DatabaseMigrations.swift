@@ -1082,11 +1082,35 @@ public extension OME {
             }
 
             migrator.registerMigration("Track installed canonical Events") { db in
+                // Keep the attendee's installation choice across a temporary gap or replacement
+                // of the published Event record. The Event may arrive again with the same URI.
                 try #sql("""
                     CREATE TABLE installedEventRecords (
                       id TEXT PRIMARY KEY NOT NULL
-                        REFERENCES "events.openmusic.event"(id) ON DELETE CASCADE
                     ) STRICT
+                    """).execute(db)
+            }
+
+            migrator.registerMigration("Preserve canonical installations across Event refresh") { db in
+                let hasEventForeignKey = try Int.fetchOne(
+                    db,
+                    sql: "SELECT count(*) FROM pragma_foreign_key_list('installedEventRecords')"
+                ) ?? 0
+                guard hasEventForeignKey > 0 else { return }
+
+                try #sql("""
+                    CREATE TABLE installedEventRecordsWithoutEventForeignKey (
+                      id TEXT PRIMARY KEY NOT NULL
+                    ) STRICT
+                    """).execute(db)
+                try #sql("""
+                    INSERT INTO installedEventRecordsWithoutEventForeignKey (id)
+                    SELECT id FROM installedEventRecords
+                    """).execute(db)
+                try #sql("DROP TABLE installedEventRecords").execute(db)
+                try #sql("""
+                    ALTER TABLE installedEventRecordsWithoutEventForeignKey
+                    RENAME TO installedEventRecords
                     """).execute(db)
             }
 
