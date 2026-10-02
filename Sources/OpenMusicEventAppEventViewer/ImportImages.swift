@@ -266,12 +266,13 @@ public extension ImportImages {
             )
         }
 
-        public static var programItemPhotos: Self {
+        public static var programItemImages: Self {
             Self(
                 cardinality: .multiple,
-                title: "Add Program Item Photos",
+                title: "Add Program Item Images",
                 role: .photo,
-                renderingMode: .original
+                renderingMode: .original,
+                imageInfoConfiguration: .allImages
             )
         }
 

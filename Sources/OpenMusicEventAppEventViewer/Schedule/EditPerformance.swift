@@ -150,6 +150,187 @@ public struct EditPerformance {
             }
         }
 
+        public struct MediaEntry: Equatable, Identifiable, Sendable {
+            public init(
+                id: UUID? = nil,
+                value: Open<OME.Media>,
+                importedImage: ImportImages.ImportedImage? = nil
+            ) {
+                @Dependency(\.uuid) var uuid
+                self.id = id ?? uuid()
+                self.value = value
+                self.importedImage = importedImage
+            }
+
+            public var id: UUID
+            public var value: Open<OME.Media>
+            public var importedImage: ImportImages.ImportedImage?
+
+            public var imageValue: ImageAssetPicker.ImageValue? {
+                guard case let .known(.image(image)) = value else { return nil }
+                return ImageAssetPicker.ImageValue(
+                    id: id,
+                    image: image,
+                    importedImage: importedImage
+                )
+            }
+
+            public var title: String {
+                switch value {
+                case let .known(.external(external)):
+                    external.title?.nilIfEmpty ?? "External media"
+                case .known(.record):
+                    "AT Protocol record"
+                case .known(.image):
+                    "Image"
+                case .unknown:
+                    "Unrecognized media"
+                }
+            }
+
+            public var subtitle: String? {
+                switch value {
+                case let .known(.external(external)):
+                    external.uri.absoluteString
+                case let .known(.record(reference)):
+                    reference.uri.description
+                case .known(.image), .unknown:
+                    nil
+                }
+            }
+
+            public var canEditLink: Bool {
+                switch value {
+                case .known(.external), .known(.record): true
+                case .known(.image), .unknown: false
+                }
+            }
+        }
+
+        public struct MediaDraft: Equatable, Sendable {
+            public enum Kind: Equatable, Sendable {
+                case external
+                case record
+            }
+
+            public init(kind: Kind, entryID: UUID? = nil) {
+                self.kind = kind
+                self.entryID = entryID
+            }
+
+            public init(entryID: UUID, external: OME.Media.External) {
+                self.init(kind: .external, entryID: entryID)
+                uri = external.uri.absoluteString
+                title = external.title ?? ""
+                description = external.description ?? ""
+                thumbnail = external.thumbnail
+                if let thumbnail = external.thumbnail,
+                   case let .known(.url(url)) = thumbnail.source {
+                    thumbnailURL = url.absoluteString
+                    originalThumbnailURL = url.absoluteString
+                }
+                thumbnailAlt = external.thumbnail?.alt?.rawValue ?? ""
+                originalMediaKind = external.mediaKind
+                switch external.mediaKind {
+                case let .some(.known(kind)): mediaKind = kind.rawValue
+                case let .some(.unknown(value)): mediaKind = value.string ?? ""
+                case nil: break
+                }
+                originalMediaKindString = mediaKind
+            }
+
+            public init(entryID: UUID, reference: OME.Media.RecordReference) {
+                self.init(kind: .record, entryID: entryID)
+                uri = reference.uri.description
+            }
+
+            public var kind: Kind
+            public var entryID: UUID?
+            public var uri = ""
+            public var title = ""
+            public var description = ""
+            public var mediaKind = ""
+            public var thumbnailURL = ""
+            public var thumbnailAlt = ""
+            public var removeThumbnail = false
+            public var thumbnail: OME.Image? = nil
+            private var originalMediaKind: Open<OME.Media.Kind>? = nil
+            private var originalMediaKindString = ""
+            private var originalThumbnailURL = ""
+
+            public var validationMessage: String? {
+                switch kind {
+                case .record:
+                    guard let uri = ATProto.URI(uri.trimmingCharacters(in: .whitespacesAndNewlines)),
+                          case .did = uri.authority,
+                          uri.collection != nil,
+                          uri.rkey != nil
+                    else { return "Enter a DID-based AT Protocol record URI." }
+                case .external:
+                    guard Self.httpsURL(uri) != nil else {
+                        return "Enter a public HTTPS media URL."
+                    }
+                    if !thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       Self.httpsURL(thumbnailURL) == nil {
+                        return "Enter a public HTTPS thumbnail URL."
+                    }
+                }
+                return nil
+            }
+
+            public func value() -> Open<OME.Media>? {
+                guard validationMessage == nil else { return nil }
+                switch kind {
+                case .record:
+                    guard let uri = ATProto.URI(uri.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                        return nil
+                    }
+                    return .known(.record(.init(uri: uri)))
+                case .external:
+                    guard let url = Self.httpsURL(uri) else { return nil }
+                    var external = OME.Media.External(uri: url)
+                    external.title = title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    external.description = description.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    let kind = mediaKind.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if kind == originalMediaKindString {
+                        external.mediaKind = originalMediaKind
+                    } else if !kind.isEmpty {
+                        if let known = OME.Media.Kind(rawValue: kind) {
+                            external.mediaKind = .known(known)
+                        } else {
+                            external.mediaKind = .unknown(.string(kind))
+                        }
+                    }
+                    if !removeThumbnail {
+                        let thumbnailURL = thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if thumbnailURL == originalThumbnailURL {
+                            external.thumbnail = thumbnail
+                        } else if let url = Self.httpsURL(thumbnailURL) {
+                            external.thumbnail = OME.Image(
+                                source: .known(.url(url)),
+                                role: .known(.photo),
+                                renderingMode: .known(.original)
+                            )
+                        } else if originalThumbnailURL.isEmpty {
+                            external.thumbnail = thumbnail
+                        }
+                        external.thumbnail?.alt = thumbnailAlt.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .nilIfEmpty.map(OME.AltText.init(rawValue:))
+                    }
+                    return .known(.external(external))
+                }
+            }
+
+            private static func httpsURL(_ string: String) -> URL? {
+                guard let url = URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      url.scheme?.lowercased() == "https",
+                      let host = url.host,
+                      !host.isEmpty
+                else { return nil }
+                return url
+            }
+        }
+
         public init(
             eventID: Event.ID,
             schedule: Schedule?,
@@ -178,11 +359,6 @@ public struct EditPerformance {
             self.isAssignedToSchedule = schedule != nil
             self.hasStartTime = schedule != nil
             self.hasEndTime = schedule != nil
-            self.photoImagePicker = ImageAssetPicker.State(
-                configuration: .programItemPhotos,
-                recordImages: nil,
-                recordID: eventID
-            )
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
@@ -246,18 +422,7 @@ public struct EditPerformance {
             self.timeRangeSelection.end = performance.endDate ?? performance.startDate ?? self.timeRangeSelection.end
             self.timeRangeSelection.start = performance.startDate ?? self.timeRangeSelection.start
             self.title = performance.title
-            self.media = performance.media
-            self.photoImagePicker = ImageAssetPicker.State(
-                configuration: .programItemPhotos,
-                recordImages: (performance.media ?? []).compactMap { medium -> OME.Image? in
-                    guard case let .known(.image(image)) = medium,
-                          image.role == .known(.photo),
-                          image.displayImageAsset(recordID: eventID) != nil
-                    else { return nil }
-                    return image
-                },
-                recordID: eventID
-            )
+            self.mediaEntries = (performance.media ?? []).map { MediaEntry(value: $0) }
             self.loadContributions(performance.credits ?? [])
             self.titleIsGenerated = !self.generatedTitle.isEmpty && self.title == self.generatedTitle
         }
@@ -288,8 +453,8 @@ public struct EditPerformance {
         public var performanceID: ProgramItem.ID?
         public var selectedProgramID: Program.ID?
         public var selectedStageID: EventPlace.ID?
-        public var media: [Open<OME.Media>]?
-        public var photoImagePicker: ImageAssetPicker.State
+        public var mediaEntries: [MediaEntry] = []
+        public var mediaDraft: MediaDraft? = nil
         @DebugSnapshotTracked
         var titleIsGenerated = true
         public var timeRangeSelection: DateTimeRangeSelection
@@ -367,6 +532,9 @@ public struct EditPerformance {
         }
 
         public var validationMessage: String? {
+            if mediaDraft != nil {
+                return "Finish editing media."
+            }
             if trimmedTitle.isEmpty {
                 return "Enter a title."
             }
@@ -392,6 +560,32 @@ public struct EditPerformance {
                 return "Enter a contributor name."
             }
             return nil
+        }
+
+        mutating func editMedia(id: MediaEntry.ID) {
+            guard let entry = mediaEntries.first(where: { $0.id == id }) else { return }
+            switch entry.value {
+            case let .known(.external(external)):
+                mediaDraft = MediaDraft(entryID: id, external: external)
+            case let .known(.record(reference)):
+                mediaDraft = MediaDraft(entryID: id, reference: reference)
+            default:
+                break
+            }
+        }
+
+        mutating func saveMediaDraft() {
+            guard let mediaDraft, let value = mediaDraft.value() else { return }
+            if let id = mediaDraft.entryID {
+                guard let index = mediaEntries.firstIndex(where: { $0.id == id }) else {
+                    self.mediaDraft = nil
+                    return
+                }
+                mediaEntries[index].value = value
+            } else {
+                mediaEntries.append(MediaEntry(value: value))
+            }
+            self.mediaDraft = nil
         }
 
         var primaryContributions: [Contribution] {
@@ -548,6 +742,9 @@ public struct EditPerformance {
     }
 
     public enum Action {
+        case addExternalMediaButtonTapped
+        case addImageButtonTapped
+        case addRecordMediaButtonTapped
         case contributionBillingButtonTapped(
             Int,
             Open<ProgramItem.Billing>
@@ -561,7 +758,19 @@ public struct EditPerformance {
         case contributionRoleButtonTapped(Int, State.RelationshipRoleSelection?)
         case contributorRelationshipPicker(ContributorRelationshipPicker.Action)
         case destination(Destination.Action)
-        case photoImagePicker(ImageAssetPicker.Action)
+        case mediaDeleteButtonTapped(UUID)
+        case mediaDraftAltChanged(String)
+        case mediaDraftCancelButtonTapped
+        case mediaDraftDescriptionChanged(String)
+        case mediaDraftKindChanged(String)
+        case mediaDraftRemoveThumbnailButtonTapped
+        case mediaDraftSaveButtonTapped
+        case mediaDraftThumbnailURLChanged(String)
+        case mediaDraftTitleChanged(String)
+        case mediaDraftURIChanged(String)
+        case mediaEditButtonTapped(UUID)
+        case mediaImageInfoButtonTapped(UUID)
+        case mediaMoveButtonTapped(UUID, Int)
         case programChanged(Program.ID?)
         case saveButtonTapped
         case titleTextChanged(String)
@@ -577,11 +786,19 @@ public struct EditPerformance {
         Scope(\.contributorRelationshipPicker) {
             ContributorRelationshipPicker()
         }
-        Scope(\.photoImagePicker) {
-            ImageAssetPicker()
-        }
         Update { state, action in
             switch action {
+            case .addExternalMediaButtonTapped:
+                state.mediaDraft = State.MediaDraft(kind: .external)
+
+            case .addImageButtonTapped:
+                state.destination = .importImages(
+                    Spawn(ImportImages.State(configuration: .programItemImages))
+                )
+
+            case .addRecordMediaButtonTapped:
+                state.mediaDraft = State.MediaDraft(kind: .record)
+
             case let .contributionBillingButtonTapped(id, billing):
                 state.setContributionBilling(
                     id: id,
@@ -612,19 +829,59 @@ public struct EditPerformance {
             case .destination:
                 break
 
-            case .photoImagePicker(.addButtonTapped):
-                state.destination = .importImages(
-                    Spawn(state.photoImagePicker.importImagesState())
-                )
+            case let .mediaDeleteButtonTapped(id):
+                state.mediaEntries.removeAll { $0.id == id }
 
-            case let .photoImagePicker(.imageInfoButtonTapped(id)):
-                guard let imageInfo = state.photoImagePicker.imageInfoState(for: id) else {
-                    return
-                }
-                state.destination = .imageInfo(Spawn(imageInfo))
+            case let .mediaDraftAltChanged(alt):
+                state.mediaDraft?.thumbnailAlt = alt
 
-            case .photoImagePicker:
-                break
+            case .mediaDraftCancelButtonTapped:
+                state.mediaDraft = nil
+
+            case let .mediaDraftDescriptionChanged(description):
+                state.mediaDraft?.description = description
+
+            case let .mediaDraftKindChanged(kind):
+                state.mediaDraft?.mediaKind = kind
+
+            case .mediaDraftRemoveThumbnailButtonTapped:
+                state.mediaDraft?.removeThumbnail = true
+                state.mediaDraft?.thumbnailURL = ""
+
+            case .mediaDraftSaveButtonTapped:
+                state.saveMediaDraft()
+
+            case let .mediaDraftThumbnailURLChanged(url):
+                state.mediaDraft?.thumbnailURL = url
+                state.mediaDraft?.removeThumbnail = false
+
+            case let .mediaDraftTitleChanged(title):
+                state.mediaDraft?.title = title
+
+            case let .mediaDraftURIChanged(uri):
+                state.mediaDraft?.uri = uri
+
+            case let .mediaEditButtonTapped(id):
+                state.editMedia(id: id)
+
+            case let .mediaImageInfoButtonTapped(id):
+                guard let entry = state.mediaEntries.first(where: { $0.id == id }),
+                      let imageValue = entry.imageValue
+                else { return }
+                state.destination = .imageInfo(Spawn(ImageInfo.State(
+                    id: id,
+                    image: imageValue.image,
+                    configuration: .allImages,
+                    sourceLabel: imageValue.displaySource,
+                    recordID: state.eventID,
+                    previewData: entry.importedImage?.data
+                )))
+
+            case let .mediaMoveButtonTapped(id, offset):
+                guard let index = state.mediaEntries.firstIndex(where: { $0.id == id }),
+                      state.mediaEntries.indices.contains(index + offset)
+                else { return }
+                state.mediaEntries.swapAt(index, index + offset)
 
             case let .contributionRoleButtonTapped(id, roleSelection):
                 state.setContributionRole(
@@ -703,14 +960,24 @@ public struct EditPerformance {
                 .ifCaseLet(\.imageInfo) {
                     ImageInfo { imageID, image in
                         try store.modify {
-                            $0.photoImagePicker.updateImageInfo(imageID: imageID, image: image)
+                            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == imageID }),
+                                  case .known(.image) = $0.mediaEntries[index].value
+                            else { return }
+                            $0.mediaEntries[index].value = .known(.image(image))
+                            $0.mediaEntries[index].importedImage?.image = image
                         }
                     }
                 }
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
             guard case .importImages = state.destination else { return }
-            state.photoImagePicker.append(images)
+            state.mediaEntries.append(contentsOf: images.map { importedImage in
+                State.MediaEntry(
+                    id: importedImage.id,
+                    value: .known(.image(importedImage.image)),
+                    importedImage: importedImage
+                )
+            })
         }
     }
 
@@ -721,9 +988,8 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     let description: String?
     let endTime: Date?
     let eventID: Event.ID
-    let media: [Open<OME.Media>]?
+    let mediaEntries: [EditPerformance.State.MediaEntry]
     let performanceID: ProgramItem.ID?
-    let photos: [ImageAssetPicker.ImageValue]
     let programID: Program.ID
     let scheduleID: Schedule.ID?
     let stageID: EventPlace.ID?
@@ -736,9 +1002,8 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
         endTime = state.isAssignedToSchedule && state.hasStartTime && state.hasEndTime
             ? state.endTimeSelection : nil
         eventID = state.eventID
-        media = state.media
+        mediaEntries = state.mediaEntries
         performanceID = state.performanceID
-        photos = state.photoImagePicker.images
         self.programID = programID
         scheduleID = state.isAssignedToSchedule ? state.selectedScheduleID : nil
         stageID = state.selectedStageID
@@ -752,30 +1017,20 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     }
 
     func preparedMedia() throws -> [Open<OME.Media>]? {
-        var photos = try photos.map { value -> OME.Image in
-            var image = value.image
-            if let importedImage = value.importedImage {
+        var prepared: [Open<OME.Media>] = []
+        for entry in mediaEntries {
+            if let importedImage = entry.importedImage,
+               case let .known(.image(image)) = entry.value {
+                var image = image
                 image.source = .known(.blob(try stageLocalImageBlob(
                     importedImage.data,
                     mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
                 )))
-            }
-            image.role = .known(.photo)
-            return image
-        }
-        var prepared: [Open<OME.Media>] = []
-        for existing in media ?? [] {
-            if case let .known(.image(image)) = existing,
-               image.role == .known(.photo),
-               image.displayImageAsset(recordID: eventID) != nil {
-                if !photos.isEmpty {
-                    prepared.append(.known(.image(photos.removeFirst())))
-                }
+                prepared.append(.known(.image(image)))
             } else {
-                prepared.append(existing)
+                prepared.append(entry.value)
             }
         }
-        prepared.append(contentsOf: photos.map { .known(.image($0)) })
         return prepared.isEmpty ? nil : prepared
     }
 }
@@ -933,7 +1188,7 @@ public struct EditPerformanceView: View {
             lineupSection
             performanceSection
             timeSection
-            ImageAssetPickerSection(store: store.scope(\.photoImagePicker))
+            mediaSection
             messages
         }
         .disabled(store.isSaving)
@@ -969,6 +1224,116 @@ public struct EditPerformanceView: View {
             TextField("Title", text: performanceTitleBinding, prompt: Text("Artist Set"))
             PortableTextField("Description", text: $store.description, axis: .vertical)
                 .portableLineLimit(3...8)
+        }
+    }
+
+    var mediaSection: some View {
+        Section("Media") {
+            ForEach(store.mediaEntries) { entry in
+                let index = store.mediaEntries.firstIndex(where: { $0.id == entry.id })
+                if let image = entry.imageValue {
+                    ImageAssetPickerRowView(
+                        recordID: store.eventID,
+                        image: image,
+                        canMoveUp: index.map { $0 > 0 } ?? false,
+                        canMoveDown: index.map { $0 + 1 < store.mediaEntries.count } ?? false
+                    ) {
+                        store.send(.mediaImageInfoButtonTapped(entry.id))
+                    } onRemove: {
+                        store.send(.mediaDeleteButtonTapped(entry.id))
+                    } onMoveUp: {
+                        store.send(.mediaMoveButtonTapped(entry.id, -1))
+                    } onMoveDown: {
+                        store.send(.mediaMoveButtonTapped(entry.id, 1))
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.title)
+                            if let subtitle = entry.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            if entry.canEditLink {
+                                Button("Edit") { store.send(.mediaEditButtonTapped(entry.id)) }
+                            }
+                            if index.map({ $0 > 0 }) == true {
+                                Button("Move Up") { store.send(.mediaMoveButtonTapped(entry.id, -1)) }
+                            }
+                            if index.map({ $0 + 1 < store.mediaEntries.count }) == true {
+                                Button("Move Down") { store.send(.mediaMoveButtonTapped(entry.id, 1)) }
+                            }
+                            Button("Delete", role: .destructive) {
+                                store.send(.mediaDeleteButtonTapped(entry.id))
+                            }
+                        } label: {
+                            Label("Media Actions", systemImage: "ellipsis.circle")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                }
+            }
+
+            if store.mediaDraft == nil {
+                Menu {
+                    Button("Image") { store.send(.addImageButtonTapped) }
+                    Button("External Link") { store.send(.addExternalMediaButtonTapped) }
+                    Button("AT Protocol Record") { store.send(.addRecordMediaButtonTapped) }
+                } label: {
+                    Label("Add Media", systemImage: "plus")
+                }
+            }
+
+            if let draft = store.mediaDraft {
+                Text(draft.kind == .external ? "External Media" : "AT Protocol Record")
+                    .font(.headline)
+                TextField("URL", text: mediaDraftURIBinding)
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                if draft.kind == .external {
+                    TextField("Title", text: mediaDraftTitleBinding)
+                    PortableTextField(
+                        "Description",
+                        text: mediaDraftDescriptionBinding,
+                        axis: .vertical
+                    )
+                    .portableLineLimit(2...5)
+                    TextField("Media Kind", text: mediaDraftKindBinding)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    TextField("Thumbnail URL", text: mediaDraftThumbnailURLBinding)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    if draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
+                        TextField("Thumbnail Alt Text", text: mediaDraftAltBinding)
+                        Button("Remove Thumbnail", role: .destructive) {
+                            store.send(.mediaDraftRemoveThumbnailButtonTapped)
+                        }
+                    }
+                }
+                if let validationMessage = draft.validationMessage {
+                    Text(validationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Button("Cancel") { store.send(.mediaDraftCancelButtonTapped) }
+                    Spacer()
+                    Button("Done") { store.send(.mediaDraftSaveButtonTapped) }
+                        .disabled(draft.validationMessage != nil)
+                }
+            }
         }
     }
 
@@ -1176,6 +1541,48 @@ public struct EditPerformanceView: View {
         )
     }
 
+    var mediaDraftURIBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.uri ?? "" },
+            set: { store.send(.mediaDraftURIChanged($0)) }
+        )
+    }
+
+    var mediaDraftTitleBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.title ?? "" },
+            set: { store.send(.mediaDraftTitleChanged($0)) }
+        )
+    }
+
+    var mediaDraftDescriptionBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.description ?? "" },
+            set: { store.send(.mediaDraftDescriptionChanged($0)) }
+        )
+    }
+
+    var mediaDraftKindBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.mediaKind ?? "" },
+            set: { store.send(.mediaDraftKindChanged($0)) }
+        )
+    }
+
+    var mediaDraftThumbnailURLBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.thumbnailURL ?? "" },
+            set: { store.send(.mediaDraftThumbnailURLChanged($0)) }
+        )
+    }
+
+    var mediaDraftAltBinding: Binding<String> {
+        Binding(
+            get: { store.mediaDraft?.thumbnailAlt ?? "" },
+            set: { store.send(.mediaDraftAltChanged($0)) }
+        )
+    }
+
     private func contributionNameBinding(for id: Int) -> Binding<String> {
         Binding(
             get: { store.contributions.first(where: { $0.id == id })?.creditName ?? "" },
@@ -1192,7 +1599,7 @@ public struct EditPerformanceView: View {
 
     @ViewBuilder
     private var messages: some View {
-        if let validationMessage = store.validationMessage {
+        if store.mediaDraft == nil, let validationMessage = store.validationMessage {
             Section {
                 Text(validationMessage)
                     .font(.footnote)

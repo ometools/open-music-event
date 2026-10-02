@@ -656,9 +656,7 @@ struct ScheduleAuthoringTests {
         )
         let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
             $0.title = "Photo Set"
-            $0.photoImagePicker.images = [
-                ImageAssetPicker.ImageValue(id: UUID(), image: photo)
-            ]
+            $0.mediaEntries = [.init(value: .known(.image(photo)))]
         }
         await store.send(.saveButtonTapped)?.value
 
@@ -671,19 +669,28 @@ struct ScheduleAuthoringTests {
             uri: try #require(URL(string: "https://example.com/set-video")),
             title: "Set video"
         )
+        let poster = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/set-poster.jpg")))),
+            role: .known(.poster),
+            renderingMode: .known(.original)
+        )
         var updated = created
-        updated.media = [.known(.image(photo)), .known(.external(external))]
+        updated.media = [.known(.image(photo)), .known(.image(poster)), .known(.external(external))]
         let withExternal = updated
         try await database.write { db in
             try ProgramItem.upsert { withExternal }.execute(db)
         }
 
+        var expectedPoster = poster
+        expectedPoster.title = "Updated poster"
         let editStore = try makeCanonicalPerformanceStore(
             database: database, fixture: fixture, performance: withExternal
         ) { state in
-            #expect(state.photoImagePicker.images.count == 1)
-            state.photoImagePicker.images = []
+            #expect(state.mediaEntries.count == 3)
+            state.mediaEntries[1].value = .known(.image(expectedPoster))
         }
+        let photoID = try #require(editStore.state.mediaEntries.first?.id)
+        await editStore.send(.mediaDeleteButtonTapped(photoID))?.value
         await editStore.send(.saveButtonTapped)?.value
 
         let edited = try await database.read { db in
@@ -691,7 +698,119 @@ struct ScheduleAuthoringTests {
         }
         #expect(edited.id == created.id)
         #expect(edited.createdAt == created.createdAt)
-        #expect(edited.media == [.known(.external(external))])
+        #expect(edited.media == [.known(.image(expectedPoster)), .known(.external(external))])
+    }
+
+    @Test
+    func programItemMediaLinksCanBeAddedEditedRemovedAndReordered() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let createStore = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
+            $0.title = "Media Set"
+        }
+        await createStore.send(.saveButtonTapped)?.value
+
+        let created = try await database.read { db in
+            try #require(ProgramItem.all.fetchAll(db).first)
+        }
+        let photo = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/photo.jpg")))),
+            role: .known(.photo),
+            renderingMode: .known(.original)
+        )
+        let external = OME.Media.External(
+            uri: try #require(URL(string: "https://example.com/old-video")),
+            title: "Old video"
+        )
+        let oldRecord = OME.Media.RecordReference(
+            uri: try #require(ATProto.URI("at://did:plc:organizer/app.bsky.feed.post/old"))
+        )
+        var withMedia = created
+        withMedia.media = [
+            .known(.image(photo)),
+            .known(.external(external)),
+            .known(.record(oldRecord)),
+        ]
+        let seededItem = withMedia
+        try await database.write { db in
+            try ProgramItem.upsert { seededItem }.execute(db)
+        }
+
+        let store = try makeCanonicalPerformanceStore(
+            database: database, fixture: fixture, performance: seededItem
+        ) { _ in }
+        let externalID = try #require(store.state.mediaEntries.dropFirst().first?.id)
+        let oldRecordID = try #require(store.state.mediaEntries.last?.id)
+        store.send(.mediaEditButtonTapped(externalID)) {
+            $0.mediaDraft = .init(entryID: externalID, external: external)
+        }
+        store.send(.mediaDraftURIChanged("https://example.com/new-video")) {
+            $0.mediaDraft?.uri = "https://example.com/new-video"
+        }
+        store.send(.mediaDraftTitleChanged("Live set")) {
+            $0.mediaDraft?.title = "Live set"
+        }
+        store.send(.mediaDraftDescriptionChanged("Recorded on the main stage")) {
+            $0.mediaDraft?.description = "Recorded on the main stage"
+        }
+        store.send(.mediaDraftKindChanged("video")) {
+            $0.mediaDraft?.mediaKind = "video"
+        }
+        store.send(.mediaDraftThumbnailURLChanged("https://example.com/thumb.jpg")) {
+            $0.mediaDraft?.thumbnailURL = "https://example.com/thumb.jpg"
+            $0.mediaDraft?.removeThumbnail = false
+        }
+        store.send(.mediaDraftAltChanged("Stage lights")) {
+            $0.mediaDraft?.thumbnailAlt = "Stage lights"
+        }
+        store.send(.mediaDraftSaveButtonTapped)
+        #expect(store.state.mediaDraft == nil)
+        store.send(.mediaDeleteButtonTapped(oldRecordID))
+
+        store.send(.addRecordMediaButtonTapped) {
+            $0.mediaDraft = .init(kind: .record)
+        }
+        store.send(.mediaDraftURIChanged("https://example.com/not-a-record")) {
+            $0.mediaDraft?.uri = "https://example.com/not-a-record"
+        }
+        #expect(store.state.mediaDraft?.validationMessage != nil)
+        store.send(.mediaDraftSaveButtonTapped)
+        #expect(store.state.mediaDraft != nil)
+        let newRecordURI = "at://did:plc:organizer/app.bsky.feed.post/new"
+        store.send(.mediaDraftURIChanged(newRecordURI)) {
+            $0.mediaDraft?.uri = newRecordURI
+        }
+        store.send(.mediaDraftSaveButtonTapped)
+        let newRecordID = try #require(store.state.mediaEntries.last?.id)
+        store.send(.mediaMoveButtonTapped(newRecordID, -1))
+        store.send(.mediaMoveButtonTapped(newRecordID, -1))
+        #expect(store.state.mediaEntries.first?.id == newRecordID)
+        await store.send(.saveButtonTapped)?.value
+
+        let edited = try await database.read { db in
+            try #require(try ProgramItem.find(created.id).fetchOne(db))
+        }
+        var thumbnail = OME.Image(
+            source: .known(.url(try #require(URL(string: "https://example.com/thumb.jpg")))),
+            role: .known(.photo),
+            renderingMode: .known(.original)
+        )
+        thumbnail.alt = OME.AltText(rawValue: "Stage lights")
+        let expectedExternal = OME.Media.External(
+            uri: try #require(URL(string: "https://example.com/new-video")),
+            title: "Live set",
+            description: "Recorded on the main stage",
+            thumbnail: thumbnail,
+            mediaKind: .known(.video)
+        )
+        let newRecord = OME.Media.RecordReference(uri: try #require(ATProto.URI(newRecordURI)))
+        #expect(edited.id == created.id)
+        #expect(edited.createdAt == created.createdAt)
+        #expect(edited.media == [
+            .known(.record(newRecord)),
+            .known(.image(photo)),
+            .known(.external(expectedExternal)),
+        ])
     }
 
     @Test
