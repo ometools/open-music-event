@@ -41,12 +41,15 @@ extension NavigationTests {
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcaq")
         let scheduleID = canonicalRouteRecordID("events.openmusic.schedule", "3mrdbziccpcae")
         let programID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
+        let workshopProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq")
         let concertID = canonicalRouteRecordID("events.openmusic.programItem", "3mrdbziccpcae")
         let workshopItemID = canonicalRouteRecordID("events.openmusic.programItem", "3mrdbziccpcaq")
         let date = try #require(LocalDate("2026-08-07"))
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: "workshop"
+            programID: workshopProgramID,
+            title: "Workshops",
+            eventPlaces: [workshopID]
         )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
@@ -56,7 +59,11 @@ extension NavigationTests {
                 category: "workshop", sortIndex: 2
             )
             try Self.insertCanonicalSchedule(db, id: scheduleID, eventID: eventID, date: date)
-            try Self.insertCanonicalProgram(db, id: programID, eventID: eventID, eventPlaces: [mainID, workshopID])
+            try Self.insertCanonicalProgram(db, id: programID, eventID: eventID, eventPlaces: [mainID])
+            try Self.insertCanonicalProgram(
+                db, id: workshopProgramID, eventID: eventID,
+                eventPlaces: [workshopID], title: "Workshops"
+            )
             try Self.insertCanonicalProgramItem(
                 db, id: concertID, eventID: eventID, programID: programID,
                 scheduleID: scheduleID, placeID: mainID, title: "Concert",
@@ -64,7 +71,7 @@ extension NavigationTests {
                 endsAt: try #require(date.at(hour: 19, in: timeZone))
             )
             try Self.insertCanonicalProgramItem(
-                db, id: workshopItemID, eventID: eventID, programID: programID,
+                db, id: workshopItemID, eventID: eventID, programID: workshopProgramID,
                 scheduleID: scheduleID, placeID: workshopID, title: "Workshop",
                 startsAt: try #require(date.at(hour: 20, in: timeZone)),
                 endsAt: try #require(date.at(hour: 21, in: timeZone))
@@ -88,7 +95,7 @@ extension NavigationTests {
         let visiblePerformances = ScheduleViewer.visiblePerformances(
             performanceRows: performanceRows,
             scheduleID: scheduleID,
-            stages: visibleStages
+            division: workshopDivision
         )
         let timelineCards = ScheduleManyStagesAtOnceView.timelineCards(
             performanceRows: visiblePerformances,
@@ -102,18 +109,27 @@ extension NavigationTests {
     }
 
     @Test
-    func eventViewerBuildsScheduleDivisionTabsFromStageCategories() async throws {
+    func eventViewerBuildsScheduleDivisionTabsFromPrograms() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcaq")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(category: "workshop")
+        let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
+        let workshopProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq")
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(db, id: mainID, eventID: eventID, name: "Main", sortIndex: 1)
             try Self.insertCanonicalStage(
                 db, id: workshopID, eventID: eventID, name: "Workshop",
-                category: workshopDivision.category, sortIndex: 2
+                category: "other", sortIndex: 2
+            )
+            try Self.insertCanonicalProgram(
+                db, id: mainProgramID, eventID: eventID,
+                eventPlaces: [mainID], title: "Schedule"
+            )
+            try Self.insertCanonicalProgram(
+                db, id: workshopProgramID, eventID: eventID,
+                eventPlaces: [workshopID], title: "Workshops"
             )
         }
         let state = withDependencies {
@@ -124,27 +140,42 @@ extension NavigationTests {
         }
 
         #expect(Array(state.installedFeatures.prefix(2).map(\.description)) == [
-            "schedule",
-            "schedule:workshop",
+            "schedule:\(mainProgramID)",
+            "schedule:\(workshopProgramID)",
         ])
-        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.programID } == [mainProgramID, workshopProgramID])
         #expect(state.installedFeatures.contains(.workspace) == false)
         #expect(state.eventWorkspace == nil)
     }
 
     @Test
-    func `empty stage links open another schedule category`() async throws {
+    func `empty stage links open another program`() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcaq")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(category: "workshop")
+        let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
+        let workshopProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq")
+        let mainDivision = ScheduleViewer.ScheduleDivision(
+            programID: mainProgramID, title: "Schedule", eventPlaces: [mainID]
+        )
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            programID: workshopProgramID, title: "Workshops", eventPlaces: [workshopID]
+        )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Category Links")
             try Self.insertCanonicalStage(db, id: mainID, eventID: eventID, name: "Main", sortIndex: 1)
             try Self.insertCanonicalStage(
                 db, id: workshopID, eventID: eventID, name: "Workshop",
-                category: workshopDivision.category, sortIndex: 2
+                category: "other", sortIndex: 2
+            )
+            try Self.insertCanonicalProgram(
+                db, id: mainProgramID, eventID: eventID,
+                eventPlaces: [mainID], title: "Schedule"
+            )
+            try Self.insertCanonicalProgram(
+                db, id: workshopProgramID, eventID: eventID,
+                eventPlaces: [workshopID], title: "Workshops"
             )
         }
 
@@ -159,7 +190,7 @@ extension NavigationTests {
         }
         let scheduleStore = try #require(
             store.spawn(\.scheduleViewers).first {
-                $0.scheduleDivision == .schedule
+                $0.scheduleDivision == mainDivision
             }
         )
         let singleStageStore = scheduleStore.spawn(\.singleStageAtOnce)
@@ -171,10 +202,10 @@ extension NavigationTests {
         expectNoDifference(store.selectedFeature, .schedule(workshopDivision))
 
         await scheduleStore.spawn(\.manyStagesAtOnce).send(
-            .scheduleDivisionButtonTapped(.schedule)
+            .scheduleDivisionButtonTapped(mainDivision)
         )?.value
 
-        expectNoDifference(store.selectedFeature, .schedule(.schedule))
+        expectNoDifference(store.selectedFeature, .schedule(mainDivision))
 
         await scheduleStore.spawn(\.performanceList).send(
             .scheduleDivisionButtonTapped(workshopDivision)
@@ -249,7 +280,10 @@ extension NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let scheduleID = canonicalRouteRecordID("events.openmusic.schedule", "3mrdbziccpcae")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(category: "workshop")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq"),
+            title: "Workshops"
+        )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalSchedule(

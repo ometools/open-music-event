@@ -31,6 +31,8 @@ public struct SchedulePerformanceList {
             _stages = FetchAll(
                 ScheduleViewer.stagesQuery(eventID: eventID)
             )
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
+            _programs = FetchAll(Program.where { $0.event.eq(eventID) })
         }
 
         public let eventID: Event.ID
@@ -43,6 +45,8 @@ public struct SchedulePerformanceList {
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
         @FetchAll public var stages: [EventPlace]
+        @FetchOne public var event: Event?
+        @FetchAll public var programs: [Program]
 
         public func selectedSchedule(
             selectedScheduleID: Schedule.ID?
@@ -68,7 +72,7 @@ public struct SchedulePerformanceList {
             ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
-                stages: visibleStages
+                division: scheduleDivision
             )
         }
 
@@ -252,7 +256,7 @@ public struct SchedulePerformanceListView: View {
     }
 
     var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
-        ScheduleViewer.scheduleDivisions(stages: store.stages)
+        ScheduleViewer.scheduleDivisions(event: store.event, programs: store.programs)
             .filter { $0 != store.scheduleDivision }
     }
 

@@ -358,13 +358,21 @@ public struct ScheduleViewer {
                 .map(\.performance)
         }
 
+        public func requiresListPresentation(selectedScheduleID: Schedule.ID?) -> Bool {
+            let visibleStageIDs = Set(visibleStages.map(\.id))
+            return visiblePerformances(selectedScheduleID: selectedScheduleID).contains { item in
+                guard let eventPlace = item.eventPlace else { return true }
+                return !visibleStageIDs.contains(eventPlace)
+            }
+        }
+
         func visiblePerformanceRows(
             selectedScheduleID: Schedule.ID?
         ) -> [PerformanceRow] {
             ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
-                stages: visibleStages
+                division: scheduleDivision
             )
         }
 
@@ -386,7 +394,7 @@ public struct ScheduleViewer {
                 selectedScheduleID: selectedScheduleID,
                 schedules: schedules,
                 performanceRows: performanceRows,
-                stages: visibleStages,
+                division: scheduleDivision,
                 buffer: buffer
             )
         }
@@ -549,13 +557,7 @@ public struct ScheduleViewer {
            stages.contains(where: { $0.id == selectedStageID }) {
             return selectedStageID
         }
-        return stages.sorted { lhs, rhs in
-            let left = lhs.stageUse?.sortIndex ?? Int.max
-            let right = rhs.stageUse?.sortIndex ?? Int.max
-            return left == right
-                ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                : left < right
-        }.first?.id
+        return stages.first?.id
     }
 
     static func normalizedSelectedStageID(
@@ -569,31 +571,21 @@ public struct ScheduleViewer {
         )
     }
 
-    static func scheduleDivisions(stages: [EventPlace]) -> [ScheduleDivision] {
-        guard !stages.isEmpty else { return [] }
-
-        var divisions: [ScheduleDivision] = [.schedule]
-        var seenCategories = Set<String>()
-        for stage in stages {
-            guard let category = stage.stageUse?.category,
-                  seenCategories.insert(category).inserted else {
-                continue
-            }
-            divisions.append(ScheduleDivision(category: category))
-        }
-        return divisions
+    static func scheduleDivisions(event: Event?, programs: [Program]) -> [ScheduleDivision] {
+        guard let event else { return [] }
+        let byID = Dictionary(uniqueKeysWithValues: programs.map { ($0.id, $0) })
+        return (event.programs ?? []).compactMap { byID[$0].map(ScheduleDivision.init(program:)) }
     }
 
     static func visiblePerformances(
         performanceRows: [PerformanceRow],
         scheduleID: Schedule.ID?,
-        stages: [EventPlace]
+        division: ScheduleDivision
     ) -> [PerformanceRow] {
-        guard let scheduleID else { return [] }
-        let visibleStageIDs = Set(stages.map(\.id))
+        guard let scheduleID, let programID = division.programID else { return [] }
         return performanceRows.filter {
             $0.performance.schedule == scheduleID
-                && ($0.performance.eventPlace.map(visibleStageIDs.contains) ?? true)
+                && $0.performance.program == programID
         }
     }
 
@@ -602,7 +594,7 @@ public struct ScheduleViewer {
         selectedScheduleID: Schedule.ID?,
         schedules: [Schedule],
         performanceRows: [PerformanceRow],
-        stages: [EventPlace],
+        division: ScheduleDivision,
         buffer: TimeInterval
     ) -> CurrentTimeDestination? {
         guard let currentDate else { return nil }
@@ -611,7 +603,7 @@ public struct ScheduleViewer {
             let rows = visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: schedule.id,
-                stages: stages
+                division: division
             )
             .filter { $0.performance.startDate != nil && $0.performance.endDate != nil }
             guard
@@ -654,24 +646,8 @@ public struct ScheduleViewer {
         stages: [EventPlace],
         division: ScheduleDivision
     ) -> [EventPlace] {
-        stages
-            .filter { $0.stageUse != nil && $0.stageUse?.category == division.category }
-            .sorted { lhs, rhs in
-                let left = lhs.stageUse?.sortIndex ?? Int.max
-                let right = rhs.stageUse?.sortIndex ?? Int.max
-                return left == right
-                    ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                    : left < right
-            }
-    }
-
-    static func orderedStages(
-        _ stages: [EventPlace],
-        performances: [ProgramItem]
-    ) -> [EventPlace] {
-        let stageIDsWithPerformances = Set(performances.compactMap(\.eventPlace))
-        return stages.filter { stageIDsWithPerformances.contains($0.id) }
-            + stages.filter { !stageIDsWithPerformances.contains($0.id) }
+        let byID = Dictionary(uniqueKeysWithValues: stages.map { ($0.id, $0) })
+        return division.eventPlaces.compactMap { byID[$0] }
     }
 
     static func unavailableStageIDs(
@@ -685,10 +661,10 @@ public struct ScheduleViewer {
     static func canAddPerformance(
         selectedScheduleID: Schedule.ID?,
         schedules: [Schedule],
-        stages: [EventPlace],
+        division: ScheduleDivision,
         event: Event?
     ) -> Bool {
-        guard !stages.isEmpty else { return false }
+        if event?.programs?.isEmpty == false && division.programID == nil { return false }
         if Self.resolvedSelectedScheduleID(
             selectedScheduleID,
             schedules: schedules
@@ -713,22 +689,24 @@ public struct ScheduleViewer {
         Update { state, action in
             switch action {
             case let .addPerformanceButtonTapped(selectedScheduleID):
-                guard let selectedStageID = state.resolvedSelectedStageID,
-                      Self.canAddPerformance(
+                guard Self.canAddPerformance(
                         selectedScheduleID: selectedScheduleID,
                         schedules: state.schedules,
-                        stages: state.stages,
+                        division: state.scheduleDivision,
                         event: state.event
                       )
                 else { return }
                 let eventID = state.eventID
                 let scheduleID = state.resolvedSelectedScheduleID(selectedScheduleID)
+                let programID = state.scheduleDivision.programID
+                let selectedStageID = state.resolvedSelectedStageID
                 store.addTask {
                     let task = try store.post(
                         key: EventEditingRequested.self,
                         value: .addPerformance(
                             eventID: eventID,
                             scheduleID: scheduleID,
+                            programID: programID,
                             stageID: selectedStageID
                         )
                     )

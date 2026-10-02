@@ -1,42 +1,43 @@
+import OpenMusicEventLexicon
+
 public struct ScheduleDivision: Hashable, Identifiable, Sendable {
-    public init(category: String?) {
-        self.category = category
+    public init(program: Program) {
+        self.init(
+            programID: program.id,
+            title: program.title,
+            icon: program.icon,
+            eventPlaces: program.eventPlaces
+        )
     }
 
-    public var category: String?
-    public var id: String { category ?? "schedule" }
+    public init(
+        programID: Program.ID?,
+        title: String,
+        icon: OME.SemanticIcon? = nil,
+        eventPlaces: [EventPlace.ID] = []
+    ) {
+        self.programID = programID
+        self.title = title
+        self.icon = icon
+        self.eventPlaces = eventPlaces
+    }
 
-    public static let schedule = Self(category: nil)
+    public let programID: Program.ID?
+    public let title: String
+    public let icon: OME.SemanticIcon?
+    public let eventPlaces: [EventPlace.ID]
+
+    public var id: String { programID?.description ?? "schedule" }
+    public static let schedule = Self(programID: nil, title: "Schedule")
 
     public var systemImage: String {
-        switch category {
-        case nil:
-            return "calendar"
-        case "workshop":
-            return "figure.mind.and.body"
-        case "discussions":
-            return "bubble.left.and.bubble.right"
-        default:
-            return "square.grid.2x2"
+        switch icon?.rawValue {
+        case "heart": "heart"
+        case "thumbsUp": "thumbs-up"
+        case "personDoingYoga": "figure.mind.and.body"
+        case "speechBubbles": "chatbubbles"
+        case "gridOfSquares": "grid"
+        default: "calendar"
         }
-    }
-
-    public var title: String {
-        switch category {
-        case nil:
-            return "Schedule"
-        case "workshop":
-            return "Workshops"
-        default:
-            return category?.scheduleDivisionTitle ?? "Schedule"
-        }
-    }
-}
-
-private extension String {
-    var scheduleDivisionTitle: String {
-        split { $0 == "-" || $0 == "_" || $0 == " " }
-            .map { $0.capitalized }
-            .joined(separator: " ")
     }
 }

@@ -804,6 +804,8 @@ public struct StageDetail {
         @FetchAll var contributors: [ContributorProfile]
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
+        @FetchOne public var event: Event?
+        @FetchAll public var programs: [Program]
 
         public init(
             stageID: EventPlace.ID,
@@ -835,6 +837,8 @@ public struct StageDetail {
             )
             _performanceRows = FetchAll(PerformanceRow.all(eventID: self.eventID))
             _schedules = FetchAll(ScheduleViewer.schedulesQuery(eventID: self.eventID))
+            _event = FetchOne(Event.where { $0.id.eq(self.eventID) })
+            _programs = FetchAll(Program.where { $0.event.eq(self.eventID) })
         }
 
         public var id: EventPlace.ID { stageID }
@@ -876,6 +880,11 @@ public struct StageDetail {
                     $0.schedule == selectedScheduleID
                         && $0.eventPlace == stageID
                 }
+        }
+
+        var scheduleDivision: ScheduleViewer.ScheduleDivision {
+            ScheduleViewer.scheduleDivisions(event: event, programs: programs)
+                .first { $0.eventPlaces.contains(stageID) } ?? .schedule
         }
     }
 
@@ -1141,7 +1150,7 @@ struct StageScheduleView: View {
                         selectedScheduleID: nil
                     ),
                     emptyTitle: ScheduleViewer.emptyStageTitle(
-                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.stageUse?.category),
+                        scheduleDivision: store.state.scheduleDivision,
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
                     ),
@@ -1157,7 +1166,7 @@ struct StageScheduleView: View {
             } else {
                 ScheduleEmptyView(
                     title: ScheduleViewer.emptyStageTitle(
-                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.stageUse?.category),
+                        scheduleDivision: store.state.scheduleDivision,
                         scheduleTitle: store.state.selectedScheduleTitle,
                         stage: stage
                     ),

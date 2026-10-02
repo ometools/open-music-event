@@ -119,11 +119,13 @@ extension OpenMusicEventViewers.EventFeature {
         authoringAccess: AuthoringAccess
     ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
-        let stages = (try? database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        let divisions: [ScheduleDivision] = (try? database.read { db -> [ScheduleDivision] in
+            let event = try Event.find(eventID).fetchOne(db)
+            let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
+            return ScheduleViewer.scheduleDivisions(event: event, programs: programs)
         }) ?? []
         return features(
-            scheduleDivisions: ScheduleViewer.scheduleDivisions(stages: stages),
+            scheduleDivisions: divisions,
             authoringAccess: authoringAccess
         )
     }
@@ -185,6 +187,7 @@ public struct EventViewer {
                 EventViewerState.none
             )
             self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
+            self._programs = FetchAll(Program.where { $0.event.eq(eventID) })
             self._reactions = FetchAll(
                 PerformanceReaction.forEvent(eventID: eventID)
             )
@@ -296,9 +299,8 @@ public struct EventViewer {
                 )
             }
             self.installedFeatures = features
-            self.selectedFeature = features.contains(selectedFeature)
-                ? selectedFeature
-                : features.first ?? .schedule(.schedule)
+            self.selectedFeature = features.first { $0.description == selectedFeature.description }
+                ?? features.first ?? .schedule(.schedule)
             self.installFeatureStores(features)
         }
 
@@ -342,6 +344,7 @@ public struct EventViewer {
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchAll public var stages: [EventPlace]
+        @FetchAll public var programs: [Program]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         public var installedFeatures: [EventFeature]
@@ -489,10 +492,14 @@ public struct EventViewer {
                 for index in self.scheduleViewers.indices {
                     self.scheduleViewers[index].state.destination = nil
                 }
+                @Dependency(\.defaultDatabase) var database
+                let programID = try? database.read { db in
+                    try ProgramItem.find(performanceID).fetchOne(db)?.program
+                }
                 guard let scheduleViewerIndex = self.scheduleViewers.firstIndex(where: {
-                    $0.state.scheduleDivision == .schedule
-                }) else { return }
-                self.selectedFeature = .schedule(.schedule)
+                    $0.state.scheduleDivision.programID == programID
+                }) ?? self.scheduleViewers.indices.first else { return }
+                self.selectedFeature = .schedule(self.scheduleViewers[scheduleViewerIndex].state.scheduleDivision)
                 self.scheduleViewers[scheduleViewerIndex].state.destination = withEventDependencies {
                     .performanceDetail(
                         Spawn(
@@ -523,11 +530,12 @@ public struct EventViewer {
 
         mutating func handleEditingIntent(_ intent: EventEditingIntent) {
             switch intent {
-            case let .addPerformance(eventID, scheduleID, stageID):
+            case let .addPerformance(eventID, scheduleID, programID, stageID):
                 guard eventID == self.eventID else { return }
                 guard let editPerformance = withEventDependencies({
                     addPerformanceState(
                         scheduleID: scheduleID,
+                        programID: programID,
                         stageID: stageID
                     )
                 }) else { return }
@@ -622,6 +630,7 @@ public struct EventViewer {
 
         private func addPerformanceState(
             scheduleID: Schedule.ID?,
+            programID: Program.ID?,
             stageID: EventPlace.ID?
         ) -> EditPerformance.State? {
             @Dependency(\.defaultDatabase) var database
@@ -632,8 +641,9 @@ public struct EventViewer {
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)
                     var schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
-                    var programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
-                        .filter { event?.programs?.contains($0.id) == true }
+                    let loadedPrograms = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
+                    let programsByID = Dictionary(uniqueKeysWithValues: loadedPrograms.map { ($0.id, $0) })
+                    var programs = (event?.programs ?? []).compactMap { programsByID[$0] }
                     let stages = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
                     let contributors = try ContributorProfile
                         .all(eventID: eventID, hydration: .none)
@@ -677,11 +687,10 @@ public struct EventViewer {
                         schedule = insertedSchedule
                     }
                     guard let schedule else { return nil }
+                    let selectedProgram = programs.first(where: { $0.id == programID }) ?? programs.first
                     let resolvedStageID = stageID.flatMap { stageID in
-                        stages.contains { $0.id == stageID }
-                            ? stageID
-                            : nil
-                    } ?? stages.first?.id
+                        selectedProgram?.eventPlaces.contains(stageID) == true ? stageID : nil
+                    } ?? selectedProgram?.eventPlaces.first
                     let initialStartTime = try ProgramItem
                         .where { $0.event.eq(eventID) }
                         .where { $0.schedule.eq(schedule.id) }
@@ -697,6 +706,7 @@ public struct EventViewer {
                         programs: programs,
                         stages: stages,
                         timeZone: eventTimeZone,
+                        selectedProgramID: selectedProgram?.id,
                         selectedStageID: resolvedStageID,
                         initialStartTime: initialStartTime,
                         contributors: contributors
@@ -959,7 +969,10 @@ public struct EventViewer {
                     guard feature.isEditorFeature else { return }
                     enterOrRequestAuthoring(.feature(feature), state: &state)
                 }
-                .onChange(of: store.stages) { _, _, state in
+                .onChange(of: store.event?.programs) { _, _, state in
+                    state.reloadFeaturesForAuthoringAccess()
+                }
+                .onChange(of: store.programs) { _, _, state in
                     state.reloadFeaturesForAuthoringAccess()
                 }
                 .onChange(of: store.persistedEventViewerState) {
@@ -1284,13 +1297,7 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
-        @State var tabLayout = TabFeatureLayout(
-            preferredIDs: [
-                .init("schedule"),
-                .init("schedule:workshop"),
-                .init("communications"),
-            ]
-        )
+        @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
             let accountStore = store.spawn(\.account)
@@ -1528,6 +1535,9 @@ public struct EventViewerView: View {
                     }
                 }
                 #endif
+            }
+            .onChange(of: store.installedFeatures, initial: true) { _, features in
+                tabLayout = EventViewer.EventFeature.preferredTabLayout(for: features)
             }
         }
 
@@ -1861,7 +1871,7 @@ private extension EventViewer.State {
 private extension EventEditingIntent {
     var eventID: Event.ID {
         switch self {
-        case let .addPerformance(eventID, _, _),
+        case let .addPerformance(eventID, _, _, _),
              let .addPosters(eventID),
              let .addSchedule(eventID),
              let .copyStagesFromEvent(eventID),

@@ -63,7 +63,7 @@ struct UIAutomationFixtureTests {
                 return try #require(fetched)
             }
             try graph.validate()
-            #expect(graph.programs.map(\.title) == ["Music", "Workshops"])
+            #expect(graph.programs.map(\.title) == ["Schedule", "Workshops"])
             #expect(graph.schedules.map(\.title) == ["Saturday", "Sunday"])
             #expect(Set(graph.places.map(\.name)) == ["Meadow", "Canopy", "Workshop Grove"])
             #expect(graph.contributors.count == 4)
@@ -141,14 +141,15 @@ struct UIAutomationFixtureTests {
             let performanceRows = try await database.read { db in
                 try PerformanceRow.all(eventID: graph.event.id).fetchAll(db)
             }
-            #expect(ScheduleViewer.scheduleDivisions(stages: graph.places).map(\.id) == [
-                "schedule", "workshop",
-            ])
-            let musicStages = ScheduleViewer.visibleStages(stages: graph.places, division: .schedule)
+            let divisions = ScheduleViewer.scheduleDivisions(event: graph.event, programs: graph.programs)
+            #expect(divisions.compactMap(\.programID) == graph.event.programs ?? [])
+            let musicDivision = try #require(divisions.first)
+            let workshopDivision = try #require(divisions.last)
+            let musicStages = ScheduleViewer.visibleStages(stages: graph.places, division: musicDivision)
             #expect(!ScheduleViewer.State(eventID: graph.event.id).showStageNameLabels)
             let workshopStages = ScheduleViewer.visibleStages(
                 stages: graph.places,
-                division: ScheduleViewer.ScheduleDivision(category: "workshop")
+                division: workshopDivision
             )
             #expect(musicStages.map(\.name) == ["Meadow", "Canopy"])
             #expect(workshopStages.map(\.name) == ["Workshop Grove"])
@@ -156,19 +157,19 @@ struct UIAutomationFixtureTests {
             #expect(ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: saturdayID,
-                stages: musicStages
+                division: musicDivision
             ).map(\.title) == ["Opening Set", "Sunset Session", "Collaborative Set", "Late Night Set"])
             #expect(ScheduleViewer.visiblePerformances(
                 performanceRows: performanceRows,
                 scheduleID: saturdayID,
-                stages: workshopStages
+                division: workshopDivision
             ).map(\.title) == ["Movement Workshop"])
             #expect(ScheduleViewer.currentTimeDestination(
                 currentDate: OpenMusicEventUIAutomationFixture.now,
                 selectedScheduleID: saturdayID,
                 schedules: graph.schedules,
                 performanceRows: performanceRows,
-                stages: musicStages,
+                division: musicDivision,
                 buffer: 30 * 60
             )?.performanceID == OpenMusicEventUIAutomationFixture.canonicalOpeningSetID)
 

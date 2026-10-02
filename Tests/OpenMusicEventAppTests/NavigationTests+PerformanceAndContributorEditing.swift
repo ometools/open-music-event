@@ -40,12 +40,14 @@ extension NavigationTests {
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
         let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: "workshop"
+            programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
+            title: "Workshops",
+            eventPlaces: [workshopID]
         )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(db, id: mainID, eventID: eventID, name: "Main", sortIndex: 1)
-            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", category: "workshop", sortIndex: 2)
+            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", sortIndex: 2)
         }
 
         var state = withDependencies {
@@ -76,12 +78,14 @@ extension NavigationTests {
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
         let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: "workshop"
+            programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
+            title: "Workshops",
+            eventPlaces: [workshopID]
         )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(db, id: mainID, eventID: eventID, name: "Main", sortIndex: 1)
-            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", category: "workshop", sortIndex: 2)
+            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", sortIndex: 2)
         }
 
         var state = withDependencies {
@@ -114,12 +118,14 @@ extension NavigationTests {
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcap")
         let workshopDivision = ScheduleViewer.ScheduleDivision(
-            category: "workshop"
+            programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcap"),
+            title: "Workshops",
+            eventPlaces: [workshopID]
         )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(db, id: mainID, eventID: eventID, name: "Main", sortIndex: 1)
-            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", category: "workshop", sortIndex: 2)
+            try Self.insertCanonicalStage(db, id: workshopID, eventID: eventID, name: "Workshop", sortIndex: 2)
         }
 
         // The persisted selection points outside the visible workshop division.

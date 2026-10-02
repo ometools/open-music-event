@@ -250,10 +250,16 @@ extension NavigationTests {
 
             // Exercise the mounted reducer path used by a real schedule-row tap. The device zone
             // may determine whether an MDT suffix is shown, but it can never become the clock.
-            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
+            await waitForObservation {
+                store.spawn(\.scheduleViewers).contains { $0.scheduleDivision.programID == programID }
+            }
+            let programScheduleStore = try #require(
+                store.spawn(\.scheduleViewers).first { $0.scheduleDivision.programID == programID }
+            )
+            await programScheduleStore.send(.performanceButtonTapped(performanceID))?.value
 
             let performanceDetail = try #require(
-                scheduleStore.destination?.performanceDetail
+                programScheduleStore.destination?.performanceDetail
             )
             expectNoDifference(
                 performanceDetail.timeZone?.identifier,

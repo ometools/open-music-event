@@ -44,7 +44,7 @@ extension NavigationTests {
         )
         expectNoDifference(
             ScheduleViewer.emptyScheduleTitle(
-                scheduleDivision: .init(category: "workshop"),
+                scheduleDivision: .init(programID: nil, title: "Workshops"),
                 scheduleTitle: "Friday"
             ),
             "No Workshops on Friday"

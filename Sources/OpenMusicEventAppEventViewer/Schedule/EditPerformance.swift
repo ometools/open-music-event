@@ -157,6 +157,7 @@ public struct EditPerformance {
             programs: [Program],
             stages: [EventPlace],
             timeZone: TimeZone,
+            selectedProgramID: Program.ID? = nil,
             selectedStageID: EventPlace.ID? = nil,
             initialStartTime: Date? = nil,
             contributors: [ContributorProfile] = []
@@ -174,16 +175,18 @@ public struct EditPerformance {
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
-            let selectedProgramID = programs.first(where: {
+            let resolvedProgramID = selectedProgramID ?? programs.first(where: {
                 selectedStageID.map($0.eventPlaces.contains) == true
             })?.id ?? programs.first?.id
-            self.selectedProgramID = selectedProgramID
+            self.selectedProgramID = resolvedProgramID
             self.selectedStageID = selectedStageID.flatMap { selectedStageID in
                 stages.contains { $0.id == selectedStageID }
+                    && programs.first(where: { $0.id == resolvedProgramID })?
+                        .eventPlaces.contains(selectedStageID) == true
                     ? selectedStageID
                     : nil
             } ?? stages.first(where: { stage in
-                programs.first(where: { $0.id == selectedProgramID })?
+                programs.first(where: { $0.id == resolvedProgramID })?
                     .eventPlaces.contains(stage.id) == true
             })?.id
             self.allStageOptions = stages.map(StageOption.init)

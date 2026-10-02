@@ -169,17 +169,18 @@ enum OpenMusicEventUIAutomationFixture {
         let mainProgram = try Program(
             id: canonicalMainProgramID,
             event: canonicalEventID,
-            title: "Music",
+            title: "Schedule",
             createdAt: "2026-07-01T12:00:00Z",
             eventPlaces: [canonicalMeadowID, canonicalCanopyID]
         )
-        let workshopProgram = try Program(
+        var workshopProgram = try Program(
             id: canonicalWorkshopProgramID,
             event: canonicalEventID,
             title: "Workshops",
             createdAt: "2026-07-01T12:00:00Z",
             eventPlaces: [canonicalWorkshopGroveID]
         )
+        workshopProgram.icon = .personDoingYoga
         let saturday = try Schedule(
             id: canonicalSaturdayID,
             event: canonicalEventID,

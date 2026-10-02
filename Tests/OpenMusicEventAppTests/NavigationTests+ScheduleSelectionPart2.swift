@@ -38,17 +38,28 @@ extension NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
-        let workshopDivision = ScheduleViewer.ScheduleDivision(category: "workshop")
+        let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
+        let mainDivision = ScheduleViewer.ScheduleDivision(
+            programID: mainProgramID, title: "Schedule", eventPlaces: [stageID]
+        )
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq"),
+            title: "Workshops"
+        )
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(db, id: stageID, eventID: eventID, name: "Main")
+            try Self.insertCanonicalProgram(
+                db, id: mainProgramID, eventID: eventID,
+                eventPlaces: [stageID], title: "Schedule"
+            )
         }
 
         let firstVisit = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID, scheduleDivision: mainDivision)) {
                 ScheduleViewer()
             }
         }
@@ -63,7 +74,7 @@ extension NavigationTests {
         let storedState = try await database.read { db in
             try ScheduleViewerStateRequest(
                 eventID: eventID,
-                scheduleDivision: .schedule
+                scheduleDivision: mainDivision
             )
             .fetch(db)
         }
@@ -73,7 +84,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: ScheduleViewer.State(eventID: eventID)) {
+            Store(initialState: ScheduleViewer.State(eventID: eventID, scheduleDivision: mainDivision)) {
                 ScheduleViewer()
             }
         }
@@ -169,23 +180,31 @@ extension NavigationTests {
         let stages = try await database.read { db in
             try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
         }
+        let orderedStages = ScheduleViewer.visibleStages(
+            stages: stages,
+            division: ScheduleViewer.ScheduleDivision(
+                programID: canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae"),
+                title: "Schedule",
+                eventPlaces: [mainID, lateID]
+            )
+        )
 
         #expect(
             ScheduleViewer.resolvedSelectedStageID(
                 selectedStageID: nil,
-                stages: stages
+                stages: orderedStages
             ) == mainID
         )
         #expect(
             ScheduleViewer.resolvedSelectedStageID(
                 selectedStageID: missingID,
-                stages: stages
+                stages: orderedStages
             ) == mainID
         )
         #expect(
             ScheduleViewer.resolvedSelectedStageID(
                 selectedStageID: lateID,
-                stages: stages
+                stages: orderedStages
             ) == lateID
         )
     }
@@ -224,12 +243,14 @@ extension NavigationTests {
     }
 
     @Test
-    func scheduleViewerBuildsDivisionsFromStageCategories() async throws {
+    func scheduleViewerBuildsDivisionsFromPrograms() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let mainID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcae")
         let workshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcaq")
         let secondWorkshopID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcar")
+        let mainProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcae")
+        let workshopProgramID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcaq")
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
             try Self.insertCanonicalStage(
@@ -237,20 +258,32 @@ extension NavigationTests {
             )
             try Self.insertCanonicalStage(
                 db, id: workshopID, eventID: eventID, name: "Workshop",
-                category: "workshop", sortIndex: 2
+                sortIndex: 2
             )
             try Self.insertCanonicalStage(
                 db, id: secondWorkshopID, eventID: eventID, name: "Second Workshop",
-                category: "workshop", sortIndex: 3
+                sortIndex: 3
+            )
+            try Self.insertCanonicalProgram(
+                db, id: mainProgramID, eventID: eventID,
+                eventPlaces: [mainID], title: "Schedule"
+            )
+            try Self.insertCanonicalProgram(
+                db, id: workshopProgramID, eventID: eventID,
+                eventPlaces: [secondWorkshopID, workshopID], title: "Workshops"
             )
         }
 
-        let stages = try await database.read { db in
-            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        let records = try await database.read { db in
+            (
+                event: try Event.find(eventID).fetchOne(db),
+                programs: try Program.where { $0.event.eq(eventID) }.fetchAll(db)
+            )
         }
-        let divisions = ScheduleViewer.scheduleDivisions(stages: stages)
+        let divisions = ScheduleViewer.scheduleDivisions(event: records.event, programs: records.programs)
 
-        #expect(divisions.map(\.id) == ["schedule", "workshop"])
+        #expect(divisions.map(\.programID) == [mainProgramID, workshopProgramID])
         #expect(divisions.map(\.title) == ["Schedule", "Workshops"])
+        #expect(divisions[1].eventPlaces == [secondWorkshopID, workshopID])
     }
 }

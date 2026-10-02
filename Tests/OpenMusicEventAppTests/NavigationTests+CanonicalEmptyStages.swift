@@ -104,21 +104,23 @@ extension NavigationTests {
             try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
         }
         let visible = ScheduleViewer.visibleStages(
-            stages: places, division: .schedule
+            stages: places,
+            division: ScheduleViewer.ScheduleDivision(
+                programID: programID,
+                title: "Main Schedule",
+                eventPlaces: [meadowID, ampID, groveID, lakeID]
+            )
         )
         let performances = try await database.read { db in
             try PerformanceRow.all(eventID: eventID, scheduleID: scheduleID)
                 .fetchAll(db).map { $0.performance }
         }
-        let ordered = ScheduleViewer.orderedStages(
-            visible, performances: performances
-        )
         expectNoDifference(
-            ordered.map { $0.id }, [ampID, lakeID, meadowID, groveID]
+            visible.map { $0.id }, [meadowID, ampID, groveID, lakeID]
         )
         expectNoDifference(
             ScheduleViewer.unavailableStageIDs(
-                stages: ordered, performances: performances
+                stages: visible, performances: performances
             ),
             Set([meadowID, groveID])
         )

@@ -15,7 +15,8 @@ struct EventFeatureTests {
     @Test
     func readOnlyFeaturesIncludeScheduleDivisionsBeforeStaticFeatures() {
         let workshopDivision = ScheduleDivision(
-            category: "workshop"
+            programID: Program.ID("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcaq"),
+            title: "Workshops"
         )
 
         let features = EventFeature.readOnlyFeatures(
@@ -31,6 +32,11 @@ struct EventFeatureTests {
         ])
         #expect(!features.contains(.workspace))
         #expect(features.contains(.settings))
+        #expect(EventFeature.preferredTabLayout(for: features).preferredIDs == [
+            .init("schedule"),
+            .init("schedule:\(workshopDivision.id)"),
+            .init("communications"),
+        ])
     }
 
     @Test

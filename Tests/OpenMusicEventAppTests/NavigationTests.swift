@@ -836,12 +836,12 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.destination?.eventViewer?.selectedFeature
-                == .schedule(.schedule)
+            store.state.root.destination?.eventViewer?.selectedFeature.description
+                == "schedule:\(programID)"
         )
         let scheduleViewer = try #require(
             store.state.root.destination?.eventViewer?.scheduleViewers.first {
-                $0.state.scheduleDivision == .schedule
+                $0.state.scheduleDivision.programID == programID
             }
         )
         let performanceDetail = try #require(scheduleViewer.state.destination?.performanceDetail)
@@ -1390,12 +1390,13 @@ struct NavigationTests {
         _ db: Database,
         id: Program.ID,
         eventID: Event.ID,
-        eventPlaces: [EventPlace.ID]
+        eventPlaces: [EventPlace.ID],
+        title: String = "Main Schedule"
     ) throws {
         let program = try Program(
             id: id,
             event: eventID,
-            title: "Main Schedule",
+            title: title,
             createdAt: "2026-09-01T12:00:00Z",
             eventPlaces: eventPlaces
         )

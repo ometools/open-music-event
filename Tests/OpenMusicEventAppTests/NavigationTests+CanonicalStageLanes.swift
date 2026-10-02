@@ -34,7 +34,7 @@ import ATProto
 
 extension NavigationTests {
     @Test
-    func manyStagesTimelineUsesCanonicalEventPlaceOrderForLanes() async throws {
+    func manyStagesTimelineUsesProgramEventPlaceOrderForLanes() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let lateID = canonicalRouteRecordID(
@@ -70,7 +70,7 @@ extension NavigationTests {
             )
             try Self.insertCanonicalProgram(
                 db, id: programID, eventID: eventID,
-                eventPlaces: [mainID, lateID]
+                eventPlaces: [lateID, mainID]
             )
             try Self.insertCanonicalProgramItem(
                 db, id: lateItemID, eventID: eventID, programID: programID,
@@ -90,7 +90,8 @@ extension NavigationTests {
             try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
         }
         let visibleStages = ScheduleViewer.visibleStages(
-            stages: stages, division: .schedule
+            stages: stages,
+            division: .init(programID: programID, title: "Schedule", eventPlaces: [lateID, mainID])
         )
         let rows = try await database.read { db in
             try PerformanceRow.all(eventID: eventID, scheduleID: scheduleID)
@@ -102,9 +103,9 @@ extension NavigationTests {
         let laneByItemID = Dictionary(
             uniqueKeysWithValues: cards.map { ($0.id, $0.groupWidth.lowerBound) }
         )
-        expectNoDifference(visibleStages.map { $0.id }, [mainID, lateID])
-        expectNoDifference(laneByItemID[mainItemID], 0)
-        expectNoDifference(laneByItemID[lateItemID], 1)
+        expectNoDifference(visibleStages.map { $0.id }, [lateID, mainID])
+        expectNoDifference(laneByItemID[mainItemID], 1)
+        expectNoDifference(laneByItemID[lateItemID], 0)
         expectNoDifference(Set(cards.map { $0.groupWidth.upperBound }), Set([0, 1]))
     }
 

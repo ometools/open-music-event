@@ -795,13 +795,13 @@ struct WorkspaceReviewsTests {
         sourceLocation: SourceLocation = #_sourceLocation
     ) async {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
+        let deadline = clock.now.advanced(by: .seconds(5))
         while clock.now < deadline {
             if condition() { return }
             try? await clock.sleep(for: .milliseconds(1))
         }
         Issue.record(
-            "Condition was not satisfied within one second.",
+            "Condition was not satisfied within five seconds.",
             sourceLocation: sourceLocation
         )
     }

@@ -51,7 +51,7 @@ public struct ScheduleAddMenu: View {
                 !ScheduleViewer.canAddPerformance(
                     selectedScheduleID: selectedScheduleID,
                     schedules: store.schedules,
-                    stages: store.stages,
+                    division: store.scheduleDivision,
                     event: store.event
                 )
             )
@@ -352,6 +352,8 @@ public struct ScheduleViewerView: View {
                     systemImage: "calendar",
                     description: "Check back for times and stages."
                 )
+            } else if store.state.requiresListPresentation(selectedScheduleID: selectedScheduleID) {
+                scheduleList
             } else {
                 switch store.scheduleKind {
                 case .singleStageAtOnce:
@@ -378,18 +380,22 @@ public struct ScheduleViewerView: View {
                     )
 
                 case .list:
-                    SchedulePerformanceListView(
-                        store: store.spawn(\.performanceList),
-                        selectedScheduleID: selectedScheduleID,
-                        userScheduleOverlay: store.state.userScheduleOverlay,
-                        showsAuthoringControls: showsAuthoringControls,
-                        performanceButtonTapped: {
-                            store.send(.performanceButtonTapped($0))
-                        }
-                    )
+                    scheduleList
                 }
             }
         }
+    }
+
+    var scheduleList: some View {
+        SchedulePerformanceListView(
+            store: store.spawn(\.performanceList),
+            selectedScheduleID: selectedScheduleID,
+            userScheduleOverlay: store.state.userScheduleOverlay,
+            showsAuthoringControls: showsAuthoringControls,
+            performanceButtonTapped: {
+                store.send(.performanceButtonTapped($0))
+            }
+        )
     }
 
     var currentTimeDestination: ScheduleViewer.CurrentTimeDestination? {

@@ -112,7 +112,14 @@ struct ScheduleAuthoringTests {
             $0.defaultDatabase = database
             $0.uuid = .incrementing
         } operation: {
-            var state = ScheduleViewer.State(eventID: fixture.event.id)
+            var state = ScheduleViewer.State(
+                eventID: fixture.event.id,
+                scheduleDivision: .init(
+                    programID: fixture.program.id,
+                    title: fixture.program.title,
+                    eventPlaces: [meadowID, fixture.stage.id]
+                )
+            )
             state.scheduleViewerState.selectedStageID = meadowID
             return TestStore(initialState: state) {
                 ScheduleViewer()
@@ -131,6 +138,7 @@ struct ScheduleAuthoringTests {
                 .addPerformance(
                     eventID: fixture.event.id,
                     scheduleID: fridayID,
+                    programID: fixture.program.id,
                     stageID: meadowID
                 )
             ),
@@ -144,26 +152,57 @@ struct ScheduleAuthoringTests {
         let eventID = try #require(Event.ID(
             "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
         ))
-        let stageID = try #require(EventPlace.ID(
-            "at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcak"
-        ))
-        var stage = try EventPlace(
-            id: stageID,
-            event: eventID,
-            name: "Main Stage",
-            createdAt: "2026-09-01T12:00:00Z"
-        )
-        stage.kind = .known(.stage(EventPlace.Kind.Stage()))
-
         expectNoDifference(
             ScheduleViewer.canAddPerformance(
                 selectedScheduleID: nil,
                 schedules: [],
-                stages: [stage],
+                division: .schedule,
                 event: nil
             ),
             true
         )
+    }
+
+    @Test
+    func unplacedProgramItemUsesListUntilAssignedToAVisiblePlace() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let itemID = try #require(ProgramItem.ID(
+            "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcaq"
+        ))
+        var item = try ProgramItem(
+            id: itemID,
+            event: fixture.event.id,
+            program: fixture.program.id,
+            title: "Location TBA",
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+        item.schedule = fixture.schedule.id
+        let unplacedItem = item
+        try await database.write { db in
+            try ProgramItem.insert { unplacedItem }.execute(db)
+        }
+
+        func viewerState() -> ScheduleViewer.State {
+            withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+            } operation: {
+                ScheduleViewer.State(
+                    eventID: fixture.event.id,
+                    scheduleDivision: .init(program: fixture.program)
+                )
+            }
+        }
+
+        #expect(viewerState().requiresListPresentation(selectedScheduleID: fixture.schedule.id))
+
+        item.eventPlace = fixture.stage.id
+        let placedItem = item
+        try await database.write { db in
+            try ProgramItem.upsert { placedItem }.execute(db)
+        }
+        #expect(!viewerState().requiresListPresentation(selectedScheduleID: fixture.schedule.id))
     }
 
     @Test
@@ -353,6 +392,7 @@ struct ScheduleAuthoringTests {
                 .addPerformance(
                     eventID: eventID,
                     scheduleID: nil,
+                    programID: programID,
                     stageID: stageID
                 )
             )
@@ -1707,7 +1747,12 @@ struct ScheduleAuthoringTests {
             $0.defaultEventTimeZone = SharedReader(value: timeZone)
         } operation: {
             state.handleEditingIntent(
-                .addPerformance(eventID: eventID, scheduleID: scheduleID, stageID: stageID)
+                .addPerformance(
+                    eventID: eventID,
+                    scheduleID: scheduleID,
+                    programID: fixture.program.id,
+                    stageID: stageID
+                )
             )
         }
         return try #require(state.destination?.performanceForm)

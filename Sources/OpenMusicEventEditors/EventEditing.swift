@@ -11,6 +11,7 @@ public enum EventEditingIntent: Equatable, Sendable {
     case addPerformance(
         eventID: Event.ID,
         scheduleID: Schedule.ID?,
+        programID: Program.ID?,
         stageID: EventPlace.ID?
     )
     case addPosters(Event.ID)

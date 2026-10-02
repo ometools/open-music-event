@@ -110,7 +110,10 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            ScheduleViewer.State(
+                eventID: eventID,
+                scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
+            )
         }
         let destination = state.currentTimeDestination(
             currentDate: Date(timeIntervalSince1970: 200),
@@ -164,7 +167,10 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            ScheduleViewer.State(
+                eventID: eventID,
+                scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
+            )
         }
         let nextDestination = state.currentTimeDestination(
             currentDate: Date(timeIntervalSince1970: 9_000),
@@ -209,7 +215,10 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            ScheduleViewer.State(
+                eventID: eventID,
+                scheduleDivision: .init(programID: programID, title: "Schedule", eventPlaces: [stageID])
+            )
         }
         let overnightDestination = state.currentTimeDestination(
             currentDate: Date(timeIntervalSince1970: 88_000),

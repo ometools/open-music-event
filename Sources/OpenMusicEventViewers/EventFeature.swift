@@ -3,6 +3,7 @@ import SkipSwiftUI
 #elseif canImport(SwiftUI)
 import SwiftUI
 #endif
+import OpenMusicEventLexicon
 import SwiftUITabFeatures
 
 public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
@@ -41,9 +42,9 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         case "schedule":
             self = .schedule(.schedule)
         case let value where value.hasPrefix("schedule:"):
-            let rawCategory = String(value.dropFirst("schedule:".count))
-            guard !rawCategory.isEmpty else { return nil }
-            self = .schedule(ScheduleDivision(category: rawCategory))
+            let rawID = String(value.dropFirst("schedule:".count))
+            guard let programID = Program.ID(rawID) else { return nil }
+            self = .schedule(ScheduleDivision(programID: programID, title: "Schedule"))
         case "contributors":
             self = .contributors
         case "stages":
@@ -78,8 +79,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
     public var description: String {
         switch self {
         case let .schedule(division):
-            if let category = division.category {
-                return "schedule:\(category)"
+            if let programID = division.programID {
+                return "schedule:\(programID)"
             }
             return "schedule"
         case .contributors:
@@ -114,7 +115,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
     public var customizationID: TabFeatureID {
         switch self {
         case let .schedule(division):
-            if division.category == nil {
+            if division.programID == nil {
                 return "openMusicEvent.eventViewer.schedule"
             }
             return "openMusicEvent.eventViewer.schedule.\(division.id)"
@@ -183,6 +184,14 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
     public var scheduleDivision: ScheduleDivision? {
         guard case let .schedule(division) = self else { return nil }
         return division
+    }
+
+    public static func preferredTabLayout(for features: [Self]) -> TabFeatureLayout {
+        TabFeatureLayout(
+            preferredIDs: features
+                .filter { $0.scheduleDivision != nil || $0 == .communications }
+                .map { TabFeatureID($0.description) }
+        )
     }
 
     public var systemImage: String {
