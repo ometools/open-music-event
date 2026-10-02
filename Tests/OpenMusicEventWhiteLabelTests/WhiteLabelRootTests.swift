@@ -26,7 +26,7 @@ struct WhiteLabelRootTests {
     func `white label opens the configured organization instead of an event`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
         )
         let installations = Mutex<[ATProto.URI]>([])
         let gitOperations = GitOperationRecorder()
@@ -69,7 +69,7 @@ struct WhiteLabelRootTests {
     func `white label organization events open Event Detail without entering it`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
         )
         let eventURI = try #require(
             ATProto.URI(
@@ -139,7 +139,7 @@ struct WhiteLabelRootTests {
     func `white label handle resolution opens the same organization detail`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
         )
         let resolvedHandles = Mutex<[String]>([])
         let installations = Mutex<[ATProto.URI]>([])
@@ -185,7 +185,7 @@ struct WhiteLabelRootTests {
     func `white label exposes the shared application settings`() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(
-            OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
         )
         let store = withDependencies {
             $0.context = .test

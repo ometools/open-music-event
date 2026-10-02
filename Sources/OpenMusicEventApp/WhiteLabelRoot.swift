@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
@@ -119,7 +120,7 @@ public struct WhiteLabelRoot {
     private static func organizerID(
         _ configuration: WhiteLabelAppConfiguration,
         identityResolver: WhiteLabelOrganizerIdentityResolverClient
-    ) async throws -> OME.Organizer.ID {
+    ) async throws -> DID {
         if let organizerID = configuration.organizerID {
             return organizerID
         }

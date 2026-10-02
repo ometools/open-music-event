@@ -1,8 +1,7 @@
+import ATProto
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
-
-public typealias OMERecord = OpenMusicEvent
 
 /// White-label configuration is presentation and organizer identity only.
 ///
@@ -10,15 +9,15 @@ public typealias OMERecord = OpenMusicEvent
 /// features as the generic app.
 public struct WhiteLabelAppConfiguration: Equatable, Sendable {
     public var brand: WhiteLabelBrand
-    public var developmentOrganizerID: OMERecord.Organizer.ID?
+    public var developmentOrganizerID: DID?
     public var handle: String?
-    public var organizerID: OMERecord.Organizer.ID?
+    public var organizerID: DID?
 
     public init(
         brand: WhiteLabelBrand,
-        organizerID: OMERecord.Organizer.ID? = nil,
+        organizerID: DID? = nil,
         handle: String? = nil,
-        developmentOrganizerID: OMERecord.Organizer.ID? = nil
+        developmentOrganizerID: DID? = nil
     ) {
         self.brand = brand
         self.organizerID = organizerID
@@ -55,12 +54,12 @@ public struct WhiteLabelStaticImage: Equatable, Sendable {
 
 public enum WickedWoodsWhiteLabel {
     public static let handle = "wickedwoods.ca"
-    public static let temporaryDevelopmentOrganizerID = OMERecord.Organizer.ID(
+    public static let temporaryDevelopmentOrganizerID = DID(
         "did:plc:wickedwoodsdev"
     )!
 
     public static func configuration(
-        organizerID: OMERecord.Organizer.ID? = nil,
+        organizerID: DID? = nil,
         loadingImage: WhiteLabelStaticImage? = nil
     ) -> WhiteLabelAppConfiguration {
         WhiteLabelAppConfiguration(
@@ -76,17 +75,17 @@ public enum WickedWoodsWhiteLabel {
 }
 
 public struct WhiteLabelOrganizerIdentityResolverClient: Sendable {
-    public var resolve: @Sendable (String) async throws -> OMERecord.Organizer.ID
+    public var resolve: @Sendable (String) async throws -> DID
 
     public init(
-        resolve: @escaping @Sendable (String) async throws -> OMERecord.Organizer.ID
+        resolve: @escaping @Sendable (String) async throws -> DID
     ) {
         self.resolve = resolve
     }
 }
 
 public enum WhiteLabelError: Equatable, LocalizedError, Sendable {
-    case missingEvent(OMERecord.Organizer.ID)
+    case missingEvent(DID)
     case missingOrganizerIdentity(String)
     case organizerIdentityResolverUnconfigured(String)
 

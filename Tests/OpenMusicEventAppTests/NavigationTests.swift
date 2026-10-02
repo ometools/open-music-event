@@ -45,14 +45,6 @@ func navigationEventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
     OMERecord.ID<OMERecord.Event>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
-func calendarLocalID(_ string: String) -> OMERecord.ID<OMERecord.Calendar> {
-    OMERecord.ID<OMERecord.Calendar>(rawValue: ATProto.Record.Key(rawValue: string))
-}
-
-func calendarEntryLocalID(_ string: String) -> OMERecord.ID<OMERecord.CalendarEntry> {
-    OMERecord.ID<OMERecord.CalendarEntry>(rawValue: ATProto.Record.Key(rawValue: string))
-}
-
 func sourceProvenance(
     _ source: String,
     ref: String? = "HEAD"
@@ -938,45 +930,6 @@ struct NavigationTests {
         .execute(db)
     }
 
-    nonisolated static func insertCalendar(
-        _ db: Database,
-        id calendarID: OMERecord.Calendar.ID,
-        name: String,
-        description: String? = nil,
-        images: [OMERecord.ImageAsset]? = nil
-    ) throws {
-        try OMERecord.Calendar.insert {
-            OMERecord.Calendar.Draft(
-                id: calendarID,
-                name: name,
-                description: description,
-                images: images
-            )
-        }
-        .execute(db)
-    }
-
-    nonisolated static func insertCalendarEntry(
-        _ db: Database,
-        id entryID: OMERecord.CalendarEntry.ID,
-        event: OMERecord.Event.Reference,
-        createdAt: Date,
-        note: String? = nil,
-        pinned: Bool = false
-    ) throws {
-        try OMERecord.CalendarEntry.insert {
-            OMERecord.CalendarEntry.Draft(
-                id: entryID,
-                event: event,
-                createdAt: createdAt,
-                note: note,
-                pinned: pinned
-            )
-        }
-        .execute(db)
-    }
-
-
     nonisolated static func insertContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,
@@ -1565,60 +1518,6 @@ struct MyEventsEventHarness {
         }
     }
 }
-
-@Feature
-struct OrganizerDetailHarness {
-    struct State {
-        init(organizerID: OMERecord.Organizer.ID) {
-            self.organizerDetail = OrganizerDetail.State(organizerID: organizerID)
-        }
-
-        var lastRequest: NavigationRequest?
-        @DebugSnapshotIgnored
-        var organizerDetail: OrganizerDetail.State
-    }
-
-    enum Action {
-        case organizerDetail(OrganizerDetail.Action)
-    }
-
-    var body: some Feature {
-        Scope(\.organizerDetail) {
-            OrganizerDetail()
-        }
-        .onEvent(NavigationRequested.self) { request, state in
-            state.lastRequest = request
-        }
-    }
-}
-
-
-@Feature
-struct CalendarDetailHarness {
-    struct State {
-        init(calendarID: OMERecord.Calendar.ID) {
-            self.calendarDetail = CalendarDetail.State(calendarID: calendarID)
-        }
-
-        var lastRequest: NavigationRequest?
-        @DebugSnapshotIgnored
-        var calendarDetail: CalendarDetail.State
-    }
-
-    enum Action {
-        case calendarDetail(CalendarDetail.Action)
-    }
-
-    var body: some Feature {
-        Scope(\.calendarDetail) {
-            CalendarDetail()
-        }
-        .onEvent(NavigationRequested.self) { request, state in
-            state.lastRequest = request
-        }
-    }
-}
-
 
 @Feature
 struct EventViewerHarness {

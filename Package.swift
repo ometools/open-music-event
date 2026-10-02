@@ -551,6 +551,7 @@ var openMusicEventTimeZonesDependencies: [Target.Dependency] = [
 ]
 var openMusicEventWhiteLabelDependencies: [Target.Dependency] = [
     "OpenMusicEventLexicon",
+    .product(name: "ATProto", package: "swift-atproto"),
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
 let skipKitTargetDependencies: [Target.Dependency] = isAndroidAppBuild

@@ -1762,17 +1762,17 @@ public struct Following {
 
         public var followedOrganizers: [FollowedOrganizerRow] = []
         public var isLoading = false
-        public var organizerDetail: OrganizerDetail.State?
+        public var organizationDetail: OrganizationDetail.State?
 
     }
 
     public enum Action {
         case didPullToRefresh
         case followedOrganizersResponse([FollowedOrganizerRow])
-        case organizerDetail(OrganizerDetail.Action)
-        case organizerRowTapped(OMERecord.Organizer.ID)
+        case organizationDetail(OrganizationDetail.Action)
+        case organizerRowTapped(DID)
         case task
-        case toggleFollowButtonTapped(OMERecord.Organizer.ID)
+        case toggleFollowButtonTapped(DID)
     }
 
     public var body: some Feature {
@@ -1780,19 +1780,19 @@ public struct Following {
             switch action {
             case .organizerRowTapped(let organizerID):
                 store.withDependencies {
-                    state.organizerDetail = .init(organizerID: organizerID)
+                    state.organizationDetail = .init(organizerID: organizerID)
                 }
 
             case .didPullToRefresh,
                  .followedOrganizersResponse,
-                 .organizerDetail,
+                 .organizationDetail,
                  .task,
                  .toggleFollowButtonTapped:
                 break
             }
         }
-        .ifLet(\.organizerDetail) {
-            OrganizerDetail()
+        .ifLet(\.organizationDetail) {
+            OrganizationDetail()
         }
     }
 }
@@ -1813,458 +1813,22 @@ public struct FollowingView: View {
             )
         }
         .navigationTitle("Following")
-        .navigationDestination(item: $store.scope(\.organizerDetail)) { detailStore in
-            OrganizerDetailView(store: detailStore)
+        .navigationDestination(item: $store.scope(\.organizationDetail)) { detailStore in
+            OrganizationDetailView(store: detailStore)
         }
-    }
-}
-
-@Feature
-public struct OrganizerDetail {
-    public init() {}
-
-    public struct State: Identifiable {
-        public init(organizerID: OMERecord.Organizer.ID) {
-            self.organizerID = organizerID
-            _calendars = FetchAll(OrganizerDetail.calendarsQuery(organizerID: organizerID))
-            _calendarEvents = FetchAll(CalendarDetail.localEventsQuery)
-            _defaultCalendarEntries = FetchAll(
-                OrganizerDetail.defaultCalendarEntriesQuery(organizerID: organizerID)
-            )
-            _organizer = FetchOne(OrganizerDetail.organizerQuery(organizerID: organizerID))
-        }
-
-        var calendarDetail: CalendarDetail.State?
-
-        @DebugSnapshotIgnored
-        @FetchAll
-        public var calendars: [OMERecord.Calendar]
-
-        @DebugSnapshotIgnored
-        @FetchAll
-        public var calendarEvents: [Event]
-
-        @DebugSnapshotIgnored
-        @FetchAll
-        public var defaultCalendarEntries: [OMERecord.CalendarEntry]
-
-        @DebugSnapshotIgnored
-        @FetchOne
-        public var organizer: OMERecord.Organizer?
-
-        public let organizerID: OMERecord.Organizer.ID
-
-        public var id: OMERecord.Organizer.ID { organizerID }
-    }
-
-    public enum Action {
-        case calendarButtonTapped(OMERecord.Calendar.ID)
-        case calendarDetail(CalendarDetail.Action)
-        case task
-    }
-
-    static func organizerQuery(
-        organizerID: OMERecord.Organizer.ID
-    ) -> some SelectStatementOf<OMERecord.Organizer> {
-        OMERecord.Organizer.where { $0.id.eq(organizerID) }
-    }
-
-    static func calendarsQuery(
-        organizerID: OMERecord.Organizer.ID
-    ) -> some SelectStatementOf<OMERecord.Calendar> {
-        OMERecord.Calendar
-            .where { $0.id.ownerID.eq(organizerID) }
-            .order { $0.name.collate(.nocase) }
-    }
-
-    static func defaultCalendarID(
-        organizerID: OMERecord.Organizer.ID
-    ) -> OMERecord.Calendar.ID {
-        OMERecord.Calendar.ID(
-            ownerID: organizerID,
-            calendarID: OMERecord.Calendar.defaultID
-        )
-    }
-
-    static func defaultCalendarEntriesQuery(
-        organizerID: OMERecord.Organizer.ID
-    ) -> some SelectStatementOf<OMERecord.CalendarEntry> {
-        CalendarDetail.entriesQuery(
-            calendarID: defaultCalendarID(organizerID: organizerID)
-        )
-    }
-
-    public struct EventSections: Equatable, Sendable {
-        public var currentEvents: [Event]
-        public var previousEvents: [Event]
-        public var upcomingEvents: [Event]
-
-        public init(events: [Event], now: Date) {
-            let sortedEvents = events.sorted(by: Self.sort)
-            self.currentEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .current }
-            self.previousEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .previous }
-            self.upcomingEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .upcoming }
-        }
-
-        public var isEmpty: Bool {
-            currentEvents.isEmpty && previousEvents.isEmpty && upcomingEvents.isEmpty
-        }
-
-        private enum Timing {
-            case current
-            case previous
-            case upcoming
-        }
-
-        private static func sort(lhs: Event, rhs: Event) -> Bool {
-            switch (lhs.calendarSortDate, rhs.calendarSortDate) {
-            case let (.some(lhsDate), .some(rhsDate)):
-                if lhsDate != rhsDate { return lhsDate > rhsDate }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-
-            case (.some, .none):
-                return true
-
-            case (.none, .some):
-                return false
-
-            case (.none, .none):
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-        }
-
-        private static func timing(for event: Event, now: Date) -> Timing {
-            let today = LocalDate(now, in: event.timeZone)
-
-            switch (event.calendarStartDay, event.calendarEndDay) {
-            case let (.some(startDate), .some(endDate)):
-                if startDate <= today && today <= endDate { return .current }
-                if endDate < today { return .previous }
-                return .upcoming
-
-            case let (.some(startDate), .none):
-                if startDate > today { return .upcoming }
-                if startDate == today { return .current }
-                return .previous
-
-            case let (.none, .some(endDate)):
-                return endDate >= today ? .current : .previous
-
-            case (.none, .none):
-                return .previous
-            }
-        }
-    }
-
-    public struct CalendarEntrySections: Equatable, Sendable {
-        public enum ScheduleSection: Hashable, Sendable {
-            case now
-            case upcoming
-            case previous
-            case unavailable
-        }
-
-        public var currentRows: [CalendarDetail.EntryRow]
-        public var upcomingRows: [CalendarDetail.EntryRow]
-        public var previousRows: [CalendarDetail.EntryRow]
-        public var unavailableRows: [CalendarDetail.EntryRow]
-
-        public init(entryRows: CalendarDetail.EntryRows, now: Date) {
-            let rows = entryRows.rows
-            self.currentRows = Self.sortChronologically(
-                rows.filter { Self.timing(for: $0, now: now) == .current }
-            )
-            self.upcomingRows = Self.sortChronologically(
-                rows.filter { Self.timing(for: $0, now: now) == .upcoming }
-            )
-            self.previousRows = Self.sortReverseChronologically(
-                rows.filter { Self.timing(for: $0, now: now) == .previous }
-            )
-            self.unavailableRows = rows.filter { Self.timing(for: $0, now: now) == .unavailable }
-        }
-
-        public var isEmpty: Bool {
-            currentRows.isEmpty
-            && upcomingRows.isEmpty
-            && previousRows.isEmpty
-            && unavailableRows.isEmpty
-        }
-
-        public var initialSection: ScheduleSection? {
-            if !currentRows.isEmpty { return .now }
-            if !upcomingRows.isEmpty { return .upcoming }
-            if !previousRows.isEmpty { return .previous }
-            if !unavailableRows.isEmpty { return .unavailable }
-            return nil
-        }
-
-        private enum Timing {
-            case current
-            case previous
-            case unavailable
-            case upcoming
-        }
-
-        private static func timing(for row: CalendarDetail.EntryRow, now: Date) -> Timing {
-            guard let event = row.event else { return .unavailable }
-            let today = LocalDate(now, in: event.timeZone)
-
-            switch (event.calendarStartDay, event.calendarEndDay) {
-            case let (.some(startDate), .some(endDate)):
-                if startDate <= today && today <= endDate { return .current }
-                if endDate < today { return .previous }
-                return .upcoming
-
-            case let (.some(startDate), .none):
-                if startDate > today { return .upcoming }
-                if startDate == today { return .current }
-                return .previous
-
-            case let (.none, .some(endDate)):
-                return endDate >= today ? .current : .previous
-
-            case (.none, .none):
-                return .previous
-            }
-        }
-
-        private static func sortChronologically(
-            _ rows: [CalendarDetail.EntryRow]
-        ) -> [CalendarDetail.EntryRow] {
-            rows.sorted { lhs, rhs in
-                Self.comesBefore(lhs: lhs, rhs: rhs, order: .ascending)
-            }
-        }
-
-        private static func sortReverseChronologically(
-            _ rows: [CalendarDetail.EntryRow]
-        ) -> [CalendarDetail.EntryRow] {
-            rows.sorted { lhs, rhs in
-                Self.comesBefore(lhs: lhs, rhs: rhs, order: .descending)
-            }
-        }
-
-        private enum ChronologicalOrder {
-            case ascending
-            case descending
-        }
-
-        private static func comesBefore(
-            lhs: CalendarDetail.EntryRow,
-            rhs: CalendarDetail.EntryRow,
-            order: ChronologicalOrder
-        ) -> Bool {
-            switch (
-                lhs.event?.calendarSortDate,
-                rhs.event?.calendarSortDate
-            ) {
-            case let (.some(lhsDate), .some(rhsDate)):
-                if lhsDate != rhsDate {
-                    switch order {
-                    case .ascending:
-                        return lhsDate < rhsDate
-                    case .descending:
-                        return lhsDate > rhsDate
-                    }
-                }
-
-            case (.some, .none):
-                return true
-
-            case (.none, .some):
-                return false
-
-            case (.none, .none):
-                break
-            }
-
-            let lhsName = lhs.event?.name ?? ""
-            let rhsName = rhs.event?.name ?? ""
-            let nameComparison = lhsName.localizedStandardCompare(rhsName)
-            if nameComparison != .orderedSame {
-                return nameComparison == .orderedAscending
-            }
-
-            if lhs.entry.createdAt != rhs.entry.createdAt {
-                return lhs.entry.createdAt < rhs.entry.createdAt
-            }
-
-            return lhs.entry.id.entryID.rawValue.rawValue.localizedStandardCompare(
-                rhs.entry.id.entryID.rawValue.rawValue
-            ) == .orderedAscending
-        }
-    }
-
-    public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .calendarButtonTapped(let calendarID):
-                store.withDependencies {
-                    state.calendarDetail = .init(calendarID: calendarID)
-                }
-
-            case .calendarDetail:
-                return
-
-            case .task:
-                break
-            }
-        }
-        .ifLet(\.calendarDetail) {
-            CalendarDetail()
-        }
-    }
-}
-
-public struct OrganizerDetailView: View {
-    @Bindable var store: StoreOf<OrganizerDetail>
-    @Dependency(\.date.now) var now
-
-    public init(store: StoreOf<OrganizerDetail>) {
-        self.store = store
-    }
-
-    var initialScrollID: AnyHashable? {
-        guard let initialSection = sections.initialSection else { return nil }
-        return AnyHashable(initialSection)
-    }
-
-    public var body: some View {
-        HeroImageList(
-            title: Text(organizerTitle),
-            initialScrollID: initialScrollID
-        ) {
-            HeroImage(
-                title: Text(organizerTitle),
-                sources: [],
-                titleSources: [.title]
-            ) {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 82, weight: .semibold))
-            }
-        } content: {
-            if !store.calendars.isEmpty {
-                Section("Calendars") {
-                    calendarRows(store.calendars)
-                }
-            }
-
-            if !sections.currentRows.isEmpty {
-                Section("Now") {
-                    calendarEntryRows(sections.currentRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.now)
-            }
-
-            if !sections.upcomingRows.isEmpty {
-                Section("Upcoming") {
-                    calendarEntryRows(sections.upcomingRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.upcoming)
-            }
-
-            if !sections.previousRows.isEmpty {
-                Section("Previous") {
-                    calendarEntryRows(sections.previousRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.previous)
-            }
-
-            if !sections.unavailableRows.isEmpty {
-                Section("Unavailable Events") {
-                    calendarEntryRows(sections.unavailableRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.unavailable)
-            }
-
-            if sections.isEmpty {
-                EmptyBrowserState(
-                    title: "No Events",
-                    systemImage: "calendar.badge.exclamationmark",
-                    message: "This organizer has no events."
-                )
-            }
-        }
-        .navigationDestination(item: $store.scope(\.calendarDetail)) { detailStore in
-            CalendarDetailView(store: detailStore)
-        }
-    }
-
-    private var defaultCalendarEntryRows: CalendarDetail.EntryRows {
-        CalendarDetail.EntryRows(
-            entries: store.defaultCalendarEntries,
-            events: store.calendarEvents
-        )
-    }
-
-    private var sections: OrganizerDetail.CalendarEntrySections {
-        OrganizerDetail.CalendarEntrySections(
-            entryRows: defaultCalendarEntryRows,
-            now: now
-        )
-    }
-
-    private var organizerTitle: String {
-        (store.organizer?.id ?? store.organizerID).description
-    }
-
-    @ViewBuilder
-    private func calendarRows(_ calendars: [OMERecord.Calendar]) -> some View {
-        ForEach(calendars) { calendar in
-            Button {
-                store.send(.calendarButtonTapped(calendar.id))
-            } label: {
-                CalendarRowView(calendar: calendar)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
-        ForEach(rows) { row in
-            CalendarEntryRowView(row: row)
-        }
-    }
-}
-
-struct CalendarRowView: View {
-    let calendar: OMERecord.Calendar
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "calendar")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(calendar.name)
-                    .lineLimit(1)
-
-                if let description = calendar.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
     }
 }
 
 public struct FollowedOrganizerRow: Equatable, Identifiable, Sendable {
-    public let organizerID: OMERecord.Organizer.ID
+    public let organizerID: DID
     public let eventCount: Int
 
-    public init(organizerID: OMERecord.Organizer.ID, eventCount: Int) {
+    public init(organizerID: DID, eventCount: Int) {
         self.organizerID = organizerID
         self.eventCount = eventCount
     }
 
-    public var id: OMERecord.Organizer.ID { organizerID }
+    public var id: DID { organizerID }
 }
 
 struct EmptyBrowserState: View {
