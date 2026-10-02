@@ -302,6 +302,9 @@ struct AuthenticationCoordinatorTests {
             try await waitForCondition {
                 storage.session.wrappedValue?.accessToken == upgradedAccessToken
             }
+            try await waitForAsyncCondition {
+                await MainActor.run { store.authorization == nil }
+            }
             #expect(store.authorization == nil)
 
             // The upgraded selected session is saved to the same keychain-backed store the app

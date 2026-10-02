@@ -421,7 +421,7 @@ if let path = environment["OME_DEBUG_SNAPSHOTS_PATH"] {
     applicationDependencies.append(.package(name: "swift-debug-snapshots", path: path))
 }
 
-if !isSkipBridgeHostBuild {
+if isAndroidAppBuild {
     applicationDependencies.append(skipKitDependency)
 }
 
@@ -553,17 +553,9 @@ var openMusicEventWhiteLabelDependencies: [Target.Dependency] = [
     "OpenMusicEventLexicon",
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]
-let skipKitTargetDependencies: [Target.Dependency] = isSkipBridgeHostBuild
-    ? []
-    : [
-        isAndroidAppBuild
-            ? .product(name: "SkipKit", package: "skip-kit")
-            : .product(
-                name: "SkipKit",
-                package: "skip-kit",
-                condition: .when(platforms: [.iOS, .android])
-            )
-    ]
+let skipKitTargetDependencies: [Target.Dependency] = isAndroidAppBuild
+    ? [.product(name: "SkipKit", package: "skip-kit")]
+    : []
 var scheduleComponentsDependencies: [Target.Dependency] = [
     .product(name: "Dependencies", package: "swift-dependencies"),
 ]

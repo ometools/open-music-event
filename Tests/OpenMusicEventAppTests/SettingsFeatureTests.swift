@@ -171,6 +171,17 @@ struct SettingsFeatureTests {
 
     #if canImport(UserNotifications)
     @Test
+    func `notification authorization retains native iOS status semantics`() {
+        expectNoDifference(UNAuthorizationStatus.notDetermined.devicePermissionAuthorization, .unknown)
+        expectNoDifference(UNAuthorizationStatus.denied.devicePermissionAuthorization, .denied)
+        expectNoDifference(UNAuthorizationStatus.authorized.devicePermissionAuthorization, .authorized)
+        expectNoDifference(UNAuthorizationStatus.provisional.devicePermissionAuthorization, .limited)
+        #if os(iOS)
+        expectNoDifference(UNAuthorizationStatus.ephemeral.devicePermissionAuthorization, .limited)
+        #endif
+    }
+
+    @Test
     func `an entitled app can request Critical Alerts before authorization exists`() {
         expectNoDifference(
             UNNotificationSetting.notSupported.devicePermissionAuthorization(

@@ -1,7 +1,7 @@
 import Dependencies
 import Foundation
 import Sharing
-#if os(Android) || os(iOS)
+#if os(Android)
 import SkipKit
 #endif
 #if os(Android)
@@ -80,16 +80,14 @@ extension DevicePermissionsClient: DependencyKey {
         Self(
             load: {
                 #if os(iOS)
-                let authorization = await PermissionManager.queryPostNotificationPermission()
-                let criticalAlerts = await UNUserNotificationCenter.current()
-                    .notificationSettings()
-                    .criticalAlertSetting
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                let criticalAlerts = settings.criticalAlertSetting
                     .devicePermissionAuthorization(
                         supportsCriticalAlerts: supportsCriticalAlerts
                     )
                 return DevicePermissions(
                     criticalAlerts: criticalAlerts,
-                    notifications: authorization.devicePermissionAuthorization
+                    notifications: settings.authorizationStatus.devicePermissionAuthorization
                 )
                 #elseif os(Android)
                 let authorization = await PermissionManager.queryPostNotificationPermission()
@@ -149,8 +147,8 @@ extension DevicePermissionsClient: DependencyKey {
                 _ = try await UNUserNotificationCenter.current().requestAuthorization(
                     options: [.alert, .badge, .sound]
                 )
-                let authorization = await PermissionManager.queryPostNotificationPermission()
-                return authorization.devicePermissionAuthorization
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                return settings.authorizationStatus.devicePermissionAuthorization
                 #elseif os(Android)
                 let authorization = try await PermissionManager.requestPostNotificationPermission(
                     alert: true,
@@ -223,7 +221,7 @@ public extension SharedReaderKey where Self == DevicePermissionsKey.Default {
     }
 }
 
-#if os(Android) || os(iOS)
+#if os(Android)
 extension PermissionAuthorization {
     var devicePermissionAuthorization: DevicePermissions.NotificationAuthorization {
         switch self {
@@ -243,6 +241,23 @@ extension PermissionAuthorization {
 #endif
 
 #if canImport(UserNotifications)
+extension UNAuthorizationStatus {
+    var devicePermissionAuthorization: DevicePermissions.NotificationAuthorization {
+        switch self {
+        case .notDetermined:
+            .unknown
+        case .denied:
+            .denied
+        case .authorized:
+            .authorized
+        case .provisional, .ephemeral:
+            .limited
+        @unknown default:
+            .unknown
+        }
+    }
+}
+
 extension UNNotificationSetting {
     func devicePermissionAuthorization(
         supportsCriticalAlerts: Bool
