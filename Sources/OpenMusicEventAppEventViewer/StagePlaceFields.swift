@@ -122,6 +122,12 @@ struct StagePlaceIdentityEditor: View {
                 LabeledContent("Linked Stage") {
                     Text(store.persistentStages.first(where: { $0.id == id })?.name ?? "Unavailable stage")
                 }
+                if id.authority == store.eventID.authority,
+                   store.persistentStages.contains(where: { $0.id == id }) {
+                    Button("Edit Stage Profile") {
+                        store.send(.editPersistentStageTapped(id))
+                    }
+                }
                 Button("Unlink Stage", role: .destructive) {
                     store.send(.unlinkPersistentStageTapped)
                 }
@@ -137,6 +143,9 @@ struct StagePlaceIdentityEditor: View {
                         }
                     }
                 }
+            }
+            Button("New Stage Profile") {
+                store.send(.createPersistentStageTapped)
             }
         }
     }

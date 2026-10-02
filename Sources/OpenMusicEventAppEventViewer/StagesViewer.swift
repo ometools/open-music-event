@@ -1663,12 +1663,14 @@ public struct EditStage {
         case addLinkButtonTapped
         case addLocatorButtonTapped(EditableLocator.Kind)
         case cancelButtonTapped
+        case createPersistentStageTapped
         case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
         case editLinkButtonTapped(EditableLink.ID)
         case editLocatorButtonTapped(EditableLocator.ID)
+        case editPersistentStageTapped(OpenMusicEventLexicon.Stage.ID)
         case logoImagePicker(ImageAssetPicker.Action)
         case linkPersistentStageTapped(OpenMusicEventLexicon.Stage.ID)
         case moveLineupContributorTapped(Contributor.ID, Int)
@@ -1690,6 +1692,7 @@ public struct EditStage {
         case logoImportImages(Spawn<ImportImages>)
         case posterImageInfo(Spawn<ImageInfo>)
         case posterImportImages(Spawn<ImportImages>)
+        case persistentStageEditor(Spawn<EditPersistentStage>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -1735,6 +1738,11 @@ public struct EditStage {
                     try store.dismiss()
                 }
 
+            case .createPersistentStageTapped:
+                state.destination = .persistentStageEditor(
+                    Spawn(EditPersistentStage.State(eventID: state.eventID))
+                )
+
             case .destination:
                 break
 
@@ -1747,6 +1755,13 @@ public struct EditStage {
                 guard state.form.value.locators.contains(where: { $0.id == id }) else { return }
                 state.editingLocatorID = id
                 state.editingLinkID = nil
+
+            case let .editPersistentStageTapped(id):
+                guard id.authority == state.eventID.authority,
+                      state.persistentStages.contains(where: { $0.id == id }) else { return }
+                state.destination = .persistentStageEditor(
+                    Spawn(EditPersistentStage.State(stageID: id, eventID: state.eventID))
+                )
 
             case .form:
                 break
@@ -1928,6 +1943,9 @@ public struct EditStage {
                         }
                     }
                 }
+                .ifCaseLet(\.persistentStageEditor) {
+                    EditPersistentStage()
+                }
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
             switch state.destination {
@@ -1937,8 +1955,17 @@ public struct EditStage {
                 state.logoImagePicker.append(images)
             case .posterImportImages(_):
                 state.posterImagePicker.append(images)
-            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_), nil:
+            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_),
+                 .persistentStageEditor(_), nil:
                 break
+            }
+        }
+        .onEvent(PersistentStageSaved.self) { id, state in
+            state.form.value.persistentStageID = id
+        }
+        .onEvent(PersistentStageDeleted.self) { id, state in
+            if state.form.value.persistentStageID == id {
+                state.form.value.persistentStageID = nil
             }
         }
         .onMount { state in
@@ -2052,6 +2079,11 @@ public struct EditStageView: View {
         .sheet(item: $store.scope(\.destination).posterImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination).persistentStageEditor) { profileStore in
+            NavigationStack {
+                EditPersistentStageView(store: profileStore)
             }
         }
     }
