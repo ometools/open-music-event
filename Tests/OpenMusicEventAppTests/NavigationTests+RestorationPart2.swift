@@ -219,6 +219,7 @@ extension NavigationTests {
         }
 
         await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -267,6 +268,7 @@ extension NavigationTests {
         }
 
         await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
 
         let places = try await database.read { db in
             try StagesViewer.stagesQuery(eventID: eventID).fetchAll(db)
@@ -278,6 +280,7 @@ extension NavigationTests {
 
     @Test
     func editStageImagePickerImportAddsImageThroughParentDestination() async throws {
+        let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let image = ImportImages.Configuration.stagePoster.importedImage(
             id: UUID(uuidString: "00000000-0000-0000-0000-0000000057a6")!,
@@ -288,8 +291,13 @@ extension NavigationTests {
             data: Data("stage-poster".utf8)
         )
 
-        @Bindable var store = Store(initialState: EditStage.State(eventID: eventID)) {
-            EditStage()
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditStage.State(eventID: eventID)) {
+                EditStage()
+            }
         }
 
         store.send(.posterImagePicker(.addButtonTapped))

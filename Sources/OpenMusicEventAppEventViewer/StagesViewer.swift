@@ -1046,6 +1046,9 @@ public struct StageDetailView: View {
 
                     if stage.hasDisplayDetails {
                         Section("Details") {
+                            if let description = stage.description {
+                                Text(description)
+                            }
                             if let category = stage.stageUse?.category {
                                 LabeledContent("Category", value: category.scheduleDivisionTitle)
                             }
@@ -1055,6 +1058,9 @@ public struct StageDetailView: View {
                             }
                         }
                     }
+
+                    StagePlaceLocatorDetails(place: stage)
+                    StagePlaceLinkDetails(place: stage)
 
                     if !store.lineupContributors.isEmpty {
                         Section("Lineup") {
@@ -1269,6 +1275,11 @@ public struct EditStage {
     public struct FormValue: Equatable {
         var category = ""
         var color = OME.Color(rawValue: 0x336699)!
+        var description = ""
+        var links: [EditableLink] = []
+        var lineup: [Contributor.ID] = []
+        var locators: [EditableLocator] = []
+        var persistentStageID: OpenMusicEventLexicon.Stage.ID?
         var shortLabel = ""
         var name = ""
         var sortIndex = ""
@@ -1279,6 +1290,11 @@ public struct EditStage {
         init(place: EventPlace) {
             category = place.stageUse?.category ?? ""
             color = place.stageUse?.color ?? Self().color
+            description = place.description ?? ""
+            links = (place.links ?? []).map(EditableLink.init)
+            lineup = place.stageUse?.lineup ?? []
+            locators = (place.locators ?? []).map(EditableLocator.init)
+            persistentStageID = place.stageUse?.stage
             shortLabel = place.stageUse?.shortLabel ?? ""
             name = place.name
             sortIndex = place.stageUse?.sortIndex.map(String.init) ?? ""
@@ -1307,6 +1323,8 @@ public struct EditStage {
             self.eventID = eventID
             self.mode = .create
             self.form = FormFeature.State(value: FormValue())
+            self._contributors = FetchAll(Contributor.where { $0.event.eq(eventID) })
+            self._persistentStages = FetchAll(OpenMusicEventLexicon.Stage.all)
             self.heroImagePicker = ImageAssetPicker.State(
                 configuration: .stageHero, recordImages: nil, recordID: eventID
             )
@@ -1326,6 +1344,8 @@ public struct EditStage {
             self.eventID = eventID
             self.mode = .edit(stageID)
             self.form = FormFeature.State(value: FormValue())
+            self._contributors = FetchAll(Contributor.where { $0.event.eq(eventID) })
+            self._persistentStages = FetchAll(OpenMusicEventLexicon.Stage.all)
             self.heroImagePicker = ImageAssetPicker.State(
                 configuration: .stageHero,
                 recordImages: nil,
@@ -1348,6 +1368,9 @@ public struct EditStage {
 
         var errorMessage: String?
         var destination: Destination.State?
+        @FetchAll var contributors: [Contributor]
+        var editingLinkID: EditableLink.ID?
+        var editingLocatorID: EditableLocator.ID?
         var form: FormFeature.State
         var hasLoadedDraft = false
         var heroImagePicker: ImageAssetPicker.State
@@ -1355,6 +1378,7 @@ public struct EditStage {
         var logoImagePicker: ImageAssetPicker.State
         var originalPlace: EventPlace?
         var originalImages: [OME.Image] = []
+        @FetchAll var persistentStages: [OpenMusicEventLexicon.Stage]
         var posterImagePicker: ImageAssetPicker.State
 
         var category: String {
@@ -1407,7 +1431,7 @@ public struct EditStage {
         }
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && form.canSubmit
+            hasLoadedDraft && !isSaving && form.canSubmit && validationMessage == nil
         }
 
         var navigationTitle: String {
@@ -1432,6 +1456,11 @@ public struct EditStage {
             let eventID: Event.ID
             let mode: Mode
             let name: String
+            let description: String?
+            let links: [OME.Link]?
+            let locators: [Open<Event.Locator>]?
+            let lineup: [Contributor.ID]?
+            let persistentStageID: OpenMusicEventLexicon.Stage.ID?
             let category: String?
             let color: OME.Color
             let sortIndex: Int?
@@ -1446,6 +1475,13 @@ public struct EditStage {
                 self.eventID = state.eventID
                 self.mode = state.mode
                 self.name = state.trimmedName
+                self.description = state.form.value.description.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                let links = state.form.value.links.compactMap(\.preparedLink)
+                self.links = links.isEmpty ? nil : links
+                let locators = state.form.value.locators.compactMap(\.preparedLocator)
+                self.locators = locators.isEmpty ? nil : locators
+                self.lineup = state.form.value.lineup.isEmpty ? nil : state.form.value.lineup
+                self.persistentStageID = state.form.value.persistentStageID
                 self.category = state.trimmedCategory.nilIfEmpty
                 self.color = state.color
                 self.sortIndex = state.parsedSortIndex
@@ -1461,14 +1497,17 @@ public struct EditStage {
                 var fields = originalPlace.map(EventPlaceRecordEditing.Fields.init)
                     ?? EventPlaceRecordEditing.Fields(name: name)
                 fields.name = name
+                fields.description = description
+                fields.links = links
+                fields.locators = locators
                 fields.kind = .known(.stage(.init(
-                    stage: originalPlace?.stageUse?.stage,
+                    stage: persistentStageID,
                     color: color,
                     category: category,
                     sortIndex: sortIndex,
                     icon: icon,
                     shortLabel: shortLabel,
-                    lineup: originalPlace?.stageUse?.lineup
+                    lineup: lineup
                 )))
                 fields.media = try preparedMedia()
                 return fields
@@ -1530,6 +1569,11 @@ public struct EditStage {
 
             if !trimmedSortIndex.isEmpty, parsedSortIndex == nil {
                 return "Enter a valid sort index."
+            }
+
+            if let message = form.value.locators.compactMap(\.validationMessage).first
+                ?? form.value.links.compactMap(\.validationMessage).first {
+                return message
             }
 
             return nil
@@ -1615,14 +1659,27 @@ public struct EditStage {
     }
 
     public enum Action {
+        case addLineupContributorTapped(Contributor.ID)
+        case addLinkButtonTapped
+        case addLocatorButtonTapped(EditableLocator.Kind)
         case cancelButtonTapped
         case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
+        case editLinkButtonTapped(EditableLink.ID)
+        case editLocatorButtonTapped(EditableLocator.ID)
         case logoImagePicker(ImageAssetPicker.Action)
+        case linkPersistentStageTapped(OpenMusicEventLexicon.Stage.ID)
+        case moveLineupContributorTapped(Contributor.ID, Int)
         case posterImagePicker(ImageAssetPicker.Action)
+        case moveLinkButtonTapped(EditableLink.ID, Int)
+        case moveLocatorButtonTapped(EditableLocator.ID, Int)
+        case removeLinkButtonTapped(EditableLink.ID)
+        case removeLineupContributorTapped(Contributor.ID)
+        case removeLocatorButtonTapped(EditableLocator.ID)
         case saveButtonTapped
+        case unlinkPersistentStageTapped
     }
 
     @Feature
@@ -1656,6 +1713,23 @@ public struct EditStage {
         }
         Update { state, action in
             switch action {
+            case let .addLineupContributorTapped(id):
+                guard state.contributors.contains(where: { $0.id == id }),
+                      !state.form.value.lineup.contains(id) else { return }
+                state.form.value.lineup.append(id)
+
+            case .addLinkButtonTapped:
+                let link = EditableLink()
+                state.form.value.links.append(link)
+                state.editingLinkID = link.id
+                state.editingLocatorID = nil
+
+            case let .addLocatorButtonTapped(kind):
+                let locator = EditableLocator(kind: kind)
+                state.form.value.locators.append(locator)
+                state.editingLocatorID = locator.id
+                state.editingLinkID = nil
+
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
@@ -1663,6 +1737,16 @@ public struct EditStage {
 
             case .destination:
                 break
+
+            case let .editLinkButtonTapped(id):
+                guard state.form.value.links.contains(where: { $0.id == id }) else { return }
+                state.editingLinkID = id
+                state.editingLocatorID = nil
+
+            case let .editLocatorButtonTapped(id):
+                guard state.form.value.locators.contains(where: { $0.id == id }) else { return }
+                state.editingLocatorID = id
+                state.editingLinkID = nil
 
             case .form:
                 break
@@ -1673,7 +1757,10 @@ public struct EditStage {
                     state.errorMessage = "This event stage could not be loaded."
                     return
                 }
-
+                if let validationMessage = state.validationMessage {
+                    state.errorMessage = validationMessage
+                    return
+                }
                 state.errorMessage = nil
                 state.isSaving = true
                 let saveRequest = State.SaveRequest(state: state)
@@ -1741,6 +1828,25 @@ public struct EditStage {
             case .logoImagePicker:
                 break
 
+            case let .linkPersistentStageTapped(id):
+                guard state.persistentStages.contains(where: { $0.id == id }) else { return }
+                state.form.value.persistentStageID = id
+
+            case let .moveLineupContributorTapped(id, offset):
+                guard let index = state.form.value.lineup.firstIndex(of: id),
+                      state.form.value.lineup.indices.contains(index + offset) else { return }
+                state.form.value.lineup.swapAt(index, index + offset)
+
+            case let .moveLinkButtonTapped(id, offset):
+                guard let index = state.form.value.links.firstIndex(where: { $0.id == id }),
+                      state.form.value.links.indices.contains(index + offset) else { return }
+                state.form.value.links.swapAt(index, index + offset)
+
+            case let .moveLocatorButtonTapped(id, offset):
+                guard let index = state.form.value.locators.firstIndex(where: { $0.id == id }),
+                      state.form.value.locators.indices.contains(index + offset) else { return }
+                state.form.value.locators.swapAt(index, index + offset)
+
             case .posterImagePicker(.addButtonTapped):
                 state.destination = .posterImportImages(
                     Spawn(state.posterImagePicker.importImagesState())
@@ -1755,6 +1861,17 @@ public struct EditStage {
             case .posterImagePicker:
                 break
 
+            case let .removeLinkButtonTapped(id):
+                state.form.value.links.removeAll { $0.id == id }
+                if state.editingLinkID == id { state.editingLinkID = nil }
+
+            case let .removeLineupContributorTapped(id):
+                state.form.value.lineup.removeAll { $0 == id }
+
+            case let .removeLocatorButtonTapped(id):
+                state.form.value.locators.removeAll { $0.id == id }
+                if state.editingLocatorID == id { state.editingLocatorID = nil }
+
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
@@ -1765,6 +1882,9 @@ public struct EditStage {
                 store.addTask {
                     try store.send(.form(.submittedForm))
                 }
+
+            case .unlinkPersistentStageTapped:
+                state.form.value.persistentStageID = nil
             }
         }
         .ifLet(\.destination) {
@@ -1965,6 +2085,10 @@ struct EditStageLoadedForm: View {
     var body: some View {
         SwiftUI.Form {
             eventStageSection
+            StagePlaceLocatorEditor(store: store)
+            StagePlaceLinkEditor(store: store)
+            StagePlaceLineupEditor(store: store)
+            StagePlaceIdentityEditor(store: store)
             if showsTechnicalDetails {
                 iconSection
             }
@@ -1976,6 +2100,13 @@ struct EditStageLoadedForm: View {
     private var eventStageSection: some View {
         Section("Event Stage") {
             nameField
+
+            PortableTextField(
+                "Description",
+                text: $store.form.value.description,
+                axis: .vertical
+            )
+            .portableLineLimit(2...6)
 
             TextField("Category", text: $store.form.value.category)
 
@@ -2017,6 +2148,13 @@ struct EditStageLoadedForm: View {
 
     @ViewBuilder
     private var errorSection: some View {
+        if let validationMessage = store.validationMessage {
+            Section {
+                Text(verbatim: validationMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
         if let errorMessage = store.errorMessage {
             Section {
                 Text(verbatim: errorMessage)
@@ -2193,7 +2331,7 @@ struct StageIconFallback: View {
 
 private extension EventPlace {
     var hasDisplayDetails: Bool {
-        stageUse?.category != nil || stageUse?.sortIndex != nil
+        description != nil || stageUse?.category != nil || stageUse?.sortIndex != nil
     }
 }
 

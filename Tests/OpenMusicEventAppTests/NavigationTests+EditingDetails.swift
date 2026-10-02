@@ -101,9 +101,24 @@ extension NavigationTests {
         let eventID = canonicalRouteEventID
         let stageID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcak")
         let lineupID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        let addedLineupID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaz")
+        let persistentStageID = canonicalRouteRecordID("events.openmusic.stage", "3mrdbziccpcay")
         let posterURL = try #require(URL(string: "https://example.com/poster.png"))
         try await database.write { db in
             try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            let persistentStage = try OpenMusicEventLexicon.Stage(
+                id: persistentStageID,
+                name: "Meadow Stage",
+                createdAt: "2026-09-01T12:00:00Z"
+            )
+            try OpenMusicEventLexicon.Stage.insert { persistentStage }.execute(db)
+            let addedContributor = try Contributor(
+                id: addedLineupID,
+                event: eventID,
+                name: "New Performer",
+                createdAt: "2026-09-01T12:00:00Z"
+            )
+            try Contributor.insert { addedContributor }.execute(db)
             var place = try EventPlace(
                 id: stageID,
                 event: eventID,
@@ -113,6 +128,9 @@ extension NavigationTests {
             var stageUse = EventPlace.Kind.Stage()
             stageUse.lineup = [lineupID]
             place.kind = .known(.stage(stageUse))
+            place.description = "Old directions"
+            place.locators = [.known(.address(Event.Address(country: "CA")))]
+            place.links = [OME.Link(url: try #require(URL(string: "https://example.com/old")))]
             place.media = [.known(.image(OME.Image(
                 source: .known(.url(posterURL)),
                 role: .known(.poster)
@@ -132,8 +150,14 @@ extension NavigationTests {
 
         #expect(store.state.hasLoadedDraft)
         #expect(store.state.form.value.name == "Old Meadow")
+        await store.send(.linkPersistentStageTapped(persistentStageID))?.value
+        await store.send(.addLineupContributorTapped(addedLineupID))?.value
+        await store.send(.moveLineupContributorTapped(addedLineupID, -1))?.value
         store.modify {
             $0.form.value.name = " New Meadow "
+            $0.form.value.description = " New directions "
+            $0.form.value.locators[0].street = "Forest Road"
+            $0.form.value.links[0].url = "https://example.com/new"
             $0.category = " workshop "
             $0.sortIndex = " 7 "
             $0.colorHex = " #AABBCC "
@@ -144,6 +168,7 @@ extension NavigationTests {
         }
 
         await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -160,12 +185,20 @@ extension NavigationTests {
         }
 
         #expect(stage.name == "New Meadow")
+        #expect(stage.description == "New directions")
+        guard case let .known(.address(address)) = try #require(stage.locators?.first) else {
+            Issue.record("Expected an address locator")
+            return
+        }
+        #expect(address.street == "Forest Road")
+        #expect(stage.links?.first?.url.absoluteString == "https://example.com/new")
         #expect(stage.stageUse?.category == "workshop")
         #expect(stage.stageUse?.sortIndex == 7)
         #expect(stage.stageUse?.color?.rawValue == 0xAABBCC)
         #expect(stage.stageUse?.icon?.rawValue == "sparkles")
         #expect(stage.stageUse?.shortLabel == "MD")
-        #expect(stage.stageUse?.lineup == [lineupID])
+        #expect(stage.stageUse?.stage == persistentStageID)
+        #expect(stage.stageUse?.lineup == [addedLineupID, lineupID])
         #expect(stage.media?.count == 3)
         #expect(stage.media?.compactMap { medium -> String? in
             guard case let .known(.image(image)) = medium else { return nil }
