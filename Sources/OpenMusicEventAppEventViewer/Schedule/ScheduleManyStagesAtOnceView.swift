@@ -52,7 +52,7 @@ public struct ScheduleManyStagesAtOnce {
                 performanceRows: performanceRows,
                 scheduleID: ScheduleList.resolvedSelectedScheduleID(
                     selectedScheduleID,
-                    schedules: schedules
+                    schedules: ScheduleList.orderedSchedules(event: event, schedules: schedules)
                 ),
                 division: scheduleDivision
             )
@@ -678,7 +678,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     var selectedScheduleTitle: String {
         guard let scheduleID = ScheduleList.resolvedSelectedScheduleID(
             selectedScheduleID,
-            schedules: store.schedules
+            schedules: ScheduleList.orderedSchedules(event: store.event, schedules: store.schedules)
         ),
             let schedule = store.schedules.first(where: { $0.id == scheduleID }),
             let timeZone = store.timeZone

@@ -88,7 +88,7 @@ public struct SchedulePerformanceList {
         ) -> Schedule.ID? {
             ScheduleList.resolvedSelectedScheduleID(
                 selectedScheduleID,
-                schedules: schedules
+                schedules: ScheduleList.orderedSchedules(event: event, schedules: schedules)
             )
         }
 

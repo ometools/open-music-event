@@ -114,7 +114,7 @@ public struct ScheduleSingleStageAtOnce {
         ) -> Schedule.ID? {
             ScheduleList.resolvedSelectedScheduleID(
                 selectedScheduleID,
-                schedules: schedules
+                schedules: ScheduleList.orderedSchedules(event: event, schedules: schedules)
             )
         }
 

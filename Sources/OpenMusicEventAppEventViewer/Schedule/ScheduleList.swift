@@ -324,6 +324,9 @@ public struct ScheduleList {
 
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
+        public var orderedSchedules: [Schedule] {
+            ScheduleList.orderedSchedules(event: event, schedules: schedules)
+        }
         @FetchAll public var stages: [EventPlace]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
@@ -401,7 +404,7 @@ public struct ScheduleList {
             ScheduleList.currentTimeDestination(
                 currentDate: currentDate,
                 selectedScheduleID: selectedScheduleID,
-                schedules: schedules,
+                schedules: orderedSchedules,
                 performanceRows: performanceRows,
                 division: scheduleDivision,
                 buffer: buffer
@@ -412,10 +415,10 @@ public struct ScheduleList {
             _ selectedScheduleID: Schedule.ID?
         ) -> Schedule.ID? {
             if let selectedScheduleID,
-               schedules.contains(where: { $0.id == selectedScheduleID }) {
+               orderedSchedules.contains(where: { $0.id == selectedScheduleID }) {
                 return selectedScheduleID
             }
-            return schedules.first?.id
+            return orderedSchedules.first?.id
         }
 
         var resolvedSelectedStageID: EventPlace.ID? {
@@ -456,6 +459,8 @@ public struct ScheduleList {
         case addScheduleButtonTapped
         case addToNewUserScheduleButtonTapped(ProgramItem.ID)
         case destination(Destination.Action)
+        case editScheduleButtonTapped(Schedule.ID)
+        case moveScheduleButtonTapped(Schedule.ID, Int)
         case otherReactionButtonTapped(ProgramItem.ID)
         case performanceButtonTapped(ProgramItem.ID)
         case programsButtonTapped
@@ -475,6 +480,7 @@ public struct ScheduleList {
         case performanceDetail(Spawn<ProgramItemDetail>)
         case programs(Spawn<ProgramList>)
         case reactionEntry(PerformanceReactionEntry)
+        case scheduleForm(ScheduleForm)
         case userScheduleForm(Spawn<UserScheduleForm>)
         case userScheduleList(Spawn<UserScheduleList>)
     }
@@ -524,6 +530,12 @@ public struct ScheduleList {
         Schedule
             .where { $0.event.eq(eventID) }
             .order { ($0.date, $0.title.asc(nulls: .last)) }
+    }
+
+    static func orderedSchedules(event: Event?, schedules: [Schedule]) -> [Schedule] {
+        guard let scheduleIDs = event?.schedules else { return schedules }
+        let byID = Dictionary(uniqueKeysWithValues: schedules.map { ($0.id, $0) })
+        return scheduleIDs.compactMap { byID[$0] }
     }
 
     static func stagesQuery(
@@ -700,7 +712,7 @@ public struct ScheduleList {
             case let .addPerformanceButtonTapped(selectedScheduleID):
                 guard Self.canAddPerformance(
                         selectedScheduleID: selectedScheduleID,
-                        schedules: state.schedules,
+                        schedules: state.orderedSchedules,
                         division: state.scheduleDivision,
                         event: state.event
                       )
@@ -761,6 +773,41 @@ public struct ScheduleList {
 
             case .destination:
                 break
+
+            case let .editScheduleButtonTapped(scheduleID):
+                guard let schedule = state.orderedSchedules.first(where: { $0.id == scheduleID }),
+                      let timeZone = state.timeZone else { return }
+                state.destination = .scheduleForm(
+                    ScheduleForm.State(schedule: schedule, timeZone: timeZone)
+                )
+
+            case let .moveScheduleButtonTapped(scheduleID, offset):
+                guard let index = state.orderedSchedules.firstIndex(where: { $0.id == scheduleID }),
+                      state.orderedSchedules.indices.contains(index + offset) else { return }
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            guard var event = try Event.find(eventID).fetchOne(db) else { return }
+                            let existingIDs: [Schedule.ID]
+                            if let schedules = event.schedules {
+                                existingIDs = schedules
+                            } else {
+                                existingIDs = try Self.schedulesQuery(eventID: eventID)
+                                    .fetchAll(db).map(\.id)
+                            }
+                            var scheduleIDs = existingIDs
+                            guard let index = scheduleIDs.firstIndex(of: scheduleID),
+                                  scheduleIDs.indices.contains(index + offset) else { return }
+                            scheduleIDs.swapAt(index, index + offset)
+                            event.schedules = scheduleIDs
+                            try event.validateReferences()
+                            try Event.upsert { event }.execute(db)
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
 
             case let .otherReactionButtonTapped(performanceID):
                 state.destination = .reactionEntry(

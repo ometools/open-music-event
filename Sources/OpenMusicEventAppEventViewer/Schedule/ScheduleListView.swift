@@ -50,7 +50,7 @@ public struct ScheduleAddMenu: View {
             .disabled(
                 !ScheduleList.canAddPerformance(
                     selectedScheduleID: selectedScheduleID,
-                    schedules: store.schedules,
+                    schedules: store.orderedSchedules,
                     division: store.scheduleDivision,
                     event: store.event
                 )
@@ -259,6 +259,11 @@ public struct ScheduleListView: View {
             .navigationDestination(item: $store.scope(\.destination).programs) { programsStore in
                 ProgramListView(store: programsStore)
             }
+            .sheet(item: $store.scope(\.destination).scheduleForm) { formStore in
+                NavigationStack {
+                    ScheduleFormView(store: formStore)
+                }
+            }
             .navigationDestination(item: $store.scope(\.destination).userScheduleForm) { formStore in
                 UserScheduleFormView(store: formStore)
             }
@@ -320,13 +325,33 @@ public struct ScheduleListView: View {
             }
             .toolbarTitleMenu {
                 if let timeZone = store.timeZone {
-                    ForEach(store.schedules) { schedule in
+                    ForEach(store.orderedSchedules) { schedule in
                         Button(ScheduleList.scheduleTitle(schedule, in: timeZone)) {
                             selectedScheduleID = schedule.id
                         }
                         .accessibilityIdentifier(
                             "button.schedule-day.\(schedule.id.description)"
                         )
+                    }
+                    if showsAuthoringControls && !store.orderedSchedules.isEmpty {
+                        Divider()
+                        Menu("Manage Schedules") {
+                            ForEach(store.orderedSchedules) { schedule in
+                                Menu(ScheduleList.scheduleTitle(schedule, in: timeZone)) {
+                                    Button("Edit") {
+                                        store.send(.editScheduleButtonTapped(schedule.id))
+                                    }
+                                    Button("Move Up") {
+                                        store.send(.moveScheduleButtonTapped(schedule.id, -1))
+                                    }
+                                    .disabled(store.orderedSchedules.first?.id == schedule.id)
+                                    Button("Move Down") {
+                                        store.send(.moveScheduleButtonTapped(schedule.id, 1))
+                                    }
+                                    .disabled(store.orderedSchedules.last?.id == schedule.id)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -346,7 +371,7 @@ public struct ScheduleListView: View {
     @ViewBuilder
     var content: some View {
         Group {
-            if store.schedules.isEmpty
+            if store.orderedSchedules.isEmpty
                 && !store.state.requiresListPresentation(selectedScheduleID: selectedScheduleID) {
                 ViewerPlaceholderView(
                     title: "Schedule coming soon",

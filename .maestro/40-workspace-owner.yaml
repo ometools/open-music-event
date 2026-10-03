@@ -99,3 +99,13 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: Edit Channel
     timeout: 15000
+- tapOn: Cancel
+- tapOn: Schedule
+- tapOn: Saturday
+- tapOn: Manage Schedules
+- tapOn: Saturday
+- assertVisible: Move Down
+- tapOn: Edit
+- extendedWaitUntil:
+    visible: Edit Schedule
+    timeout: 15000

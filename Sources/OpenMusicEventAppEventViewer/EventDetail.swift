@@ -681,7 +681,10 @@ public struct EventDetail {
                     let event = try Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)
-                    var schedules = try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
+                    var schedules = ScheduleList.orderedSchedules(
+                        event: event,
+                        schedules: try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
+                    )
                     let loadedPrograms = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
                     let programsByID = Dictionary(uniqueKeysWithValues: loadedPrograms.map { ($0.id, $0) })
                     var programs = (event?.programs ?? []).compactMap { programsByID[$0] }
@@ -793,7 +796,10 @@ public struct EventDetail {
                 return try database.read { db in
                     let event = try Event.find(eventID).fetchOne(db)
                     let performanceRows = try PerformanceRow.all(eventID: eventID).fetchAll(db)
-                    let schedules = try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
+                    let schedules = ScheduleList.orderedSchedules(
+                        event: event,
+                        schedules: try ScheduleList.schedulesQuery(eventID: eventID).fetchAll(db)
+                    )
                     let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
                         .filter { event?.programs?.contains($0.id) == true }
                     let stages = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
