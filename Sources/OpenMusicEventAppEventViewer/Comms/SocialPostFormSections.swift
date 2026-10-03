@@ -162,6 +162,7 @@ struct SocialPostSyndicationDraftFields: View {
                 Button("Done") {
                     store.send(.draftSaveButtonTapped)
                 }
+                .accessibilityIdentifier("button.social-post.syndication-done")
                 .disabled(!store.canSaveDraft)
             }
             .buttonStyle(.borderless)

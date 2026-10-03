@@ -56,6 +56,8 @@ public struct SocialPostForm {
             self.hasLinkCard = false
             self.recordEmbed = SocialPostRecordEmbed()
             self.hasRecordEmbed = false
+            self.facets = []
+            self.editingFacetID = nil
             self.syndications = SocialPostSyndications.State(sources: [])
             self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
@@ -78,6 +80,8 @@ public struct SocialPostForm {
             )
             self.recordEmbed = SocialPostRecordEmbed()
             self.hasRecordEmbed = false
+            self.facets = (post.facets ?? []).map { SocialPostFacetEntry(facet: $0, in: post.text) }
+            self.editingFacetID = nil
             self.syndications = SocialPostSyndications.State(sources: post.syndications ?? [])
             if let embed = post.embed {
                 switch SocialPostEmbedContent(embed) {
@@ -134,6 +138,8 @@ public struct SocialPostForm {
         public var destination: Destination.State?
         public var draft: SocialPostDraft
         public var errorMessage: String?
+        var facets: [SocialPostFacetEntry]
+        var editingFacetID: UUID?
         var externalCard: SocialPostExternalCard
         var hasLinkCard: Bool
         var recordEmbed: SocialPostRecordEmbed
@@ -154,6 +160,10 @@ public struct SocialPostForm {
                 && (!hasLinkCard || externalCard.isValid)
                 && (!hasRecordEmbed || recordEmbed.embed != nil)
                 && syndications.draft == nil
+                && editingFacetID == nil
+                && facets.allSatisfy {
+                    $0.validationMessage(in: effectiveText, originalText: editingPost?.text) == nil
+                }
                 && !isSaving
                 && (draft.delivery != .emergency || canRequestEmergency)
         }
@@ -177,14 +187,22 @@ public struct SocialPostForm {
         public var canRequestEmergency: Bool {
             eventID.authority == .did(author)
         }
+
+        var effectiveText: String {
+            editingPost?.text == draft.markdown ? draft.markdown : draft.trimmedMarkdown
+        }
     }
 
     public enum Action {
+        case addFacetButtonTapped(SocialPostFacetEntry.Kind)
         case addLinkCardButtonTapped
         case addRecordEmbedButtonTapped
         case cancelButtonTapped
         case destination(Destination.Action)
+        case editFacetButtonTapped(UUID)
+        case finishFacetButtonTapped
         case imagePicker(ImageAssetPicker.Action)
+        case removeFacetButtonTapped(UUID)
         case removeEmbedButtonTapped
         case removeLinkCardButtonTapped
         case removeRecordEmbedButtonTapped
@@ -207,6 +225,7 @@ public struct SocialPostForm {
         let author: DID
         let draft: SocialPostDraft
         let editingPost: Social.Post?
+        let facets: [SocialPostFacetEntry]
         let images: [ImageAssetPicker.ImageValue]
         let externalCard: SocialPostExternalCard?
         let recordEmbed: SocialPostRecordEmbed?
@@ -221,6 +240,7 @@ public struct SocialPostForm {
             author = state.author
             draft = state.draft
             editingPost = state.editingPost
+            facets = state.facets
             images = state.imagePicker.images
             externalCard = state.hasLinkCard ? state.externalCard : nil
             recordEmbed = state.hasRecordEmbed ? state.recordEmbed : nil
@@ -246,9 +266,11 @@ public struct SocialPostForm {
                 syndications: syndications.isEmpty ? nil : syndications
             )
             fields.embed = embed
+            let preparedFacets = try facets.map {
+                try $0.preparedFacet(in: fields.text, originalText: editingPost?.text)
+            }
+            fields.facets = preparedFacets.isEmpty ? nil : preparedFacets
             if let editingPost {
-                fields.facets = fields.text == editingPost.text
-                    ? editingPost.facets : nil
                 if hasUnknownDelivery {
                     fields.delivery = editingPost.delivery
                 }
@@ -283,6 +305,28 @@ public struct SocialPostForm {
         }
         Update { state, action in
             switch action {
+            case let .addFacetButtonTapped(kind):
+                let entry = SocialPostFacetEntry(kind: kind)
+                state.editingFacetID = entry.id
+                state.facets.append(entry)
+
+            case let .editFacetButtonTapped(id):
+                guard state.facets.contains(where: { $0.id == id && $0.isSupported }) else { return }
+                state.editingFacetID = id
+
+            case .finishFacetButtonTapped:
+                guard let id = state.editingFacetID,
+                      let entry = state.facets.first(where: { $0.id == id }),
+                      entry.validationMessage(
+                        in: state.effectiveText,
+                        originalText: state.editingPost?.text
+                      ) == nil else { return }
+                state.editingFacetID = nil
+
+            case let .removeFacetButtonTapped(id):
+                state.facets.removeAll { $0.id == id }
+                if state.editingFacetID == id { state.editingFacetID = nil }
+
             case .addLinkCardButtonTapped:
                 state.imagePicker.images = []
                 state.externalCard = SocialPostExternalCard()

@@ -43,6 +43,38 @@ appId: ${APP_ID}
     id: field.social-post.title
 - inputText: Workspace Record Post
 - tapOn: return
+- tapOn:
+    id: field.social-post.markdown
+- inputText: Read this post
+- tapOn: Preview
+- scrollUntilVisible:
+    element: Add Annotation
+    direction: DOWN
+    timeout: 20000
+- tapOn: Add Annotation
+- tapOn: Link
+- tapOn:
+    id: field.social-post.facet-text
+- inputText: post
+- tapOn: return
+- tapOn:
+    id: field.social-post.facet-target
+- inputText: https://example.com/post
+- tapOn: return
+- scrollUntilVisible:
+    element:
+      id: button.social-post.facet-done
+    direction: UP
+    centerElement: true
+    timeout: 20000
+- tapOn:
+    id: button.social-post.facet-done
+- assertNotVisible:
+    id: button.social-post.facet-done
+- swipe:
+    start: 90%, 80%
+    end: 90%, 25%
+    duration: 400
 - scrollUntilVisible:
     element: Add Referenced Record
     direction: DOWN
@@ -70,10 +102,14 @@ appId: ${APP_ID}
 - inputText: bafyreifiymllu4ykepilnm6j24fstwvp72rlbiojjkpmourcjyxykm7mzu
 - tapOn: return
 - scrollUntilVisible:
-    element: Done
+    element:
+      id: button.social-post.syndication-done
     direction: DOWN
     timeout: 20000
-- tapOn: Done
+- tapOn:
+    id: button.social-post.syndication-done
+- assertNotVisible:
+    id: field.social-post.syndication-uri
 - tapOn: Save
 - extendedWaitUntil:
     visible: Workspace Record Post

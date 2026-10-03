@@ -42,6 +42,8 @@ public struct SocialPostFormView: View {
                 }
             }
 
+            annotationsSection
+
             Section("Category") {
                 Picker("Category", selection: $store.categoryID) {
                     Text("None").tag(Social.Category.ID?.none)
@@ -104,6 +106,86 @@ public struct SocialPostFormView: View {
         }
     }
 
+    private var annotationsSection: some View {
+        Section("Text Annotations") {
+            ForEach(store.facets) { entry in
+                if let index = store.facets.firstIndex(where: { $0.id == entry.id }) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.isSupported ? entry.kind.title : "Unsupported Annotation")
+                                .font(.headline)
+                            if !entry.selectedText.isEmpty {
+                                Text(entry.selectedText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            if entry.isSupported {
+                                Button("Edit") {
+                                    store.send(.editFacetButtonTapped(entry.id))
+                                }
+                            }
+                            Button("Delete", role: .destructive) {
+                                store.send(.removeFacetButtonTapped(entry.id))
+                            }
+                        } label: {
+                            Label("Annotation Actions", systemImage: "ellipsis.circle")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+
+                    if store.editingFacetID == entry.id {
+                        Picker("Type", selection: $store.facets[index].kind) {
+                            ForEach(SocialPostFacetEntry.Kind.allCases, id: \.rawValue) { kind in
+                                Text(kind.title).tag(kind)
+                            }
+                        }
+                        TextField("Text in post", text: $store.facets[index].selectedText)
+                            .accessibilityIdentifier("field.social-post.facet-text")
+                        TextField(entry.kind.targetTitle, text: $store.facets[index].target)
+                            .accessibilityIdentifier("field.social-post.facet-target")
+                        Stepper(
+                            "Occurrence \(entry.occurrence + 1)",
+                            value: $store.facets[index].occurrence,
+                            in: 0...max(0, entry.occurrenceCount(in: store.effectiveText) - 1)
+                        )
+                        if let message = entry.validationMessage(
+                            in: store.effectiveText,
+                            originalText: store.editingPost?.text
+                        ) {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        Button("Done") { store.send(.finishFacetButtonTapped) }
+                            .accessibilityIdentifier("button.social-post.facet-done")
+                            .disabled(entry.validationMessage(
+                                in: store.effectiveText,
+                                originalText: store.editingPost?.text
+                            ) != nil)
+                    } else if let message = entry.validationMessage(
+                        in: store.effectiveText,
+                        originalText: store.editingPost?.text
+                    ) {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            Menu {
+                ForEach(SocialPostFacetEntry.Kind.allCases, id: \.rawValue) { kind in
+                    Button(kind.title) { store.send(.addFacetButtonTapped(kind)) }
+                }
+            } label: {
+                Label("Add Annotation", systemImage: "plus")
+            }
+        }
+    }
+
 }
 
 struct CommsMarkdownEditor: View {
@@ -137,6 +219,7 @@ private struct CommsRichMarkdownEditor: View {
     var body: some View {
         TextEditor(text: $richText, selection: $selection)
             .frame(minHeight: 180)
+            .accessibilityIdentifier("field.social-post.markdown")
             .onChange(of: richText) { _, value in
                 markdown = CommsMarkdown.markdown(from: value)
             }
@@ -165,6 +248,7 @@ struct CommsMarkdownSourceEditor: View {
 
             TextEditor(text: $markdown)
                 .frame(minHeight: 180)
+                .accessibilityIdentifier("field.social-post.markdown")
 
             Text("Markdown is saved as entered. Use Preview to see the published post.")
                 .font(.caption)

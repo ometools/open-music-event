@@ -498,6 +498,139 @@ extension NavigationTests {
     }
 
     @Test
+    func `post annotations can be created edited and deleted with UTF-8 ranges`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
+        let author = try #require(DID("did:plc:organizer"))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: categoryID,
+                title: "Links", text: "🎵 Go to example.com"
+            )
+        }
+
+        let original = try #require(try await database.read { try Social.Post.find(postID).fetchOne($0) })
+        let creator = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SocialPostForm.State(post: original, eventID: eventID, author: author)) {
+                SocialPostForm()
+            }
+        }
+        await creator.send(.addFacetButtonTapped(.link))?.value
+        #expect(!creator.state.canSubmit)
+        creator.modify {
+            $0.facets[0].selectedText = "example.com"
+            $0.facets[0].target = "https://example.com/"
+        }
+        await creator.send(.finishFacetButtonTapped)?.value
+        #expect(creator.state.canSubmit)
+        await creator.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        let linked = try #require(try await database.read { try Social.Post.find(postID).fetchOne($0) })
+        let link = try #require(linked.facets?.first)
+        #expect(link.object["index"]?.object?["byteStart"]?.integer == 11)
+        #expect(link.object["index"]?.object?["byteEnd"]?.integer == 22)
+        guard case let .some(.array(features)) = link.object["features"] else {
+            Issue.record("Expected a link facet feature")
+            return
+        }
+        #expect(features.first?.object?["uri"]?.string == "https://example.com/")
+
+        let editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SocialPostForm.State(post: linked, eventID: eventID, author: author)) {
+                SocialPostForm()
+            }
+        }
+        let facetID = try #require(editor.state.facets.first?.id)
+        await editor.send(.editFacetButtonTapped(facetID))?.value
+        editor.modify {
+            $0.draft.markdown = "🎵 Listen, then go to example.com"
+            $0.facets[0].target = "https://example.org/"
+        }
+        await editor.send(.finishFacetButtonTapped)?.value
+        await editor.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        let edited = try #require(try await database.read { try Social.Post.find(postID).fetchOne($0) })
+        #expect(edited.id == original.id)
+        #expect(edited.facets?.first?.object["index"]?.object?["byteStart"]?.integer == 24)
+        guard case let .some(.array(editedFeatures)) = edited.facets?.first?.object["features"] else {
+            Issue.record("Expected an edited link facet feature")
+            return
+        }
+        #expect(editedFeatures.first?.object?["uri"]?.string == "https://example.org/")
+
+        let remover = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SocialPostForm.State(post: edited, eventID: eventID, author: author)) {
+                SocialPostForm()
+            }
+        }
+        await remover.send(.removeFacetButtonTapped(try #require(remover.state.facets.first?.id)))?.value
+        await remover.send(.saveButtonTapped) { $0.isSaving = true }?.value
+        let cleared = try #require(try await database.read { try Social.Post.find(postID).fetchOne($0) })
+        #expect(cleared.facets == nil)
+    }
+
+    @Test
+    func `an unsupported post annotation is preserved until its text changes`() throws {
+        let facet = Social.Post.Facet([
+            "index": .object(["byteStart": 0, "byteEnd": 4]),
+            "features": .array([.object(["$type": "example.richtext#future", "value": "x"])]),
+        ])
+        let entry = SocialPostFacetEntry(facet: facet, in: "Text")
+        #expect(!entry.isSupported)
+        #expect(entry.validationMessage(in: "Text", originalText: "Text") == nil)
+        #expect(try entry.preparedFacet(in: "Text", originalText: "Text") == facet)
+        #expect(entry.validationMessage(in: "Edited", originalText: "Text") != nil)
+    }
+
+    @Test
+    func `mention tag and repeated-text annotations use their selected occurrences`() throws {
+        var mention = SocialPostFacetEntry(kind: .mention)
+        mention.selectedText = "@alice"
+        mention.target = "did:plc:alice"
+        let mentioned = try mention.preparedFacet(
+            in: "Hi @alice", originalText: nil
+        )
+        guard case let .some(.array(mentionFeatures)) = mentioned.object["features"] else {
+            Issue.record("Expected a mention feature")
+            return
+        }
+        #expect(mentionFeatures.first?.object?["$type"]?.string == "app.bsky.richtext.facet#mention")
+        #expect(mentionFeatures.first?.object?["did"]?.string == "did:plc:alice")
+
+        var tag = SocialPostFacetEntry(kind: .tag)
+        tag.selectedText = "#music"
+        tag.target = "music"
+        let tagged = try tag.preparedFacet(in: "See #music", originalText: nil)
+        guard case let .some(.array(tagFeatures)) = tagged.object["features"] else {
+            Issue.record("Expected a tag feature")
+            return
+        }
+        #expect(tagFeatures.first?.object?["$type"]?.string == "app.bsky.richtext.facet#tag")
+        #expect(tagFeatures.first?.object?["tag"]?.string == "music")
+
+        var second = SocialPostFacetEntry(kind: .link)
+        second.selectedText = "go"
+        second.target = "https://example.com"
+        second.occurrence = 1
+        let repeated = try second.preparedFacet(in: "go go", originalText: nil)
+        #expect(repeated.object["index"]?.object?["byteStart"]?.integer == 3)
+        #expect(repeated.object["index"]?.object?["byteEnd"]?.integer == 5)
+    }
+
+    @Test
     func `editing a post preserves an unknown delivery value`() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
