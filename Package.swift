@@ -354,7 +354,7 @@ let customDumpDependency: Package.Dependency = {
 var applicationDependencies: [Package.Dependency] = [
     .package(
         path: workspacePackagePath("swift-hero-image-list"),
-        traits: isAndroidAppBuild ? ["Skip"] : []
+        traits: ["Skip"]
     ),
     composableAtmosphereUserInputDependency,
     appViewComposableCalendarEventsDependency,
