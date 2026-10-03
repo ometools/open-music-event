@@ -81,11 +81,17 @@ public struct SocialCategoryList {
             )
         }
 
+        var orderedChannels: [Social.Category] {
+            guard let categoryIDs = event?.categories else { return channels }
+            let channelsByID = Dictionary(uniqueKeysWithValues: channels.map { ($0.id, $0) })
+            return categoryIDs.compactMap { channelsByID[$0] }
+        }
+
         var channelRows: [SocialCategoryRow] {
             let preferencesByID = Dictionary(
                 uniqueKeysWithValues: channelPreferences.map { ($0.id, $0) }
             )
-            return channels.map { channel in
+            return orderedChannels.map { channel in
                 SocialCategoryRow(
                     channel: channel,
                     preference: preferencesByID[channel.id],
@@ -99,7 +105,7 @@ public struct SocialCategoryList {
                 shouldShowNotificationPrompt
                     || shouldShowCriticalAlertPrompt
                     || !(event?.reportingLinks ?? []).isEmpty
-                    || !channels.isEmpty
+                    || !orderedChannels.isEmpty
             )
         }
 
@@ -130,6 +136,7 @@ public struct SocialCategoryList {
         case editChannelButtonTapped(Social.Category)
         case markAllPostsReadButtonTapped(Social.Category.ID)
         case markAllPostsUnreadButtonTapped(Social.Category.ID)
+        case moveChannelButtonTapped(Social.Category.ID, Int)
         case notificationPermissionButtonTapped
         case notificationStateButtonTapped(
             Social.Category.ID,
@@ -250,6 +257,38 @@ public struct SocialCategoryList {
                     } catch {
                         try store.modify {
                             $0.errorMessage = "Unable to mark all posts in this channel as unread."
+                        }
+                    }
+                }
+
+            case let .moveChannelButtonTapped(channelID, offset):
+                guard state.canManageChannels,
+                      let index = state.orderedChannels.firstIndex(where: { $0.id == channelID }),
+                      state.orderedChannels.indices.contains(index + offset) else { return }
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            guard var event = try Event.find(eventID).fetchOne(db) else { return }
+                            let existingIDs: [Social.Category.ID]
+                            if let categories = event.categories {
+                                existingIDs = categories
+                            } else {
+                                existingIDs = try SocialCategoryList.channelsQuery(eventID: eventID)
+                                    .fetchAll(db).map(\.id)
+                            }
+                            var categoryIDs = existingIDs
+                            guard let index = categoryIDs.firstIndex(of: channelID),
+                                  categoryIDs.indices.contains(index + offset) else { return }
+                            categoryIDs.swapAt(index, index + offset)
+                            event.categories = categoryIDs
+                            try event.validateReferences()
+                            try Event.upsert { event }.execute(db)
+                        }
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to reorder channels."
                         }
                     }
                 }
@@ -477,17 +516,42 @@ struct SocialCategoryListRow: View {
     let row: SocialCategoryRow
 
     var body: some View {
-        Button {
-            store.send(.channelButtonTapped(row.channel.id))
-        } label: {
-            SocialCategoryRowView(row: row)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .portableContentShape(Rectangle())
+        HStack {
+            Button {
+                store.send(.channelButtonTapped(row.channel.id))
+            } label: {
+                SocialCategoryRowView(row: row)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .portableContentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(
+                "button.channel.\(row.channel.id.description)"
+            )
+
+            if store.canManageChannels {
+                Menu {
+                    Button("Edit") { store.send(.editChannelButtonTapped(row.channel)) }
+                    Button("Move Up") {
+                        store.send(.moveChannelButtonTapped(row.channel.id, -1))
+                    }
+                    .disabled(store.channelRows.first?.id == row.id)
+                    Button("Move Down") {
+                        store.send(.moveChannelButtonTapped(row.channel.id, 1))
+                    }
+                    .disabled(store.channelRows.last?.id == row.id)
+                    Button("Delete", role: .destructive) {
+                        store.send(.deleteChannelButtonTapped(row.channel.id))
+                    }
+                } label: {
+                    Label("Channel Actions", systemImage: "ellipsis.circle")
+                        .labelStyle(.iconOnly)
+                }
+                .accessibilityIdentifier(
+                    "button.channel-actions.\(row.channel.id.description)"
+                )
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(
-            "button.channel.\(row.channel.id.description)"
-        )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             SocialCategoryNotificationSwipeActions(store: store, row: row)
         }
@@ -642,6 +706,16 @@ struct SocialCategoryContextActions: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
+
+                Button("Move Up") {
+                    store.send(.moveChannelButtonTapped(row.channel.id, -1))
+                }
+                .disabled(store.channelRows.first?.id == row.id)
+
+                Button("Move Down") {
+                    store.send(.moveChannelButtonTapped(row.channel.id, 1))
+                }
+                .disabled(store.channelRows.last?.id == row.id)
 
                 Button(role: .destructive) {
                     store.send(

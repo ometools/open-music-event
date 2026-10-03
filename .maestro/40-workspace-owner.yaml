@@ -83,3 +83,19 @@ appId: ${APP_ID}
     visible: Testival 2026
     timeout: 15000
 - assertNotVisible: Testival Workspace Edit
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: view.communications.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel-actions.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Move Down
+- tapOn: Move Down
+- tapOn:
+    id: button.channel-actions.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Move Up
+- tapOn: Edit
+- extendedWaitUntil:
+    visible: Edit Channel
+    timeout: 15000
