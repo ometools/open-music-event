@@ -48,7 +48,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
         EventRecordMigrations.register(into: &migrator)
-        CommunityCalendarEventProjection.registerMigration(into: &migrator)
+        LegacyCommunityCalendarEventMigration.registerMigration(into: &migrator)
         NotificationDatabase.registerMigrations(into: &migrator)
         TangledSourceProjectionSchema.registerMigration(into: &migrator)
         WebhookInboxSchema.registerMigration(into: &migrator)

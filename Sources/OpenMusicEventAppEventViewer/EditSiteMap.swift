@@ -344,7 +344,9 @@ public struct EditSiteMapView: View {
                 if let index = store.styles.firstIndex(where: { $0.id == store.editingStyleID }) {
                     Section("Edit Style") {
                         TextField("Style Title", text: $store.styles[index].title)
+                            .accessibilityIdentifier("field.site-map.style-title")
                         TextField("Image URL", text: $store.styles[index].sourceURLString)
+                            .accessibilityIdentifier("field.site-map.image-url")
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()

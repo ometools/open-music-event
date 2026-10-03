@@ -130,11 +130,6 @@ struct SourceArtifactPublicationTests {
         // AppView never advertises a revision whose archive was not published.
         let checkpoint = try await store.tangledSourceCheckpoint(watchID: Self.watchID)
         expectNoDifference(checkpoint, nil)
-        let catalog = try store.tangledSourceCalendarEvents(
-            watchIDs: [Self.watchID],
-            appViewHost: "stg.openmusicevent.app"
-        )
-        expectNoDifference(catalog, [])
         let notificationCount = try await database.read { database in
             try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
         }
@@ -222,7 +217,7 @@ struct SourceArtifactPublicationTests {
             )
         )
 
-        // The repaired checkpoint is now the catalog's complete publication authority.
+        // The repaired checkpoint advertises only the archive that was published.
         let repairedCheckpoint = try await store.tangledSourceCheckpoint(watchID: Self.watchID)
         let checkpoint = try #require(repairedCheckpoint)
         expectNoDifference(
@@ -235,33 +230,6 @@ struct SourceArtifactPublicationTests {
                 )
             )
         )
-        let catalog = try store.tangledSourceCalendarEvents(
-            watchIDs: [Self.watchID],
-            appViewHost: "stg.openmusicevent.app"
-        )
-        let event = try #require(catalog.first)
-        expectNoDifference(catalog.count, 1)
-        expectNoDifference(event.name, "Festival 2026")
-        expectNoDifference(event.source.appViewHost, "stg.openmusicevent.app")
-        expectNoDifference(
-            event.source.resolvedArtifact,
-            OME.CalendarEvent.Source.Artifact(
-                url: try #require(
-                    URL(string: "https://resources.openmusicevent.app/staging-owner/festival-staging/archive/\(Self.revision).tar.gz")
-                ),
-                revision: Self.revision,
-                checksumSHA256: "fixture-sha256",
-                byteCount: Self.revision.utf8.count
-            )
-        )
-        expectNoDifference(
-            event.source.resolvedRepository,
-            OME.CalendarEvent.Source.Repository(
-                reference: "https://resources.openmusicevent.app/staging-owner/festival-staging",
-                ref: Self.revision
-            )
-        )
-        #expect(event.event != nil)
         let notificationCount = try await database.read { database in
             try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pushOutbox") ?? 0
         }
@@ -269,11 +237,11 @@ struct SourceArtifactPublicationTests {
     }
 
     @Test
-    func `migration advertises legacy artifacts without losing their checkpoint or event`() async throws {
+    func `migration advertises legacy artifacts without losing their checkpoint or row`() async throws {
         let database = try DatabaseQueue()
         try Self.migrateLegacyArtifactSchema(database)
-        let calendarEvent = try Self.calendarEvent(revision: Self.revision)
-        let encodedEvent = try JSONEncoder().encode(calendarEvent)
+        let legacyEventURI = "at://did:plc:festival/app.openmusicevent.event/festival-2026"
+        let encodedEvent = Data("legacy-event".utf8)
 
         // This is the complete artifact and event shape stored by the current public server.
         try await database.write { database in
@@ -305,7 +273,7 @@ struct SourceArtifactPublicationTests {
                     VALUES (?, ?, ?, ?)
                     """,
                 arguments: [
-                    calendarEvent.uri.description,
+                    legacyEventURI,
                     Self.watchID.rawValue,
                     nil,
                     encodedEvent,
@@ -347,22 +315,16 @@ struct SourceArtifactPublicationTests {
                 )
             )
         )
-        let catalog = try store.tangledSourceCalendarEvents(
-            watchIDs: [Self.watchID],
-            appViewHost: "stg.openmusicevent.app"
-        )
-        let event = try #require(catalog.first)
-        expectNoDifference(catalog.count, 1)
-        expectNoDifference(event.uri, calendarEvent.uri)
-        expectNoDifference(
-            event.source.resolvedArtifact,
-            OME.CalendarEvent.Source.Artifact(
-                url: try #require(URL(string: migratedURL)),
-                revision: Self.revision,
-                checksumSHA256: "fixture-sha256",
-                byteCount: Self.revision.utf8.count
+        let migratedRow = try await database.read { database in
+            let row = try Row.fetchOne(
+                database,
+                sql: "SELECT uri, event FROM tangledSourceCalendarEvents WHERE watchID = ?",
+                arguments: [Self.watchID.rawValue]
             )
-        )
+            return (row?["uri"] as String?, row?["event"] as Data?)
+        }
+        expectNoDifference(migratedRow.0, legacyEventURI)
+        expectNoDifference(migratedRow.1, encodedEvent)
     }
 }
 
@@ -420,63 +382,19 @@ private extension SourceArtifactPublicationTests {
             data: Data(revision.utf8),
             snapshot: TangledSourceSnapshot(
                 revision: revision,
-                events: [try calendarEvent(revision: revision)],
+                eventIDs: [try eventURI()],
                 posts: []
             )
         )
     }
 
-    static func calendarEvent(revision: String) throws -> OME.CalendarEvent {
+    static func eventURI() throws -> ATProto.URI {
         let organizerID = try #require(OME.Organizer.ID(canonicalOrganizerID))
         let eventID = OME.Event.ID(
             organizerID: organizerID,
             eventID: OME.ID<OME.Event>(.init("festival-2026"))
         )
-        let date = try #require(LocalDate("2026-08-14"))
-        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
-        let draft = OME.Event.Draft(
-            id: eventID,
-            name: "Festival 2026",
-            description: "The event projected with its published source archive.",
-            startDate: date,
-            endDate: date,
-            status: .known(.scheduled),
-            mode: .known(.inPerson),
-            locations: [OME.Event.Location(address: "The festival grounds")],
-            uris: nil,
-            timeZone: timeZone,
-            imageURL: nil,
-            iconImageURL: nil,
-            siteMapImageURL: nil,
-            contactNumbers: nil,
-            reportingLinks: nil,
-            owner: nil
-        )
-        let event = try JSONDecoder().decode(
-            OME.Event.self,
-            from: JSONEncoder().encode(draft)
-        )
-        return OME.CalendarEvent(
-            uri: OME.Event.reference(id: eventID).uri,
-            name: event.name,
-            description: event.description,
-            startsAt: date.atStartOfDay(in: timeZone),
-            endsAt: date.at(hour: 23, minute: 59, second: 59, in: timeZone),
-            status: .scheduled,
-            mode: .inPerson,
-            locations: [OME.CalendarEvent.Location(name: "The festival grounds")],
-            organizer: OME.CalendarEvent.Organizer(id: organizerID),
-            source: OME.CalendarEvent.Source(
-                collection: OME.Event.nsid,
-                sourceRecord: OME.SourceRecord(
-                    kind: .tangled,
-                    reference: canonicalSourceReference,
-                    ref: revision
-                )
-            ),
-            timeZoneIdentifier: timeZone.identifier,
-            event: event
-        )
+        return OME.Event.reference(id: eventID).uri
     }
 
     static func publishedArtifact(

@@ -2,6 +2,8 @@
 
 This is the current app-side coverage map for the public records. A List, Detail, or Form name describes an actual screen or feature; a record does not gain an empty Detail screen solely to complete a naming triplet. The old OME domain models remain available to source import, while active app viewing and local editing use the canonical records. PDS publication and Android validation are later phases.
 
+`app.openmusicevent.relationship` is an existing public ATProto record, not an old source-import model. The About screen reads its `developer` relationships from the app account's PDS; it does not need a replacement roster record.
+
 | Record | Browsing and detail | Editing and field reachability |
 | --- | --- | --- |
 | `Event` | Event browser/search and `EventDetail` | `EventForm`: name, description, start/end precision, time zone, status, mode, RSVP expectation, links, and media. `LocationViewer`/`EditLocation`: ordered locations, all locator variants, and location links. `ProgramList`, `ScheduleList`, `SocialCategoryList`, and `EditSiteMap`: ordered record references and embedded map styles/default. `PostersViewer` remains the focused poster editor. |
@@ -16,6 +18,6 @@ This is the current app-side coverage map for the public records. A List, Detail
 
 Array rows use their owning form or list's Edit, Move, and Delete/Remove actions. Image metadata, including role, alt text, appearance, and focus, is edited through `ImageInfo`; map style image metadata uses the same editor. Record identity, CID, `createdAt`, and reference ownership are allocated or checked by record operations rather than editable text fields.
 
-Native tests cover canonical database create/update/delete; Event, Stage, and Contributor media row save/reopen paths; and Social Post facet create/edit/delete with multibyte text. The owner iOS Maestro lane exercises Event, EventPlace, Stage, ProgramItem credit, SocialPost, and Contributor media flows with five screenshot comparisons. This is local authoring proof: it does not claim PDS write/readback, anonymous reader convergence, Android parity, or authoring of unsupported multi-feature facets.
+Native tests cover canonical database create/update/delete; Event, Stage, and Contributor media row save/reopen paths; and Social Post facet create/edit/delete with multibyte text. The owner iOS Maestro lane exercises Event, EventPlace, Stage, ProgramItem credit, SocialPost, Contributor media, Event location, and site-map style flows with five screenshot comparisons. The location/map flow verifies saved values after reopening the editors, including the selected default map style. This is local authoring proof: it does not claim PDS write/readback, anonymous reader convergence, Android parity, or authoring of unsupported multi-feature facets.
 
 The generated-schema field inventory in `LexiconFieldCoverage.csv` remains the exhaustive publication checklist. Its older `unverified` entries must not be read as a current failure of the screens listed above or as publication proof; the final field-by-field PDS readback gate still needs to update that inventory.

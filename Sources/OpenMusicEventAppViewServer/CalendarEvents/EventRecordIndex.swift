@@ -6,6 +6,18 @@ import OpenMusicEventLexicon
 import SQLiteData
 
 extension OpenMusicEventAppViewStore {
+    func appViewRecordIndexer(
+        tangledWebhookConfiguration: TangledWebhookConfiguration?
+    ) -> AppViewRecordIndexer {
+        AppViewRecordIndexer {
+            eventRecordIndex()
+            tangledWorkspaceProposalRecordIndex(
+                repositoryDIDs: tangledWebhookConfiguration?.repositoryDIDs ?? []
+            )
+            tangledWorkspaceProposalStatusRecordIndex()
+        }
+    }
+
     public func event(id: Event.ID) throws -> Event? {
         try database.read { try Event.find(id).fetchOne($0) }
     }

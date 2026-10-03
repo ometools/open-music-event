@@ -56,24 +56,12 @@ struct TangledChannelNotificationTests {
         }
 
         expectNoDifference(
-            snapshot.events.map(\.uri.description),
+            snapshot.eventIDs.map(\.description),
             [
                 "at://did:plc:festival/app.openmusicevent.event/ome-2026",
                 "at://did:plc:festival/app.openmusicevent.event/ome-2027",
             ]
         )
-        expectNoDifference(
-            snapshot.events.map(\.source.sourceRecord),
-            Array(
-                repeating: OME.SourceRecord(
-                    kind: .tangled,
-                    reference: Self.canonicalSourceReference,
-                    ref: Self.afterRevision
-                ),
-                count: 2
-            )
-        )
-        #expect(snapshot.events.allSatisfy { $0.event != nil })
         expectNoDifference(
             snapshot.posts.map {
                 "\($0.id.organizerID)|\($0.id.eventID.rawValue.rawValue)|\($0.id.postID.rawValue.rawValue)"
@@ -808,7 +796,7 @@ struct TangledChannelNotificationTests {
                         data: Data(revision.utf8),
                         snapshot: TangledSourceSnapshot(
                             revision: revision,
-                            events: [],
+                            eventIDs: [],
                             posts: []
                         )
                     )
@@ -875,7 +863,7 @@ struct TangledChannelNotificationTests {
                     data: Data(revision.utf8),
                     snapshot: TangledSourceSnapshot(
                         revision: revision,
-                        events: [],
+                        eventIDs: [],
                         posts: []
                     )
                 )

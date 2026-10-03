@@ -7,47 +7,6 @@ import OpenMusicEventLexicon
 import SQLiteData
 
 extension OpenMusicEventAppViewStore {
-    func tangledSourceCalendarEvents(
-        watchIDs: [WebhookInboxDelivery.WatchID],
-        appViewHost: ATProto.PDSHost
-    ) throws -> [OME.CalendarEvent] {
-        let selectedWatchIDs = Set(watchIDs.map(\.rawValue))
-        guard !selectedWatchIDs.isEmpty else { return [] }
-
-        return try database.read { database in
-            let checkpointsByWatchID = Dictionary(
-                uniqueKeysWithValues: try TangledSourceRevisionRow
-                    .fetchAll(database)
-                    .map { ($0.watchID, $0) }
-            )
-            return try TangledSourceCalendarEventRow
-                .order { ($0.startsAt.desc(), $0.uri) }
-                .fetchAll(database)
-                .filter { selectedWatchIDs.contains($0.watchID) }
-                .map { row in
-                    guard let checkpoint = checkpointsByWatchID[row.watchID] else {
-                        throw OpenMusicEventAppViewStoreError
-                            .tangledSourceCheckpointMissing(watchID: row.watchID)
-                    }
-                    return try row.calendarEvent(
-                        checkpoint: checkpoint,
-                        appViewHost: appViewHost
-                    )
-                }
-        }
-    }
-
-    func tangledSourceCalendarEvent(
-        uri: ATProto.URI,
-        watchIDs: [WebhookInboxDelivery.WatchID],
-        appViewHost: ATProto.PDSHost
-    ) throws -> OME.CalendarEvent? {
-        try tangledSourceCalendarEvents(
-            watchIDs: watchIDs,
-            appViewHost: appViewHost
-        )
-        .first { $0.uri == uri }
-    }
 
     func tangledSourceCheckpoint(
         watchID: WebhookInboxDelivery.WatchID
@@ -130,13 +89,6 @@ extension OpenMusicEventAppViewStore {
             let addedPosts = after.posts.filter {
                 !previousPostKeys.contains(TangledSourceCommunicationPostKey($0.id))
             }
-            let calendarEventRows = try after.events.map {
-                try TangledSourceCalendarEventRow(
-                    watchID: update.watchID.rawValue,
-                    event: $0
-                )
-            }
-
             try TangledSourceRevisionRow.upsert {
                 TangledSourceRevisionRow(
                     update: update,
@@ -144,16 +96,6 @@ extension OpenMusicEventAppViewStore {
                 )
             }
             .execute(database)
-            try TangledSourceCalendarEventRow
-                .where { $0.watchID.eq(update.watchID.rawValue) }
-                .delete()
-                .execute(database)
-            if !calendarEventRows.isEmpty {
-                try TangledSourceCalendarEventRow.insert {
-                    calendarEventRows
-                }
-                .execute(database)
-            }
             try TangledSourceCommunicationPostRow
                 .where { $0.watchID.eq(update.watchID.rawValue) }
                 .delete()
@@ -170,14 +112,14 @@ extension OpenMusicEventAppViewStore {
                 .execute(database)
             }
 
-            // Backfill repairs the durable catalog but never delivers historical notifications.
+            // Backfill repairs the publication checkpoint without historical notifications.
             if repairsCurrentRevision { return 0 }
 
-            let eventSources = after.events
-                .map { event in
+            let eventSources = after.eventIDs
+                .map { eventID in
                     NotificationSource(
                         id: .init(
-                            rawValue: event.uri.description
+                            rawValue: eventID.description
                         ),
                         version: .init(rawValue: update.after)
                     )
@@ -398,51 +340,6 @@ private enum TangledSourceNotificationPath {
     }
 }
 
-@Table("tangledSourceCalendarEvents")
-private struct TangledSourceCalendarEventRow: Equatable, Sendable {
-    @Column(primaryKey: true) var uri: String
-    var watchID: String
-    var startsAt: Date?
-    var event: Data
-
-    init(watchID: String, event: OME.CalendarEvent) throws {
-        uri = event.uri.description
-        self.watchID = watchID
-        startsAt = event.startsAt
-        self.event = try JSONEncoder().encode(event)
-    }
-
-    func calendarEvent(
-        checkpoint: TangledSourceRevisionRow,
-        appViewHost: ATProto.PDSHost
-    ) throws -> OME.CalendarEvent {
-        guard let publishedArtifact = checkpoint.publishedArtifact else {
-            throw OpenMusicEventAppViewStoreError.tangledSourcePublishedArtifactMissing(
-                watchID: watchID
-            )
-        }
-        var calendarEvent = try JSONDecoder().decode(OME.CalendarEvent.self, from: event)
-        guard calendarEvent.source.sourceRecord?.ref == publishedArtifact.revision else {
-            throw OpenMusicEventAppViewStoreError.tangledSourceRevisionMismatch(
-                watchID: watchID,
-                expected: publishedArtifact.revision,
-                actual: calendarEvent.source.sourceRecord?.ref
-            )
-        }
-        calendarEvent.source.appViewHost = appViewHost
-        calendarEvent.source.resolvedArtifact = OME.CalendarEvent.Source.Artifact(
-            url: publishedArtifact.url,
-            revision: publishedArtifact.revision,
-            checksumSHA256: publishedArtifact.checksumSHA256,
-            byteCount: publishedArtifact.byteCount
-        )
-        calendarEvent.source.resolvedRepository = OME.CalendarEvent.Source.Repository(
-            reference: publishedArtifact.reference,
-            ref: publishedArtifact.revision
-        )
-        return calendarEvent
-    }
-}
 
 @Table("tangledSourceCommunicationPosts")
 private struct TangledSourceCommunicationPostRow: Equatable, Sendable {
@@ -531,7 +428,7 @@ enum TangledSourceProjectionSchema {
         }
         migrator.registerMigration("Create Tangled source calendar event projections") { database in
             let revisionTable = TangledSourceRevisionRow.tableName
-            let eventTable = TangledSourceCalendarEventRow.tableName
+            let eventTable = "tangledSourceCalendarEvents"
             let browseIndex = "\(eventTable)_browse"
             try #sql(
                 """

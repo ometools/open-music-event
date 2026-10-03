@@ -18,8 +18,8 @@ The AppView origin is intended to serve `openmusicevent.app`, `ome.social`,
 - `GET /apple-app-site-association`: Apple root-path fallback.
 - `GET /.well-known/assetlinks.json`: Android App Links association.
 - `GET /events/{claim}`: host-scoped branded attendee page for a configured durable event.
-- `GET /xrpc/app.openmusicevent.calendar.getEvent`: reads one community or OME calendar event.
-- `GET /xrpc/app.openmusicevent.calendar.getEvents`: pages one community or OME catalog.
+- `GET /xrpc/events.openmusic.getEvent`: reads one indexed canonical Event record.
+- `GET /xrpc/events.openmusic.getEvents`: pages indexed canonical Event records.
 - `POST /notifications/v1/installations`: creates an anonymous installation credential.
 - `PUT /notifications/v1/destination`: replaces the authenticated installation's typed APNs or
   FCM destination.
@@ -63,13 +63,11 @@ AWS_SECRET_ACCESS_KEY=<source-artifact-writer-secret-key>
 AWS_SESSION_TOKEN=<optional-session-token>
 ```
 
-`OME_APPVIEW_HOST` is the local bind address. `OME_APPVIEW_PUBLIC_HOST` is the AppView hostname
-advertised by XRPC catalog records; staging must set it to `stg.openmusicevent.app`. A configured
-webhook watch makes its canonical organizer source-owned: XRPC and branded event pages read that
-organizer's events only from the durable source projection, while the temporary bundle continues
-to supply organizers that have not migrated yet. Each projected event keeps its canonical event
-URI and identifies the exact S3 publication through the existing `resolvedRepository` response
-shape, so clients require no S3-specific behavior.
+`OME_APPVIEW_HOST` is the local bind address. `OME_APPVIEW_PUBLIC_HOST` identifies the public
+origin for source-artifact metadata; staging must set it to `stg.openmusicevent.app`. Canonical
+Event XRPC and branded event pages read the indexed protocol Event records. Tangled webhook
+watches still maintain source-artifact projections for source delivery, but they do not supply
+the attendee Event catalog.
 
 `OME_TCA26_PATH` and `OME_COMPOSABLE_NOTIFICATIONS_PATH` are build-time package overrides, not
 runtime service configuration. During active deployment iteration, point them at reviewed sibling
@@ -224,21 +222,21 @@ remains independent: it identifies the organizer and
 `sh.tangled.repo` record whose stable OME namespace those bytes represent. A staging watch therefore
 publishes its staging repository beneath `OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN` without changing the
 organizer, event, channel, or post identities. One source repository can contain multiple events;
-AppView projects all of them. Configure at most one authoritative physical watch for the same
-canonical source in an environment.
+AppView validates their identities for notifications. Configure at most one authoritative physical
+watch for the same canonical source in an environment.
 
 AppView downloads each exact Tangled revision once, validates those archive bytes, publishes those
 same bytes to the immutable S3 key
 `<Tangled owner>/<Tangled repository>/archive/<revision>.tar.gz`, and only then stores the
-revision, S3 reference, checksum, byte count, complete calendar-event projections, and
-communication-post identities in its primary SQLite database. Every successful revision replaces
-all event rows owned by that watch, so source deletions disappear instead of surviving an upsert.
-The checkpoint, event replacement, and notification outbox inserts share one transaction. An S3
-upload or projection failure therefore cannot advance the advertised revision or enqueue a
-refresh. Only installations subscribed to that canonical channel route receive the signal. The
+revision, S3 reference, checksum, byte count, and communication-post identities in its primary
+SQLite database. It derives event notification identities from the validated archive without
+storing a second calendar catalog. The checkpoint, post replacement, and notification outbox
+inserts share one transaction. An S3 upload or projection failure therefore cannot advance the
+advertised revision or enqueue a refresh. Only installations subscribed to that canonical channel
+route receive the signal. The
 first processed push compares `before` and `after`, so posts that already existed before AppView was
 deployed do not produce a historical notification burst; a replay of the same `after` revision
-performs no source download or upload and creates no duplicate event or outbox row.
+performs no source download or upload and creates no duplicate outbox row.
 
 This first projection treats a newly added communication-post identity as notification-worthy.
 Editing or deleting an existing post does not enqueue another notification. Each new post enqueues
@@ -272,22 +270,21 @@ Keep its AWS secret out of the public watch file and service logs. The published
 content-addressed by source revision, carry a SHA-256 checksum, and are served through
 `OME_SOURCE_ARTIFACT_PUBLIC_ORIGIN`.
 
-The catalog intentionally fails closed for a configured organizer whose current checkpoint has no
-published artifact and event projection; it never falls back to either Tangled or stale bundled
-rows for that organizer. During deployment, stage the new executable and configuration, keep the
-new service process stopped, and run:
+Canonical Event reads come from indexed protocol records. Source artifact publication is a
+separate boundary; its checkpoint does not create Event catalog rows. During deployment, stage the
+new executable and configuration, keep the new service process stopped, and run:
 
 ```sh
 OpenMusicEventAppView backfill-source-artifacts
 ```
 
 The command uses every configured watch's existing checkpoint, validates and uploads its exact
-revision, then repairs the artifact metadata and complete event projection without producing
-notifications. It is idempotent: a watch that already has complete publication metadata is
-reported without another download or upload. Verify each reported S3 object, checksum, checkpoint,
-and event row before starting or restarting the new service. Then query the catalog and confirm
-that `resolvedRepository.reference` is beneath the configured public origin and
-`resolvedRepository.ref` is the checkpoint's exact revision.
+revision, then repairs the artifact metadata without producing notifications. It is idempotent: a
+watch that already has complete publication metadata is reported without another download or
+upload. Verify each reported S3 object, checksum, and checkpoint before starting or restarting the
+new service. Historical `tangledSourceCalendarEvents` rows remain
+in existing databases for migration compatibility but are neither updated nor served. Verify
+canonical Event reads separately through the protocol-record index.
 
 ## Non-Device Production Acceptance
 
