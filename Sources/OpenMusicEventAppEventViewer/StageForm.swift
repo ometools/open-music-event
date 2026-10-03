@@ -20,6 +20,9 @@ enum PersistentStageDeleted: FeatureEventKey {
 public struct StageForm {
     public init() {}
 
+    typealias MediaEntry = RecordMediaEditing.MediaEntry
+    public typealias MediaDraft = RecordMediaEditing.MediaDraft
+
     public struct FormValue: Equatable {
         var name = ""
         var description = ""
@@ -88,13 +91,16 @@ public struct StageForm {
         var heroImagePicker: ImageAssetPicker.State
         var isSaving = false
         var logoImagePicker: ImageAssetPicker.State
+        var mediaEntries: [MediaEntry] = []
+        var mediaDraft: MediaDraft?
         var originalImages: [OME.Image] = []
         var originalStage: Stage?
         var posterImagePicker: ImageAssetPicker.State
         var showsDeleteConfirmation = false
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && form.canSubmit && validationMessage == nil
+            hasLoadedDraft && !isSaving && mediaDraft == nil
+                && form.canSubmit && validationMessage == nil
         }
 
         var navigationTitle: String {
@@ -109,9 +115,45 @@ public struct StageForm {
             return form.value.links.compactMap(\.validationMessage).first
         }
 
+        var additionalMediaEntries: [MediaEntry] {
+            mediaEntries.filter { !Self.isManagedImage($0.value, recordID: eventID) }
+        }
+
+        static func isManagedImage(_ value: Open<OME.Media>, recordID: Event.ID) -> Bool {
+            guard case let .known(.image(image)) = value else { return false }
+            return (image.role == .known(.logo)
+                || image.role == .known(.hero)
+                || image.role == .known(.poster))
+                && image.displayImageAsset(recordID: recordID) != nil
+        }
+
+        mutating func editMedia(_ id: UUID) {
+            guard let entry = mediaEntries.first(where: { $0.id == id }) else { return }
+            switch entry.value {
+            case let .known(.external(external)):
+                mediaDraft = MediaDraft(entryID: id, external: external)
+            case let .known(.record(reference)):
+                mediaDraft = MediaDraft(entryID: id, reference: reference)
+            case .known(.image), .unknown:
+                break
+            }
+        }
+
+        mutating func saveMediaDraft() {
+            guard let draft = mediaDraft, let value = draft.value() else { return }
+            if let id = draft.entryID {
+                guard let index = mediaEntries.firstIndex(where: { $0.id == id }) else { return }
+                mediaEntries[index].value = value
+            } else {
+                mediaEntries.append(MediaEntry(value: value))
+            }
+            mediaDraft = nil
+        }
+
         mutating func load(_ stage: Stage) {
             form = FormFeature.State(value: FormValue(stage))
             originalStage = stage
+            mediaEntries = (stage.media ?? []).map { MediaEntry(value: $0) }
             originalImages = (stage.media ?? []).compactMap { medium -> OME.Image? in
                 guard case let .known(.image(image)) = medium,
                       image.role == .known(.logo)
@@ -141,6 +183,7 @@ public struct StageForm {
             let description: String?
             let links: [OME.Link]?
             let originalStage: Stage?
+            let mediaEntries: [MediaEntry]
             let logoImages: [ImageAssetPicker.ImageValue]
             let heroImages: [ImageAssetPicker.ImageValue]
             let posterImages: [ImageAssetPicker.ImageValue]
@@ -153,6 +196,7 @@ public struct StageForm {
                 let preparedLinks = state.form.value.links.compactMap(\.preparedLink)
                 links = preparedLinks.isEmpty ? nil : preparedLinks
                 originalStage = state.originalStage
+                mediaEntries = state.mediaEntries
                 logoImages = state.logoImagePicker.images
                 heroImages = state.heroImagePicker.images
                 posterImages = state.posterImagePicker.images
@@ -173,7 +217,8 @@ public struct StageForm {
                 var heroes = try heroImages.map { try preparedImage($0, role: .hero) }
                 var posters = try posterImages.map { try preparedImage($0, role: .poster) }
                 var media: [Open<OME.Media>] = []
-                for existing in originalStage?.media ?? [] {
+                for entry in mediaEntries {
+                    let existing = entry.value
                     switch existing {
                     case let .known(.image(image))
                         where image.role == .known(.logo)
@@ -216,7 +261,9 @@ public struct StageForm {
     }
 
     public enum Action {
+        case addExternalMediaButtonTapped
         case addLinkButtonTapped
+        case addRecordMediaButtonTapped
         case cancelButtonTapped
         case deleteButtonTapped
         case deleteConfirmed
@@ -226,6 +273,13 @@ public struct StageForm {
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
         case logoImagePicker(ImageAssetPicker.Action)
+        case mediaDeleteButtonTapped(UUID)
+        case mediaDraftCancelButtonTapped
+        case mediaDraftChanged(MediaDraft)
+        case mediaDraftRemoveThumbnailButtonTapped
+        case mediaDraftSaveButtonTapped
+        case mediaEditButtonTapped(UUID)
+        case mediaMoveButtonTapped(UUID, Int)
         case moveLinkButtonTapped(EditableLink.ID, Int)
         case posterImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(EditableLink.ID)
@@ -256,10 +310,16 @@ public struct StageForm {
         Scope(\.posterImagePicker) { ImageAssetPicker() }
         Update { state, action in
             switch action {
+            case .addExternalMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .external)
+
             case .addLinkButtonTapped:
                 let link = EditableLink()
                 state.form.value.links.append(link)
                 state.editingLinkID = link.id
+
+            case .addRecordMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .record)
 
             case .cancelButtonTapped:
                 store.addTask { try store.dismiss() }
@@ -366,6 +426,37 @@ public struct StageForm {
                 state.destination = .logoImageInfo(Spawn(imageInfo))
             case .logoImagePicker:
                 break
+
+            case let .mediaDeleteButtonTapped(id):
+                state.mediaEntries.removeAll { $0.id == id }
+                if state.mediaDraft?.entryID == id { state.mediaDraft = nil }
+
+            case .mediaDraftCancelButtonTapped:
+                state.mediaDraft = nil
+
+            case let .mediaDraftChanged(draft):
+                guard state.mediaDraft != nil else { return }
+                state.mediaDraft = draft
+
+            case .mediaDraftRemoveThumbnailButtonTapped:
+                state.mediaDraft?.removeThumbnail = true
+                state.mediaDraft?.thumbnailURL = ""
+
+            case .mediaDraftSaveButtonTapped:
+                state.saveMediaDraft()
+
+            case let .mediaEditButtonTapped(id):
+                state.editMedia(id)
+
+            case let .mediaMoveButtonTapped(id, offset):
+                let visibleIDs = state.additionalMediaEntries.map(\.id)
+                guard let visibleIndex = visibleIDs.firstIndex(of: id),
+                      visibleIDs.indices.contains(visibleIndex + offset),
+                      let index = state.mediaEntries.firstIndex(where: { $0.id == id }),
+                      let otherIndex = state.mediaEntries.firstIndex(where: {
+                          $0.id == visibleIDs[visibleIndex + offset]
+                      }) else { return }
+                state.mediaEntries.swapAt(index, otherIndex)
 
             case let .moveLinkButtonTapped(id, offset):
                 guard let index = state.form.value.links.firstIndex(where: { $0.id == id }),

@@ -117,6 +117,76 @@ extension NavigationTests {
     }
 
     @Test
+    func persistentStageMediaRowsCanBeAddedReorderedEditedAndDeleted() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+        }
+
+        let createStore = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: StageForm.State(eventID: eventID)) { StageForm() }
+        }
+        createStore.modify { $0.form.value.name = "Meadow Stage" }
+        await createStore.send(.addExternalMediaButtonTapped)?.value
+        createStore.modify {
+            $0.mediaDraft?.uri = "https://example.com/stage-video"
+            $0.mediaDraft?.title = "Stage Video"
+        }
+        await createStore.send(.mediaDraftSaveButtonTapped)?.value
+        await createStore.send(.addRecordMediaButtonTapped)?.value
+        createStore.modify {
+            $0.mediaDraft?.uri = "at://did:web:example.com/app.bsky.feed.post/3mrdbziccpcy"
+        }
+        await createStore.send(.mediaDraftSaveButtonTapped)?.value
+        let recordRowID = try #require(createStore.state.additionalMediaEntries.last?.id)
+        await createStore.send(.mediaMoveButtonTapped(recordRowID, -1))?.value
+        await createStore.send(.saveButtonTapped)?.value
+        await waitUntil { !createStore.state.isSaving && !createStore.isPresented }
+
+        let created = try await database.read { db in
+            try #require(try Stage.all.fetchOne(db))
+        }
+        #expect(created.media?.count == 2)
+        guard case .some(.known(.record)) = created.media?.first else {
+            Issue.record("Expected reordered AT Protocol media first")
+            return
+        }
+
+        let editStore = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: StageForm.State(stageID: created.id, eventID: eventID)) {
+                StageForm()
+            }
+        }
+        let rows = editStore.state.additionalMediaEntries
+        #expect(rows.count == 2)
+        await editStore.send(.mediaDeleteButtonTapped(try #require(rows.first?.id)))?.value
+        await editStore.send(.mediaEditButtonTapped(try #require(rows.last?.id)))?.value
+        editStore.modify { $0.mediaDraft?.title = "Updated Stage Video" }
+        await editStore.send(.mediaDraftSaveButtonTapped)?.value
+        await editStore.send(.saveButtonTapped)?.value
+        await waitUntil { !editStore.state.isSaving && !editStore.isPresented }
+
+        let updated = try await database.read { db in
+            try #require(try Stage.find(created.id).fetchOne(db))
+        }
+        #expect(updated.media?.count == 1)
+        guard case let .some(.known(.external(external))) = updated.media?.first else {
+            Issue.record("Expected the edited external media to remain")
+            return
+        }
+        #expect(external.title == "Updated Stage Video")
+    }
+
+    @Test
     func creatingStageProfileFromEventStageLinksTheNewRecord() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

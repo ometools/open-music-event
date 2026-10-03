@@ -34,27 +34,38 @@ struct StageDetail: View {
                         }
                     }
 
-                    let images = (stage.media ?? []).compactMap { medium -> OME.Image? in
-                        guard case let .known(.image(image)) = medium else { return nil }
-                        return image
-                    }
-                    if !images.isEmpty {
+                    if let media = stage.media, !media.isEmpty {
                         Section("Media") {
-                            ForEach(images.indices, id: \.self) { index in
-                                ImageAssetAsyncImage(
-                                    image: .record(images[index], stage.id),
-                                    contentMode: .fit
-                                ) {
-                                    Image(systemName: "photo")
+                            ForEach(media.indices, id: \.self) { index in
+                                switch media[index] {
+                                case let .known(.image(image)):
+                                    ImageAssetAsyncImage(
+                                        image: .record(image, stage.id),
+                                        contentMode: .fit
+                                    ) {
+                                        Image(systemName: "photo")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 180)
+                                    .accessibilityLabel(
+                                        image.alt?.rawValue
+                                            ?? image.title
+                                            ?? "Stage profile image"
+                                    )
+                                case let .known(.external(external)):
+                                    Link(
+                                        external.title ?? external.uri.absoluteString,
+                                        destination: external.uri
+                                    )
+                                case let .known(.record(reference)):
+                                    LabeledContent(
+                                        "AT Protocol Record", value: reference.uri.description
+                                    )
+                                case .unknown:
+                                    Text("Unrecognized media")
                                         .foregroundStyle(.secondary)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 180)
-                                .accessibilityLabel(
-                                    images[index].alt?.rawValue
-                                        ?? images[index].title
-                                        ?? "Stage profile image"
-                                )
                             }
                         }
                     }

@@ -59,6 +59,8 @@ appId: ${APP_ID}
 - assertVisible: New Event Place
 - tapOn: Name
 - inputText: Profile Test Stage
+- swipe:
+    direction: UP
 - scrollUntilVisible:
     element: New Stage Profile
     direction: DOWN
@@ -66,6 +68,25 @@ appId: ${APP_ID}
 - assertVisible: New Stage Profile
 - tapOn: Name
 - inputText: Profile Test Stage
+- swipe:
+    start: 50%, 45%
+    end: 50%, 15%
+- scrollUntilVisible:
+    element: Add Media
+    direction: DOWN
+- tapOn: Add Media
+- tapOn: External Link
+- tapOn:
+    id: field.stage-media.url
+- inputText: https://example.com/stage-video
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: button.stage-media.done
+    direction: DOWN
+- tapOn:
+    id: button.stage-media.done
+- assertVisible: External media
 - tapOn: Save
 - extendedWaitUntil:
     visible: Linked Stage
@@ -80,6 +101,7 @@ appId: ${APP_ID}
     timeout: 15000
 - tapOn: Profile Test Stage
 - assertVisible: Stage Profile
+- assertVisible: https://example.com/stage-video
 - assertVisible: This Event Place
 - runFlow: helpers/back.yaml
 - runFlow: helpers/back.yaml
