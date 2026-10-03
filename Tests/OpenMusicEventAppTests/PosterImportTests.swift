@@ -182,6 +182,32 @@ struct PosterImportTests {
         #expect(configuration.allowsAppearance)
     }
 
+    @Test
+    func iconImageInfoEditsStandaloneLabelPolicy() {
+        var image = OME.Image(
+            source: .known(.url(URL(string: "https://example.com/icon.png")!)),
+            role: .known(.icon(.init(canRepresentSubjectWithoutLabel: true)))
+        )
+        var info = ImageInfo.State(image: image)
+
+        #expect(info.isIcon)
+        #expect(info.iconCanRepresentSubjectWithoutLabel)
+        #expect(info.roleOptions.filter { $0.rawValue == "icon" }.count == 1)
+        info.roleRawValue = "icon"
+        #expect(info.iconCanRepresentSubjectWithoutLabel)
+        info.title = "Icon"
+        #expect(info.image.role == .known(.icon(.init(canRepresentSubjectWithoutLabel: true))))
+
+        info.iconCanRepresentSubjectWithoutLabel = false
+        #expect(info.image.role == .known(.icon(.init(canRepresentSubjectWithoutLabel: false))))
+
+        image.role = .known(.hero)
+        info = ImageInfo.State(image: image)
+        #expect(!info.isIcon)
+        info.iconCanRepresentSubjectWithoutLabel = true
+        #expect(info.image.role == .known(.hero))
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test

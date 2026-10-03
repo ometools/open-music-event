@@ -74,7 +74,28 @@ public struct ImageInfo {
                 guard case let .known(role) = image.role else { return "" }
                 return role.rawValue
             }
-            set { image.role = OME.Image.Role(rawValue: newValue).map(Open.known) }
+            set {
+                guard newValue != roleRawValue else { return }
+                image.role = OME.Image.Role(rawValue: newValue).map(Open.known)
+            }
+        }
+
+        var isIcon: Bool {
+            guard case .known(.icon) = image.role else { return false }
+            return true
+        }
+
+        var iconCanRepresentSubjectWithoutLabel: Bool {
+            get {
+                guard case let .known(.icon(icon)) = image.role else { return false }
+                return icon.canRepresentSubjectWithoutLabel == true
+            }
+            set {
+                guard case let .known(.icon(icon)) = image.role else { return }
+                var updated = icon
+                updated.canRepresentSubjectWithoutLabel = newValue
+                image.role = .known(.icon(updated))
+            }
         }
 
         var renderingModeRawValue: String {
@@ -237,7 +258,10 @@ public extension ImageInfo {
             including role: Open<OME.Image.Role>?
         ) -> [OME.Image.Role] {
             guard case let .known(role) = role else { return allowedRoles }
-            return allowedRoles.including(role)
+            guard !allowedRoles.contains(where: { $0.rawValue == role.rawValue }) else {
+                return allowedRoles
+            }
+            return allowedRoles + [role]
         }
     }
 }
@@ -306,6 +330,14 @@ public struct ImageInfoEditorSection: View {
                 }
             } else {
                 LabeledContent("Type", value: store.roleOptions.first?.imageInfoTitle ?? "Other")
+            }
+
+            if store.isIcon {
+                Toggle(
+                    "Icon can stand alone",
+                    isOn: $store.iconCanRepresentSubjectWithoutLabel
+                )
+                .accessibilityIdentifier("field.image-info.icon-without-label")
             }
 
             if store.renderingModeOptions.count > 1 {
