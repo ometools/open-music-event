@@ -148,6 +148,10 @@ public struct SocialPostDetailView: View {
                             .multilineTextAlignment(.leading)
                             .selectableText()
 
+                        if let embed = post.embed {
+                            SocialPostEmbedView(embed: embed, recordID: post.id)
+                        }
+
                         if let errorMessage = store.errorMessage {
                             Text(errorMessage)
                                 .font(.footnote)
@@ -198,5 +202,91 @@ public struct SocialPostDetailView: View {
             }
         }
         .accessibilityIdentifier("view.communication-post.\(store.postID.description)")
+    }
+}
+
+struct SocialPostEmbedView: View {
+    let embed: Social.Post.Embed
+    let recordID: Social.Post.ID
+
+    var body: some View {
+        switch SocialPostEmbedContent(embed) {
+        case let .images(images):
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 8),
+                    count: images.count == 1 ? 1 : 2
+                ),
+                spacing: 8
+            ) {
+                ForEach(images.indices, id: \.self) { index in
+                    ImageAssetAsyncImage(
+                        image: .record(images[index], recordID),
+                        contentMode: .fill
+                    ) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.secondary.opacity(0.12))
+                            .overlay { Image(systemName: "photo") }
+                    }
+                    .frame(height: images.count == 1 ? 220 : 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel(images[index].alt?.rawValue ?? "Post photo")
+                }
+            }
+
+        case let .external(card):
+            if let url = card.url {
+                Link(destination: url) {
+                    externalCard(card)
+                }
+                .buttonStyle(.plain)
+            } else {
+                externalCard(card)
+            }
+
+        case let .record(uri):
+            Label("Referenced record", systemImage: "link")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityHint(uri)
+
+        case .unsupported:
+            Label("Attached content", systemImage: "paperclip")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    func externalCard(_ card: SocialPostExternalCard) -> some View {
+        HStack(spacing: 12) {
+            if let thumbnail = card.thumbnail {
+                ImageAssetAsyncImage(
+                    image: .record(thumbnail, recordID),
+                    contentMode: .fill
+                ) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.secondary.opacity(0.12))
+                }
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.title)
+                    .font(.headline)
+                if !card.summary.isEmpty {
+                    Text(card.summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Text(card.url?.host ?? card.uri)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }

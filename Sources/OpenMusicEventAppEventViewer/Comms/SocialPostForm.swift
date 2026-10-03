@@ -52,6 +52,8 @@ public struct SocialPostForm {
             self.imagePicker = ImageAssetPicker.State(
                 configuration: .communicationPostPhotos
             )
+            self.externalCard = SocialPostExternalCard()
+            self.hasLinkCard = false
             self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
 
@@ -71,9 +73,39 @@ public struct SocialPostForm {
                 markdown: post.text,
                 delivery: delivery
             )
-            self.imagePicker = ImageAssetPicker.State(
-                configuration: .communicationPostPhotos
-            )
+            if let embed = post.embed {
+                switch SocialPostEmbedContent(embed) {
+                case let .images(images):
+                    self.imagePicker = ImageAssetPicker.State(
+                        configuration: .communicationPostPhotos,
+                        recordImages: images,
+                        recordID: post.id
+                    )
+                    self.externalCard = SocialPostExternalCard()
+                    self.hasLinkCard = false
+                case let .external(card):
+                    self.imagePicker = ImageAssetPicker.State(
+                        configuration: .communicationPostPhotos,
+                        recordID: post.id
+                    )
+                    self.externalCard = card
+                    self.hasLinkCard = true
+                case .record, .unsupported:
+                    self.imagePicker = ImageAssetPicker.State(
+                        configuration: .communicationPostPhotos,
+                        recordID: post.id
+                    )
+                    self.externalCard = SocialPostExternalCard()
+                    self.hasLinkCard = false
+                }
+            } else {
+                self.imagePicker = ImageAssetPicker.State(
+                    configuration: .communicationPostPhotos,
+                    recordID: post.id
+                )
+                self.externalCard = SocialPostExternalCard()
+                self.hasLinkCard = false
+            }
             self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
 
@@ -85,6 +117,8 @@ public struct SocialPostForm {
         public var destination: Destination.State?
         public var draft: SocialPostDraft
         public var errorMessage: String?
+        var externalCard: SocialPostExternalCard
+        var hasLinkCard: Bool
         public var imagePicker: ImageAssetPicker.State
         public var isPreviewing = false
         public var isSaving = false
@@ -94,9 +128,19 @@ public struct SocialPostForm {
             (editingPost != nil || !draft.trimmedTitle.isEmpty)
                 && (!draft.trimmedMarkdown.isEmpty
                     || !imagePicker.images.isEmpty
-                    || (editingPost?.embed != nil && !removedEmbed))
+                    || hasLinkCard
+                    || hasRetainedEmbed)
+                && (!hasLinkCard || externalCard.isValid)
                 && !isSaving
                 && (draft.delivery != .emergency || canRequestEmergency)
+        }
+
+        var hasRetainedEmbed: Bool {
+            guard let embed = editingPost?.embed, !removedEmbed else { return false }
+            switch SocialPostEmbedContent(embed) {
+            case .record, .unsupported: return true
+            case .images, .external: return false
+            }
         }
 
         public var hasUnknownDelivery: Bool {
@@ -111,10 +155,12 @@ public struct SocialPostForm {
     }
 
     public enum Action {
+        case addLinkCardButtonTapped
         case cancelButtonTapped
         case destination(Destination.Action)
         case imagePicker(ImageAssetPicker.Action)
         case removeEmbedButtonTapped
+        case removeLinkCardButtonTapped
         case saveButtonTapped
     }
 
@@ -133,6 +179,12 @@ public struct SocialPostForm {
         }
         Update { state, action in
             switch action {
+            case .addLinkCardButtonTapped:
+                state.imagePicker.images = []
+                state.externalCard = SocialPostExternalCard()
+                state.hasLinkCard = true
+                state.removedEmbed = false
+
             case .cancelButtonTapped:
                 store.addTask { try store.dismiss() }
 
@@ -140,6 +192,8 @@ public struct SocialPostForm {
                 break
 
             case .imagePicker(.addButtonTapped):
+                state.hasLinkCard = false
+                state.removedEmbed = false
                 state.destination = .importImages(
                     Spawn(state.imagePicker.importImagesState())
                 )
@@ -154,6 +208,13 @@ public struct SocialPostForm {
                 break
 
             case .removeEmbedButtonTapped:
+                state.imagePicker.images = []
+                state.hasLinkCard = false
+                state.removedEmbed = true
+
+            case .removeLinkCardButtonTapped:
+                state.externalCard = SocialPostExternalCard()
+                state.hasLinkCard = false
                 state.removedEmbed = true
 
             case .saveButtonTapped:
@@ -164,6 +225,7 @@ public struct SocialPostForm {
                 let draft = state.draft
                 let editingPost = state.editingPost
                 let images = state.imagePicker.images
+                let externalCard = state.hasLinkCard ? state.externalCard : nil
                 let removedEmbed = state.removedEmbed
                 let hasUnknownDelivery = state.hasUnknownDelivery
                 let timestamp = date()
@@ -174,7 +236,8 @@ public struct SocialPostForm {
                         let embed = try Self.preparedEmbed(
                             images: images,
                             existing: editingPost?.embed,
-                            removed: removedEmbed
+                            removed: removedEmbed,
+                            externalCard: externalCard
                         )
                         try await database.write { db in
                             var fields = SocialPostRecordEditing.Fields(
@@ -243,6 +306,8 @@ public struct SocialPostForm {
         }
         .onEvent(ImportedImagesSubmitted.self) { images, state in
             guard case .importImages = state.destination else { return }
+            state.hasLinkCard = false
+            state.removedEmbed = false
             state.imagePicker.append(images)
         }
     }
@@ -254,9 +319,26 @@ public struct SocialPostForm {
     private static func preparedEmbed(
         images: [ImageAssetPicker.ImageValue],
         existing: Social.Post.Embed?,
-        removed: Bool
+        removed: Bool,
+        externalCard: SocialPostExternalCard?
     ) throws -> Social.Post.Embed? {
-        guard !images.isEmpty else { return removed ? nil : existing }
+        if let externalCard { return externalCard.embed }
+        guard !images.isEmpty else {
+            guard !removed, let existing else { return nil }
+            switch SocialPostEmbedContent(existing) {
+            case .record, .unsupported: return existing
+            case .images, .external: return nil
+            }
+        }
+        let originalEntries: [Lexicon.JSONValue]
+        if let existing,
+           existing.object["$type"]?.string == "app.bsky.embed.images",
+           let imagesValue = existing.object["images"],
+           case let .array(entries) = imagesValue {
+            originalEntries = entries
+        } else {
+            originalEntries = []
+        }
         let entries: [Lexicon.JSONValue] = try images.map { value in
             let blob: ATProto.Blob
             if let imported = value.importedImage {
@@ -275,15 +357,25 @@ public struct SocialPostForm {
                 "mimeType": .string(blob.mimeType.rawValue),
             ]
             if let size = blob.size { blobObject["size"] = .integer(Int64(size)) }
-            return .object([
-                "alt": .string(value.image.alt?.rawValue ?? ""),
-                "image": .object(blobObject),
-            ])
+            let original = originalEntries.first { entry in
+                guard let image = entry.object?["image"],
+                      let candidate = try? image.decoded(as: ATProto.Blob.self) else {
+                    return false
+                }
+                return candidate.ref == blob.ref
+            }
+            var entry = original?.object ?? [:]
+            entry["alt"] = .string(value.image.alt?.rawValue ?? "")
+            entry["image"] = .object(blobObject)
+            return .object(entry)
         }
-        return Social.Post.Embed([
-            "$type": "app.bsky.embed.images",
-            "images": .array(entries),
-        ])
+        var object: [String: Lexicon.JSONValue] = [:]
+        if let existing, existing.object["$type"]?.string == "app.bsky.embed.images" {
+            object = existing.object
+        }
+        object["$type"] = "app.bsky.embed.images"
+        object["images"] = .array(entries)
+        return Social.Post.Embed(object)
     }
 
 }
@@ -315,6 +407,9 @@ public struct SocialPostFormView: View {
                     Text(store.draft.trimmedTitle)
                         .font(.headline)
                     CommsMarkdownText(store.draft.trimmedMarkdown)
+                    if store.hasLinkCard, let url = store.externalCard.url {
+                        Link(store.externalCard.title, destination: url)
+                    }
                 }
             } else {
                 Section("Post") {
@@ -360,7 +455,7 @@ public struct SocialPostFormView: View {
                 }
             }
 
-            if store.editingPost?.embed != nil && !store.removedEmbed && store.imagePicker.images.isEmpty {
+            if store.hasRetainedEmbed {
                 Section("Embed") {
                     Text("This post has an existing embed.")
                     Button("Remove Embed", role: .destructive) {
@@ -369,9 +464,27 @@ public struct SocialPostFormView: View {
                 }
             }
 
-            ImageAssetPickerSection(
-                store: store.scope(\.imagePicker)
-            )
+            if store.hasLinkCard {
+                Section("Link Card") {
+                    TextField("URL", text: $store.externalCard.uri)
+                    TextField("Link Title", text: $store.externalCard.title)
+                    TextField("Description", text: $store.externalCard.summary)
+                    Button("Remove Link Card", role: .destructive) {
+                        store.send(.removeLinkCardButtonTapped)
+                    }
+                }
+            } else {
+                ImageAssetPickerSection(
+                    store: store.scope(\.imagePicker)
+                )
+                if store.imagePicker.images.isEmpty {
+                    Section("Link Card") {
+                        Button("Add Link Card") {
+                            store.send(.addLinkCardButtonTapped)
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle(store.editingPost == nil ? "New Post" : "Edit Post")
         .toolbar {

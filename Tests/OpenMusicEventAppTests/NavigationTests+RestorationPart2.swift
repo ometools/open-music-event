@@ -162,6 +162,172 @@ extension NavigationTests {
     }
 
     @Test
+    func `an author can remove one existing post photo without discarding the other`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let postID = canonicalRouteRecordID("social.ome.post", "3mrdbziccpcap")
+        let author = try #require(DID("did:plc:organizer"))
+        let firstBlob = ATProto.Blob(
+            ref: "bafkreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju",
+            mimeType: "image/png",
+            size: 1
+        )
+        let secondBlob = ATProto.Blob(
+            ref: "bafkreifcu6blc4yl7etxhjohn3tm2jopmz2vvxlqfgckqujm4g74adf46y",
+            mimeType: "image/png",
+            size: 1
+        )
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+            try Self.insertCanonicalPost(
+                db, id: postID, eventID: eventID, categoryID: categoryID,
+                title: "Photos", text: ""
+            )
+            var post = try #require(try Social.Post.find(postID).fetchOne(db))
+            post.embed = Social.Post.Embed([
+                "$type": "app.bsky.embed.images",
+                "images": .array([
+                    .object([
+                        "alt": "First photo",
+                        "image": try Lexicon.JSONValue(encoding: firstBlob),
+                        "aspectRatio": .object(["width": 4, "height": 3]),
+                    ]),
+                    .object([
+                        "alt": "Second photo",
+                        "image": try Lexicon.JSONValue(encoding: secondBlob),
+                        "aspectRatio": .object(["width": 16, "height": 9]),
+                    ]),
+                ]),
+            ])
+            try Social.Post.upsert { post }.execute(db)
+        }
+        let post = try await database.read {
+            try #require(try Social.Post.find(postID).fetchOne($0))
+        }
+        let editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    post: post, eventID: eventID, author: author
+                )
+            ) { SocialPostForm() }
+        }
+        expectNoDifference(editor.state.imagePicker.images.count, 2)
+        let firstImageID = try #require(editor.state.imagePicker.images.first?.id)
+
+        await editor.send(.imagePicker(.removeButtonTapped(firstImageID)))?.value
+        expectNoDifference(editor.state.imagePicker.images.count, 1)
+        await editor.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        let saved = try await database.read {
+            try #require(try Social.Post.find(postID).fetchOne($0))
+        }
+        guard case let .images(images) = SocialPostEmbedContent(try #require(saved.embed)) else {
+            Issue.record("Expected one remaining photo")
+            return
+        }
+        expectNoDifference(images.count, 1)
+        expectNoDifference(images.first?.alt?.rawValue, "Second photo")
+        expectNoDifference(saved.id, post.id)
+        guard case let .array(savedEntries) = try #require(saved.embed?.object["images"]) else {
+            Issue.record("Expected one saved image entry")
+            return
+        }
+        expectNoDifference(
+            savedEntries.first?.object?["aspectRatio"],
+            .object(["width": 16, "height": 9])
+        )
+    }
+
+    @Test
+    func `an author can create and revise a link card on a canonical post`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let categoryID = canonicalRouteRecordID("social.ome.category", "3mrdbziccpcan")
+        let author = try #require(DID("did:plc:organizer"))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            try Self.insertCanonicalCategory(db, id: categoryID, eventID: eventID, name: "General")
+        }
+        let composer = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    eventID: eventID,
+                    categoryID: categoryID,
+                    author: author,
+                    draft: SocialPostDraft(title: "Tickets", markdown: "")
+                )
+            ) { SocialPostForm() }
+        }
+        await composer.send(.addLinkCardButtonTapped)?.value
+        composer.modify {
+            $0.externalCard.uri = "https://wickedwoods.ca/tickets"
+            $0.externalCard.title = "Tickets"
+            $0.externalCard.summary = "Festival passes"
+        }
+        #expect(composer.state.canSubmit)
+        await composer.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        var post = try await database.read { db in
+            try #require(try Social.Post.where { $0.category.eq(categoryID) }.fetchAll(db).first)
+        }
+        guard case let .external(card) = SocialPostEmbedContent(try #require(post.embed)) else {
+            Issue.record("Expected a link card")
+            return
+        }
+        expectNoDifference(card.uri, "https://wickedwoods.ca/tickets")
+        expectNoDifference(card.title, "Tickets")
+
+        let thumbnail = ATProto.Blob(
+            ref: "bafkreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju",
+            mimeType: "image/png",
+            size: 1
+        )
+        var root = try #require(post.embed).object
+        var external = try #require(root["external"]?.object)
+        external["thumb"] = try Lexicon.JSONValue(encoding: thumbnail)
+        root["external"] = .object(external)
+        root["extension"] = "keep"
+        post.embed = Social.Post.Embed(root)
+        let postWithThumbnail = post
+        try await database.write { db in
+            try Social.Post.upsert { postWithThumbnail }.execute(db)
+        }
+
+        let editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    post: post, eventID: eventID, author: author
+                )
+            ) { SocialPostForm() }
+        }
+        #expect(editor.state.hasLinkCard)
+        editor.modify { $0.externalCard.summary = "Weekend and day passes" }
+        await editor.send(.saveButtonTapped) { $0.isSaving = true }?.value
+        let updated = try await database.read {
+            try #require(try Social.Post.find(postWithThumbnail.id).fetchOne($0))
+        }
+        guard case let .external(updatedCard) = SocialPostEmbedContent(try #require(updated.embed)) else {
+            Issue.record("Expected the revised link card")
+            return
+        }
+        expectNoDifference(updatedCard.summary, "Weekend and day passes")
+        expectNoDifference(updated.id, post.id)
+        expectNoDifference(updated.embed?.object["extension"], "keep")
+        expectNoDifference(updatedCard.thumbnail?.source, .known(.blob(thumbnail)))
+    }
+
+    @Test
     func `an author edits a canonical post without changing its identity`() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

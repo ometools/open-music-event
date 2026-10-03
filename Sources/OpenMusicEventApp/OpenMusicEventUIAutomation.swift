@@ -452,7 +452,7 @@ enum OpenMusicEventUIAutomationFixture {
             defaultNotificationState: .known(.subscribed),
             notificationsRequired: true
         )
-        let welcomePost = try Social.Post(
+        var welcomePost = try Social.Post(
             id: canonicalWelcomePostID,
             title: "Welcome to Testival",
             text: "Testival is ready. Check the schedule, find your stage, and review safety information before the first set.",
@@ -460,6 +460,15 @@ enum OpenMusicEventUIAutomationFixture {
             category: canonicalGeneralCategoryID,
             createdAt: "2026-07-01T12:00:00Z"
         )
+        welcomePost.embed = Social.Post.Embed([
+            "$type": "app.bsky.embed.external",
+            "external": .object([
+                "uri": "https://example.com/testival/guide",
+                "title": "Testival guide",
+                "description": "Plan your festival day.",
+            ]),
+        ])
+        let welcomePostWithEmbed = welcomePost
 
         let graph = EventRecordGraph(
             event: event,
@@ -473,11 +482,11 @@ enum OpenMusicEventUIAutomationFixture {
             ],
             categories: [generalCategory, safetyCategory]
         )
-        try welcomePost.validateGraph(event: event, category: generalCategory)
+        try welcomePostWithEmbed.validateGraph(event: event, category: generalCategory)
         try await database.write { db in
             guard try Event.find(canonicalEventID).fetchOne(db) == nil else { return }
             try graph.upsert(in: db)
-            try Social.Post.upsert { welcomePost }.execute(db)
+            try Social.Post.upsert { welcomePostWithEmbed }.execute(db)
         }
     }
 }

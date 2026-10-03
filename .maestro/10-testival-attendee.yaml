@@ -241,6 +241,7 @@ appId: ${APP_ID}
       id: view.communication-post.at://did:web:example.com/social.ome.post/3mrdbziccpcah
     timeout: 15000
 - assertVisible: ".*Check the schedule.*"
+- assertVisible: Testival guide
 - runFlow: helpers/back.yaml
 - runFlow: helpers/back.yaml
 - tapOn:
