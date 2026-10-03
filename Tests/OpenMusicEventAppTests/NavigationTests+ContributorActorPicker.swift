@@ -328,4 +328,53 @@ extension NavigationTests {
         #expect(store.imageURL == manualPhotoURL.absoluteString)
     }
 
+    @Test
+    func editContributorCanUnlinkAnAccount() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let linkedAccount = try #require(DID("did:plc:alice123"))
+        let contributor = try await insertCanonicalContributor(
+            into: database,
+            name: "Alice",
+            subject: linkedAccount
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(
+                initialState: ContributorForm.State(
+                    contributorID: contributor.id, eventID: eventID
+                )
+            ) {
+                ContributorForm()
+            }
+        }
+
+        // The organizer opens Alice's form, removes the account link, and saves the profile.
+        await store.send(.onAppear)?.value
+        expectNoDifference(store.state.contributorDID, linkedAccount)
+        await store.send(.unlinkAccountButtonTapped)?.value
+        expectNoDifference(store.state.contributorDID, nil)
+
+        let submittedValue = store.state.form.value
+        let submission = store.send(.saveButtonTapped)
+        let save = await store.receive(
+            \.formSubmitted,
+            .equals(submittedValue),
+            timeout: .seconds(1)
+        )
+        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
+        await dismissal?.value
+        await save?.value
+        await submission?.value
+
+        let saved = try await database.read { db in
+            try Contributor.find(contributor.id).fetchOne(db)
+        }
+        expectNoDifference(saved?.subject, nil)
+        expectNoDifference(saved?.name, "Alice")
+    }
 }

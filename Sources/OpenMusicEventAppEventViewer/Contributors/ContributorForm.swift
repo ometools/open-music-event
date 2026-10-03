@@ -195,6 +195,9 @@ public struct ContributorForm {
                     ?? ContributorRecordEditing.Fields(name: name)
                 fields.name = name
                 fields.subject = did
+                if originalContributor?.subject != did {
+                    fields.source = nil
+                }
                 fields.description = bio
                 fields.links = links
                 fields.media = try preparedMedia()
@@ -349,6 +352,7 @@ public struct ContributorForm {
         case photoImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(UUID)
         case removeRoleButtonTapped(UUID)
+        case unlinkAccountButtonTapped
         case saveButtonTapped
         case saveFailed(String)
         case saveSucceeded
@@ -390,6 +394,10 @@ public struct ContributorForm {
 
             case .addRoleButtonTapped:
                 state.form.value.roles.append(EditableRole())
+
+            case .unlinkAccountButtonTapped:
+                state.contributorDID = nil
+                state.resetActorSearch()
 
             case let .actorIdentityTapped(identity):
                 state.contributorDID = identity.did
@@ -837,6 +845,7 @@ struct ContributorFormLoadedForm: View {
                 isLoading: store.actorSearchIsLoading,
                 errorMessage: store.actorSearchErrorMessage,
                 isSavingActor: store.isSavingActor,
+                unlinkAccount: { store.send(.unlinkAccountButtonTapped) },
                 queryChanged: actorSearchQueryChanged,
                 querySubmitted: actorSearchSubmitted,
                 identityTapped: actorIdentityTapped
@@ -954,6 +963,7 @@ struct ContributorFormActorProfileSection: View {
     let isLoading: Bool
     let errorMessage: String?
     let isSavingActor: Bool
+    let unlinkAccount: () -> Void
     let queryChanged: (String) -> Void
     let querySubmitted: () -> Void
     let identityTapped: (ActorIdentity) -> Void
@@ -972,8 +982,10 @@ struct ContributorFormActorProfileSection: View {
                     queryChanged(value)
                 }
 
-            if showsTechnicalDetails, let actor {
-                LabeledContent("Current DID", value: actor.description)
+            if let actor {
+                LabeledContent(showsTechnicalDetails ? "Current DID" : "Linked account", value: actor.description)
+                Button("Unlink Account", role: .destructive, action: unlinkAccount)
+                    .disabled(isSavingActor)
             }
 
             if isLoading {
