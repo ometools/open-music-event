@@ -145,7 +145,7 @@ extension NavigationTests {
         ])
         #expect(state.scheduleViewers.map { $0.state.scheduleDivision.programID } == [mainProgramID, workshopProgramID])
         #expect(state.installedFeatures.contains(.workspace) == false)
-        #expect(state.eventWorkspace == nil)
+        #expect(state.canonicalWorkspace == nil)
     }
 
     @Test
@@ -232,7 +232,7 @@ extension NavigationTests {
         #expect(state.authoringAccess == .attendee)
         #expect(!state.installedFeatures.contains(.workspace))
         #expect(state.installedFeatures.contains(.settings))
-        #expect(state.eventWorkspace == nil)
+        #expect(state.canonicalWorkspace == nil)
         #expect(state.eventSettings?.eventID == eventID)
     }
 
@@ -265,8 +265,8 @@ extension NavigationTests {
         let settings = try #require(store.spawn(\.eventSettings))
 
         #expect(!store.showsAuthoringControls)
-        #expect(store.authoringGrant == nil)
-        #expect(store.eventWorkspace == nil)
+        #expect(store.workspaceSession == nil)
+        #expect(store.canonicalWorkspace == nil)
 
         await settings.send(.enterAuthoringButtonTapped)?.value
         await waitForObservation { store.showsAuthoringControls }
@@ -280,8 +280,8 @@ extension NavigationTests {
         await waitForObservation { store.destination?.contactInfoForm != nil }
 
         #expect(store.destination?.contactInfoForm != nil)
-        #expect(store.authoringGrant == nil)
-        #expect(store.eventWorkspace == nil)
+        #expect(store.workspaceSession != nil)
+        #expect(store.canonicalWorkspace != nil)
     }
 
     @Test

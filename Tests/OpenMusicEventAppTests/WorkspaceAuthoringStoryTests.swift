@@ -353,7 +353,7 @@ struct WorkspaceAuthoringStoryTests {
             try await workspaceStoryWaitUntil {
                 store.destination?.eventViewer?.event?.name == "Edited locally"
             }
-            #expect(store.destination?.eventViewer?.eventWorkspace == nil)
+            #expect(store.destination?.eventViewer?.canonicalWorkspace == nil)
         }
     }
     @Test
@@ -470,8 +470,12 @@ struct WorkspaceAuthoringStoryTests {
                 expectNoDifference(viewer.eventID, eventID)
                 expectNoDifference(viewer.selectedFeature, .settings)
                 #expect(viewer.eventSettings != nil)
-                #expect(viewer.eventWorkspace == nil)
-                if visit == 1 { #expect(!viewer.showsAuthoringControls) }
+                if visit == 1 {
+                    #expect(viewer.canonicalWorkspace == nil)
+                    #expect(!viewer.showsAuthoringControls)
+                } else {
+                    #expect(viewer.canonicalWorkspace != nil)
+                }
 
                 if visit == 1 {
                     await store.send(
@@ -646,8 +650,8 @@ struct WorkspaceAuthoringStoryTests {
             await workspaceStoryOpenEvent(opened, route: route, url: routeURL)
 
             let viewer = try #require(opened.state.content.destination?.eventViewer)
-            #expect(viewer.authoringGrant == nil)
-            #expect(viewer.eventWorkspace == nil)
+            #expect(viewer.workspaceSession == nil)
+            #expect(viewer.canonicalWorkspace == nil)
             #expect(!viewer.showsAuthoringControls)
 
             try await expectReportedIssue(containing: "ownerAccountRequired") {
@@ -658,8 +662,7 @@ struct WorkspaceAuthoringStoryTests {
             }
             #expect(opened.state.content.destination?.eventViewer?.showsAuthoringControls == false)
             #expect(opened.state.content.destination?.eventViewer?.workspaceSession == nil)
-            #expect(opened.state.content.destination?.eventViewer?.authoringGrant == nil)
-            #expect(opened.state.content.destination?.eventViewer?.eventWorkspace == nil)
+            #expect(opened.state.content.destination?.eventViewer?.canonicalWorkspace == nil)
             await opened.dismount()
         }
     }
@@ -732,8 +735,8 @@ struct WorkspaceAuthoringStoryTests {
                     .deliverAuthoringAuthorizationChanges()
                 }
                 await workspaceStoryOpenEvent(store, route: route, url: routeURL)
-                #expect(store.state.content.destination?.eventViewer?.authoringGrant == nil)
-                #expect(store.state.content.destination?.eventViewer?.eventWorkspace == nil)
+                #expect(store.state.content.destination?.eventViewer?.workspaceSession == nil)
+                #expect(store.state.content.destination?.eventViewer?.canonicalWorkspace == nil)
                 #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
 
                 try await expectReportedIssue(containing: "ownerAccountRequired") {
@@ -744,8 +747,7 @@ struct WorkspaceAuthoringStoryTests {
                 }
                 #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
                 #expect(store.state.content.destination?.eventViewer?.workspaceSession == nil)
-                #expect(store.state.content.destination?.eventViewer?.authoringGrant == nil)
-                #expect(store.state.content.destination?.eventViewer?.eventWorkspace == nil)
+                #expect(store.state.content.destination?.eventViewer?.canonicalWorkspace == nil)
                 #expect(operations.snapshot.isEmpty)
                 await store.dismount()
             }

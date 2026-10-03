@@ -1,8 +1,6 @@
 import OpenMusicEventLexicon
 import ComposableArchitecture2
-import ComposableAuthoring
 import ComposableNotifications
-import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import IssueReporting
@@ -14,7 +12,6 @@ import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import SQLiteData
-import SourceEditing
 import SwiftUI
 import SwiftUITabFeatures
 import Tagged
@@ -81,9 +78,7 @@ where Self == InMemoryKey<AuthoringGrant?>.Default {
     static var defaultAuthoringGrant: Self {
         @Dependency(\.defaultEventID) var eventID
         return Self[
-            .inMemory(
-                "open-music-event.authoring-grant." + eventID.description
-            ),
+            .inMemory("open-music-event.authoring-grant." + eventID.description),
             default: nil
         ]
     }
@@ -106,16 +101,6 @@ extension SharedReader where Value == EventWorkspaceSession? {
             $0.defaultEventID = eventID
         } operation: {
             Self(.defaultEventWorkspaceSession)
-        }
-    }
-}
-
-extension SharedReader where Value == AuthoringGrant? {
-    static func authoringGrant(for eventID: Event.ID) -> Self {
-        withDependencies {
-            $0.defaultEventID = eventID
-        } operation: {
-            Self(.defaultAuthoringGrant)
         }
     }
 }
@@ -177,10 +162,7 @@ public struct EventDetail {
     @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
     @Dependency(\.uuid) var uuid
-    @FeatureEnvironment(WorkspaceContext<SourceWorkspaceResource>.self)
-    var workspace
-
-    public struct State: Identifiable, OpenMusicEventWorkspaceContentState {
+    public struct State: Identifiable {
         public init(eventID: Event.ID) {
             let session = SharedReader<EventWorkspaceSession?>.eventWorkspaceSession(for: eventID)
             let account = CurrentWorkspaceAccount()
@@ -202,7 +184,6 @@ public struct EventDetail {
             pendingAuthoringEntry: EditorEntry? = nil,
             pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
-            self._authoringGrant = .authoringGrant(for: eventID)
             self._workspaceSession = .eventWorkspaceSession(for: eventID)
             self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.eventID = eventID
@@ -238,7 +219,6 @@ public struct EventDetail {
             let existingEventInfoViewer = self.eventInfoViewer
             let existingEventSearch = self.eventSearch
             let existingEventSettings = self.eventSettings
-            let existingEventWorkspace = self.eventWorkspace
             let existingLocationViewer = self.locationViewer
             let existingNotificationsViewer = self.notificationsViewer
             let existingPostersViewer = self.postersViewer
@@ -256,7 +236,6 @@ public struct EventDetail {
             self.postersViewer = nil
             self.notificationsViewer = nil
             self.eventSettings = nil
-            self.eventWorkspace = existingEventWorkspace
             self.eventSearch = existingEventSearch
             self.eventInfoViewer = nil
             self.destination = existingDestination
@@ -361,20 +340,10 @@ public struct EventDetail {
         }
 
         @SharedReader
-        public var authoringGrant: AuthoringGrant?
-        @SharedReader
         public var workspaceSession: EventWorkspaceSession?
         @DebugSnapshotIgnored
         let currentWorkspaceAccount: CurrentWorkspaceAccount
         @Trigger public var authoringAuthorizationInvalidated
-        @Trigger<WorkspaceFailure> public var workspaceBaselineSelectionFailed
-        @Trigger<WorkspaceFailure> public var workspaceChangesPublicationFailed
-        @Trigger<WorkspaceBranchReference> public var workspaceChangesPublished
-        @Trigger public var workspaceChangesPublishing
-        @Trigger<WorkspaceFailure> public var workspaceProposalPublicationFailed
-        @Trigger public var workspaceProposalPublishing
-        @Trigger<WorkspaceProposal> public var workspaceProposalRecorded
-        @Trigger public var workspaceSourcePrepared
         public let eventID: Event.ID
         @FetchOne public var event: Event?
         public var eventViewerState: EventDetailState
@@ -396,7 +365,6 @@ public struct EventDetail {
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSettings: Spawn<EventSettings>?
-        public var eventWorkspace: EventWorkspace.State?
         public var canonicalWorkspace: CanonicalEventWorkspace.State?
         public var account = Spawn(Account.State())
         public var eventSearch: Spawn<EventSearch>
@@ -869,7 +837,6 @@ public struct EventDetail {
         case destination(Destination.Action)
         case editEventInfoButtonTapped
         case eventSearch(EventSearch.Action)
-        case eventWorkspace(EventWorkspace.Action)
         case canonicalWorkspace(CanonicalEventWorkspace.Action)
         case reactionButtonTapped(ProgramItem.ID, PerformanceReaction.Emoji)
     }
@@ -907,31 +874,6 @@ public struct EventDetail {
         }
     }
 
-    private func installAuthorizedWorkspace(
-        _ grant: AuthoringGrant,
-        state: inout State
-    ) {
-        if state.eventWorkspace?.workspace.id != grant.workspaceID {
-            do {
-                let sourceWorkspace = try SourceWorkspace(id: grant.workspaceID)
-                state.withEventDependencies {
-                    state.eventWorkspace = EventWorkspace.State(
-                        workspace: sourceWorkspace,
-                        eventID: state.eventID,
-                        workspaceState: workspace.state
-                    )
-                }
-            } catch {
-                reportIssue(error)
-                return
-            }
-        }
-        state.reloadFeaturesForAuthoringAccess()
-        if let pendingAuthoringEntry = state.pendingAuthoringEntry {
-            enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
-        }
-    }
-
     private func installCanonicalWorkspace(
         _ session: EventWorkspaceSession,
         state: inout State
@@ -958,23 +900,6 @@ public struct EventDetail {
             $0.defaultEventID = eventID
         } operation: {
             Shared<EventWorkspaceSession?>(.defaultEventWorkspaceSession)
-        }
-    }
-
-    private func installPreparedSource(
-        _ source: SourceWorkspaceResource,
-        state: inout State
-    ) {
-        guard state.eventWorkspace?.workspace.id == source.workspace.id else { return }
-        precondition(
-            source.applicationDatabaseID == ObjectIdentifier(database),
-            "A prepared source must use EventDetail's application database."
-        )
-        state.withEventDependencies {
-            state.eventWorkspace?.changes = WorkspaceChanges.State(
-                workspace: source.workspace,
-                referenceDatabase: source.referenceDatabase
-            )
         }
     }
 
@@ -1010,9 +935,6 @@ public struct EventDetail {
                         }
 
                     case .eventSearch:
-                        break
-
-                    case .eventWorkspace:
                         break
 
                     case .canonicalWorkspace:
@@ -1087,76 +1009,6 @@ public struct EventDetail {
                             EventDetailState.where { $0.id.eq(eventID) }
                         )
                         .task
-                    }
-                }
-                .onChange(
-                    of: workspace.session?.source.workspace.id,
-                    initial: true
-                ) { _, _, state in
-                    guard let source = workspace.session?.source else { return }
-                    installPreparedSource(source, state: &state)
-                }
-                .onTrigger(store.workspaceSourcePrepared) { state in
-                    guard let source = workspace.session?.source else { return }
-                    installPreparedSource(source, state: &state)
-                }
-                .onChange(
-                    of: workspace.state.wrappedValue.baseline?.revision,
-                    initial: true
-                ) { oldRevision, revision, state in
-                    guard oldRevision != revision,
-                          let summary = state.eventWorkspace?.changes.$summary
-                    else { return }
-                    // The reference database is deliberately outside defaultDatabase observation.
-                    // A branch revision is its explicit invalidation boundary.
-                    store.addTask {
-                        try await summary.load()
-                    }
-                }
-                .onTrigger(store.workspaceProposalPublishing) { state in
-                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .publishing
-                }
-                .onTrigger(store.workspaceChangesPublishing) { state in
-                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .publishing
-                }
-                .onTrigger(store.workspaceChangesPublicationFailed) { failure, state in
-                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .failed(
-                        failure.message
-                    )
-                }
-                .onTrigger(store.workspaceChangesPublished) { _, state in
-                    state.eventWorkspace?.changes.proposalDraft = nil
-                }
-                .onTrigger(store.workspaceProposalPublicationFailed) { failure, state in
-                    state.eventWorkspace?.changes.proposalDraft?.publicationProgress = .failed(
-                        failure.message
-                    )
-                }
-                .onTrigger(store.workspaceBaselineSelectionFailed) { failure, _ in
-                    store.addTask {
-                        let _: Void? = await store.withErrorHandling(
-                            fallbackMessage: .workspaceBaselineSelectionFailed,
-                            operation: .workspaceBaselineSelection
-                        ) {
-                            throw failure
-                        }
-                    }
-                }
-                .onTrigger(store.workspaceProposalRecorded) { proposal, state in
-                    guard state.eventWorkspace != nil else { return }
-                    state.eventWorkspace?.changes.proposalDraft = nil
-                    state.eventWorkspace?.openProposalList(proposal)
-                    let targetBranch = proposal.target.branch
-                    store.addTask {
-                        let reset = try store.post(
-                            key: WorkspacePublishedRequested.self,
-                            value: targetBranch
-                        )
-                        await reset?.value
-                        let refresh = try store.send(
-                            .eventWorkspace(.reviews(.proposalRecorded))
-                        )
-                        await refresh?.value
                     }
                 }
             )
@@ -1281,9 +1133,6 @@ public struct EventDetail {
                     }
                     EmptyFeature<State, Action>().ifLet(\.eventSettings) {
                         EventSettings()
-                    }
-                    EmptyFeature<State, Action>().ifLet(\.eventWorkspace) {
-                        EventWorkspace()
                     }
                     EmptyFeature<State, Action>().ifLet(\.canonicalWorkspace) {
                         CanonicalEventWorkspace()
@@ -1610,19 +1459,6 @@ public struct EventDetailView: View {
                     }
                 }
 
-                if let featureStore = store.scope(\.eventWorkspace) {
-                    TabFeature(
-                        .workspace,
-                        title: EventDetail.EventFeature.workspace.title,
-                        systemImage: EventDetail.EventFeature.workspace.systemImage,
-                        labelTint: EventDetail.EventFeature.workspace.labelTint,
-                        badgeValue: featureStore.badgeCount,
-                        navigation: .stack
-                    ) {
-                        EventWorkspaceView(store: featureStore)
-                    }
-                }
-
                 if let featureStore = store.scope(\.canonicalWorkspace) {
                     TabFeature(
                         .workspace,
@@ -1823,13 +1659,6 @@ public struct EventDetailView: View {
                 .tag(EventDetail.EventFeature.settings)
             }
 
-            if let featureStore = store.scope(\.eventWorkspace) {
-                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
-                    EventWorkspaceView(store: featureStore)
-                }
-                .tag(EventDetail.EventFeature.workspace)
-            }
-
             if let featureStore = store.scope(\.canonicalWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     CanonicalEventWorkspaceView(
@@ -1955,13 +1784,6 @@ public struct EventDetailView: View {
                     EventSettingsView(store: featureStore)
                 }
                 .tag(EventDetail.EventFeature.settings)
-            }
-
-            if let featureStore = store.scope(\.eventWorkspace) {
-                viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
-                    EventWorkspaceView(store: featureStore)
-                }
-                .tag(EventDetail.EventFeature.workspace)
             }
 
             if let featureStore = store.scope(\.canonicalWorkspace) {
