@@ -119,9 +119,14 @@ struct StagePlaceIdentityEditor: View {
     var body: some View {
         Section("Persistent Stage") {
             if let id = store.form.value.persistentStageID {
-                LabeledContent("Linked Stage") {
-                    Text(store.persistentStages.first(where: { $0.id == id })?.name ?? "Unavailable stage")
+                NavigationLink {
+                    StageDetail(store: store, stageID: id)
+                } label: {
+                    LabeledContent("Linked Stage") {
+                        Text(store.persistentStages.first(where: { $0.id == id })?.name ?? "Unavailable stage")
+                    }
                 }
+                .accessibilityIdentifier("button.linked-stage-profile")
                 if id.authority == store.eventID.authority,
                    store.persistentStages.contains(where: { $0.id == id }) {
                     Button("Edit Stage Profile") {
@@ -136,13 +141,12 @@ struct StagePlaceIdentityEditor: View {
                 Text("No persistent stage profiles available")
                     .foregroundStyle(.secondary)
             } else {
-                Menu(store.form.value.persistentStageID == nil ? "Link Stage" : "Change Stage") {
-                    ForEach(store.persistentStages) { stage in
-                        Button(stage.name) {
-                            store.send(.linkPersistentStageTapped(stage.id))
-                        }
-                    }
+                NavigationLink {
+                    StageList(store: store)
+                } label: {
+                    Text(store.form.value.persistentStageID == nil ? "Browse Stage Profiles" : "Change Stage Profile")
                 }
+                .accessibilityIdentifier("button.browse-stage-profiles")
             }
             Button("New Stage Profile") {
                 store.send(.createPersistentStageTapped)

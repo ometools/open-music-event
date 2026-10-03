@@ -52,3 +52,38 @@ appId: ${APP_ID}
     visible: "Kind, Camping"
     timeout: 15000
 - takeScreenshot: 94-workspace-event-place
+
+# A persistent Stage profile is its own canonical record, linked to a place.
+- runFlow: helpers/back.yaml
+- tapOn: Add Event Place
+- assertVisible: New Event Place
+- tapOn: Name
+- inputText: Profile Test Stage
+- scrollUntilVisible:
+    element: New Stage Profile
+    direction: DOWN
+- tapOn: New Stage Profile
+- assertVisible: New Stage Profile
+- tapOn: Name
+- inputText: Profile Test Stage
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Linked Stage
+    timeout: 15000
+- scrollUntilVisible:
+    element: Change Stage Profile
+    direction: DOWN
+- tapOn: Change Stage Profile
+- extendedWaitUntil:
+    visible:
+      id: view.stage-profiles
+    timeout: 15000
+- tapOn: Profile Test Stage
+- assertVisible: Stage Profile
+- assertVisible: This Event Place
+- runFlow: helpers/back.yaml
+- runFlow: helpers/back.yaml
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Profile Test Stage
+    timeout: 15000
