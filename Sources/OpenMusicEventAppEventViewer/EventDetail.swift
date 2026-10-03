@@ -487,7 +487,7 @@ public struct EventDetail {
                     EventPlaceList.Destination.State.stageDetail(
                         Spawn(
                             EventPlaceDetail.State(
-                                stageID: stageID
+                                eventPlaceID: stageID
                             )
                         )
                     )
@@ -622,7 +622,7 @@ public struct EventDetail {
                 self.destination = withEventDependencies {
                     .eventPlaceForm(
                         EventPlaceForm.State(
-                            stageID: placeID,
+                            eventPlaceID: placeID,
                             eventID: eventID
                         )
                     )
@@ -1191,7 +1191,7 @@ extension EventDetail.Destination.StoreEnumeration: @MainActor Identifiable {
         case let .scheduleForm(store):
             destinationID("scheduleForm", store.eventID)
         case let .eventPlaceForm(store):
-            destinationID("eventPlaceForm", store.eventID, store.stageID)
+            destinationID("eventPlaceForm", store.eventID, store.eventPlaceID)
         }
     }
 

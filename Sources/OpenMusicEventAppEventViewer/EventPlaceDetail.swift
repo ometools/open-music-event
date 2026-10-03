@@ -28,7 +28,7 @@ public struct EventPlaceDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public let stageID: EventPlace.ID
+        public let eventPlaceID: EventPlace.ID
         public let eventID: Event.ID
 
         public var destination: Destination.State?
@@ -38,7 +38,7 @@ public struct EventPlaceDetail {
         }
         public var eventViewerState: EventDetailState
         @FetchOne var persistedEventViewerState: EventDetailState?
-        @FetchOne public var stage: EventPlace?
+        @FetchOne public var place: EventPlace?
         @FetchAll var contributors: [ContributorProfile]
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [Schedule]
@@ -46,12 +46,12 @@ public struct EventPlaceDetail {
         @FetchAll public var programs: [Program]
 
         public init(
-            stageID: EventPlace.ID,
+            eventPlaceID: EventPlace.ID,
             eventID: Event.ID? = nil
         ) {
             @Dependency(EventDetailContext.self) var eventViewer
 
-            self.stageID = stageID
+            self.eventPlaceID = eventPlaceID
             self.eventID = eventID ?? eventViewer.eventID
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: self.eventID)
@@ -61,9 +61,9 @@ public struct EventPlaceDetail {
                 wrappedValue: nil,
                 EventDetailState.none
             )
-            _stage = FetchOne(
-                EventPlaceDetail.stageQuery(
-                    stageID: stageID,
+            _place = FetchOne(
+                EventPlaceDetail.placeQuery(
+                    eventPlaceID: eventPlaceID,
                     eventID: self.eventID
                 )
             )
@@ -79,10 +79,10 @@ public struct EventPlaceDetail {
             _programs = FetchAll(Program.where { $0.event.eq(self.eventID) })
         }
 
-        public var id: EventPlace.ID { stageID }
+        public var id: EventPlace.ID { eventPlaceID }
 
         var lineupContributors: [ContributorProfile] {
-            guard let lineup = stage?.stageUse?.lineup, !lineup.isEmpty else { return [] }
+            guard let lineup = place?.stageUse?.lineup, !lineup.isEmpty else { return [] }
             let contributorsByID = Dictionary(
                 uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
             )
@@ -116,13 +116,13 @@ public struct EventPlaceDetail {
                 .map(\.performance)
                 .filter {
                     $0.schedule == selectedScheduleID
-                        && $0.eventPlace == stageID
+                        && $0.eventPlace == eventPlaceID
                 }
         }
 
         var scheduleDivision: ScheduleList.ScheduleDivision {
             ScheduleList.scheduleDivisions(event: event, programs: programs)
-                .first { $0.eventPlaces.contains(stageID) } ?? .schedule
+                .first { $0.eventPlaces.contains(eventPlaceID) } ?? .schedule
         }
     }
 
@@ -140,13 +140,13 @@ public struct EventPlaceDetail {
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.defaultDatabase) var database
 
-    static func stageQuery(
-        stageID: EventPlace.ID,
+    static func placeQuery(
+        eventPlaceID: EventPlace.ID,
         eventID: Event.ID
     ) -> some SelectStatementOf<EventPlace> {
         EventPlace
             .where { $0.event.eq(eventID) }
-            .where { $0.id.eq(stageID) }
+            .where { $0.id.eq(eventPlaceID) }
     }
 
     public var body: some Feature {
@@ -157,13 +157,13 @@ public struct EventPlaceDetail {
 
             case .editButtonTapped:
                 let eventID = state.eventID
-                let stageID = state.stageID
+                let eventPlaceID = state.eventPlaceID
                 store.addTask {
                     let task = try store.post(
                         key: EventEditingRequested.self,
                         value: .editPlace(
                             eventID: eventID,
-                            placeID: stageID
+                            placeID: eventPlaceID
                         )
                     )
                     await task?.value
@@ -256,52 +256,52 @@ public struct EventPlaceDetailView: View {
 
     public var body: some View {
         Group {
-            if let stage = store.stage {
-                let heroImageSources = stage.heroImageSources
-                let heroImageTitleSources = stage.heroImageTitleSources
+            if let place = store.place {
+                let heroImageSources = place.heroImageSources
+                let heroImageTitleSources = place.heroImageTitleSources
                 HeroImageList(
-                    title: Text(stage.name),
+                    title: Text(place.name),
                     showsNavigationTitleBeforeScroll: heroImageTitleSources.containsLogo
                 ) {
                     HeroImage(
-                        title: Text(stage.name),
+                        title: Text(place.name),
                         sources: heroImageSources,
                         titleSources: heroImageTitleSources,
-                        tint: stage.stageUIColor
+                        tint: place.stageUIColor
                     ) {
-                        EventPlaceStageIconFallback(place: stage, size: 150)
+                        EventPlaceStageIconFallback(place: place, size: 150)
                     }
                 } content: {
-                    if stage.stageUse != nil && !store.schedules.isEmpty {
+                    if place.stageUse != nil && !store.schedules.isEmpty {
                         Section("Schedule") {
                             StageScheduleView(
-                                stage: stage,
+                                stage: place,
                                 store: store,
                                 selectedScheduleID: $store.eventViewerState.selectedScheduleID
                             )
                         }
                     }
 
-                    if stage.hasDisplayDetails || stage.stageUse == nil {
+                    if place.hasDisplayDetails || place.stageUse == nil {
                         Section("Details") {
-                            if stage.stageUse == nil {
-                                LabeledContent("Kind", value: stage.kindLabel)
+                            if place.stageUse == nil {
+                                LabeledContent("Kind", value: place.kindLabel)
                             }
-                            if let description = stage.description {
+                            if let description = place.description {
                                 Text(description)
                             }
-                            if let category = stage.stageUse?.category {
+                            if let category = place.stageUse?.category {
                                 LabeledContent("Category", value: eventPlaceDivisionTitle(category))
                             }
 
-                            if showsTechnicalDetails, let sortIndex = stage.stageUse?.sortIndex {
+                            if showsTechnicalDetails, let sortIndex = place.stageUse?.sortIndex {
                                 LabeledContent("Sort Index", value: sortIndex.formatted())
                             }
                         }
                     }
 
-                    StagePlaceLocatorDetails(place: stage)
-                    StagePlaceLinkDetails(place: stage)
+                    StagePlaceLocatorDetails(place: place)
+                    StagePlaceLinkDetails(place: place)
 
                     if !store.lineupContributors.isEmpty {
                         Section("Lineup") {
@@ -339,7 +339,7 @@ public struct EventPlaceDetailView: View {
                                 mappedSystemImage: "square.grid.2x2"
                             )
                         } description: {
-                            Text(verbatim: store.stageID.description)
+                            Text(verbatim: store.eventPlaceID.description)
                         }
                     } else {
                         ContentUnavailableView("Place unavailable", systemImage: "square.grid.2x2")
@@ -349,7 +349,7 @@ public struct EventPlaceDetailView: View {
             }
         }
         .accessibilityIdentifier(
-            "view.stage-detail.\(store.stageID.description)"
+            "view.stage-detail.\(store.eventPlaceID.description)"
         )
     }
 }
@@ -509,4 +509,3 @@ struct StageScheduleDaySelector: View {
         selectedScheduleID = resolvedSelectedScheduleID
     }
 }
-

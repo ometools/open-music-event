@@ -74,7 +74,7 @@ public struct EventSearch {
                 return .init(
                     eventID: eventID,
                     destination: .stageDetail(
-                        Spawn(.init(stageID: stageID, eventID: eventID))
+                        Spawn(.init(eventPlaceID: stageID, eventID: eventID))
                     )
                 )
             default:
@@ -166,7 +166,7 @@ public struct EventSearch {
                 case let .stage(stageID):
                     store.withDependencies {
                         state.destination = .stageDetail(
-                            Spawn(.init(stageID: stageID, eventID: eventID))
+                            Spawn(.init(eventPlaceID: stageID, eventID: eventID))
                         )
                     }
                 }

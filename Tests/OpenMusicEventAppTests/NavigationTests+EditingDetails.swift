@@ -81,7 +81,7 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EventPlaceDetail.State(stageID: stageID, eventID: eventID)) {
+            TestStore(initialState: EventPlaceDetail.State(eventPlaceID: stageID, eventID: eventID)) {
                 EventPlaceDetail()
             }
         }
@@ -143,7 +143,7 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EventPlaceForm.State(stageID: stageID, eventID: eventID)) {
+            TestStore(initialState: EventPlaceForm.State(eventPlaceID: stageID, eventID: eventID)) {
                 EventPlaceForm()
             }
         }
@@ -184,8 +184,8 @@ extension NavigationTests {
 
         let stage = try await database.read { db in
             try #require(
-                try EventPlaceDetail.stageQuery(
-                    stageID: stageID,
+                try EventPlaceDetail.placeQuery(
+                    eventPlaceID: stageID,
                     eventID: eventID
                 )
                 .fetchOne(db)
@@ -256,7 +256,7 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EventPlaceForm.State(stageID: stageID, eventID: eventID)) {
+            TestStore(initialState: EventPlaceForm.State(eventPlaceID: stageID, eventID: eventID)) {
                 EventPlaceForm()
             }
         }

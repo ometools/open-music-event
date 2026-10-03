@@ -767,13 +767,13 @@ struct NavigationTests {
         await store.send(.root(.openURL(url)))?.value
         await waitUntil {
             store.state.root.destination?.eventViewer?.eventPlaceList?
-                .state.destination?.stageDetail?.state.stageID == stageID
+                .state.destination?.stageDetail?.state.eventPlaceID == stageID
         }
 
         #expect(store.state.root.destination?.eventViewer?.selectedFeature == .stages)
         #expect(
             store.state.root.destination?.eventViewer?.eventPlaceList?
-                .state.destination?.stageDetail?.state.stageID == stageID
+                .state.destination?.stageDetail?.state.eventPlaceID == stageID
         )
     }
 

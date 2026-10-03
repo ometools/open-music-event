@@ -80,12 +80,12 @@ public struct EventPlaceForm {
             case create
             case edit(EventPlace.ID)
 
-            var stageID: EventPlace.ID? {
+            var eventPlaceID: EventPlace.ID? {
                 switch self {
                 case .create:
                     return nil
-                case let .edit(stageID):
-                    return stageID
+                case let .edit(eventPlaceID):
+                    return eventPlaceID
                 }
             }
         }
@@ -100,11 +100,11 @@ public struct EventPlaceForm {
         }
 
         public init(
-            stageID: EventPlace.ID,
+            eventPlaceID: EventPlace.ID,
             eventID: Event.ID
         ) {
             self.eventID = eventID
-            self.mode = .edit(stageID)
+            self.mode = .edit(eventPlaceID)
             self.form = FormFeature.State(value: FormValue())
             self._contributors = FetchAll(Contributor.where { $0.event.eq(eventID) })
             self._persistentStages = FetchAll(OpenMusicEventLexicon.Stage.all)
@@ -161,8 +161,8 @@ public struct EventPlaceForm {
             set { form.value.iconName = newValue }
         }
 
-        public var stageID: EventPlace.ID? {
-            mode.stageID
+        public var eventPlaceID: EventPlace.ID? {
+            mode.eventPlaceID
         }
 
         var canSubmit: Bool {
@@ -502,9 +502,9 @@ public struct EventPlaceForm {
                                     createdAt: createdAt,
                                     in: db
                                 )
-                            case let .edit(stageID):
+                            case let .edit(eventPlaceID):
                                 try EventPlaceRecordEditing.update(
-                                    stageID,
+                                    eventPlaceID,
                                     eventID: saveRequest.eventID,
                                     fields: fields,
                                     in: db
@@ -657,21 +657,21 @@ public struct EventPlaceForm {
         }
         .onMount { state in
             guard !state.hasLoadedDraft else { return }
-            guard let stageID = state.mode.stageID else {
+            guard let eventPlaceID = state.mode.eventPlaceID else {
                 state.hasLoadedDraft = true
                 state.errorMessage = nil
                 return
             }
 
             do {
-                if let stage = try database.read({ db in
-                    try EventPlaceDetail.stageQuery(
-                        stageID: stageID,
+                if let place = try database.read({ db in
+                    try EventPlaceDetail.placeQuery(
+                        eventPlaceID: eventPlaceID,
                         eventID: state.eventID
                     )
                     .fetchOne(db)
                 }) {
-                    state.load(stage)
+                    state.load(place)
                 } else {
                     state.errorMessage = "This event place could not be loaded."
                 }

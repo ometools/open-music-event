@@ -226,7 +226,7 @@ extension NavigationTests {
             )?.value
 
             #expect(
-                store.state.eventViewer.eventSearch.state.destination?.stageDetail?.state.stageID
+                store.state.eventViewer.eventSearch.state.destination?.stageDetail?.state.eventPlaceID
                     == stageID
             )
             #expect(store.state.lastRequest == nil)

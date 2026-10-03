@@ -592,8 +592,8 @@ extension NavigationTests {
         #expect(store.state.errorMessage == nil)
 
         let stage = try await database.read { db in
-            try EventPlaceDetail.stageQuery(
-                stageID: stageID,
+            try EventPlaceDetail.placeQuery(
+                eventPlaceID: stageID,
                 eventID: eventID
             )
             .fetchOne(db)

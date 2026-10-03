@@ -213,7 +213,7 @@ public struct EventPlaceList {
             case let .stageButtonTapped(stageID):
                 store.withDependencies {
                     state.destination = .stageDetail(
-                        Spawn(.init(stageID: stageID, eventID: state.eventID))
+                        Spawn(.init(eventPlaceID: stageID, eventID: state.eventID))
                     )
                 }
             }

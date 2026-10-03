@@ -243,15 +243,15 @@ extension NavigationTests {
         }
 
         let stage = try await database.read { db in
-            try EventPlaceDetail.stageQuery(
-                stageID: selectedPlaceID,
+            try EventPlaceDetail.placeQuery(
+                eventPlaceID: selectedPlaceID,
                 eventID: selectedEventID
             ).fetchOne(db)
         }
         expectNoDifference(stage?.name, "Main")
         let wrongEvent = try await database.read { db in
-            try EventPlaceDetail.stageQuery(
-                stageID: selectedPlaceID,
+            try EventPlaceDetail.placeQuery(
+                eventPlaceID: selectedPlaceID,
                 eventID: otherEventID
             ).fetchOne(db)
         }
@@ -339,7 +339,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            EventPlaceDetail.State(stageID: meadowID, eventID: eventID)
+            EventPlaceDetail.State(eventPlaceID: meadowID, eventID: eventID)
         }
         state.eventViewerState.selectedScheduleID = fridayID
         expectNoDifference(state.resolvedSelectedScheduleID, fridayID)
@@ -398,7 +398,7 @@ extension NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EventPlaceDetail.State(stageID: meadowID, eventID: eventID)) {
+            Store(initialState: EventPlaceDetail.State(eventPlaceID: meadowID, eventID: eventID)) {
                 EventPlaceDetail()
             }
         }

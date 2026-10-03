@@ -76,7 +76,7 @@ extension NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EventPlaceForm.State(stageID: entrance.id, eventID: eventID)) {
+            TestStore(initialState: EventPlaceForm.State(eventPlaceID: entrance.id, eventID: eventID)) {
                 EventPlaceForm()
             }
         }
