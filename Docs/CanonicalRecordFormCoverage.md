@@ -2,7 +2,7 @@
 
 This is the current app-side coverage map for the public records. A List, Detail, or Form name describes an actual screen or feature; a record does not gain an empty Detail screen solely to complete a naming triplet. The old OME domain models remain available to source import, while active app viewing and local editing use the canonical records. PDS publication and Android validation are later phases.
 
-`app.openmusicevent.relationship` is an existing public ATProto record, not an old source-import model. The About screen reads its `developer` relationships from the app account's PDS; it does not need a replacement roster record.
+`app.openmusicevent.relationship` is an existing public ATProto record, not an old source-import model. The About screen reads its `developer` relationships from the app account's PDS. Its UI coverage is tracked below separately from ProgramItem credits.
 
 | Record | Browsing and detail | Editing and field reachability |
 | --- | --- | --- |
@@ -15,6 +15,7 @@ This is the current app-side coverage map for the public records. A List, Detail
 | `ProgramItem` | Schedule list/detail and `ProgramItemDetail` | `ProgramItemForm`: title, description, program, optional schedule/place/time, ordered credits with billing and role, and media. Untimed and unplaced items remain editable. |
 | `Social.Category` | `SocialCategoryList` and `SocialCategoryDetail` | `SocialCategoryForm`: name, description, media, default subscription state, and required-notification policy. Post pin/unpin/reorder actions live in the category detail/list. The Event owns category order. |
 | `Social.Post` | `SocialPostList` and `SocialPostDetail` | `SocialPostForm`: title, Markdown text, category, delivery, image/link/record embed, ordered syndication references, and link/mention/tag text annotations with UTF-8 byte ranges. Unsupported facet shapes are preserved while the text is unchanged and can be deleted; the form requires removing them before changing the text. Created/updated timestamps are operation-managed. |
+| `OME.Relationship` | About reads `developer` records from the app account's PDS. Source import constructs workspace and performance relationships; there is no general `RelationshipList` or `RelationshipDetail`. | No `RelationshipForm` or field-level UI CRUD yet. `ContributorRelationshipPicker` edits a ProgramItem's embedded credits, not this record. A local editor first needs an owning account/workspace and URI-backed record identity; `createdAt` remains operation-managed. |
 
 Array rows use their owning form or list's Edit, Move, and Delete/Remove actions. Image metadata, including role, alt text, appearance, and focus, is edited through `ImageInfo`; map style image metadata uses the same editor. Record identity, CID, `createdAt`, and reference ownership are allocated or checked by record operations rather than editable text fields.
 
