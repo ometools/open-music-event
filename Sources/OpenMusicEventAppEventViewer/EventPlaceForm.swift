@@ -710,7 +710,6 @@ private extension EventPlaceForm.FormFeature {
 
 public struct EventPlaceFormView: View {
     @Bindable var store: StoreOf<EventPlaceForm>
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @FocusState var focusedField: AnyHashable?
 
     public init(store: StoreOf<EventPlaceForm>) {
@@ -790,7 +789,7 @@ struct EventPlaceFormLoadedForm: View {
                 StagePlaceLineupEditor(store: store)
                 StagePlaceIdentityEditor(store: store)
             }
-            if showsTechnicalDetails && store.form.value.kindChoice == .stage {
+            if store.form.value.kindChoice == .stage {
                 iconSection
             }
             mediaSection
@@ -832,17 +831,22 @@ struct EventPlaceFormLoadedForm: View {
     }
 
     private var iconSection: some View {
-        Section("Icon") {
-            TextField("Icon", text: $store.form.value.iconName)
+        Section("Stage Fallback") {
+            TextField("Icon Name", text: $store.form.value.iconName)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 #endif
-            TextField("Short Code", text: $store.form.value.shortLabel)
+                .accessibilityIdentifier("field.event-place.icon-name")
+            TextField("Short Label", text: $store.form.value.shortLabel)
                 #if os(iOS)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 #endif
+                .accessibilityIdentifier("field.event-place.short-label")
+            Text("These appear when the stage has no logo. Use an icon name such as calendar or heart.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

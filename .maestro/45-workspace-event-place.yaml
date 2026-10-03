@@ -109,3 +109,24 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: Profile Test Stage
     timeout: 15000
+- tapOn: Profile Test Stage
+- tapOn:
+    id: button.edit-place
+- scrollUntilVisible:
+    element:
+      id: field.event-place.short-label
+    direction: DOWN
+- tapOn:
+    id: field.event-place.short-label
+- inputText: PTS
+- scrollUntilVisible:
+    element:
+      id: field.event-place.icon-name
+    direction: UP
+- tapOn:
+    id: field.event-place.icon-name
+- inputText: calendar
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Profile Test Stage
+    timeout: 15000
