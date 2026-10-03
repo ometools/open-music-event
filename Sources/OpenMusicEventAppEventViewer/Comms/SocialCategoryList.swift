@@ -11,7 +11,7 @@ import SQLiteData
 import SwiftUI
 import Tagged
 
-struct CommunicationChannelRow: Equatable, Identifiable, Sendable {
+struct SocialCategoryRow: Equatable, Identifiable, Sendable {
     let channel: Social.Category
     let preference: ChannelPreferences?
     let unreadPostCount: Int
@@ -81,12 +81,12 @@ public struct SocialCategoryList {
             )
         }
 
-        var channelRows: [CommunicationChannelRow] {
+        var channelRows: [SocialCategoryRow] {
             let preferencesByID = Dictionary(
                 uniqueKeysWithValues: channelPreferences.map { ($0.id, $0) }
             )
             return channels.map { channel in
-                CommunicationChannelRow(
+                SocialCategoryRow(
                     channel: channel,
                     preference: preferencesByID[channel.id],
                     unreadPostCount: unreadPostCounts.count(forCategory: channel.id)
@@ -465,22 +465,22 @@ public struct SocialCategoryListView: View {
         } else {
             Section("Channels") {
                 ForEach(store.channelRows) { row in
-                    CommunicationChannelListRow(store: store, row: row)
+                    SocialCategoryListRow(store: store, row: row)
                 }
             }
         }
     }
 }
 
-struct CommunicationChannelListRow: View {
+struct SocialCategoryListRow: View {
     let store: StoreOf<SocialCategoryList>
-    let row: CommunicationChannelRow
+    let row: SocialCategoryRow
 
     var body: some View {
         Button {
             store.send(.channelButtonTapped(row.channel.id))
         } label: {
-            CommunicationChannelRowView(row: row)
+            SocialCategoryRowView(row: row)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .portableContentShape(Rectangle())
         }
@@ -489,20 +489,20 @@ struct CommunicationChannelListRow: View {
             "button.channel.\(row.channel.id.description)"
         )
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            CommunicationChannelNotificationSwipeActions(store: store, row: row)
+            SocialCategoryNotificationSwipeActions(store: store, row: row)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            CommunicationChannelAuthoringSwipeActions(store: store, row: row)
+            SocialCategoryAuthoringSwipeActions(store: store, row: row)
         }
         .contextMenu {
-            CommunicationChannelContextActions(store: store, row: row)
+            SocialCategoryContextActions(store: store, row: row)
         }
     }
 }
 
-struct CommunicationChannelNotificationSwipeActions: View {
+struct SocialCategoryNotificationSwipeActions: View {
     let store: StoreOf<SocialCategoryList>
-    let row: CommunicationChannelRow
+    let row: SocialCategoryRow
 
     var body: some View {
         Group {
@@ -541,9 +541,9 @@ struct CommunicationChannelNotificationSwipeActions: View {
     }
 }
 
-struct CommunicationChannelAuthoringSwipeActions: View {
+struct SocialCategoryAuthoringSwipeActions: View {
     let store: StoreOf<SocialCategoryList>
-    let row: CommunicationChannelRow
+    let row: SocialCategoryRow
 
     var body: some View {
         Group {
@@ -566,9 +566,9 @@ struct CommunicationChannelAuthoringSwipeActions: View {
     }
 }
 
-struct CommunicationChannelContextActions: View {
+struct SocialCategoryContextActions: View {
     let store: StoreOf<SocialCategoryList>
-    let row: CommunicationChannelRow
+    let row: SocialCategoryRow
 
     var body: some View {
         Group {
@@ -655,8 +655,8 @@ struct CommunicationChannelContextActions: View {
     }
 }
 
-struct CommunicationChannelRowView: View {
-    let row: CommunicationChannelRow
+struct SocialCategoryRowView: View {
+    let row: SocialCategoryRow
 
     var body: some View {
         HStack(spacing: 12) {

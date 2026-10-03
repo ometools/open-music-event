@@ -394,7 +394,7 @@ public struct SocialCategoryDetailView: View {
     public var body: some View {
         Group {
             if let channel = store.channel {
-                CommunicationChannelControlsView(store: store, channel: channel)
+                SocialCategoryControlsView(store: store, channel: channel)
             } else {
                 ViewerPlaceholderView(
                     title: "Channel",
@@ -416,7 +416,7 @@ public struct SocialCategoryDetailView: View {
     }
 }
 
-struct CommunicationChannelControlsView: View {
+struct SocialCategoryControlsView: View {
     @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
@@ -429,10 +429,10 @@ struct CommunicationChannelControlsView: View {
     }
 
     var body: some View {
-        CommunicationChannelFormSheetView(store: store, channel: channel)
+        SocialCategoryFormSheetView(store: store, channel: channel)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    CommunicationChannelNotificationMenu(
+                    SocialCategoryNotificationMenu(
                         store: store,
                         channel: channel
                     )
@@ -440,7 +440,7 @@ struct CommunicationChannelControlsView: View {
 
                 if store.canEditChannel {
                     ToolbarItem(placement: .primaryAction) {
-                        CommunicationChannelSettingsMenu(
+                        SocialCategorySettingsMenu(
                             store: store,
                             channel: channel
                         )
@@ -489,7 +489,7 @@ struct CommunicationChannelControlsView: View {
     }
 }
 
-struct CommunicationChannelFormSheetView: View {
+struct SocialCategoryFormSheetView: View {
     @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
@@ -502,7 +502,7 @@ struct CommunicationChannelFormSheetView: View {
     }
 
     var body: some View {
-        CommunicationChannelComposerSheetView(store: store, channel: channel)
+        SocialCategoryComposerSheetView(store: store, channel: channel)
             .sheet(
                 item: $store.scope(\.destination).channelForm
             ) { formStore in
@@ -513,7 +513,7 @@ struct CommunicationChannelFormSheetView: View {
     }
 }
 
-struct CommunicationChannelComposerSheetView: View {
+struct SocialCategoryComposerSheetView: View {
     @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
@@ -526,11 +526,11 @@ struct CommunicationChannelComposerSheetView: View {
     }
 
     var body: some View {
-        CommunicationChannelPostDestinationView(store: store, channel: channel)
+        SocialCategoryPostDestinationView(store: store, channel: channel)
     }
 }
 
-struct CommunicationChannelPostDestinationView: View {
+struct SocialCategoryPostDestinationView: View {
     @Bindable var store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
@@ -571,7 +571,7 @@ struct SocialCategoryDetailList: View {
             if !store.pinnedPosts.isEmpty {
                 Section("Pinned Posts") {
                     ForEach(store.pinnedPosts) { post in
-                        CommunicationChannelPostRow(store: store, post: post)
+                        SocialCategoryPostRow(store: store, post: post)
                     }
                 }
             }
@@ -579,7 +579,7 @@ struct SocialCategoryDetailList: View {
             if !store.recentPosts.isEmpty {
                 Section("Recent Posts") {
                     ForEach(store.recentPosts) { post in
-                        CommunicationChannelPostRow(store: store, post: post)
+                        SocialCategoryPostRow(store: store, post: post)
                     }
                 }
             }
@@ -605,7 +605,7 @@ struct SocialCategoryDetailList: View {
     }
 }
 
-struct CommunicationChannelPostRow: View {
+struct SocialCategoryPostRow: View {
     let store: StoreOf<SocialCategoryDetail>
     let post: Social.Post
 
@@ -729,7 +729,7 @@ struct CommsPostRowView: View {
     }
 }
 
-struct CommunicationChannelSettingsMenu: View {
+struct SocialCategorySettingsMenu: View {
     let store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 
@@ -758,7 +758,7 @@ struct CommunicationChannelSettingsMenu: View {
     }
 }
 
-struct CommunicationChannelNotificationMenu: View {
+struct SocialCategoryNotificationMenu: View {
     let store: StoreOf<SocialCategoryDetail>
     let channel: Social.Category
 

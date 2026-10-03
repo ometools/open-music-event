@@ -22,9 +22,9 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let cacheContext: LocalImageCacheContext?
     let recordID: Event.ID?
     var contentMode: ContentMode?
-    var renderedImageSize: CGSize?
+    var renderedImageSize: ImageFocusCGSize?
     var focusSafeAreaInsets: EdgeInsets
-    let onIntrinsicSizeLoaded: (CGSize) -> Void
+    let onIntrinsicSizeLoaded: (ImageFocusCGSize) -> Void
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
     @Dependency(\.imageAssetResolver) var imageAssetResolver
     @Dependency(ATProto.Repository.PDSHostResolver.self) var pdsHosts
@@ -37,9 +37,9 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
-        renderedImageSize: CGSize? = nil,
+        renderedImageSize: ImageFocusCGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
+        onIntrinsicSizeLoaded: @escaping (ImageFocusCGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = asset
@@ -57,9 +57,9 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
-        renderedImageSize: CGSize? = nil,
+        renderedImageSize: ImageFocusCGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
+        onIntrinsicSizeLoaded: @escaping (ImageFocusCGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = asset
@@ -76,9 +76,9 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
-        renderedImageSize: CGSize? = nil,
+        renderedImageSize: ImageFocusCGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
+        onIntrinsicSizeLoaded: @escaping (ImageFocusCGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         switch image {
@@ -108,9 +108,9 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
-        renderedImageSize: CGSize? = nil,
+        renderedImageSize: ImageFocusCGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
+        onIntrinsicSizeLoaded: @escaping (ImageFocusCGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         switch image {
@@ -299,7 +299,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     @ViewBuilder
     func renderedImage(
         _ image: Image,
-        intrinsicSize: CGSize,
+        intrinsicSize: ImageFocusCGSize,
         asset: OME.ImageAsset?
     ) -> some View {
         let image = image
@@ -392,8 +392,8 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
 
 struct FocusedAsyncImage: View {
     let image: Image
-    let imageSize: CGSize
-    let focalPoint: CGPoint
+    let imageSize: ImageFocusCGSize
+    let focalPoint: ImageFocusCGPoint
     let safeAreaInsets: EdgeInsets
 
     var body: some View {
@@ -420,13 +420,13 @@ struct FocusedAsyncImage: View {
         .clipped()
     }
 
-    func safeRect(in size: CGSize) -> CGRect {
+    func safeRect(in size: ImageFocusCGSize) -> ImageFocusCGRect {
         let width = size.width - safeAreaInsets.leading - safeAreaInsets.trailing
         let height = size.height - safeAreaInsets.top - safeAreaInsets.bottom
         guard width > 0, height > 0 else {
-            return CGRect(origin: .zero, size: size)
+            return ImageFocusCGRect(origin: .zero, size: size)
         }
-        return CGRect(
+        return ImageFocusCGRect(
             x: safeAreaInsets.leading,
             y: safeAreaInsets.top,
             width: width,
@@ -436,13 +436,13 @@ struct FocusedAsyncImage: View {
 }
 
 private extension OME.ImageAsset.FocalPoint {
-    var point: CGPoint {
-        CGPoint(x: x, y: y)
+    var point: ImageFocusCGPoint {
+        ImageFocusCGPoint(x: x, y: y)
     }
 }
 
 private extension OME.Image.FocalPoint {
-    var point: CGPoint {
-        CGPoint(x: x, y: y)
+    var point: ImageFocusCGPoint {
+        ImageFocusCGPoint(x: x, y: y)
     }
 }

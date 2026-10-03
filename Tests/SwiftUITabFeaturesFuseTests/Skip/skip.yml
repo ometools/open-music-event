@@ -4,6 +4,9 @@ skip:
 
 build:
   contents:
+    - block: 'android'
+      contents:
+        - 'namespace = "swift.uitab.features.fuse.fixtures"'
     - block: 'dependencies'
       contents:
         - 'testImplementation(libs.androidx.compose.ui.test)'
@@ -22,3 +25,16 @@ build:
                 - 'commandLine("sh", "-cx", "swift build --package-path \"${swiftSourceFolder()}\" --configuration debug --product SwiftUITabFeaturesFuseFixtures --scratch-path \"${layout.projectDirectory}/.build/SwiftUITabFeaturesFuseFixtures/swift\" -Xcc -fPIC -Xswiftc -DSKIP_BRIDGE -Xswiftc -DROBOLECTRIC")'
                 - 'environment("SKIP_BRIDGE", "1")'
                 - 'if (file(skipCommand).exists()) { environment("SKIP_COMMAND_OVERRIDE", skipCommand) }'
+
+# The merged fixture project includes native dependencies without a generated
+# namespace. Assign one as each Android library plugin is applied.
+settings:
+  contents:
+    - block: 'gradle.beforeProject'
+      contents:
+        - 'val moduleNamespace = "skip.generated." + name.replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1.$2").replace(Regex("([a-z0-9])([A-Z])"), "$1.$2").replace("-", ".").lowercase()'
+        - block: 'pluginManager.withPlugin'
+          param: '"com.android.library"'
+          contents:
+            - 'val android = extensions.getByName("android")'
+            - 'android.javaClass.methods.first { it.name == "setNamespace" && it.parameterCount == 1 }.invoke(android, moduleNamespace)'

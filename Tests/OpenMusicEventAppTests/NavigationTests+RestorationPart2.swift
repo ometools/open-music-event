@@ -55,7 +55,7 @@ extension NavigationTests {
                     eventID: eventID,
                     categoryID: categoryID,
                     author: author,
-                    draft: CommsPostDraft(
+                    draft: SocialPostDraft(
                         title: "  Gates are open  ",
                         markdown: "  **Welcome** to Wicked Woods.  "
                     )
@@ -129,7 +129,7 @@ extension NavigationTests {
             TestStore(
                 initialState: SocialPostForm.State(
                     eventID: eventID, categoryID: categoryID, author: author,
-                    draft: CommsPostDraft(title: "The gates", markdown: "")
+                    draft: SocialPostDraft(title: "The gates", markdown: "")
                 )
             ) { SocialPostForm() }
         }

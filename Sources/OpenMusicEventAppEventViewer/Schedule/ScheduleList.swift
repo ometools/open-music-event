@@ -476,7 +476,7 @@ public struct ScheduleList {
         case programs(Spawn<ProgramList>)
         case reactionEntry(PerformanceReactionEntry)
         case userScheduleForm(Spawn<UserScheduleForm>)
-        case userSchedulesList(Spawn<UserSchedulesList>)
+        case userScheduleList(Spawn<UserScheduleList>)
     }
 
     @Feature
@@ -807,8 +807,8 @@ public struct ScheduleList {
                 state.scheduleKind = scheduleKind
 
             case .schedulesButtonTapped:
-                state.destination = .userSchedulesList(
-                    Spawn(UserSchedulesList.State(eventID: state.eventID))
+                state.destination = .userScheduleList(
+                    Spawn(UserScheduleList.State(eventID: state.eventID))
                 )
 
             case let .userScheduleButtonTapped(scheduleID):

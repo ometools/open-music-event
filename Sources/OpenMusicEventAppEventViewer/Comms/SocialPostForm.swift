@@ -9,7 +9,7 @@ import Sharing
 import SQLiteData
 import SwiftUI
 
-public struct CommsPostDraft: Equatable, Sendable {
+public struct SocialPostDraft: Equatable, Sendable {
     public var delivery: Social.Post.Delivery?
     public var markdown: String
     public var title: String
@@ -42,7 +42,7 @@ public struct SocialPostForm {
             eventID: Event.ID,
             categoryID: Social.Category.ID?,
             author: DID,
-            draft: CommsPostDraft = CommsPostDraft()
+            draft: SocialPostDraft = SocialPostDraft()
         ) {
             self.eventID = eventID
             self.categoryID = categoryID
@@ -66,7 +66,7 @@ public struct SocialPostForm {
             } else {
                 delivery = nil
             }
-            self.draft = CommsPostDraft(
+            self.draft = SocialPostDraft(
                 title: post.title ?? "",
                 markdown: post.text,
                 delivery: delivery
@@ -83,7 +83,7 @@ public struct SocialPostForm {
         public var author: DID
         public var editingPost: Social.Post?
         public var destination: Destination.State?
-        public var draft: CommsPostDraft
+        public var draft: SocialPostDraft
         public var errorMessage: String?
         public var imagePicker: ImageAssetPicker.State
         public var isPreviewing = false

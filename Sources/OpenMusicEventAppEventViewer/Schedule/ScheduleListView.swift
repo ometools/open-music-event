@@ -253,8 +253,8 @@ public struct ScheduleListView: View {
             .sheet(item: $store.scope(\.destination).reactionEntry) { entryStore in
                 PerformanceReactionEntryView(store: entryStore)
             }
-            .navigationDestination(item: $store.scope(\.destination).userSchedulesList) { schedulesStore in
-                UserSchedulesListView(store: schedulesStore)
+            .navigationDestination(item: $store.scope(\.destination).userScheduleList) { schedulesStore in
+                UserScheduleListView(store: schedulesStore)
             }
             .navigationDestination(item: $store.scope(\.destination).programs) { programsStore in
                 ProgramListView(store: programsStore)

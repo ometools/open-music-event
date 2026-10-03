@@ -43,7 +43,7 @@ let tcaTraits: Set<Package.Dependency.Trait> =
     ? ["Dependencies"]
     : [.defaults, "Dependencies"]
 let composableAtmosphereTraits: Set<Package.Dependency.Trait> =
-    isAndroidAppBuild
+    isAndroidAppBuild || isSkipBridgeHostBuild
     ? ["SkipAndroidBridge", "BlueskyProfiles"]
     : [.defaults, "BlueskyProfiles"]
 

@@ -60,11 +60,11 @@ extension UserStoryTests {
             // The attendee opens Schedules and confirms deletion of My Schedule.
             returnVisit.send(.schedulesButtonTapped)
             await waitUntil {
-                returnVisit.state.destination?.userSchedulesList?.schedules.map(\.title)
+                returnVisit.state.destination?.userScheduleList?.schedules.map(\.title)
                     == ["My Schedule"]
             }
             let schedules = try #require(
-                returnVisit.spawn(\.destination?.userSchedulesList)
+                returnVisit.spawn(\.destination?.userScheduleList)
             )
             schedules.send(.deleteButtonTapped(schedule.id))
             #expect(
