@@ -14,20 +14,16 @@ struct ImageAssetAsyncImageTests {
     #if canImport(AppKit)
     @Test
     func `unavailable hero logo does not constrain fallback title width`() {
-        let unavailableLogo = OME.ImageAsset(
-            source: .blob(
-                ATProto.Blob(
-                    ref: "bafkreiunavailablelogo",
-                    mimeType: "image/png",
-                    size: 1
-                )
-            ),
-            role: .logo,
-            renderKind: .transparent,
-            materializationPolicy: .lazy
+        let unavailableLogo = OME.Image(
+            source: .known(.blob(ATProto.Blob(
+                ref: "bafkreiunavailablelogo",
+                mimeType: "image/png",
+                size: 1
+            ))),
+            role: .known(.logo)
         )
         let titleSources: [HeroImageTitleSource] = [
-            .logo(DisplayImageAsset(asset: unavailableLogo)),
+            .logo(.record(unavailableLogo, nil)),
             .title,
         ]
         let titleSourceChain = HeroImageTitleSourceChain(
@@ -42,52 +38,38 @@ struct ImageAssetAsyncImageTests {
     #endif
 
     @Test
-    func `resolved image location preserves current rendering metadata`() throws {
+    func `canonical image display preserves rendering metadata`() throws {
         let remoteURL = try #require(URL(string: "https://example.com/hero.jpg"))
-        var currentAsset = OME.ImageAsset(
-            source: .url(remoteURL),
-            role: .hero,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy,
-            thumbhash: "current-thumbhash",
+        let image = OME.Image(
+            source: .known(.url(remoteURL)),
+            role: .known(.hero),
             focalPoint: .init(x: 0.2, y: 0.8)
         )
+        let display = try #require(image.displayImageAsset())
+        let view = ImageAssetAsyncImage(image: display) { EmptyView() }
 
-        // The image was resolved before the user changed its focus metadata.
-        var resolvedAsset = currentAsset
-        resolvedAsset.assetKey = "event|hero"
-        resolvedAsset.source = .url(URL(fileURLWithPath: "/tmp/event-hero.jpg"))
-        resolvedAsset.thumbhash = "stale-thumbhash"
-        resolvedAsset.focalPoint = .init(x: 0.5, y: 0.5)
-
-        // Rendering reuses the resolved file without restoring stale metadata.
-        let displayAsset = ImageAssetAsyncImage<EmptyView>.displayAsset(
-            asset: currentAsset,
-            resolvedAsset: resolvedAsset
-        )
-        currentAsset.assetKey = resolvedAsset.assetKey
-        currentAsset.source = resolvedAsset.source
-        expectNoDifference(displayAsset, currentAsset)
+        expectNoDifference(display, .record(image, nil))
+        expectNoDifference(view.displayURL, remoteURL)
+        expectNoDifference(view.recordImage?.focalPoint, .init(x: 0.2, y: 0.8))
+        expectNoDifference(view.resolvedContentMode, .fill)
     }
 
     @Test
     func `changing focus does not invalidate image resolution`() throws {
         let remoteURL = try #require(URL(string: "https://example.com/hero.jpg"))
-        let asset = OME.ImageAsset(
-            source: .url(remoteURL),
-            role: .hero,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy
+        let image = OME.Image(
+            source: .known(.url(remoteURL)),
+            role: .known(.hero)
         )
-        var focusedAsset = asset
-        focusedAsset.focalPoint = .init(x: 0.2, y: 0.8)
+        var focusedImage = image
+        focusedImage.focalPoint = .init(x: 0.2, y: 0.8)
 
-        let originalImage = ImageAssetAsyncImage(asset: asset) { EmptyView() }
-        let focusedImage = ImageAssetAsyncImage(asset: focusedAsset) { EmptyView() }
+        let originalView = ImageAssetAsyncImage(image: .record(image, nil)) { EmptyView() }
+        let focusedView = ImageAssetAsyncImage(image: .record(focusedImage, nil)) { EmptyView() }
 
         // Focus changes reposition the existing pixels without resolving or decoding them again.
-        expectNoDifference(focusedImage.resolutionTaskID, originalImage.resolutionTaskID)
-        expectNoDifference(focusedImage.renderingCacheKey, originalImage.renderingCacheKey)
+        expectNoDifference(focusedView.resolutionTaskID, originalView.resolutionTaskID)
+        expectNoDifference(focusedView.renderingCacheKey, originalView.renderingCacheKey)
     }
 
     @Test

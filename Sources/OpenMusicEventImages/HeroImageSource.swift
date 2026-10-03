@@ -1,4 +1,3 @@
-import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 #if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
@@ -8,33 +7,17 @@ import SwiftUI
 
 public enum DisplayImageAsset: Equatable, Sendable {
     case record(OME.Image, Event.ID?)
-    case source(OME.ImageAsset, LocalImageCacheContext?)
-
-    public init(
-        asset: OME.ImageAsset,
-        cacheContext: LocalImageCacheContext? = nil
-    ) {
-        self = .source(asset, cacheContext)
-    }
 
     public var role: OME.Image.Role? {
-        switch self {
-        case let .record(image, _):
-            if case let .known(role) = image.role { return role }
-            return nil
-        case let .source(asset, _):
-            return OME.Image.Role(rawValue: asset.role.rawValue)
-        }
+        guard case let .record(image, _) = self,
+              case let .known(role) = image.role else { return nil }
+        return role
     }
 
     public var url: URL? {
-        switch self {
-        case let .record(image, _):
-            if case let .known(.url(url)) = image.source { return url }
-            return nil
-        case let .source(asset, _):
-            return asset.url
-        }
+        guard case let .record(image, _) = self,
+              case let .known(.url(url)) = image.source else { return nil }
+        return url
     }
 
     public var recordID: Event.ID? {
@@ -251,77 +234,5 @@ public extension EnvironmentValues {
     var heroImageRendering: HeroImageRendering {
         get { self[HeroImageRenderingKey.self] }
         set { self[HeroImageRenderingKey.self] = newValue }
-    }
-}
-
-public extension OME.Calendar {
-    var heroImageSources: [HeroImageSource] {
-        let context = LocalImageCacheContext(calendarID: id)
-        return [
-            images?.imageAsset(role: .hero).map {
-                .primaryImage(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            images?.imageAsset(role: .logo).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-        ].compactMap { $0 }
-    }
-
-    var heroImageTitleSources: [HeroImageTitleSource] {
-        let context = LocalImageCacheContext(calendarID: id)
-        return [
-            images?.imageAsset(role: .logo).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            .title,
-        ].compactMap { $0 }
-    }
-}
-
-public extension OME.Event {
-    var heroImageSources: [HeroImageSource] {
-        let context = LocalImageCacheContext(eventID: id)
-        return [
-            images?.imageAsset(role: .hero).map {
-                .primaryImage(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            images?.imageAsset(role: .icon).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-        ].compactMap { $0 }
-    }
-
-    var heroImageTitleSources: [HeroImageTitleSource] {
-        let context = LocalImageCacheContext(eventID: id)
-        return [
-            images?.imageAsset(role: .icon).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            .title,
-        ].compactMap { $0 }
-    }
-}
-
-public extension OME.Stage {
-    var heroImageSources: [HeroImageSource] {
-        let context = LocalImageCacheContext(stageID: id)
-        return [
-            images?.imageAsset(role: .hero).map {
-                .primaryImage(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            images?.imageAsset(role: .logo).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-        ].compactMap { $0 }
-    }
-
-    var heroImageTitleSources: [HeroImageTitleSource] {
-        let context = LocalImageCacheContext(stageID: id)
-        return [
-            images?.imageAsset(role: .logo).map {
-                .logo(DisplayImageAsset(asset: $0, cacheContext: context))
-            },
-            .title,
-        ].compactMap { $0 }
     }
 }
