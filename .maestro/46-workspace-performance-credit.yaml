@@ -66,5 +66,7 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: Artist One Renamed
     timeout: 15000
-- assertVisible:
-    id: view.performance-detail.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+- extendedWaitUntil:
+    visible:
+      id: view.performance-detail.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    timeout: 15000
