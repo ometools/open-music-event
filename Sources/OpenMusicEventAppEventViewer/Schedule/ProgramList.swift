@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import Sharing
 import SQLiteData
@@ -38,6 +39,7 @@ public struct ProgramList {
     public enum Action {
         case addButtonTapped
         case editButtonTapped(Program.ID)
+        case deleteButtonTapped(Program.ID)
         case moveButtonTapped(Program.ID, Int)
         case destination(Destination.Action)
     }
@@ -66,6 +68,24 @@ public struct ProgramList {
                     program: program,
                     places: state.places
                 )))
+
+            case let .deleteButtonTapped(id):
+                guard state.orderedPrograms.contains(where: { $0.id == id }) else { return }
+                let eventID = state.eventID
+                state.errorMessage = nil
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try ProgramRecordEditing.delete(id, eventID: eventID, in: db)
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = (error as? ProgramRecordEditing.Error) == .programInUse
+                                ? "Move or delete this program's items before deleting it."
+                                : "Unable to delete program."
+                        }
+                    }
+                }
 
             case let .moveButtonTapped(id, offset):
                 guard let index = state.orderedPrograms.firstIndex(where: { $0.id == id }),
@@ -99,6 +119,7 @@ public struct ProgramList {
 }
 
 public struct ProgramListView: View {
+    @State var programPendingDeletion: Program.ID?
     @Bindable var store: StoreOf<ProgramList>
 
     public init(store: StoreOf<ProgramList>) {
@@ -135,10 +156,14 @@ public struct ProgramListView: View {
                         Button("Edit") { store.send(.editButtonTapped(program.id)) }
                         Button("Move Up") { store.send(.moveButtonTapped(program.id, -1)) }
                         Button("Move Down") { store.send(.moveButtonTapped(program.id, 1)) }
+                        Button("Delete", role: .destructive) {
+                            programPendingDeletion = program.id
+                        }
                     } label: {
                         Label("Program actions", systemImage: "ellipsis.circle")
                             .labelStyle(.iconOnly)
                     }
+                    .accessibilityIdentifier("button.program-actions.\(program.id)")
                 }
             }
         }
@@ -154,6 +179,24 @@ public struct ProgramListView: View {
         }
         .navigationDestination(item: $store.scope(\.destination).editor) { editorStore in
             ProgramFormView(store: editorStore)
+        }
+        .confirmationDialog(
+            "Delete Program?",
+            isPresented: Binding(
+                get: { programPendingDeletion != nil },
+                set: { if !$0 { programPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let programID = programPendingDeletion {
+                Button("Delete Program", role: .destructive) {
+                    store.send(.deleteButtonTapped(programID))
+                    programPendingDeletion = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { programPendingDeletion = nil }
+        } message: {
+            Text("Move or delete this program's items first.")
         }
     }
 }

@@ -109,3 +109,17 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: Edit Schedule
     timeout: 15000
+- tapOn: Cancel
+- runFlow: helpers/back.yaml
+- tapOn: Event Schedule
+- tapOn:
+    id: button.schedule-add
+- tapOn: Programs…
+- extendedWaitUntil:
+    visible: Workshops
+    timeout: 15000
+- tapOn:
+    id: button.program-actions.at://did:web:example.com/events.openmusic.program/3mrdbziccpcaj
+- assertVisible: Delete
+- tapOn: Delete
+- assertVisible: Delete Program?

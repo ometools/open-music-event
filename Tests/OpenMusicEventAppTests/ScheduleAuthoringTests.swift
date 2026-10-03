@@ -1921,6 +1921,44 @@ struct ScheduleAuthoringTests {
             == [secondProgramID, fixture.program.id])
     }
 
+    @Test
+    func programManagerDeletesAProgramFromItsRowActions() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        let workshopsID = try await database.write { db in
+            try ProgramRecordEditing.create(
+                eventID: fixture.event.id,
+                title: "Workshops",
+                eventPlaces: [],
+                createdAt: Date(timeIntervalSince1970: 1_780_000_000),
+                in: db
+            )
+        }
+
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            let manager = Store(initialState: ProgramList.State(eventID: fixture.event.id)) {
+                ProgramList()
+            }
+
+            // Deleting Workshops removes both the record and its entry in the Event's program order.
+            #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id, workshopsID])
+            await manager.send(.deleteButtonTapped(workshopsID))?.value
+            #expect(manager.state.orderedPrograms.map(\.id) == [fixture.program.id])
+        }
+
+        let rows = try await database.read { db in
+            (
+                workshops: try Program.find(workshopsID).fetchOne(db),
+                event: try Event.find(fixture.event.id).fetchOne(db)
+            )
+        }
+        #expect(rows.workshops == nil)
+        #expect(rows.event?.programs == [fixture.program.id])
+    }
+
     private func canonicalPerformanceDatabase() throws -> DatabaseQueue {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()

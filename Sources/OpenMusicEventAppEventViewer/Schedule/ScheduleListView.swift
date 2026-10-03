@@ -67,6 +67,7 @@ public struct ScheduleAddMenu: View {
             Label("Add", systemImage: "plus")
                 .labelStyle(.iconOnly)
         }
+        .accessibilityIdentifier("button.schedule-add")
     }
 }
 
