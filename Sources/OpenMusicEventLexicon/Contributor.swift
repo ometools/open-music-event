@@ -102,6 +102,11 @@ extension Contributor {
 
         @LexiconField(description: "The content identifier of the exact record revision.")
         public var cid: ATProto.CID
+
+        public init(uri: ATProto.URI, cid: ATProto.CID) {
+            self.uri = uri
+            self.cid = cid
+        }
     }
 
     @Lexicon("events.openmusic.defs#contributorRole", type: .string, description: "A known event-wide contribution category. Other string values may be used by extensions.")

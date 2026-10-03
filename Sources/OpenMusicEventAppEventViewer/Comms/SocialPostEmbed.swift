@@ -40,11 +40,84 @@ enum SocialPostEmbedContent: Equatable, Sendable {
             }
 
         case "app.bsky.embed.record", "app.bsky.embed.recordWithMedia":
-            self = .record(embed.object["record"]?.object?["uri"]?.string ?? "")
+            if let reference = SocialPostRecordEmbed(embed: embed) {
+                self = .record(reference.reference.uri)
+            } else {
+                self = .unsupported
+            }
 
         default:
             self = .unsupported
         }
+    }
+}
+
+struct SocialPostStrongReference: Equatable, Sendable {
+    var uri = ""
+    var cid = ""
+
+    init() {}
+
+    init(_ source: Contributor.Source) {
+        uri = source.uri.description
+        cid = source.cid.rawValue
+    }
+
+    var source: Contributor.Source? {
+        let uriText = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cidText = cid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let uri = ATProto.URI(uriText),
+              case .did = uri.authority,
+              uri.collection != nil,
+              uri.rkey != nil,
+              !cidText.isEmpty else { return nil }
+        return Contributor.Source(uri: uri, cid: ATProto.CID(rawValue: cidText))
+    }
+}
+
+struct SocialPostRecordEmbed: Equatable, Sendable {
+    var reference = SocialPostStrongReference()
+    var original: [String: Lexicon.JSONValue]?
+
+    init() {}
+
+    init?(embed: Social.Post.Embed) {
+        let object = embed.object
+        let strongReference: [String: Lexicon.JSONValue]?
+        switch object["$type"]?.string {
+        case "app.bsky.embed.record":
+            strongReference = object["record"]?.object
+        case "app.bsky.embed.recordWithMedia":
+            strongReference = object["record"]?.object?["record"]?.object
+        default:
+            return nil
+        }
+        guard let strongReference,
+              let uri = strongReference["uri"]?.string,
+              let cid = strongReference["cid"]?.string else { return nil }
+        reference.uri = uri
+        reference.cid = cid
+        guard reference.source != nil else { return nil }
+        original = object
+    }
+
+    var embed: Social.Post.Embed? {
+        guard let source = reference.source else { return nil }
+        let strongReference: Lexicon.JSONValue = .object([
+            "uri": .string(source.uri.description),
+            "cid": .string(source.cid.rawValue),
+        ])
+        var object = original ?? [:]
+        if object["$type"]?.string == "app.bsky.embed.recordWithMedia" {
+            var record = object["record"]?.object ?? [:]
+            record["$type"] = "app.bsky.embed.record"
+            record["record"] = strongReference
+            object["record"] = .object(record)
+        } else {
+            object["$type"] = "app.bsky.embed.record"
+            object["record"] = strongReference
+        }
+        return Social.Post.Embed(object)
     }
 }
 

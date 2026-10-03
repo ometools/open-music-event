@@ -232,14 +232,6 @@ public struct SocialCategoryDetail {
                     SocialPostDetail.State(postID: postID, eventID: state.eventID)
                 )
 
-            case .destination(.postDetail(.deleteButtonTapped)):
-                guard case let .postDetail(detail) = state.destination,
-                      let post = state.posts.first(where: { $0.id == detail.postID }),
-                      state.canEditPost(post) else { return }
-                state.destination = .postDeleteConfirmation(
-                    PostDeleteConfirmation.State(postID: detail.postID)
-                )
-
             case let .destination(.deleteChannelConfirmation(.deleteButtonTapped(channelID))):
                 guard channelID == state.channelID else { return }
                 let eventID = state.eventID

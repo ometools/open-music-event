@@ -38,6 +38,8 @@ public struct SocialPostDetail {
         @FetchOne public var post: Social.Post?
         public var destination: Destination.State?
         public var errorMessage: String?
+        public var isDeleting = false
+        public var showsDeleteConfirmation = false
         public var id: Social.Post.ID { postID }
 
         public var canDelete: Bool {
@@ -62,6 +64,7 @@ public struct SocialPostDetail {
 
     public enum Action {
         case deleteButtonTapped
+        case deleteConfirmed
         case editButtonTapped
         case destination(Destination.Action)
         case postBecameVisible
@@ -78,7 +81,29 @@ public struct SocialPostDetail {
         Update { state, action in
             switch action {
             case .deleteButtonTapped:
-                break
+                guard state.canDelete, !state.isDeleting else { return }
+                state.showsDeleteConfirmation = true
+
+            case .deleteConfirmed:
+                guard state.canDelete, !state.isDeleting,
+                      let author = state.validatedWorkspaceSession?.actorID else { return }
+                state.showsDeleteConfirmation = false
+                state.isDeleting = true
+                let postID = state.postID
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try SocialPostRecordEditing.delete(postID, author: author, in: db)
+                            try CommsPostRead.find(postID).delete().execute(db)
+                        }
+                        try store.dismiss()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete this post."
+                            $0.isDeleting = false
+                        }
+                    }
+                }
 
             case .editButtonTapped:
                 guard state.canDelete,
@@ -152,6 +177,18 @@ public struct SocialPostDetailView: View {
                             SocialPostEmbedView(embed: embed, recordID: post.id)
                         }
 
+                        if let syndications = post.syndications, !syndications.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Syndicated Records")
+                                    .font(.headline)
+                                ForEach(syndications.indices, id: \.self) { index in
+                                    Text(syndications[index].uri.description)
+                                        .font(.subheadline)
+                                        .selectableText()
+                                }
+                            }
+                        }
+
                         if let errorMessage = store.errorMessage {
                             Text(errorMessage)
                                 .font(.footnote)
@@ -190,6 +227,7 @@ public struct SocialPostDetailView: View {
                         } label: {
                             Label("Delete Post", systemImage: "trash")
                         }
+                        .disabled(store.isDeleting)
                     } label: {
                         Label("Post Actions", systemImage: "gearshape")
                     }
@@ -199,6 +237,14 @@ public struct SocialPostDetailView: View {
         .sheet(item: $store.scope(\.destination).composer) { composerStore in
             NavigationStack {
                 SocialPostFormView(store: composerStore)
+            }
+        }
+        .confirmationDialog(
+            "Delete this post?",
+            isPresented: $store.showsDeleteConfirmation
+        ) {
+            Button("Delete Post", role: .destructive) {
+                store.send(.deleteConfirmed)
             }
         }
         .accessibilityIdentifier("view.communication-post.\(store.postID.description)")
@@ -245,10 +291,14 @@ struct SocialPostEmbedView: View {
             }
 
         case let .record(uri):
-            Label("Referenced record", systemImage: "link")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityHint(uri)
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Referenced record", systemImage: "link")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(uri)
+                    .font(.caption)
+                    .selectableText()
+            }
 
         case .unsupported:
             Label("Attached content", systemImage: "paperclip")

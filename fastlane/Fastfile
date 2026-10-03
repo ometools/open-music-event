@@ -669,7 +669,8 @@ lane :ios_workspace_ui_tests do |options|
   flow = File.join(repo_root, ".maestro", "40-workspace-owner.yaml")
   place_flow = File.join(repo_root, ".maestro", "45-workspace-event-place.yaml")
   credit_flow = File.join(repo_root, ".maestro", "46-workspace-performance-credit.yaml")
-  [flow, place_flow, credit_flow].each do |path|
+  post_flow = File.join(repo_root, ".maestro", "47-workspace-social-post.yaml")
+  [flow, place_flow, credit_flow, post_flow].each do |path|
     UI.user_error!("Maestro flow does not exist: #{path}") unless File.file?(path)
   end
 
@@ -694,6 +695,8 @@ lane :ios_workspace_ui_tests do |options|
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: place_flow)
   reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: credit_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: post_flow)
   snapshot_action = options[:snapshot_action] || "compare"
   UI.user_error!("snapshot_action must be compare or record") unless %w[compare record].include?(snapshot_action)
   %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place].each do |milestone|

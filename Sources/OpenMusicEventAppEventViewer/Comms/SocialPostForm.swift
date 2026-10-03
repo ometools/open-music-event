@@ -54,6 +54,9 @@ public struct SocialPostForm {
             )
             self.externalCard = SocialPostExternalCard()
             self.hasLinkCard = false
+            self.recordEmbed = SocialPostRecordEmbed()
+            self.hasRecordEmbed = false
+            self.syndications = SocialPostSyndications.State(sources: [])
             self._categories = FetchAll(Social.Category.where { $0.event.eq(eventID) })
         }
 
@@ -73,6 +76,9 @@ public struct SocialPostForm {
                 markdown: post.text,
                 delivery: delivery
             )
+            self.recordEmbed = SocialPostRecordEmbed()
+            self.hasRecordEmbed = false
+            self.syndications = SocialPostSyndications.State(sources: post.syndications ?? [])
             if let embed = post.embed {
                 switch SocialPostEmbedContent(embed) {
                 case let .images(images):
@@ -90,7 +96,18 @@ public struct SocialPostForm {
                     )
                     self.externalCard = card
                     self.hasLinkCard = true
-                case .record, .unsupported:
+                case .record:
+                    self.imagePicker = ImageAssetPicker.State(
+                        configuration: .communicationPostPhotos,
+                        recordID: post.id
+                    )
+                    self.externalCard = SocialPostExternalCard()
+                    if let record = SocialPostRecordEmbed(embed: embed) {
+                        self.recordEmbed = record
+                        self.hasRecordEmbed = true
+                    }
+                    self.hasLinkCard = false
+                case .unsupported:
                     self.imagePicker = ImageAssetPicker.State(
                         configuration: .communicationPostPhotos,
                         recordID: post.id
@@ -119,26 +136,34 @@ public struct SocialPostForm {
         public var errorMessage: String?
         var externalCard: SocialPostExternalCard
         var hasLinkCard: Bool
+        var recordEmbed: SocialPostRecordEmbed
+        var hasRecordEmbed: Bool
         public var imagePicker: ImageAssetPicker.State
         public var isPreviewing = false
         public var isSaving = false
         public var removedEmbed = false
+        var syndications: SocialPostSyndications.State
 
         public var canSubmit: Bool {
             (editingPost != nil || !draft.trimmedTitle.isEmpty)
                 && (!draft.trimmedMarkdown.isEmpty
                     || !imagePicker.images.isEmpty
                     || hasLinkCard
+                    || hasRecordEmbed
                     || hasRetainedEmbed)
                 && (!hasLinkCard || externalCard.isValid)
+                && (!hasRecordEmbed || recordEmbed.embed != nil)
+                && syndications.draft == nil
                 && !isSaving
                 && (draft.delivery != .emergency || canRequestEmergency)
         }
 
         var hasRetainedEmbed: Bool {
-            guard let embed = editingPost?.embed, !removedEmbed else { return false }
+            guard let embed = editingPost?.embed, !removedEmbed,
+                  !hasLinkCard, !hasRecordEmbed, imagePicker.images.isEmpty else { return false }
             switch SocialPostEmbedContent(embed) {
-            case .record, .unsupported: return true
+            case .record: return !hasRecordEmbed
+            case .unsupported: return true
             case .images, .external: return false
             }
         }
@@ -156,12 +181,15 @@ public struct SocialPostForm {
 
     public enum Action {
         case addLinkCardButtonTapped
+        case addRecordEmbedButtonTapped
         case cancelButtonTapped
         case destination(Destination.Action)
         case imagePicker(ImageAssetPicker.Action)
         case removeEmbedButtonTapped
         case removeLinkCardButtonTapped
+        case removeRecordEmbedButtonTapped
         case saveButtonTapped
+        case syndications(SocialPostSyndications.Action)
     }
 
     @Feature
@@ -173,9 +201,85 @@ public struct SocialPostForm {
     @Dependency(\.date) var date
     @Dependency(\.defaultDatabase) var database
 
+    private struct SaveRequest {
+        let eventID: Event.ID
+        let categoryID: Social.Category.ID?
+        let author: DID
+        let draft: SocialPostDraft
+        let editingPost: Social.Post?
+        let images: [ImageAssetPicker.ImageValue]
+        let externalCard: SocialPostExternalCard?
+        let recordEmbed: SocialPostRecordEmbed?
+        let removedEmbed: Bool
+        let syndications: [Contributor.Source]
+        let hasUnknownDelivery: Bool
+        let timestamp: Date
+
+        init(state: State, at timestamp: Date) {
+            eventID = state.eventID
+            categoryID = state.categoryID
+            author = state.author
+            draft = state.draft
+            editingPost = state.editingPost
+            images = state.imagePicker.images
+            externalCard = state.hasLinkCard ? state.externalCard : nil
+            recordEmbed = state.hasRecordEmbed ? state.recordEmbed : nil
+            removedEmbed = state.removedEmbed
+            syndications = state.syndications.sources
+            hasUnknownDelivery = state.hasUnknownDelivery
+            self.timestamp = timestamp
+        }
+
+        func save(in db: Database) throws {
+            let embed = try SocialPostForm.preparedEmbed(
+                images: images,
+                existing: editingPost?.embed,
+                removed: removedEmbed,
+                externalCard: externalCard,
+                recordEmbed: recordEmbed
+            )
+            var fields = SocialPostRecordEditing.Fields(
+                title: draft.trimmedTitle.isEmpty ? nil : draft.trimmedTitle,
+                text: editingPost?.text == draft.markdown
+                    ? draft.markdown : draft.trimmedMarkdown,
+                delivery: draft.delivery,
+                syndications: syndications.isEmpty ? nil : syndications
+            )
+            fields.embed = embed
+            if let editingPost {
+                fields.facets = fields.text == editingPost.text
+                    ? editingPost.facets : nil
+                if hasUnknownDelivery {
+                    fields.delivery = editingPost.delivery
+                }
+                try SocialPostRecordEditing.update(
+                    editingPost.id,
+                    eventID: eventID,
+                    categoryID: categoryID,
+                    author: author,
+                    fields: fields,
+                    updatedAt: timestamp,
+                    in: db
+                )
+            } else {
+                _ = try SocialPostRecordEditing.create(
+                    eventID: eventID,
+                    categoryID: categoryID,
+                    author: author,
+                    fields: fields,
+                    createdAt: timestamp,
+                    in: db
+                )
+            }
+        }
+    }
+
     public var body: some Feature {
         Scope(\.imagePicker) {
             ImageAssetPicker()
+        }
+        Scope(\.syndications) {
+            SocialPostSyndications()
         }
         Update { state, action in
             switch action {
@@ -183,6 +287,16 @@ public struct SocialPostForm {
                 state.imagePicker.images = []
                 state.externalCard = SocialPostExternalCard()
                 state.hasLinkCard = true
+                state.recordEmbed = SocialPostRecordEmbed()
+                state.hasRecordEmbed = false
+                state.removedEmbed = false
+
+            case .addRecordEmbedButtonTapped:
+                state.imagePicker.images = []
+                state.externalCard = SocialPostExternalCard()
+                state.hasLinkCard = false
+                state.recordEmbed = SocialPostRecordEmbed()
+                state.hasRecordEmbed = true
                 state.removedEmbed = false
 
             case .cancelButtonTapped:
@@ -193,6 +307,7 @@ public struct SocialPostForm {
 
             case .imagePicker(.addButtonTapped):
                 state.hasLinkCard = false
+                state.hasRecordEmbed = false
                 state.removedEmbed = false
                 state.destination = .importImages(
                     Spawn(state.imagePicker.importImagesState())
@@ -210,6 +325,7 @@ public struct SocialPostForm {
             case .removeEmbedButtonTapped:
                 state.imagePicker.images = []
                 state.hasLinkCard = false
+                state.hasRecordEmbed = false
                 state.removedEmbed = true
 
             case .removeLinkCardButtonTapped:
@@ -217,62 +333,23 @@ public struct SocialPostForm {
                 state.hasLinkCard = false
                 state.removedEmbed = true
 
+            case .removeRecordEmbedButtonTapped:
+                state.recordEmbed = SocialPostRecordEmbed()
+                state.hasRecordEmbed = false
+                state.removedEmbed = true
+
+            case .syndications:
+                break
+
             case .saveButtonTapped:
                 guard state.canSubmit else { return }
-                let eventID = state.eventID
-                let categoryID = state.categoryID
-                let author = state.author
-                let draft = state.draft
-                let editingPost = state.editingPost
-                let images = state.imagePicker.images
-                let externalCard = state.hasLinkCard ? state.externalCard : nil
-                let removedEmbed = state.removedEmbed
-                let hasUnknownDelivery = state.hasUnknownDelivery
-                let timestamp = date()
+                let request = SaveRequest(state: state, at: date())
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
-                        let embed = try Self.preparedEmbed(
-                            images: images,
-                            existing: editingPost?.embed,
-                            removed: removedEmbed,
-                            externalCard: externalCard
-                        )
                         try await database.write { db in
-                            var fields = SocialPostRecordEditing.Fields(
-                                title: draft.trimmedTitle.isEmpty ? nil : draft.trimmedTitle,
-                                text: editingPost?.text == draft.markdown
-                                    ? draft.markdown : draft.trimmedMarkdown,
-                                delivery: draft.delivery
-                            )
-                            if let editingPost {
-                                fields.facets = fields.text == editingPost.text
-                                    ? editingPost.facets : nil
-                                fields.embed = embed
-                                if hasUnknownDelivery {
-                                    fields.delivery = editingPost.delivery
-                                }
-                                try SocialPostRecordEditing.update(
-                                    editingPost.id,
-                                    eventID: eventID,
-                                    categoryID: categoryID,
-                                    author: author,
-                                    fields: fields,
-                                    updatedAt: timestamp,
-                                    in: db
-                                )
-                            } else {
-                                fields.embed = embed
-                                _ = try SocialPostRecordEditing.create(
-                                    eventID: eventID,
-                                    categoryID: categoryID,
-                                    author: author,
-                                    fields: fields,
-                                    createdAt: timestamp,
-                                    in: db
-                                )
-                            }
+                            try request.save(in: db)
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -307,6 +384,7 @@ public struct SocialPostForm {
         .onEvent(ImportedImagesSubmitted.self) { images, state in
             guard case .importImages = state.destination else { return }
             state.hasLinkCard = false
+            state.hasRecordEmbed = false
             state.removedEmbed = false
             state.imagePicker.append(images)
         }
@@ -320,9 +398,11 @@ public struct SocialPostForm {
         images: [ImageAssetPicker.ImageValue],
         existing: Social.Post.Embed?,
         removed: Bool,
-        externalCard: SocialPostExternalCard?
+        externalCard: SocialPostExternalCard?,
+        recordEmbed: SocialPostRecordEmbed?
     ) throws -> Social.Post.Embed? {
         if let externalCard { return externalCard.embed }
+        if let recordEmbed { return recordEmbed.embed }
         guard !images.isEmpty else {
             guard !removed, let existing else { return nil }
             switch SocialPostEmbedContent(existing) {
@@ -378,212 +458,4 @@ public struct SocialPostForm {
         return Social.Post.Embed(object)
     }
 
-}
-
-public struct SocialPostFormView: View {
-    @Bindable var store: StoreOf<SocialPostForm>
-
-    public init(store: StoreOf<SocialPostForm>) {
-        self.store = store
-    }
-
-    public var body: some View {
-        let emergencyLifetimeInMinutes = 15
-
-        Form {
-            Section {
-                Picker(
-                    "Editor",
-                    selection: $store.isPreviewing
-                ) {
-                    Text("Write").tag(false)
-                    Text("Preview").tag(true)
-                }
-                .pickerStyle(.segmented)
-            }
-
-            if store.isPreviewing {
-                Section("Preview") {
-                    Text(store.draft.trimmedTitle)
-                        .font(.headline)
-                    CommsMarkdownText(store.draft.trimmedMarkdown)
-                    if store.hasLinkCard, let url = store.externalCard.url {
-                        Link(store.externalCard.title, destination: url)
-                    }
-                }
-            } else {
-                Section("Post") {
-                    TextField("Title", text: $store.draft.title)
-                    CommsMarkdownEditor(markdown: $store.draft.markdown)
-                }
-            }
-
-            Section("Category") {
-                Picker("Category", selection: $store.categoryID) {
-                    Text("None").tag(Social.Category.ID?.none)
-                    ForEach(store.categories, id: \.id) { category in
-                        Text(category.name).tag(Optional(category.id))
-                    }
-                }
-            }
-
-            Section("Notification") {
-                if store.hasUnknownDelivery {
-                    Text("This post uses an unrecognized delivery setting. It will be preserved.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Delivery", selection: $store.draft.delivery) {
-                        Text("Unspecified").tag(Social.Post.Delivery?.none)
-                        Text("Silent").tag(Social.Post.Delivery?.some(.silent))
-                        Text("Standard").tag(Social.Post.Delivery?.some(.standard))
-                        Text("Emergency").tag(Social.Post.Delivery?.some(.emergency))
-                            .disabled(!store.canRequestEmergency)
-                    }
-                }
-                Text(
-                    "Emergency alerts use the operating system's urgent presentation and expire after \(emergencyLifetimeInMinutes) minutes."
-                )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            if store.hasRetainedEmbed {
-                Section("Embed") {
-                    Text("This post has an existing embed.")
-                    Button("Remove Embed", role: .destructive) {
-                        store.send(.removeEmbedButtonTapped)
-                    }
-                }
-            }
-
-            if store.hasLinkCard {
-                Section("Link Card") {
-                    TextField("URL", text: $store.externalCard.uri)
-                    TextField("Link Title", text: $store.externalCard.title)
-                    TextField("Description", text: $store.externalCard.summary)
-                    Button("Remove Link Card", role: .destructive) {
-                        store.send(.removeLinkCardButtonTapped)
-                    }
-                }
-            } else {
-                ImageAssetPickerSection(
-                    store: store.scope(\.imagePicker)
-                )
-                if store.imagePicker.images.isEmpty {
-                    Section("Link Card") {
-                        Button("Add Link Card") {
-                            store.send(.addLinkCardButtonTapped)
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle(store.editingPost == nil ? "New Post" : "Edit Post")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { store.send(.cancelButtonTapped) }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { store.send(.saveButtonTapped) }
-                    .disabled(!store.canSubmit)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).importImages) { importStore in
-            NavigationStack {
-                ImportImagesView(store: importStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
-            NavigationStack {
-                ImageInfoView(store: imageInfoStore)
-            }
-        }
-    }
-}
-
-struct CommsMarkdownEditor: View {
-    @Binding var markdown: String
-
-    var body: some View {
-        #if os(Android)
-        CommsMarkdownSourceEditor(markdown: $markdown)
-        #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            CommsRichMarkdownEditor(markdown: $markdown)
-        } else {
-            CommsMarkdownSourceEditor(markdown: $markdown)
-        }
-        #endif
-    }
-}
-
-#if !os(Android)
-@available(iOS 26.0, macOS 26.0, *)
-private struct CommsRichMarkdownEditor: View {
-    @Binding var markdown: String
-    @State private var richText: AttributedString
-    @State private var selection = AttributedTextSelection()
-
-    init(markdown: Binding<String>) {
-        self._markdown = markdown
-        self._richText = State(initialValue: CommsMarkdown.richEditorText(markdown.wrappedValue))
-    }
-
-    var body: some View {
-        TextEditor(text: $richText, selection: $selection)
-            .frame(minHeight: 180)
-            .onChange(of: richText) { _, value in
-                markdown = CommsMarkdown.markdown(from: value)
-            }
-            .onChange(of: markdown) { _, value in
-                guard value != CommsMarkdown.markdown(from: richText) else { return }
-                richText = CommsMarkdown.richEditorText(value)
-            }
-    }
-}
-#endif
-
-struct CommsMarkdownSourceEditor: View {
-    @Binding var markdown: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    formatButton("Bold", template: "**bold text**")
-                    formatButton("Italic", template: "*emphasized text*")
-                    formatButton("Heading", template: "## Heading")
-                    formatButton("List", template: "- List item")
-                    formatButton("Link", template: "[link text](https://)")
-                }
-            }
-
-            TextEditor(text: $markdown)
-                .frame(minHeight: 180)
-
-            Text("Markdown is saved as entered. Use Preview to see the published post.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func formatButton(_ title: String, template: String) -> some View {
-        Button(title) {
-            if markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                markdown = template
-            } else {
-                markdown += "\n\n" + template
-            }
-        }
-        .buttonStyle(.bordered)
-    }
 }

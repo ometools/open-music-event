@@ -296,9 +296,9 @@ struct NotificationIndicatorTests {
 
         store.send(.postButtonTapped(postID))
         store.send(.destination(.postDetail(.deleteButtonTapped)))
-        #expect(store.state.destination?.postDeleteConfirmation?.postID == postID)
+        #expect(store.state.destination?.postDetail?.showsDeleteConfirmation == true)
         await store.send(
-            .destination(.postDeleteConfirmation(.deleteButtonTapped(postID)))
+            .destination(.postDetail(.deleteConfirmed))
         )?.value
 
         let saved = try await database.read { db in

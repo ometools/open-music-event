@@ -328,6 +328,117 @@ extension NavigationTests {
     }
 
     @Test
+    func `an author edits a referenced record and syndicated revisions on a canonical post`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let author = try #require(DID("did:plc:organizer"))
+        let firstCID = "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
+        let secondCID = "bafyreifiymllu4ykepilnm6j24fstwvp72rlbiojjkpmourcjyxykm7mzu"
+        let thirdCID = "bafyreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju"
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+        }
+        let composer = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    eventID: eventID, categoryID: nil, author: author,
+                    draft: SocialPostDraft(title: "Listen elsewhere", markdown: "")
+                )
+            ) { SocialPostForm() }
+        }
+        composer.send(.addRecordEmbedButtonTapped)
+        composer.modify {
+            $0.recordEmbed.reference.uri = "at://did:plc:artist/app.bsky.feed.post/first"
+            $0.recordEmbed.reference.cid = firstCID
+        }
+        composer.send(.syndications(.addButtonTapped))
+        composer.modify {
+            $0.syndications.draft?.reference.uri = "at://did:plc:artist/app.bsky.feed.post/mirror"
+            $0.syndications.draft?.reference.cid = secondCID
+        }
+        composer.send(.syndications(.draftSaveButtonTapped))
+        #expect(composer.state.canSubmit)
+        await composer.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        var post = try await database.read { db in
+            try #require(try Social.Post.all.fetchAll(db).first)
+        }
+        let postID = post.id
+        expectNoDifference(
+            SocialPostEmbedContent(try #require(post.embed)),
+            .record("at://did:plc:artist/app.bsky.feed.post/first")
+        )
+        expectNoDifference(post.syndications?.map(\.uri.description), [
+            "at://did:plc:artist/app.bsky.feed.post/mirror"
+        ])
+
+        var object = try #require(post.embed).object
+        object["extension"] = "keep"
+        post.embed = Social.Post.Embed(object)
+        let postWithExtension = post
+        try await database.write { db in
+            try Social.Post.upsert { postWithExtension }.execute(db)
+        }
+        let editor = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    post: postWithExtension, eventID: eventID, author: author
+                )
+            ) { SocialPostForm() }
+        }
+        editor.modify {
+            $0.recordEmbed.reference.cid = secondCID
+        }
+        let originalSyndicationID = try #require(editor.state.syndications.entries.first?.id)
+        editor.send(.syndications(.editButtonTapped(originalSyndicationID)))
+        editor.modify { $0.syndications.draft?.reference.cid = thirdCID }
+        editor.send(.syndications(.draftSaveButtonTapped))
+        editor.send(.syndications(.addButtonTapped))
+        editor.modify {
+            $0.syndications.draft?.reference.uri = "at://did:plc:artist/app.bsky.feed.post/another"
+            $0.syndications.draft?.reference.cid = firstCID
+        }
+        editor.send(.syndications(.draftSaveButtonTapped))
+        let addedSyndicationID = try #require(editor.state.syndications.entries.last?.id)
+        editor.send(.syndications(.moveButtonTapped(addedSyndicationID, -1)))
+        await editor.send(.saveButtonTapped) { $0.isSaving = true }?.value
+
+        let updated = try await database.read { db in
+            try #require(try Social.Post.find(postID).fetchOne(db))
+        }
+        expectNoDifference(updated.id, post.id)
+        expectNoDifference(updated.embed?.object["extension"], "keep")
+        expectNoDifference(updated.embed?.object["record"]?.object?["cid"], .string(secondCID))
+        expectNoDifference(updated.syndications?.map(\.cid.rawValue), [
+            firstCID, thirdCID
+        ])
+
+        let remover = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SocialPostForm.State(
+                    post: updated, eventID: eventID, author: author
+                )
+            ) { SocialPostForm() }
+        }
+        let removeID = try #require(remover.state.syndications.entries.first?.id)
+        remover.send(.syndications(.deleteButtonTapped(removeID)))
+        await remover.send(.saveButtonTapped) { $0.isSaving = true }?.value
+        let finalPost = try await database.read { db in
+            try #require(try Social.Post.find(postID).fetchOne(db))
+        }
+        expectNoDifference(finalPost.syndications?.map(\.cid.rawValue), [thirdCID])
+    }
+
+    @Test
     func `an author edits a canonical post without changing its identity`() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
