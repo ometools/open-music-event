@@ -229,7 +229,7 @@ extension NavigationTests {
             EventDetail.State(eventID: eventID)
         }
 
-        #expect(state.authoringAccess == .attendee)
+        #expect(!state.showsAuthoringControls)
         #expect(!state.installedFeatures.contains(.workspace))
         #expect(state.installedFeatures.contains(.settings))
         #expect(state.canonicalWorkspace == nil)

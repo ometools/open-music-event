@@ -9,8 +9,6 @@ import Dependencies
 import FileTree
 import Foundation
 import GRDB
-import HTTPClient
-import HTTPTypes
 import IssueReporting
 import OpenMusicEventAuthentication
 @testable import OpenMusicEventDatabase
@@ -143,74 +141,6 @@ struct WorkspaceAuthoringStoryTests {
             #expect(store.destination?.eventViewer?.canonicalWorkspace == nil)
         }
     }
-    @Test
-    func `a Tangled repository member can propose and merge`() async throws {
-        let ownerID = try #require(DID("did:plc:owner"))
-        let memberID = try #require(DID("did:plc:member"))
-        let repository = TangledRepositoryReference(
-            host: "tangled.org",
-            owner: ownerID.description,
-            repository: "ome-workspace"
-        )
-
-        let role = try await withDependencies {
-            $0.context = .test
-            $0[Atmosphere.Account.Client.self] = workspaceStoryAccountClient(actorID: ownerID)
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = .liveValue
-            $0.requestInterceptors = []
-            $0.responseInterceptors = []
-            $0.errorInterceptors = []
-            $0.dataForURL = { request, _ in
-                let path = request.url?.path ?? ""
-                let body: Data
-                if path.hasSuffix("/com.atproto.repo.listRecords") {
-                    body = Data(
-                        """
-                        {
-                          "records": [
-                            {
-                              "uri": "at://did:plc:owner/sh.tangled.repo/ome-workspace",
-                              "cid": "bafyreifakerepo",
-                              "value": {
-                                "$type": "sh.tangled.repo",
-                                "name": "ome-workspace",
-                                "repoDid": "did:plc:workspace-source-repository",
-                                "knot": "tangled.org",
-                                "createdAt": "2026-08-05T00:00:00Z"
-                              }
-                            }
-                          ]
-                        }
-                        """.utf8
-                    )
-                } else if path.hasSuffix("/sh.tangled.repo.listCollaborators") {
-                    body = Data(
-                        """
-                        {
-                          "items": [
-                            {
-                              "subject": "did:plc:member",
-                              "addedBy": "did:plc:owner",
-                              "createdAt": "2026-08-05T00:01:00Z"
-                            }
-                          ]
-                        }
-                        """.utf8
-                    )
-                } else {
-                    throw WorkspaceStoryUnexpectedNetworkRequest(url: request.url)
-                }
-                return (body, HTTPResponse(status: .ok))
-            }
-        } operation: {
-            try await TangledRepositoryMembershipClient.liveValue.role(repository, memberID)
-        }
-
-        expectNoDifference(role, .collaborator([.propose, .merge]))
-    }
-
-
     #if os(macOS)
     @Test(.tcaExhaustivity(.off))
     func `relaunching an owner workspace keeps canonical event settings available`() async throws {
@@ -471,12 +401,6 @@ struct WorkspaceAuthoringStoryTests {
                 $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
                 $0.uuid = .incrementing
                 $0.continuousClock = ContinuousClock()
-                $0.tangledRepositoryMembership = TangledRepositoryMembershipClient {
-                    _, _ in
-                    operations.record("membership")
-                    return nil
-                }
-
                 var sourceControl = SourceControlClient.unimplemented
                 sourceControl.clone = { _ in
                     operations.record("clone")
@@ -548,10 +472,6 @@ private func workspaceStorySignedOutOAuthStorage() -> OAuthSessionStorage {
         authFailureMessage: Shared(value: nil),
         selectedSessionID: Shared(value: nil)
     )
-}
-
-private struct WorkspaceStoryUnexpectedNetworkRequest: Error {
-    let url: URL?
 }
 
 private enum WorkspaceStoryDependencyPropagationBoundary: CaseIterable, Equatable, Sendable {
@@ -735,45 +655,6 @@ private func makeWorkspaceStoryDatabase() throws -> any DatabaseWriter {
     OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
     try migrator.migrate(database)
     return database
-}
-
-private func workspaceStoryAccountClient(
-    actorID: DID
-) -> Atmosphere.Account.Client {
-    let account = Atmosphere.Account(
-        id: .init(actorID),
-        handle: Atmosphere.Account.Handle("woody.fm")
-    )
-    return Atmosphere.Account.Client(
-        resolveHandle: { handle in
-            return (account, try workspaceStoryDIDDocument(did: actorID, handle: handle.rawValue))
-        },
-        resolveDID: { _ in
-            (account, try workspaceStoryDIDDocument(did: actorID))
-        }
-    )
-}
-
-private func workspaceStoryDIDDocument(did: DID, handle: String = "woody.fm") throws -> DID.Document {
-    try JSONDecoder().decode(
-        DID.Document.self,
-        from: Data(
-            """
-            {
-              "id": "\(did.description)",
-              "alsoKnownAs": ["at://\(handle)"],
-              "verificationMethod": [],
-              "service": [
-                {
-                  "id": "#atproto_pds",
-                  "type": "AtprotoPersonalDataServer",
-                  "serviceEndpoint": "https://owner.pds.example"
-                }
-              ]
-            }
-            """.utf8
-        )
-    )
 }
 
 @MainActor

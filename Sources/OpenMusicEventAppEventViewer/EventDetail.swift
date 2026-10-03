@@ -74,17 +74,6 @@ extension DependencyValues {
 }
 
 public extension SharedReaderKey
-where Self == InMemoryKey<AuthoringGrant?>.Default {
-    static var defaultAuthoringGrant: Self {
-        @Dependency(\.defaultEventID) var eventID
-        return Self[
-            .inMemory("open-music-event.authoring-grant." + eventID.description),
-            default: nil
-        ]
-    }
-}
-
-public extension SharedReaderKey
 where Self == InMemoryKey<EventWorkspaceSession?>.Default {
     static var defaultEventWorkspaceSession: Self {
         @Dependency(\.defaultEventID) var eventID
@@ -113,8 +102,8 @@ extension Event {
 }
 
 extension OpenMusicEventViewers.EventFeature {
-    static func defaultFeatures(authoringAccess: AuthoringAccess) -> [Self] {
-        let authoringFeatures = authoringAccess.canEditContent ? editorFeatures : []
+    static func defaultFeatures(canEditContent: Bool) -> [Self] {
+        let authoringFeatures = canEditContent ? editorFeatures : []
         return defaultReadOnlyFeatures.filter { $0 != .search && $0 != .about }
             + authoringFeatures
             + [.search, .about]
@@ -122,7 +111,7 @@ extension OpenMusicEventViewers.EventFeature {
 
     static func features(
         eventID: Event.ID,
-        authoringAccess: AuthoringAccess
+        canEditContent: Bool
     ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
         let divisions: [ScheduleDivision] = (try? database.read { db -> [ScheduleDivision] in
@@ -132,16 +121,16 @@ extension OpenMusicEventViewers.EventFeature {
         }) ?? []
         return features(
             scheduleDivisions: divisions,
-            authoringAccess: authoringAccess
+            canEditContent: canEditContent
         )
     }
 
     static func features(
         scheduleDivisions: [ScheduleDivision],
-        authoringAccess: AuthoringAccess
+        canEditContent: Bool
     ) -> [Self] {
         let divisions = scheduleDivisions.isEmpty ? [.schedule] : scheduleDivisions
-        return divisions.map(Self.schedule) + defaultFeatures(authoringAccess: authoringAccess).filter {
+        return divisions.map(Self.schedule) + defaultFeatures(canEditContent: canEditContent).filter {
             $0.scheduleDivision == nil
         }
     }
@@ -170,10 +159,10 @@ public struct EventDetail {
                 eventID: eventID,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringAccess: account.validated(
+                    canEditContent: account.validated(
                         session.wrappedValue,
                         for: eventID
-                    ) == nil ? .attendee : .authoring(.owner)
+                    ) != nil
                 )
             )
         }
@@ -295,14 +284,14 @@ public struct EventDetail {
             }
         }
 
-        mutating func reloadFeaturesForAuthoringAccess(
+        mutating func reloadFeaturesForWorkspaceSession(
             preserving selectedFeature: EventFeature? = nil
         ) {
             let selectedFeature = selectedFeature ?? self.selectedFeature
             let features = withEventDependencies {
                 EventFeature.features(
                     eventID: eventID,
-                    authoringAccess: authoringAccess
+                    canEditContent: showsAuthoringControls
                 )
             }
             self.installedFeatures = features
@@ -318,20 +307,20 @@ public struct EventDetail {
         ) -> Self {
             let session = SharedReader<EventWorkspaceSession?>.eventWorkspaceSession(for: eventID)
             let account = CurrentWorkspaceAccount()
-            let access: AuthoringAccess = account.validated(
+            let canEditContent = account.validated(
                 session.wrappedValue,
                 for: eventID
-            ) == nil ? .attendee : .authoring(.owner)
+            ) != nil
             var state = Self(
                 eventID: eventID,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringAccess: access
+                    canEditContent: canEditContent
                 ),
                 pendingScheduleLaunchAction: pendingScheduleLaunchAction
             )
             if let target, target.eventFeature.isEditorFeature,
-               !state.authoringAccess.canEditContent {
+               !state.showsAuthoringControls {
                 state.pendingAuthoringEntry = .target(target)
             } else {
                 state.navigate(to: target)
@@ -382,11 +371,6 @@ public struct EventDetail {
 
         var eventTimeZoneReader: SharedReader<TimeZone> {
             $event.sharedReader.read { $0?.timeZone ?? .current }
-        }
-
-        public var authoringAccess: AuthoringAccess {
-            if validatedWorkspaceSession != nil { return .authoring(.owner) }
-            return .attendee
         }
 
         public var validatedWorkspaceSession: EventWorkspaceSession? {
@@ -860,7 +844,7 @@ public struct EventDetail {
     }
 
     private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
-        guard !state.authoringAccess.canEditContent else {
+        guard !state.showsAuthoringControls else {
             state.pendingAuthoringEntry = nil
             store.withDependencies {
                 state.enterAuthoringEntry(entry)
@@ -887,7 +871,7 @@ public struct EventDetail {
                 )
             }
         }
-        state.reloadFeaturesForAuthoringAccess()
+        state.reloadFeaturesForWorkspaceSession()
         if let pendingAuthoringEntry = state.pendingAuthoringEntry {
             enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
         }
@@ -968,10 +952,10 @@ public struct EventDetail {
                     enterOrRequestAuthoring(.feature(feature), state: &state)
                 }
                 .onChange(of: store.event?.programs) { _, _, state in
-                    state.reloadFeaturesForAuthoringAccess()
+                    state.reloadFeaturesForWorkspaceSession()
                 }
                 .onChange(of: store.programs) { _, _, state in
-                    state.reloadFeaturesForAuthoringAccess()
+                    state.reloadFeaturesForWorkspaceSession()
                 }
                 .onChange(of: store.persistedEventViewerState) {
                     oldPersistedState, persistedState, state in
@@ -1000,7 +984,7 @@ public struct EventDetail {
                     if let session = state.validatedWorkspaceSession {
                         installCanonicalWorkspace(session, state: &state)
                     } else {
-                        state.reloadFeaturesForAuthoringAccess()
+                        state.reloadFeaturesForWorkspaceSession()
                     }
                     let eventID = state.eventID
                     let persistedEventViewerState = state.$persistedEventViewerState
@@ -1020,7 +1004,7 @@ public struct EventDetail {
                             installCanonicalWorkspace(session, state: &state)
                         } else {
                             state.canonicalWorkspace = nil
-                            state.reloadFeaturesForAuthoringAccess()
+                            state.reloadFeaturesForWorkspaceSession()
                         }
                     }
                     .onEvent(AuthoringRequested.self) { _, state in
@@ -1081,7 +1065,7 @@ public struct EventDetail {
                         let sessionStorage = sharedWorkspaceSession(for: state.eventID)
                         sessionStorage.withLock { $0 = nil }
                         state.canonicalWorkspace = nil
-                        state.reloadFeaturesForAuthoringAccess()
+                        state.reloadFeaturesForWorkspaceSession()
                     }
             )
 
