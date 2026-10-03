@@ -237,6 +237,16 @@ public extension ImportImages {
             )
         }
 
+        public static var eventMedia: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Event Images",
+                role: .hero,
+                renderingMode: .original,
+                imageInfoConfiguration: .allImages
+            )
+        }
+
         public static var contributorLogo: Self {
             Self(
                 cardinality: .single,

@@ -34,6 +34,76 @@ import Testing
 
 extension NavigationTests {
     @Test
+    func contributorMediaRowsCanBeAddedReorderedEditedAndDeleted() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        _ = try await insertCanonicalContributor(into: database, name: "Artist One")
+
+        let editStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+        await editStore.send(.addExternalMediaButtonTapped)?.value
+        editStore.modify {
+            $0.mediaDraft?.uri = "https://example.com/artist-video"
+            $0.mediaDraft?.title = "Artist Video"
+        }
+        await editStore.send(.mediaDraftSaveButtonTapped)?.value
+        await editStore.send(.addRecordMediaButtonTapped)?.value
+        editStore.modify {
+            $0.mediaDraft?.uri = "at://did:web:example.com/app.bsky.feed.post/3mrdbziccpcy"
+        }
+        await editStore.send(.mediaDraftSaveButtonTapped)?.value
+        let recordID = try #require(editStore.state.additionalMediaEntries.last?.id)
+        await editStore.send(.mediaMoveButtonTapped(recordID, -1))?.value
+        await editStore.send(.saveButtonTapped)?.value
+        await waitUntil { !editStore.state.isSaving && !editStore.isPresented }
+
+        let saved = try await database.read { db in
+            try #require(try Contributor.find(contributorID).fetchOne(db))
+        }
+        #expect(saved.media?.count == 2)
+        guard case .some(.known(.record)) = saved.media?.first else {
+            Issue.record("Expected reordered AT Protocol media first")
+            return
+        }
+
+        let reopened = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+        let rows = reopened.state.additionalMediaEntries
+        #expect(rows.count == 2)
+        await reopened.send(.mediaDeleteButtonTapped(try #require(rows.first?.id)))?.value
+        await reopened.send(.mediaEditButtonTapped(try #require(rows.last?.id)))?.value
+        reopened.modify { $0.mediaDraft?.title = "Updated Artist Video" }
+        await reopened.send(.mediaDraftSaveButtonTapped)?.value
+        await reopened.send(.saveButtonTapped)?.value
+        await waitUntil { !reopened.state.isSaving && !reopened.isPresented }
+
+        let updated = try await database.read { db in
+            try #require(try Contributor.find(contributorID).fetchOne(db))
+        }
+        #expect(updated.media?.count == 1)
+        guard case let .some(.known(.external(external))) = updated.media?.first else {
+            Issue.record("Expected the edited external media to remain")
+            return
+        }
+        #expect(external.title == "Updated Artist Video")
+    }
+
+    @Test
     func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

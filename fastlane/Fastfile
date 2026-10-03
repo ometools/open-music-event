@@ -151,12 +151,25 @@ def prepared_ios_tca26_path
     return path
   end
 
-  pins = JSON.parse(File.read(File.join(repo_root, "Package.resolved"))).fetch("pins")
-  revision = pins.find { |pin| pin["identity"] == "tca26" }&.dig("state", "revision")
-  UI.user_error!("Package.resolved has no pinned TCA26 revision") unless revision
-
   checkout = File.join(ios_tca_source_derived_data_path, "SourcePackages", "checkouts", "TCA26")
   checkout_head = File.join(checkout, ".git", "HEAD")
+  output_parent = File.join(repo_root, ".build", "ios-tca")
+  output = File.join(output_parent, "TCA26")
+  stamp = File.join(output_parent, "source-revision")
+  alternate_manifest = File.join(output, "Package@swift-6.3.swift")
+
+  pins = JSON.parse(File.read(File.join(repo_root, "Package.resolved"))).fetch("pins")
+  revision = pins.find { |pin| pin["identity"] == "tca26" }&.dig("state", "revision")
+  unless revision
+    # An iOS build uses the local prepared package and can remove its remote pin.
+    # Reuse only the prepared source whose stamp still matches the checked-out revision.
+    return output if File.file?(stamp) && File.file?(checkout_head) &&
+      File.read(stamp).strip == File.read(checkout_head).strip &&
+      File.file?(alternate_manifest) &&
+      !File.read(alternate_manifest).include?(%q{traits: [.defaults, "CasePaths"]})
+    UI.user_error!("Package.resolved has no pinned TCA26 revision or verified prepared checkout")
+  end
+
   unless File.file?(checkout_head) && File.read(checkout_head).strip == revision
     run_in_repo(
       "xcodebuild", "-resolvePackageDependencies",
@@ -169,10 +182,6 @@ def prepared_ios_tca26_path
   UI.user_error!("Xcode did not check out pinned TCA26 #{revision}") unless
     File.file?(checkout_head) && File.read(checkout_head).strip == revision
 
-  output_parent = File.join(repo_root, ".build", "ios-tca")
-  output = File.join(output_parent, "TCA26")
-  stamp = File.join(output_parent, "source-revision")
-  alternate_manifest = File.join(output, "Package@swift-6.3.swift")
   if File.file?(stamp) && File.read(stamp).strip == revision &&
       File.file?(alternate_manifest) &&
       !File.read(alternate_manifest).include?(%q{traits: [.defaults, "CasePaths"]})
@@ -670,7 +679,9 @@ lane :ios_workspace_ui_tests do |options|
   place_flow = File.join(repo_root, ".maestro", "45-workspace-event-place.yaml")
   credit_flow = File.join(repo_root, ".maestro", "46-workspace-performance-credit.yaml")
   post_flow = File.join(repo_root, ".maestro", "47-workspace-social-post.yaml")
-  [flow, place_flow, credit_flow, post_flow].each do |path|
+  contributor_media_flow = File.join(repo_root, ".maestro", "48-workspace-contributor-media.yaml")
+  event_media_flow = File.join(repo_root, ".maestro", "49-workspace-event-media.yaml")
+  [flow, place_flow, credit_flow, post_flow, contributor_media_flow, event_media_flow].each do |path|
     UI.user_error!("Maestro flow does not exist: #{path}") unless File.file?(path)
   end
 
@@ -697,9 +708,13 @@ lane :ios_workspace_ui_tests do |options|
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: credit_flow)
   reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: post_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: contributor_media_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: event_media_flow)
   snapshot_action = options[:snapshot_action] || "compare"
   UI.user_error!("snapshot_action must be compare or record") unless %w[compare record].include?(snapshot_action)
-  %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place].each do |milestone|
+  %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place 95-workspace-contributor-media].each do |milestone|
     run_snapshot_comparator(snapshot_action, platform: "ios", milestone: milestone)
   end
 end

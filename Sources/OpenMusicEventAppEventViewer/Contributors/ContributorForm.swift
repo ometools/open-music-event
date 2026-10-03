@@ -20,6 +20,9 @@ import SwiftUI
 public struct ContributorForm {
     public init() {}
 
+    typealias MediaEntry = RecordMediaEditing.MediaEntry
+    public typealias MediaDraft = RecordMediaEditing.MediaDraft
+
     public struct EditableRole: Equatable, Identifiable {
         public let id: UUID
         public var name: String
@@ -126,6 +129,8 @@ public struct ContributorForm {
         @DebugSnapshotTracked var isSaving: Bool = false
         public var isSavingActor = false
         var logoImagePicker: ImageAssetPicker.State
+        var mediaEntries: [MediaEntry] = []
+        var mediaDraft: MediaDraft?
         var originalContributor: Contributor?
         var originalImages: [OME.Image] = []
         var photoImagePicker: ImageAssetPicker.State
@@ -141,7 +146,40 @@ public struct ContributorForm {
         }
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && !isSavingActor && form.canSubmit
+            hasLoadedDraft && !isSaving && !isSavingActor && mediaDraft == nil && form.canSubmit
+        }
+
+        var additionalMediaEntries: [MediaEntry] {
+            mediaEntries.filter { !Self.isManagedImage($0.value, recordID: eventID) }
+        }
+
+        static func isManagedImage(_ value: Open<OME.Media>, recordID: Event.ID) -> Bool {
+            guard case let .known(.image(image)) = value else { return false }
+            return (image.role == nil || image.role == .known(.photo) || image.role == .known(.logo))
+                && image.displayImageAsset(recordID: recordID) != nil
+        }
+
+        mutating func editMedia(_ id: UUID) {
+            guard let entry = mediaEntries.first(where: { $0.id == id }) else { return }
+            switch entry.value {
+            case let .known(.external(external)):
+                mediaDraft = MediaDraft(entryID: id, external: external)
+            case let .known(.record(reference)):
+                mediaDraft = MediaDraft(entryID: id, reference: reference)
+            case .known(.image), .unknown:
+                break
+            }
+        }
+
+        mutating func saveMediaDraft() {
+            guard let draft = mediaDraft, let value = draft.value() else { return }
+            if let id = draft.entryID {
+                guard let index = mediaEntries.firstIndex(where: { $0.id == id }) else { return }
+                mediaEntries[index].value = value
+            } else {
+                mediaEntries.append(MediaEntry(value: value))
+            }
+            mediaDraft = nil
         }
 
         var contributorActor: DID? { contributorDID }
@@ -173,6 +211,7 @@ public struct ContributorForm {
             let mode: Mode
             let name: String
             let originalContributor: Contributor?
+            let mediaEntries: [MediaEntry]
             let photoImages: [ImageAssetPicker.ImageValue]
             let roles: [Open<Contributor.Role>]?
 
@@ -185,6 +224,7 @@ public struct ContributorForm {
                 self.mode = state.mode
                 self.name = state.trimmedName
                 self.originalContributor = state.originalContributor
+                self.mediaEntries = state.mediaEntries
                 self.photoImages = state.photoImagePicker.images
                 let roles = state.form.value.roles.compactMap(\.preparedRole)
                 self.roles = roles.isEmpty ? nil : roles
@@ -210,7 +250,8 @@ public struct ContributorForm {
                 var logos = try logoImages.map { try preparedImage($0, role: .logo) }
                 var media: [Open<OME.Media>] = []
 
-                for existing in originalContributor?.media ?? [] {
+                for entry in mediaEntries {
+                    let existing = entry.value
                     switch existing {
                     case let .known(.image(image))
                         where image.role == .known(.logo)
@@ -267,6 +308,7 @@ public struct ContributorForm {
             form = FormFeature.State(value: FormValue(contributor: contributor))
             contributorDID = contributor.subject
             originalContributor = contributor
+            mediaEntries = (contributor.media ?? []).map { MediaEntry(value: $0) }
             let editableImages = (contributor.media ?? []).compactMap { medium -> OME.Image? in
                 guard case let .known(.image(image)) = medium,
                       image.role == nil || image.role == .known(.photo) || image.role == .known(.logo),
@@ -334,7 +376,9 @@ public struct ContributorForm {
 
     public enum Action {
         case onAppear
+        case addExternalMediaButtonTapped
         case addLinkButtonTapped
+        case addRecordMediaButtonTapped
         case addRoleButtonTapped
         case actorIdentityTapped(ActorIdentity)
         case actorSearchSubmitted
@@ -347,6 +391,13 @@ public struct ContributorForm {
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
+        case mediaDeleteButtonTapped(UUID)
+        case mediaDraftCancelButtonTapped
+        case mediaDraftChanged(MediaDraft)
+        case mediaDraftRemoveThumbnailButtonTapped
+        case mediaDraftSaveButtonTapped
+        case mediaEditButtonTapped(UUID)
+        case mediaMoveButtonTapped(UUID, Int)
         case moveLinkButtonTapped(UUID, Int)
         case moveRoleButtonTapped(UUID, Int)
         case photoImagePicker(ImageAssetPicker.Action)
@@ -387,10 +438,16 @@ public struct ContributorForm {
         }
         Update { state, action in
             switch action {
+            case .addExternalMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .external)
+
             case .addLinkButtonTapped:
                 let link = EditableLink()
                 state.form.value.links.append(link)
                 state.editingLinkID = link.id
+
+            case .addRecordMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .record)
 
             case .addRoleButtonTapped:
                 state.form.value.roles.append(EditableRole())
@@ -540,6 +597,37 @@ public struct ContributorForm {
 
             case .logoImagePicker:
                 break
+
+            case let .mediaDeleteButtonTapped(id):
+                state.mediaEntries.removeAll { $0.id == id }
+                if state.mediaDraft?.entryID == id { state.mediaDraft = nil }
+
+            case .mediaDraftCancelButtonTapped:
+                state.mediaDraft = nil
+
+            case let .mediaDraftChanged(draft):
+                guard state.mediaDraft != nil else { return }
+                state.mediaDraft = draft
+
+            case .mediaDraftRemoveThumbnailButtonTapped:
+                state.mediaDraft?.removeThumbnail = true
+                state.mediaDraft?.thumbnailURL = ""
+
+            case .mediaDraftSaveButtonTapped:
+                state.saveMediaDraft()
+
+            case let .mediaEditButtonTapped(id):
+                state.editMedia(id)
+
+            case let .mediaMoveButtonTapped(id, offset):
+                let visibleIDs = state.additionalMediaEntries.map(\.id)
+                guard let visibleIndex = visibleIDs.firstIndex(of: id),
+                      visibleIDs.indices.contains(visibleIndex + offset),
+                      let index = state.mediaEntries.firstIndex(where: { $0.id == id }),
+                      let otherIndex = state.mediaEntries.firstIndex(where: {
+                          $0.id == visibleIDs[visibleIndex + offset]
+                      }) else { return }
+                state.mediaEntries.swapAt(index, otherIndex)
 
             case let .moveLinkButtonTapped(id, offset):
                 guard let index = state.form.value.links.firstIndex(where: { $0.id == id }),
@@ -892,6 +980,8 @@ struct ContributorFormLoadedForm: View {
                 store: store.scope(\.logoImagePicker)
             )
 
+            additionalMediaSection
+
             ContributorFormLinkSections(store: store)
 
             if let errorMessage = store.errorMessage {
@@ -913,6 +1003,107 @@ struct ContributorFormLoadedForm: View {
                 }
             FormFieldValidationStatus(validation: store.form.validation[ContributorFormFormFieldID.name])
         }
+    }
+
+    private var additionalMediaSection: some View {
+        Section("Additional Media") {
+            ForEach(store.additionalMediaEntries) { entry in
+                let visibleIDs = store.additionalMediaEntries.map(\.id)
+                let index = visibleIDs.firstIndex(of: entry.id)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.title)
+                        if let subtitle = entry.subtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Menu {
+                        if entry.canEditLink {
+                            Button("Edit") { store.send(.mediaEditButtonTapped(entry.id)) }
+                        }
+                        Button("Move Up") { store.send(.mediaMoveButtonTapped(entry.id, -1)) }
+                            .disabled(index == 0)
+                        Button("Move Down") { store.send(.mediaMoveButtonTapped(entry.id, 1)) }
+                            .disabled(index == visibleIDs.count - 1)
+                        Button("Delete", role: .destructive) {
+                            store.send(.mediaDeleteButtonTapped(entry.id))
+                        }
+                    } label: {
+                        Label("Media Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+
+            if store.mediaDraft == nil {
+                Menu {
+                    Button("External Link") { store.send(.addExternalMediaButtonTapped) }
+                    Button("AT Protocol Record") { store.send(.addRecordMediaButtonTapped) }
+                } label: {
+                    Label("Add Media", systemImage: "plus")
+                }
+            }
+
+            if let draft = store.mediaDraft {
+                Text(draft.kind == .external ? "External Media" : "AT Protocol Record")
+                    .font(.headline)
+                TextField("URL", text: mediaDraftBinding.uri)
+                    .accessibilityIdentifier("field.contributor-media.url")
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                if draft.kind == .external {
+                    TextField("Title", text: mediaDraftBinding.title)
+                        .accessibilityIdentifier("field.contributor-media.title")
+                    PortableTextField(
+                        "Description", text: mediaDraftBinding.description, axis: .vertical
+                    )
+                    .portableLineLimit(2...5)
+                    TextField("Media Kind", text: mediaDraftBinding.mediaKind)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    TextField("Thumbnail URL", text: mediaDraftBinding.thumbnailURL)
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    if !draft.removeThumbnail,
+                       draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
+                        TextField("Thumbnail Alt Text", text: mediaDraftBinding.thumbnailAlt)
+                        Button("Remove Thumbnail", role: .destructive) {
+                            store.send(.mediaDraftRemoveThumbnailButtonTapped)
+                        }
+                    }
+                }
+                if let validationMessage = draft.validationMessage {
+                    Text(validationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Button("Cancel") { store.send(.mediaDraftCancelButtonTapped) }
+                    Spacer()
+                    Button("Done") { store.send(.mediaDraftSaveButtonTapped) }
+                        .accessibilityIdentifier("button.contributor-media.done")
+                        .disabled(draft.validationMessage != nil)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private var mediaDraftBinding: Binding<ContributorForm.MediaDraft> {
+        Binding(
+            get: { store.mediaDraft ?? ContributorForm.MediaDraft(kind: .external) },
+            set: { store.send(.mediaDraftChanged($0)) }
+        )
     }
 
     private func actorSearchQueryChanged(_ query: String) {

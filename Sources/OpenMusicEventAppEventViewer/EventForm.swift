@@ -17,6 +17,9 @@ import SwiftUI
 public struct EventForm {
     public init() {}
 
+    typealias MediaEntry = RecordMediaEditing.MediaEntry
+    public typealias MediaDraft = RecordMediaEditing.MediaDraft
+
     public struct State {
         public init(event: Event) {
             @Dependency(\.date.now) var now
@@ -25,6 +28,9 @@ public struct EventForm {
             let links = (event.links ?? []).map(EditableLink.init)
             self.links = links
             self.originalLinks = links
+            let mediaEntries = (event.media ?? []).map { MediaEntry(value: $0) }
+            self.mediaEntries = mediaEntries
+            self.originalMediaEntries = mediaEntries
             self.defaultDate = now
         }
 
@@ -32,12 +38,39 @@ public struct EventForm {
         @DebugSnapshotTracked var draft: Event
         var links: [EditableLink]
         let originalLinks: [EditableLink]
+        var mediaEntries: [MediaEntry]
+        let originalMediaEntries: [MediaEntry]
+        var mediaDraft: MediaDraft?
+        var destination: Destination.State?
         var editingLinkID: EditableLink.ID?
         let defaultDate: Date
         @DebugSnapshotTracked var isSaving = false
         @DebugSnapshotTracked var errorMessage: String?
 
         public var eventID: Event.ID { original.id }
+
+        mutating func editMedia(_ id: UUID) {
+            guard let entry = mediaEntries.first(where: { $0.id == id }) else { return }
+            switch entry.value {
+            case let .known(.external(external)):
+                mediaDraft = MediaDraft(entryID: id, external: external)
+            case let .known(.record(reference)):
+                mediaDraft = MediaDraft(entryID: id, reference: reference)
+            case .known(.image), .unknown:
+                break
+            }
+        }
+
+        mutating func saveMediaDraft() {
+            guard let draft = mediaDraft, let value = draft.value() else { return }
+            if let id = draft.entryID {
+                guard let index = mediaEntries.firstIndex(where: { $0.id == id }) else { return }
+                mediaEntries[index].value = value
+            } else {
+                mediaEntries.append(MediaEntry(value: value))
+            }
+            mediaDraft = nil
+        }
 
         var preparedRecord: Event {
             var record = draft
@@ -82,16 +115,34 @@ public struct EventForm {
             return nil
         }
 
-        var canSubmit: Bool { !isSaving && validationMessage == nil }
+        var canSubmit: Bool { !isSaving && mediaDraft == nil && validationMessage == nil }
     }
 
     public enum Action {
+        case addExternalMediaButtonTapped
+        case addImageButtonTapped
         case addLinkButtonTapped
+        case addRecordMediaButtonTapped
         case cancelButtonTapped
+        case destination(Destination.Action)
         case editLinkButtonTapped(UUID)
+        case mediaDeleteButtonTapped(UUID)
+        case mediaDraftCancelButtonTapped
+        case mediaDraftChanged(MediaDraft)
+        case mediaDraftRemoveThumbnailButtonTapped
+        case mediaDraftSaveButtonTapped
+        case mediaEditButtonTapped(UUID)
+        case mediaImageInfoButtonTapped(UUID)
+        case mediaMoveButtonTapped(UUID, Int)
         case moveLinkButtonTapped(UUID, Int)
         case removeLinkButtonTapped(UUID)
         case saveButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
+        case importImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -99,17 +150,67 @@ public struct EventForm {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addExternalMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .external)
+
+            case .addImageButtonTapped:
+                state.destination = .importImages(Spawn(ImportImages.State(configuration: .eventMedia)))
+
             case .addLinkButtonTapped:
                 let link = EditableLink()
                 state.links.append(link)
                 state.editingLinkID = link.id
 
+            case .addRecordMediaButtonTapped:
+                state.mediaDraft = MediaDraft(kind: .record)
+
             case .cancelButtonTapped:
                 store.addTask { try store.dismiss() }
+
+            case .destination:
+                break
 
             case let .editLinkButtonTapped(id):
                 guard state.links.contains(where: { $0.id == id }) else { return }
                 state.editingLinkID = id
+
+            case let .mediaDeleteButtonTapped(id):
+                state.mediaEntries.removeAll { $0.id == id }
+                if state.mediaDraft?.entryID == id { state.mediaDraft = nil }
+
+            case .mediaDraftCancelButtonTapped:
+                state.mediaDraft = nil
+
+            case let .mediaDraftChanged(draft):
+                guard state.mediaDraft != nil else { return }
+                state.mediaDraft = draft
+
+            case .mediaDraftRemoveThumbnailButtonTapped:
+                state.mediaDraft?.removeThumbnail = true
+                state.mediaDraft?.thumbnailURL = ""
+
+            case .mediaDraftSaveButtonTapped:
+                state.saveMediaDraft()
+
+            case let .mediaEditButtonTapped(id):
+                state.editMedia(id)
+
+            case let .mediaImageInfoButtonTapped(id):
+                guard let entry = state.mediaEntries.first(where: { $0.id == id }),
+                      let imageValue = entry.imageValue else { return }
+                state.destination = .imageInfo(Spawn(ImageInfo.State(
+                    id: id,
+                    image: imageValue.image,
+                    configuration: .allImages,
+                    sourceLabel: imageValue.displaySource,
+                    recordID: state.eventID,
+                    previewData: entry.importedImage?.data
+                )))
+
+            case let .mediaMoveButtonTapped(id, offset):
+                guard let index = state.mediaEntries.firstIndex(where: { $0.id == id }),
+                      state.mediaEntries.indices.contains(index + offset) else { return }
+                state.mediaEntries.swapAt(index, index + offset)
 
             case let .moveLinkButtonTapped(id, offset):
                 guard let index = state.links.firstIndex(where: { $0.id == id }),
@@ -122,16 +223,23 @@ public struct EventForm {
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
+                guard state.mediaDraft == nil else { return }
                 if let message = state.validationMessage {
                     state.errorMessage = message
                     return
                 }
-                let record = state.preparedRecord
+                let preparedRecord = state.preparedRecord
+                let mediaEntries = state.mediaEntries
+                let mediaChanged = mediaEntries != state.originalMediaEntries
                 let original = state.original
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
+                        var record = preparedRecord
+                        if mediaChanged {
+                            record.media = try RecordMediaEditing.preparedMedia(mediaEntries)
+                        }
                         try database.write { db in
                             guard let current = try Event.find(original.id).fetchOne(db) else {
                                 throw SaveError.deleted
@@ -151,6 +259,24 @@ public struct EventForm {
                     }
                 }
             }
+        }
+        .ifLet(\.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.importImages) { ImportImages() }
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, image in
+                        try store.modify {
+                            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == imageID }),
+                                  case .known(.image) = $0.mediaEntries[index].value else { return }
+                            $0.mediaEntries[index].value = .known(.image(image))
+                            $0.mediaEntries[index].importedImage?.image = image
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            guard case .importImages = state.destination else { return }
+            state.mediaEntries.append(contentsOf: images.map { MediaEntry(importedImage: $0) })
         }
     }
 
@@ -235,6 +361,7 @@ public struct EventFormView: View {
                     EditLinkFields(link: $store.links[index])
                 }
             }
+            EventMediaFormSection(store: store)
             Section("Details") {
                 Picker("Status", selection: $store.draft.editStatus) {
                     ForEach(EventFormStatus.allCases, id: \.self) { status in
@@ -277,6 +404,12 @@ public struct EventFormView: View {
                     store.send(.saveButtonTapped)
                 }
             }
+        }
+        .sheet(item: $store.scope(\.destination).importImages) { importStore in
+            NavigationStack { ImportImagesView(store: importStore) }
+        }
+        .sheet(item: $store.scope(\.destination).imageInfo) { imageInfoStore in
+            NavigationStack { ImageInfoView(store: imageInfoStore) }
         }
     }
 }

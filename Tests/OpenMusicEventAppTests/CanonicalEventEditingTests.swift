@@ -5,6 +5,7 @@ import ComposableCalendarEvents
 import CustomDump
 import ConcurrencyExtras
 import Dependencies
+import DependenciesTestSupport
 import DebugSnapshots
 import Foundation
 import OpenMusicEventDatabase
@@ -41,6 +42,7 @@ struct CanonicalEventEditingTests {
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
             $0.getSelectedOAuthSessionID = { nil }
             $0.eventRecords = .init { id in
                 expectNoDifference(id, event.id)
@@ -496,6 +498,7 @@ struct CanonicalEventEditingTests {
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
             $0.getSelectedOAuthSessionID = { nil }
             $0.eventRecords = .init { id in
                 expectNoDifference(id, original.id)
@@ -590,6 +593,7 @@ struct CanonicalEventEditingTests {
         let store = withDependencies {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: listing(original))) {
                 EventBrowseDetail()
@@ -635,6 +639,7 @@ struct CanonicalEventEditingTests {
         let event = try event()
         var state = withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
         } operation: {
             EventForm.State(event: event)
         }
@@ -658,6 +663,7 @@ struct CanonicalEventEditingTests {
     func invalidNameAndReversedExactTimesCannotBeSaved() throws {
         var state = try withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
         } operation: {
             EventForm.State(event: try event())
         }
@@ -693,6 +699,7 @@ struct CanonicalEventEditingTests {
         ]
         let store = withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
         } operation: {
             TestStore(initialState: EventForm.State(event: event)) { EventForm() }
         }
@@ -721,6 +728,7 @@ struct CanonicalEventEditingTests {
     func incompleteEventLinkCannotBeSaved() async throws {
         let store = try withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
         } operation: {
             TestStore(initialState: EventForm.State(event: try event())) { EventForm() }
         }
@@ -728,6 +736,78 @@ struct CanonicalEventEditingTests {
         #expect(!store.state.canSubmit)
         store.modify { $0.links[0].url = "https://example.com" }
         #expect(store.state.canSubmit)
+    }
+
+    @Test
+    func eventMediaRowsCanBeAddedReorderedEditedAndDeleted() async throws {
+        let database = try database()
+        let original = try event()
+        try await database.write { db in
+            try Event.upsert { original }.execute(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
+        } operation: {
+            TestStore(initialState: EventForm.State(event: original)) { EventForm() }
+        }
+
+        await store.send(.addExternalMediaButtonTapped)?.value
+        store.modify {
+            $0.mediaDraft?.uri = "https://example.com/event-stream"
+            $0.mediaDraft?.title = "Event Stream"
+        }
+        await store.send(.mediaDraftSaveButtonTapped)?.value
+        await store.send(.addRecordMediaButtonTapped)?.value
+        store.modify {
+            $0.mediaDraft?.uri = "at://did:plc:organizer/app.bsky.feed.post/3mrdbziccpcy"
+        }
+        await store.send(.mediaDraftSaveButtonTapped)?.value
+        let recordRowID = try #require(store.state.mediaEntries.last?.id)
+        await store.send(.mediaMoveButtonTapped(recordRowID, -1))?.value
+        await store.send(.mediaMoveButtonTapped(recordRowID, -1))?.value
+        await store.send(.saveButtonTapped)?.value
+
+        let saved = try await database.read { db in
+            try #require(try Event.find(original.id).fetchOne(db))
+        }
+        guard let savedMedia = saved.media, savedMedia.count == 3,
+              case .known(.record) = savedMedia[0],
+              case .unknown = savedMedia[1] else {
+            Issue.record("Expected record media before the preserved unknown media")
+            return
+        }
+
+        let reopened = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 0)
+            $0.uuid = .incrementing
+        } operation: {
+            TestStore(initialState: EventForm.State(event: saved)) { EventForm() }
+        }
+        guard reopened.state.mediaEntries.count == 3 else {
+            Issue.record("Expected three media rows on reopen")
+            return
+        }
+        await reopened.send(.mediaDeleteButtonTapped(reopened.state.mediaEntries[0].id))?.value
+        await reopened.send(.mediaEditButtonTapped(reopened.state.mediaEntries[1].id))?.value
+        reopened.modify { $0.mediaDraft?.title = "Updated Event Stream" }
+        await reopened.send(.mediaDraftSaveButtonTapped)?.value
+        await reopened.send(.saveButtonTapped)?.value
+
+        let updated = try await database.read { db in
+            try #require(try Event.find(original.id).fetchOne(db))
+        }
+        #expect(updated.media?.count == 2)
+        guard case .some(.unknown) = updated.media?.first,
+              case let .some(.known(.external(external))) = updated.media?.last else {
+            Issue.record("Expected preserved unknown and edited external media")
+            return
+        }
+        #expect(external.title == "Updated Event Stream")
     }
 
     @Test

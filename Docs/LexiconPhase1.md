@@ -1,5 +1,7 @@
 # iOS Lexicon adoption — Phase 1
 
+Current canonical record UI/form coverage is tracked in [CanonicalRecordFormCoverage.md](CanonicalRecordFormCoverage.md). The September 30 checkpoint below is historical and predates the app-side replacement.
+
 ## Contract
 
 The new models in openmusic-event-record replace the retired domain models throughout the app, local storage, source editing, AppView and publication. No dual-write period, legacy type aliases, or runtime old-to-new model bridge. One bounded Wicked Woods conversion may read the old format. Android compilation and runtime verification are Phase 2.
