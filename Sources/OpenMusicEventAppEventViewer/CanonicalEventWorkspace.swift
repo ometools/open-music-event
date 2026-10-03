@@ -158,3 +158,14 @@ public struct CanonicalEventWorkspaceView: View {
         return "\(action) \(recordType)"
     }
 }
+
+extension UserFacingText {
+    static let workspaceResetFailed = Self(
+        "Changes could not be reset.",
+        fallback: "Changes could not be reset."
+    )
+}
+
+extension ErrorOperation {
+    static let workspaceReset = Self("workspace.reset")
+}

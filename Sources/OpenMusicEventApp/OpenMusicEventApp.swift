@@ -24,7 +24,6 @@ import SourceControlClient
 #if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
 import SourceControlClientGit
 #endif
-import SourceEditing
 import ComposableAtmosphere
 #if canImport(UIKit)
 import UIKit
@@ -454,7 +453,6 @@ struct OpenMusicEventApplicationRuntime {
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
     @AppStorage(OpenMusicEventServiceEnvironment.userDefaultsKey)
     var serviceEnvironmentRawValue = OpenMusicEventServiceEnvironment.production.rawValue
-    @Environment(\.sourceRecordComparisonStyle) var sourceRecordComparisonStyle
     @State var activeServiceEnvironment: OpenMusicEventServiceEnvironment
     @State var isServiceEnvironmentSwitchErrorPresented = false
     @State var isServiceEnvironmentSwitching = false
@@ -521,12 +519,6 @@ struct OpenMusicEventApplicationRuntime {
                 \.showsTechnicalDetails,
                 TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
             )
-            .environment(
-                \.sourceRecordComparisonStyle,
-                SourceRecordComparisonStyle.openMusicEvent.overlaying(
-                    sourceRecordComparisonStyle
-                )
-            )
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }
@@ -552,12 +544,6 @@ struct OpenMusicEventApplicationRuntime {
             .environment(
                 \.showsTechnicalDetails,
                 TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
-            )
-            .environment(
-                \.sourceRecordComparisonStyle,
-                SourceRecordComparisonStyle.openMusicEvent.overlaying(
-                    sourceRecordComparisonStyle
-                )
             )
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
