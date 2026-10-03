@@ -16,14 +16,7 @@ import OpenMusicEventAuthentication
 import OpenMusicEventAppRouting
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
-import OpenMusicEventSource
-import OpenMusicEventSourceClone
-import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
-import SourceControlClient
-#if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
-import SourceControlClientGit
-#endif
 import ComposableAtmosphere
 #if canImport(UIKit)
 import UIKit
@@ -263,9 +256,6 @@ extension OME {
             : .openMusicEventAndAtmo(
                 appViewHost: environment.appViewHost
             )
-        dependencies.workspaceProposalClient = .openMusicEvent(
-            appViewHost: environment.appViewHost
-        )
         if uiAutomation == .authentication || uiAutomation == .workspace {
             OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)
         }
@@ -287,31 +277,6 @@ extension OME {
                 .accepted()
             }
         }
-#if !OME_ARCHIVE_SOURCE_ONLY && canImport(SourceControlClientGit)
-        dependencies.sourceControl = LibGit2SourceControlClient.live
-#endif
-        let resolveRevision: SourceWorkspaceRevisionResolver = { repository, ref in
-            @Dependency(\.sourceControl) var sourceControl
-            return try await sourceControl.resolveRevision(
-                ResolveRevisionRequest(repository: repository, ref: ref)
-            )
-        }
-        dependencies[SourceWorkspacePreparationClient.self] = .openMusicEvent(
-            resolveRevision: resolveRevision
-        )
-        dependencies[WorkspaceReferenceUpdateClient.self] = .openMusicEvent(
-            resolveRevision: resolveRevision
-        )
-        dependencies[SourcePatchGeneratorKey<SourceWorkspacePatchRequest>.self] = .openMusicEvent
-        dependencies.sourceWorkspacePatchConversion = .live
-
-        dependencies.tangledPullReviewListSource = .tangledXRPC
-        dependencies.tangledPullReviewSourceSnapshot = .openMusicEvent
-        dependencies.sourceWorkspaceStorage = .live
-        dependencies.sourceWorkspaceReferenceMigrator = .openMusicEvent
-        dependencies.tangledSourceArchiveExtractor = .live
-        dependencies.tangledBranchReference = .liveValue
-        dependencies.tangledDefaultBranch = .liveValue
     }
 
 }

@@ -916,28 +916,18 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     "OpenMusicEventImages",
     "OpenMusicEventLexicon",
     "OpenMusicEventSource",
-    "OpenMusicEventSourceClone",
-    "OpenMusicEventSourceEditing",
     "OpenMusicEventTimeZones",
     "OpenMusicEventWhiteLabel",
-    "SourceEditing",
-    .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),
-    .product(name: "ComposableAuthoringWorkspace", package: "swift-composable-workspace"),
     .product(name: "ComposableArchitecture2", package: "TCA26"),
     .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
     .product(name: "ComposableNotificationsHTTP", package: "swift-composable-notifications"),
-    .product(name: "ComposableWorkspace", package: "swift-composable-workspace"),
     .product(name: "Dependencies", package: "swift-dependencies"),
     .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
-    .product(name: "FileTree", package: "swift-file-tree"),
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
     .product(name: "HTTPTypes", package: "swift-http-types"),
     .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
-    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
     .product(name: "SQLiteData", package: "sqlite-data"),
-    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-    .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
     .product(name: "ATProto", package: "swift-atproto"),
     .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
 ]
@@ -946,16 +936,6 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
 // prebuild discovers its Kotlin implementation before the native Swift build.
 if isAndroidAppBuild {
     openMusicEventAppDependencies += skipKitTargetDependencies
-}
-
-if !isAndroidAppBuild {
-    openMusicEventAppDependencies.append(
-        .product(
-            name: "SourceControlClientGit",
-            package: "swift-dependencies-source-control-client",
-            condition: .when(platforms: [.iOS, .macOS])
-        )
-    )
 }
 
 applicationTargets.append(contentsOf: [

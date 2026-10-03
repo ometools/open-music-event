@@ -4,7 +4,6 @@ import ATProtoTypes
 import Bluesky
 import ComposableArchitecture2
 import ComposableCalendarEvents
-import ComposableWorkspace
 import Dependencies
 import ErrorHandling
 import Foundation
@@ -14,9 +13,7 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
-import OpenMusicEventSourceEditing
 import OpenMusicEventAuthentication
-import SourceEditing
 import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures
