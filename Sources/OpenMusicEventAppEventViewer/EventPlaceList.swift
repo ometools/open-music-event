@@ -47,14 +47,20 @@ public struct EventPlaceList {
         @FetchAll public var eventPlaces: [EventPlace]
 
         public var stages: [EventPlace] {
-            eventPlaces
+            Self.orderedStages(eventPlaces)
+        }
+
+        static func orderedStages(_ places: [EventPlace]) -> [EventPlace] {
+            places
                 .filter { $0.stageUse != nil }
                 .sorted { lhs, rhs in
                     let left = lhs.stageUse?.sortIndex ?? Int.max
                     let right = rhs.stageUse?.sortIndex ?? Int.max
-                    return left == right
-                        ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-                        : left < right
+                    guard left == right else { return left < right }
+                    let names = lhs.name.localizedStandardCompare(rhs.name)
+                    return names == .orderedSame
+                        ? lhs.id.description < rhs.id.description
+                        : names == .orderedAscending
                 }
         }
 
@@ -85,9 +91,11 @@ public struct EventPlaceList {
 
     public enum Action {
         case addButtonTapped
-        case deleteStages([EventPlace.ID])
+        case deletePlaces([EventPlace.ID])
         case destination(Destination.Action)
+        case editPlaceButtonTapped(EventPlace.ID)
         case fromOtherEventButtonTapped
+        case moveStageButtonTapped(EventPlace.ID, Int)
         case stageButtonTapped(EventPlace.ID)
     }
 
@@ -117,14 +125,14 @@ public struct EventPlaceList {
                     await task?.value
                 }
 
-            case let .deleteStages(stageIDs):
+            case let .deletePlaces(placeIDs):
                 let eventID = state.eventID
                 store.addTask {
                     do {
                         try database.write { db in
-                            for stageID in stageIDs {
+                            for placeID in placeIDs {
                                 try EventPlaceRecordEditing.delete(
-                                    stageID,
+                                    placeID,
                                     eventID: eventID,
                                     in: db
                                 )
@@ -143,6 +151,17 @@ public struct EventPlaceList {
             case .destination:
                 break
 
+            case let .editPlaceButtonTapped(placeID):
+                guard state.eventPlaces.contains(where: { $0.id == placeID }) else { return }
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editPlace(eventID: eventID, placeID: placeID)
+                    )
+                    await task?.value
+                }
+
             case .fromOtherEventButtonTapped:
                 guard state.canCopyStagesFromOtherEvent else {
                     state.errorMessage = "This event already has stages."
@@ -157,6 +176,38 @@ public struct EventPlaceList {
                         value: .copyStagesFromEvent(eventID)
                     )
                     await task?.value
+                }
+
+            case let .moveStageButtonTapped(stageID, offset):
+                guard let index = state.stages.firstIndex(where: { $0.id == stageID }),
+                      state.stages.indices.contains(index + offset) else { return }
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            var stages = State.orderedStages(
+                                try Self.stagesQuery(eventID: eventID).fetchAll(db)
+                            )
+                            guard let index = stages.firstIndex(where: { $0.id == stageID }),
+                                  stages.indices.contains(index + offset) else { return }
+                            stages.swapAt(index, index + offset)
+                            for (position, stage) in stages.enumerated() {
+                                guard var stageUse = stage.stageUse,
+                                      stageUse.sortIndex != position else { continue }
+                                stageUse.sortIndex = position
+                                var fields = EventPlaceRecordEditing.Fields(stage)
+                                fields.kind = .known(.stage(stageUse))
+                                try EventPlaceRecordEditing.update(
+                                    stage.id, eventID: eventID, fields: fields, in: db
+                                )
+                            }
+                        }
+                        try store.modify { $0.errorMessage = nil }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to reorder stages."
+                        }
+                    }
                 }
 
             case let .stageButtonTapped(stageID):
@@ -539,26 +590,52 @@ public struct EventPlaceListView: View {
                     }
 
                     ForEach(store.filteredPlaces) { place in
-                        Button {
-                            store.send(.stageButtonTapped(place.id))
-                        } label: {
-                            if place.stageUse != nil {
-                                EventPlaceStageRowView(place: place)
-                            } else {
-                                HStack {
-                                    Text(place.name)
-                                    Spacer()
-                                    Text(place.kindLabel)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        HStack {
+                            Button {
+                                store.send(.stageButtonTapped(place.id))
+                            } label: {
+                                if place.stageUse != nil {
+                                    EventPlaceStageRowView(place: place)
+                                } else {
+                                    HStack {
+                                        Text(place.name)
+                                        Spacer()
+                                        Text(place.kindLabel)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 4)
                                 }
-                                .padding(.vertical, 4)
+                            }
+                            .navigationLinkListRowStyle()
+                            .accessibilityIdentifier(
+                                "button.\(place.stageUse == nil ? "place" : "stage").\(place.id.description)"
+                            )
+
+                            if showsAuthoringControls {
+                                Menu {
+                                    Button("Edit") {
+                                        store.send(.editPlaceButtonTapped(place.id))
+                                    }
+                                    if place.stageUse != nil {
+                                        Button("Move Up") {
+                                            store.send(.moveStageButtonTapped(place.id, -1))
+                                        }
+                                        .disabled(store.stages.first?.id == place.id)
+                                        Button("Move Down") {
+                                            store.send(.moveStageButtonTapped(place.id, 1))
+                                        }
+                                        .disabled(store.stages.last?.id == place.id)
+                                    }
+                                    Button("Delete", role: .destructive) {
+                                        store.send(.deletePlaces([place.id]))
+                                    }
+                                } label: {
+                                    Label("Place actions", systemImage: "ellipsis.circle")
+                                        .labelStyle(.iconOnly)
+                                }
                             }
                         }
-                        .navigationLinkListRowStyle()
-                        .accessibilityIdentifier(
-                            "button.\(place.stageUse == nil ? "place" : "stage").\(place.id.description)"
-                        )
                     }
                     .onDelete { offsets in
                         deletePlaces(at: offsets)
@@ -609,12 +686,12 @@ public struct EventPlaceListView: View {
     }
 
     func deletePlaces(at offsets: IndexSet) {
-        let stageIDs = offsets.compactMap { offset in
+        let placeIDs = offsets.compactMap { offset in
             store.filteredPlaces.indices.contains(offset)
                 ? store.filteredPlaces[offset].id
                 : nil
         }
-        store.send(.deleteStages(stageIDs))
+        store.send(.deletePlaces(placeIDs))
     }
 }
 
@@ -806,4 +883,3 @@ public struct CopyStagesFromEventView: View {
         }
     }
 }
-

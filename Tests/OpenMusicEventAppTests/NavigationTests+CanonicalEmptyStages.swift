@@ -96,6 +96,55 @@ extension NavigationTests {
     }
 
     @Test
+    func movingAStageFromThePlacesListSavesItsDisplayOrderWithoutChangingProgramLanes() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let cedarID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcbb")
+        let mapleID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcbc")
+        let elmID = canonicalRouteRecordID("events.openmusic.eventPlace", "3mrdbziccpcbd")
+        let programID = canonicalRouteRecordID("events.openmusic.program", "3mrdbziccpcbe")
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Forest Festival")
+            try Self.insertCanonicalStage(
+                db, id: cedarID, eventID: eventID, name: "Cedar", sortIndex: 10
+            )
+            try Self.insertCanonicalStage(
+                db, id: mapleID, eventID: eventID, name: "Maple", sortIndex: 10
+            )
+            try Self.insertCanonicalStage(
+                db, id: elmID, eventID: eventID, name: "Elm"
+            )
+            try Self.insertCanonicalProgram(
+                db, id: programID, eventID: eventID,
+                eventPlaces: [mapleID, cedarID, elmID]
+            )
+        }
+
+        let list = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EventPlaceList.State(eventID: eventID)) {
+                EventPlaceList()
+            }
+        }
+        expectNoDifference(list.state.stages.map(\.id), [cedarID, mapleID, elmID])
+
+        await list.send(.moveStageButtonTapped(elmID, -1))?.value
+
+        let saved = try await database.read { db in
+            let places = try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db)
+            let program = try #require(try Program.find(programID).fetchOne(db))
+            return (places, program)
+        }
+        let orderedStages = EventPlaceList.State.orderedStages(saved.0)
+        expectNoDifference(orderedStages.map(\.id), [cedarID, elmID, mapleID])
+        expectNoDifference(orderedStages.map { $0.stageUse?.sortIndex }, [0, 1, 2])
+        expectNoDifference(saved.1.eventPlaces, [mapleID, cedarID, elmID])
+        expectNoDifference(list.state.stages.map(\.id), [cedarID, elmID, mapleID])
+    }
+
+    @Test
     func scheduledCanonicalPlacesLeadWhileEmptyPlacesRemainVisible() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

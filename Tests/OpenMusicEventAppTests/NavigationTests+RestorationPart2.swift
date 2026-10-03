@@ -421,7 +421,7 @@ extension NavigationTests {
             }
         }
 
-        await store.send(.deleteStages([stageID]))?.value
+        await store.send(.deletePlaces([stageID]))?.value
 
         #expect(store.state.errorMessage == nil)
 
