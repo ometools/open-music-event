@@ -187,6 +187,69 @@ extension NavigationTests {
     }
 
     @Test
+    func additionalStageImageCanBeEditedIntoManagedMedia() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let stageID = canonicalRouteRecordID("events.openmusic.stage", "3mrdbziccpcaz")
+        let icon = OME.Image(
+            source: .known(.url(URL(string: "https://example.com/stage-icon.png")!)),
+            role: .known(.icon(.init(canRepresentSubjectWithoutLabel: true)))
+        )
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+            var stage = try Stage(
+                id: stageID,
+                name: "Meadow Stage",
+                createdAt: "2026-09-01T12:00:00Z"
+            )
+            stage.media = [.known(.image(icon))]
+            try Stage.insert { stage }.execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: StageForm.State(stageID: stageID, eventID: eventID)) {
+                StageForm()
+            }
+        }
+        let rowID = try #require(store.state.additionalMediaEntries.first?.id)
+        await store.send(.mediaImageInfoButtonTapped(rowID))?.value
+        #expect(store.state.destination != nil)
+        store.modify {
+            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == rowID }) else { return }
+            var image = icon
+            image.role = .known(.logo)
+            image.title = "Stage mark"
+            $0.mediaEntries[index].updateImageInfo(image)
+            $0.destination = nil
+        }
+        await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
+
+        let saved = try #require(try await database.read { try Stage.find(stageID).fetchOne($0) })
+        guard case let .some(.known(.image(savedImage))) = saved.media?.first else {
+            Issue.record("Expected the edited image to remain")
+            return
+        }
+        #expect(savedImage.role == .known(.logo))
+        #expect(savedImage.title == "Stage mark")
+        let reopened = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: StageForm.State(stageID: stageID, eventID: eventID)) {
+                StageForm()
+            }
+        }
+        #expect(reopened.state.additionalMediaEntries.isEmpty)
+        #expect(reopened.state.logoImagePicker.images.count == 1)
+    }
+
+    @Test
     func creatingStageProfileFromEventStageLinksTheNewRecord() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

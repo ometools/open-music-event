@@ -54,6 +54,12 @@ public struct StageFormView: View {
         .sheet(item: $store.scope(\.destination).logoImageInfo) { imageInfoStore in
             NavigationStack { ImageInfoView(store: imageInfoStore) }
         }
+        .sheet(item: $store.scope(\.destination).mediaImportImages) { importStore in
+            NavigationStack { ImportImagesView(store: importStore) }
+        }
+        .sheet(item: $store.scope(\.destination).mediaImageInfo) { imageInfoStore in
+            NavigationStack { ImageInfoView(store: imageInfoStore) }
+        }
         .sheet(item: $store.scope(\.destination).heroImportImages) { importStore in
             NavigationStack { ImportImagesView(store: importStore) }
         }
@@ -147,12 +153,25 @@ public struct StageFormView: View {
 
     private var additionalMediaSection: some View {
         Section("Additional Media") {
-            ForEach(store.mediaEntries) { entry in
-                if !StageForm.State.isManagedImage(entry.value, recordID: store.eventID) {
-                    let visibleIDs = store.mediaEntries
-                        .filter { !StageForm.State.isManagedImage($0.value, recordID: store.eventID) }
-                        .map(\.id)
-                    let index = visibleIDs.firstIndex(of: entry.id)
+            ForEach(store.additionalMediaEntries) { entry in
+                let visibleIDs = store.additionalMediaEntries.map(\.id)
+                let index = visibleIDs.firstIndex(of: entry.id)
+                if let image = entry.imageValue {
+                    ImageAssetPickerRowView(
+                        recordID: store.eventID,
+                        image: image,
+                        canMoveUp: index.map { $0 > 0 } ?? false,
+                        canMoveDown: index.map { $0 + 1 < visibleIDs.count } ?? false
+                    ) {
+                        store.send(.mediaImageInfoButtonTapped(entry.id))
+                    } onRemove: {
+                        store.send(.mediaDeleteButtonTapped(entry.id))
+                    } onMoveUp: {
+                        store.send(.mediaMoveButtonTapped(entry.id, -1))
+                    } onMoveDown: {
+                        store.send(.mediaMoveButtonTapped(entry.id, 1))
+                    }
+                } else {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.title)
@@ -185,6 +204,7 @@ public struct StageFormView: View {
 
             if store.mediaDraft == nil {
                 Menu {
+                    Button("Image") { store.send(.addImageMediaButtonTapped) }
                     Button("External Link") { store.send(.addExternalMediaButtonTapped) }
                     Button("AT Protocol Record") { store.send(.addRecordMediaButtonTapped) }
                 } label: {

@@ -150,7 +150,7 @@ public struct ContributorForm {
         }
 
         var additionalMediaEntries: [MediaEntry] {
-            mediaEntries.filter { !Self.isManagedImage($0.value, recordID: eventID) }
+            mediaEntries.filter { !$0.managedByImagePicker }
         }
 
         static func isManagedImage(_ value: Open<OME.Media>, recordID: Event.ID) -> Bool {
@@ -251,6 +251,10 @@ public struct ContributorForm {
                 var media: [Open<OME.Media>] = []
 
                 for entry in mediaEntries {
+                    guard entry.managedByImagePicker else {
+                        media.append(try RecordMediaEditing.preparedValue(entry))
+                        continue
+                    }
                     let existing = entry.value
                     switch existing {
                     case let .known(.image(image))
@@ -308,7 +312,12 @@ public struct ContributorForm {
             form = FormFeature.State(value: FormValue(contributor: contributor))
             contributorDID = contributor.subject
             originalContributor = contributor
-            mediaEntries = (contributor.media ?? []).map { MediaEntry(value: $0) }
+            mediaEntries = (contributor.media ?? []).map {
+                MediaEntry(
+                    value: $0,
+                    managedByImagePicker: Self.isManagedImage($0, recordID: eventID)
+                )
+            }
             let editableImages = (contributor.media ?? []).compactMap { medium -> OME.Image? in
                 guard case let .known(.image(image)) = medium,
                       image.role == nil || image.role == .known(.photo) || image.role == .known(.logo),
@@ -377,6 +386,7 @@ public struct ContributorForm {
     public enum Action {
         case onAppear
         case addExternalMediaButtonTapped
+        case addImageMediaButtonTapped
         case addLinkButtonTapped
         case addRecordMediaButtonTapped
         case addRoleButtonTapped
@@ -391,6 +401,7 @@ public struct ContributorForm {
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
+        case mediaImageInfoButtonTapped(UUID)
         case mediaDeleteButtonTapped(UUID)
         case mediaDraftCancelButtonTapped
         case mediaDraftChanged(MediaDraft)
@@ -413,6 +424,8 @@ public struct ContributorForm {
     public enum Destination {
         case logoImageInfo(ImageInfo)
         case logoImportImages(Spawn<ImportImages>)
+        case mediaImageInfo(ImageInfo)
+        case mediaImportImages(Spawn<ImportImages>)
         case photoImageInfo(ImageInfo)
         case photoImportImages(Spawn<ImportImages>)
     }
@@ -438,6 +451,11 @@ public struct ContributorForm {
         }
         Update { state, action in
             switch action {
+            case .addImageMediaButtonTapped:
+                state.destination = .mediaImportImages(
+                    Spawn(ImportImages.State(configuration: .contributorAdditionalMedia))
+                )
+
             case .addExternalMediaButtonTapped:
                 state.mediaDraft = MediaDraft(kind: .external)
 
@@ -519,6 +537,12 @@ public struct ContributorForm {
                     image: imageInfo.image
                 )
 
+            case .destination(.mediaImageInfo(.saveButtonTapped)):
+                guard case let .mediaImageInfo(imageInfo) = state.destination,
+                      let index = state.mediaEntries.firstIndex(where: { $0.id == imageInfo.id })
+                else { return }
+                state.mediaEntries[index].updateImageInfo(imageInfo.image)
+
             case .destination(.photoImageInfo(.saveButtonTapped)):
                 guard case let .photoImageInfo(imageInfo) = state.destination else { return }
                 state.photoImagePicker.updateImageInfo(
@@ -597,6 +621,11 @@ public struct ContributorForm {
 
             case .logoImagePicker:
                 break
+
+            case let .mediaImageInfoButtonTapped(id):
+                guard let entry = state.additionalMediaEntries.first(where: { $0.id == id }),
+                      let imageInfo = entry.imageInfoState(recordID: state.eventID) else { return }
+                state.destination = .mediaImageInfo(imageInfo)
 
             case let .mediaDeleteButtonTapped(id):
                 state.mediaEntries.removeAll { $0.id == id }
@@ -714,9 +743,11 @@ public struct ContributorForm {
             switch state.destination {
             case .logoImportImages(_):
                 state.logoImagePicker.append(images)
+            case .mediaImportImages(_):
+                state.mediaEntries.append(contentsOf: images.map { MediaEntry(importedImage: $0) })
             case .photoImportImages(_):
                 state.photoImagePicker.append(images)
-            case .logoImageInfo(_), .photoImageInfo(_), nil:
+            case .logoImageInfo(_), .mediaImageInfo(_), .photoImageInfo(_), nil:
                 break
             }
         }
@@ -872,6 +903,16 @@ public struct ContributorFormView: View {
                 ImageInfoView(store: imageInfoStore)
             }
         }
+        .sheet(item: $store.scope(\.destination).mediaImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination).mediaImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
     }
 
     private func syncStoreFocusedField(_ focusedField: AnyHashable?) {
@@ -1010,37 +1051,55 @@ struct ContributorFormLoadedForm: View {
             ForEach(store.additionalMediaEntries) { entry in
                 let visibleIDs = store.additionalMediaEntries.map(\.id)
                 let index = visibleIDs.firstIndex(of: entry.id)
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.title)
-                        if let subtitle = entry.subtitle {
-                            Text(subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                if let image = entry.imageValue {
+                    ImageAssetPickerRowView(
+                        recordID: store.eventID,
+                        image: image,
+                        canMoveUp: index.map { $0 > 0 } ?? false,
+                        canMoveDown: index.map { $0 + 1 < visibleIDs.count } ?? false
+                    ) {
+                        store.send(.mediaImageInfoButtonTapped(entry.id))
+                    } onRemove: {
+                        store.send(.mediaDeleteButtonTapped(entry.id))
+                    } onMoveUp: {
+                        store.send(.mediaMoveButtonTapped(entry.id, -1))
+                    } onMoveDown: {
+                        store.send(.mediaMoveButtonTapped(entry.id, 1))
                     }
-                    Spacer()
-                    Menu {
-                        if entry.canEditLink {
-                            Button("Edit") { store.send(.mediaEditButtonTapped(entry.id)) }
+                } else {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.title)
+                            if let subtitle = entry.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
-                        Button("Move Up") { store.send(.mediaMoveButtonTapped(entry.id, -1)) }
-                            .disabled(index == 0)
-                        Button("Move Down") { store.send(.mediaMoveButtonTapped(entry.id, 1)) }
-                            .disabled(index == visibleIDs.count - 1)
-                        Button("Delete", role: .destructive) {
-                            store.send(.mediaDeleteButtonTapped(entry.id))
+                        Spacer()
+                        Menu {
+                            if entry.canEditLink {
+                                Button("Edit") { store.send(.mediaEditButtonTapped(entry.id)) }
+                            }
+                            Button("Move Up") { store.send(.mediaMoveButtonTapped(entry.id, -1)) }
+                                .disabled(index == 0)
+                            Button("Move Down") { store.send(.mediaMoveButtonTapped(entry.id, 1)) }
+                                .disabled(index == visibleIDs.count - 1)
+                            Button("Delete", role: .destructive) {
+                                store.send(.mediaDeleteButtonTapped(entry.id))
+                            }
+                        } label: {
+                            Label("Media Actions", systemImage: "ellipsis.circle")
+                                .labelStyle(.iconOnly)
                         }
-                    } label: {
-                        Label("Media Actions", systemImage: "ellipsis.circle")
-                            .labelStyle(.iconOnly)
                     }
                 }
             }
 
             if store.mediaDraft == nil {
                 Menu {
+                    Button("Image") { store.send(.addImageMediaButtonTapped) }
                     Button("External Link") { store.send(.addExternalMediaButtonTapped) }
                     Button("AT Protocol Record") { store.send(.addRecordMediaButtonTapped) }
                 } label: {

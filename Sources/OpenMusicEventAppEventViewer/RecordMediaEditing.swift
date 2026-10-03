@@ -7,21 +7,19 @@ import OpenMusicEventLexicon
 
 public enum RecordMediaEditing {
     static func preparedMedia(_ entries: [MediaEntry]) throws -> [Open<OME.Media>]? {
-        var prepared: [Open<OME.Media>] = []
-        for entry in entries {
-            if let importedImage = entry.importedImage,
-               case let .known(.image(image)) = entry.value {
-                var image = image
-                image.source = .known(.blob(try stageLocalImageBlob(
-                    importedImage.data,
-                    mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
-                )))
-                prepared.append(.known(.image(image)))
-            } else {
-                prepared.append(entry.value)
-            }
-        }
+        let prepared = try entries.map(preparedValue)
         return prepared.isEmpty ? nil : prepared
+    }
+
+    static func preparedValue(_ entry: MediaEntry) throws -> Open<OME.Media> {
+        guard let importedImage = entry.importedImage,
+              case let .known(.image(image)) = entry.value else { return entry.value }
+        var preparedImage = image
+        preparedImage.source = .known(.blob(try stageLocalImageBlob(
+            importedImage.data,
+            mimeType: ATProto.MIMEType(rawValue: importedImage.mimeType)
+        )))
+        return .known(.image(preparedImage))
     }
 
     public struct MediaEntry: Equatable, Identifiable, Sendable {
@@ -37,17 +35,20 @@ public enum RecordMediaEditing {
         public init(
             id: UUID? = nil,
             value: Open<OME.Media>,
-            importedImage: ImportImages.ImportedImage? = nil
+            importedImage: ImportImages.ImportedImage? = nil,
+            managedByImagePicker: Bool = false
         ) {
             @Dependency(\.uuid) var uuid
             self.id = id ?? uuid()
             self.value = value
             self.importedImage = importedImage
+            self.managedByImagePicker = managedByImagePicker
         }
 
         public var id: UUID
         public var value: Open<OME.Media>
         public var importedImage: ImportImages.ImportedImage?
+        public var managedByImagePicker: Bool
 
         public var imageValue: ImageAssetPicker.ImageValue? {
             guard case let .known(.image(image)) = value else { return nil }
@@ -56,6 +57,24 @@ public enum RecordMediaEditing {
                 image: image,
                 importedImage: importedImage
             )
+        }
+
+        public func imageInfoState(recordID: Event.ID?) -> ImageInfo.State? {
+            guard let imageValue else { return nil }
+            return ImageInfo.State(
+                id: id,
+                image: imageValue.image,
+                configuration: .allImages,
+                sourceLabel: imageValue.displaySource,
+                recordID: recordID,
+                previewData: importedImage?.data
+            )
+        }
+
+        public mutating func updateImageInfo(_ image: OME.Image) {
+            guard case .known(.image) = value else { return }
+            value = .known(.image(image))
+            importedImage?.image = image
         }
 
         public var title: String {

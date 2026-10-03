@@ -116,7 +116,7 @@ public struct StageForm {
         }
 
         var additionalMediaEntries: [MediaEntry] {
-            mediaEntries.filter { !Self.isManagedImage($0.value, recordID: eventID) }
+            mediaEntries.filter { !$0.managedByImagePicker }
         }
 
         static func isManagedImage(_ value: Open<OME.Media>, recordID: Event.ID) -> Bool {
@@ -153,7 +153,12 @@ public struct StageForm {
         mutating func load(_ stage: Stage) {
             form = FormFeature.State(value: FormValue(stage))
             originalStage = stage
-            mediaEntries = (stage.media ?? []).map { MediaEntry(value: $0) }
+            mediaEntries = (stage.media ?? []).map {
+                MediaEntry(
+                    value: $0,
+                    managedByImagePicker: Self.isManagedImage($0, recordID: eventID)
+                )
+            }
             originalImages = (stage.media ?? []).compactMap { medium -> OME.Image? in
                 guard case let .known(.image(image)) = medium,
                       image.role == .known(.logo)
@@ -218,6 +223,10 @@ public struct StageForm {
                 var posters = try posterImages.map { try preparedImage($0, role: .poster) }
                 var media: [Open<OME.Media>] = []
                 for entry in mediaEntries {
+                    guard entry.managedByImagePicker else {
+                        media.append(try RecordMediaEditing.preparedValue(entry))
+                        continue
+                    }
                     let existing = entry.value
                     switch existing {
                     case let .known(.image(image))
@@ -273,6 +282,8 @@ public struct StageForm {
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
         case logoImagePicker(ImageAssetPicker.Action)
+        case mediaImageInfoButtonTapped(UUID)
+        case addImageMediaButtonTapped
         case mediaDeleteButtonTapped(UUID)
         case mediaDraftCancelButtonTapped
         case mediaDraftChanged(MediaDraft)
@@ -292,6 +303,8 @@ public struct StageForm {
         case heroImportImages(Spawn<ImportImages>)
         case logoImageInfo(Spawn<ImageInfo>)
         case logoImportImages(Spawn<ImportImages>)
+        case mediaImageInfo(Spawn<ImageInfo>)
+        case mediaImportImages(Spawn<ImportImages>)
         case posterImageInfo(Spawn<ImageInfo>)
         case posterImportImages(Spawn<ImportImages>)
     }
@@ -310,6 +323,11 @@ public struct StageForm {
         Scope(\.posterImagePicker) { ImageAssetPicker() }
         Update { state, action in
             switch action {
+            case .addImageMediaButtonTapped:
+                state.destination = .mediaImportImages(
+                    Spawn(ImportImages.State(configuration: .stageAdditionalMedia))
+                )
+
             case .addExternalMediaButtonTapped:
                 state.mediaDraft = MediaDraft(kind: .external)
 
@@ -427,6 +445,11 @@ public struct StageForm {
             case .logoImagePicker:
                 break
 
+            case let .mediaImageInfoButtonTapped(id):
+                guard let entry = state.additionalMediaEntries.first(where: { $0.id == id }),
+                      let imageInfo = entry.imageInfoState(recordID: state.eventID) else { return }
+                state.destination = .mediaImageInfo(Spawn(imageInfo))
+
             case let .mediaDeleteButtonTapped(id):
                 state.mediaEntries.removeAll { $0.id == id }
                 if state.mediaDraft?.entryID == id { state.mediaDraft = nil }
@@ -500,6 +523,17 @@ public struct StageForm {
                         }
                     }
                 }
+                .ifCaseLet(\.mediaImportImages) { ImportImages() }
+                .ifCaseLet(\.mediaImageInfo) {
+                    ImageInfo { id, image in
+                        try store.modify {
+                            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == id }) else {
+                                return
+                            }
+                            $0.mediaEntries[index].updateImageInfo(image)
+                        }
+                    }
+                }
                 .ifCaseLet(\.posterImportImages) { ImportImages() }
                 .ifCaseLet(\.posterImageInfo) {
                     ImageInfo { id, image in
@@ -513,8 +547,10 @@ public struct StageForm {
             switch state.destination {
             case .heroImportImages(_): state.heroImagePicker.append(images)
             case .logoImportImages(_): state.logoImagePicker.append(images)
+            case .mediaImportImages(_):
+                state.mediaEntries.append(contentsOf: images.map { MediaEntry(importedImage: $0) })
             case .posterImportImages(_): state.posterImagePicker.append(images)
-            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_), nil: break
+            case .heroImageInfo(_), .logoImageInfo(_), .mediaImageInfo(_), .posterImageInfo(_), nil: break
             }
         }
         .onMount { state in

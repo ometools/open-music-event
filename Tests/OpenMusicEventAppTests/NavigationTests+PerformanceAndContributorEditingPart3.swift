@@ -104,6 +104,65 @@ extension NavigationTests {
     }
 
     @Test
+    func additionalContributorImageCanBeEditedIntoManagedMedia() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        var contributor = try await insertCanonicalContributor(into: database, name: "Artist One")
+        let icon = OME.Image(
+            source: .known(.url(URL(string: "https://example.com/artist-icon.png")!)),
+            role: .known(.icon(.init(canRepresentSubjectWithoutLabel: true)))
+        )
+        contributor.media = [.known(.image(icon))]
+        let original = contributor
+        try await database.write { db in
+            try Contributor.upsert { original }.execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+        let rowID = try #require(store.state.additionalMediaEntries.first?.id)
+        await store.send(.mediaImageInfoButtonTapped(rowID))?.value
+        #expect(store.state.destination != nil)
+        store.modify {
+            guard let index = $0.mediaEntries.firstIndex(where: { $0.id == rowID }) else { return }
+            var image = icon
+            image.role = .known(.logo)
+            image.title = "Artist mark"
+            $0.mediaEntries[index].updateImageInfo(image)
+            $0.destination = nil
+        }
+        await store.send(.saveButtonTapped)?.value
+        await waitUntil { !store.state.isSaving && !store.isPresented }
+
+        let saved = try #require(try await database.read { try Contributor.find(contributorID).fetchOne($0) })
+        guard case let .some(.known(.image(savedImage))) = saved.media?.first else {
+            Issue.record("Expected the edited image to remain")
+            return
+        }
+        #expect(savedImage.role == .known(.logo))
+        #expect(savedImage.title == "Artist mark")
+        let reopened = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.continuousClock = ContinuousClock()
+        } operation: {
+            TestStore(initialState: ContributorForm.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorForm()
+            }
+        }
+        #expect(reopened.state.additionalMediaEntries.isEmpty)
+        #expect(reopened.state.logoImagePicker.images.count == 1)
+    }
+
+    @Test
     func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID

@@ -247,6 +247,26 @@ public extension ImportImages {
             )
         }
 
+        public static var stageAdditionalMedia: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Stage Images",
+                role: .photo,
+                renderingMode: .original,
+                imageInfoConfiguration: .allImages
+            )
+        }
+
+        public static var contributorAdditionalMedia: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Add Contributor Images",
+                role: .icon(.init()),
+                renderingMode: .original,
+                imageInfoConfiguration: .allImages
+            )
+        }
+
         public static var contributorLogo: Self {
             Self(
                 cardinality: .single,
