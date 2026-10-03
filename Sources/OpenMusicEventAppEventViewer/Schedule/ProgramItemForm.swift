@@ -1236,21 +1236,66 @@ public struct ProgramItemFormView: View {
                     for: contribution.selection,
                     showsTechnicalDetails: showsTechnicalDetails
                 )
-                ProgramItemFormContributionRow(
-                    title: contribution.creditName ?? summary?.title ?? "Contributor",
-                    subtitle: summary?.subtitle,
-                    isPrimary: contribution.billing == .known(.primary),
-                    roleTitle: contribution.roleTitle,
-                    roleSelection: contribution.roleSelection,
-                    roleChanged: { roleSelection in
-                        store.send(
-                            .contributionRoleButtonTapped(
-                                contribution.id,
-                                roleSelection
+                let index = store.contributions.firstIndex(where: { $0.id == contribution.id })
+                HStack {
+                    ProgramItemFormContributionRow(
+                        title: contribution.creditName ?? summary?.title ?? "Contributor",
+                        subtitle: summary?.subtitle,
+                        isPrimary: contribution.billing == .known(.primary),
+                        roleTitle: contribution.roleTitle,
+                        roleSelection: contribution.roleSelection,
+                        roleChanged: { roleSelection in
+                            store.send(
+                                .contributionRoleButtonTapped(
+                                    contribution.id,
+                                    roleSelection
+                                )
                             )
-                        )
+                        }
+                    )
+
+                    Menu {
+                        Button("Edit") {
+                            store.send(.contributionEditButtonTapped(contribution.id))
+                        }
+                        if let index, index > 0 {
+                            Button("Move Up") {
+                                store.send(.contributionMoveButtonTapped(contribution.id, -1))
+                            }
+                        }
+                        if let index, index + 1 < store.contributions.count {
+                            Button("Move Down") {
+                                store.send(.contributionMoveButtonTapped(contribution.id, 1))
+                            }
+                        }
+                        if contribution.billing == .known(.primary) {
+                            Button("Remove as primary") {
+                                store.send(
+                                    .contributionBillingButtonTapped(
+                                        contribution.id,
+                                        .known(.supporting)
+                                    )
+                                )
+                            }
+                        } else {
+                            Button("Set as primary") {
+                                store.send(
+                                    .contributionBillingButtonTapped(
+                                        contribution.id,
+                                        .known(.primary)
+                                    )
+                                )
+                            }
+                        }
+                        Button("Delete", role: .destructive) {
+                            store.send(.contributionDeleteButtonTapped(contribution.id))
+                        }
+                    } label: {
+                        Label("Credit Actions", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
                     }
-                )
+                    .accessibilityIdentifier("button.credit-actions.\(index ?? 0)")
+                }
                 .swipeActions {
                     Button("Delete", role: .destructive) {
                         store.send(.contributionDeleteButtonTapped(contribution.id))
@@ -1268,44 +1313,6 @@ public struct ProgramItemFormView: View {
                         } label: {
                             Label("Primary", systemImage: "star.fill")
                         }
-                    }
-                }
-                .contextMenu {
-                    Button("Edit") {
-                        store.send(.contributionEditButtonTapped(contribution.id))
-                    }
-                    let index = store.contributions.firstIndex(where: { $0.id == contribution.id })
-                    if let index, index > 0 {
-                        Button("Move Up") {
-                            store.send(.contributionMoveButtonTapped(contribution.id, -1))
-                        }
-                    }
-                    if let index, index + 1 < store.contributions.count {
-                        Button("Move Down") {
-                            store.send(.contributionMoveButtonTapped(contribution.id, 1))
-                        }
-                    }
-                    if contribution.billing == .known(.primary) {
-                        Button("Remove as primary") {
-                            store.send(
-                                .contributionBillingButtonTapped(
-                                    contribution.id,
-                                    .known(.supporting)
-                                )
-                            )
-                        }
-                    } else {
-                        Button("Set as primary") {
-                            store.send(
-                                .contributionBillingButtonTapped(
-                                    contribution.id,
-                                    .known(.primary)
-                                )
-                            )
-                        }
-                    }
-                    Button("Delete", role: .destructive) {
-                        store.send(.contributionDeleteButtonTapped(contribution.id))
                     }
                 }
 
