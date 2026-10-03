@@ -1,7 +1,6 @@
 import ATProto
 import Foundation
 import OpenMusicEventAppViewServer
-import OpenMusicEventLexicon
 import Testing
 
 struct WellKnownFilesTests {
@@ -48,8 +47,8 @@ struct WellKnownFilesTests {
         let document = try JSONDecoder().decode(PublishedDIDDocument.self, from: file.data)
         let service = try #require(document.service.first { $0.type == .openMusicEventAppView })
 
-        #expect(document.id == OME.Comms.SubmitPost.serviceReference.did)
-        #expect(service.id.fragment == OME.Comms.SubmitPost.serviceReference.service)
+        #expect(document.id == (try #require(DID("did:web:openmusicevent.app"))))
+        #expect(service.id.fragment == (try #require(DID.URL.Fragment("ome_appview"))))
         #expect(service.serviceEndpoint == URL(string: "https://openmusicevent.app"))
     }
 }

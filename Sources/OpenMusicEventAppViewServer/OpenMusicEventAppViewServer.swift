@@ -11,7 +11,6 @@ public enum OpenMusicEventAppViewServer {
         configuration: AppViewConfiguration = .init(),
         store providedStore: OpenMusicEventAppViewStore? = nil,
         hydrantClient: HydrantClient? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil,
         notificationRegistration: NotificationRegistrationServer? = nil,
         notificationProvider: NotificationProviderClient? = nil,
         sourceArtifactPublisher providedSourceArtifactPublisher: SourceArtifactPublisher? = nil,
@@ -114,7 +113,6 @@ public enum OpenMusicEventAppViewServer {
             router: router(
                 configuration: configuration,
                 store: store,
-                commsPostSubmission: commsPostSubmission,
                 notificationRegistration: notificationRegistration,
                 tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
             ),
@@ -126,7 +124,6 @@ public enum OpenMusicEventAppViewServer {
     public static func router(
         configuration: AppViewConfiguration = .init(),
         store: OpenMusicEventAppViewStore? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil,
         notificationRegistration: NotificationRegistrationServer? = nil,
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<BasicRequestContext> {
@@ -134,7 +131,6 @@ public enum OpenMusicEventAppViewServer {
             context: BasicRequestContext.self,
             configuration: configuration,
             store: store,
-            commsPostSubmission: commsPostSubmission,
             notificationRegistration: notificationRegistration,
             tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
         )
@@ -144,15 +140,10 @@ public enum OpenMusicEventAppViewServer {
         context: Context.Type,
         configuration: AppViewConfiguration = .init(),
         store: OpenMusicEventAppViewStore? = nil,
-        commsPostSubmission: CommsPostSubmission? = nil,
         notificationRegistration: NotificationRegistrationServer? = nil,
         tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
     ) -> Router<Context> {
         let router = Router(context: context, options: [.autoGenerateHeadEndpoints])
-        installCommsPostRoutes(
-            on: router,
-            submission: commsPostSubmission
-        )
         installCalendarEventRoutes(
             on: router,
             store: store
