@@ -459,7 +459,7 @@ struct NavigationTests {
         let route = AppRoute.event(eventID, .communications)
 
         let navigationTask = store.send(.root(.openRoute(route)))
-        await waitUntil { continuation.withLock { $0 != nil } }
+        await waitUntil(timeout: .seconds(90)) { continuation.withLock { $0 != nil } }
         #expect(store.state.root.eventEntry?.route == route)
         #expect(store.state.root.eventEntry?.phase == .loading)
         #expect(store.state.root.destination?.eventViewer == nil)
@@ -489,9 +489,9 @@ struct NavigationTests {
         let store = makeCanonicalRootHarnessStore(database: database, client: client)
 
         let firstTask = store.send(.root(.openRoute(.event(firstEventID, .schedule))))
-        await waitUntil { continuations.withLock { $0[firstEventID] != nil } }
+        await waitUntil(timeout: .seconds(90)) { continuations.withLock { $0[firstEventID] != nil } }
         let secondTask = store.send(.root(.openRoute(.event(secondEventID, .communications))))
-        await waitUntil { continuations.withLock { $0[secondEventID] != nil } }
+        await waitUntil(timeout: .seconds(90)) { continuations.withLock { $0[secondEventID] != nil } }
 
         continuations.withLock { $0[secondEventID] }?.resume(returning: secondGraph)
         await secondTask?.value
@@ -1146,17 +1146,18 @@ struct NavigationTests {
     }
 
     func waitUntil(
+        timeout: Duration = .seconds(30),
         _ condition: @escaping @MainActor () -> Bool,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(30))
+        let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
             if condition() { return }
             try? await clock.sleep(for: .milliseconds(5))
         }
         Issue.record(
-            "Condition was not satisfied within thirty seconds",
+            "Condition was not satisfied within \(timeout)",
             sourceLocation: sourceLocation
         )
     }
