@@ -32,6 +32,8 @@ import ATProto
 @testable import OpenMusicEventAppEventViewer
 @testable import OpenMusicEventEditors
 
+typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
+
 let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!
 
 func eventID(_ string: String) -> OMERecord.Event.ID {

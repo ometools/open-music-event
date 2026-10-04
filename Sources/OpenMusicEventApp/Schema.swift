@@ -11,8 +11,6 @@ import SQLiteData
 import OSLog
 #endif
 
-public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
-
 extension ExternalPlatform: SQLiteType {}
 #if canImport(OSLog)
 let dbLogger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "database")

@@ -32,7 +32,6 @@ import ATProto
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 
-private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 @MainActor
 @Suite(.serialized)
