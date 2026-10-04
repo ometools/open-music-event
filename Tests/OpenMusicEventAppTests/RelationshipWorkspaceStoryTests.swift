@@ -14,6 +14,34 @@ import Testing
 @Suite("Relationship workspace", .serialized)
 struct RelationshipWorkspaceStoryTests {
     @Test
+    func `record subject CID survives form editing and can be cleared`() throws {
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let subjectURI = try #require(ATProto.URI(
+            "at://did:plc:artist123/events.openmusic.stage/3mrdbziccpcai"
+        ))
+        let cid = ATProto.CID(rawValue: "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku")
+        let subject = OME.Relationship.RecordReference(uri: subjectURI, cid: cid)
+        let relationship = OME.Relationship(
+            subject: .record(subject),
+            role: .performer,
+            object: .record(.init(uri: eventID)),
+            createdAt: "2026-09-01T12:00:00Z"
+        )
+
+        var form = RelationshipForm.State(eventID: eventID, relationship: relationship)
+        #expect(form.subjectRecordCID == cid.description)
+        #expect(form.preparedFields?.subject == .known(.record(subject)))
+
+        form.role = "organizer"
+        #expect(form.preparedFields?.subject == .known(.record(subject)))
+
+        form.subjectRecordCID = ""
+        #expect(form.preparedFields?.subject == .known(.record(.init(uri: subjectURI))))
+    }
+
+    @Test
     func `owner adds edits and removes a relationship from its event list`() async throws {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()

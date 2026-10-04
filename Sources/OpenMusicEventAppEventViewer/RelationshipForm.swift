@@ -40,6 +40,7 @@ public struct RelationshipForm {
             case let .known(.record(record)):
                 self.subjectKind = .record
                 self.subjectRecordURI = record.uri.description
+                self.subjectRecordCID = record.cid?.description ?? ""
             case .unknown:
                 self.subjectKind = .unsupported
             }
@@ -50,6 +51,7 @@ public struct RelationshipForm {
         public var subjectKind: SubjectKind
         public var selectedIdentity: OME.Relationship.IdentityReference?
         public var subjectRecordURI = ""
+        public var subjectRecordCID = ""
         public var role = "collaborator"
         public var canPropose = false
         public var canMerge = false
@@ -73,12 +75,16 @@ public struct RelationshipForm {
                 subject = .known(.identity(selectedIdentity))
             case .record:
                 let value = subjectRecordURI.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cidValue = subjectRecordCID.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let uri = ATProto.URI(value),
                       case .did = uri.authority,
                       uri.collection != nil,
                       uri.rkey != nil
                 else { return nil }
-                subject = .known(.record(.init(uri: uri)))
+                subject = .known(.record(.init(
+                    uri: uri,
+                    cid: cidValue.isEmpty ? nil : ATProto.CID(rawValue: cidValue)
+                )))
             case .unsupported:
                 return nil
             }
@@ -292,6 +298,11 @@ public struct RelationshipFormView: View {
 
                 case .record:
                     TextField("Record URI", text: $store.subjectRecordURI)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    TextField("Record CID (optional)", text: $store.subjectRecordCID)
                         .autocorrectionDisabled()
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
