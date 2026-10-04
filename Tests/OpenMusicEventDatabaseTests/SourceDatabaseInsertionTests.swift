@@ -2820,6 +2820,8 @@ struct SourceDatabaseInsertionTests {
         #expect(performanceContributorCount == 2)
         #expect(relationships.count == 3)
         #expect(relationships.allSatisfy { $0.createdAt != pendingRelationshipCreatedAt })
+        #expect(relationships.allSatisfy { $0.id?.collection == OME.Relationship.nsid })
+        #expect(Set(relationships.compactMap(\.id)).count == relationships.count)
     }
 
     @Test(arguments: [

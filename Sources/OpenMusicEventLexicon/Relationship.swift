@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoSQLite
 import CasePaths
 import Foundation
 import ATProtoTypes
@@ -65,6 +66,9 @@ extension OpenMusicEvent {
         public static let collection = RelationshipCollection.relationship
         public static let nsid = collection.nsid
 
+        @Column(primaryKey: true)
+        public var id: ATProto.URI?
+        public var cid: ATProto.CID?
         public var type: String
         @Column(as: Open<Entity>.JSONRepresentation.self)
         public var subject: Open<Entity>
@@ -83,6 +87,8 @@ extension OpenMusicEvent {
             object: Open<Entity>? = nil,
             createdAt: String
         ) {
+            self.id = nil
+            self.cid = nil
             self.type = type
             self.subject = subject
             self.role = role
@@ -165,6 +171,49 @@ extension OpenMusicEvent {
             }
         }
 
+        public var assertionAuthor: DID? {
+            Self.assertionAuthor(subject: subject, object: object)
+        }
+
+        public static func assertionAuthor(
+            subject: Open<Entity>,
+            object: Open<Entity>?
+        ) -> DID? {
+            switch object ?? subject {
+            case .unknown:
+                nil
+            case let .known(.identity(identity)):
+                identity.did
+            case let .known(.record(record)):
+                record.author
+            }
+        }
+
+        public mutating func assignRecordID(
+            at date: Date,
+            after previous: ATProto.Record.Key? = nil
+        ) throws {
+            guard let assertionAuthor else { throw IdentityError.missingAssertionAuthor }
+            id = try Self.nextRecordID(author: assertionAuthor, at: date, after: previous)
+        }
+
+        public static func nextRecordID(
+            author: DID,
+            at date: Date,
+            after previous: ATProto.Record.Key? = nil
+        ) throws -> ATProto.URI {
+            try CanonicalRecordID.next(
+                collection: .init(rawValue: collection.rawValue),
+                in: .did(author),
+                at: date,
+                after: previous
+            )
+        }
+
+        public enum IdentityError: Error {
+            case missingAssertionAuthor
+        }
+
         enum CodingKeys: String, CodingKey {
             case type = "$type"
             case subject
@@ -176,6 +225,8 @@ extension OpenMusicEvent {
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = nil
+            cid = nil
             type = try container.decodeIfPresent(String.self, forKey: .type) ?? Self.collection.rawValue
             subject = try container.decode(Open<Entity>.self, forKey: .subject)
             role = try container.decode(Role.self, forKey: .role)

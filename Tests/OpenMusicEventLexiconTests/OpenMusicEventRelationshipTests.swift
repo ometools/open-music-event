@@ -18,12 +18,16 @@ struct OpenMusicEventRelationshipTests {
     func relationshipRecordEncodesCanonicalShape() throws {
         let subjectDID = try #require(DID("did:plc:subject"))
         let objectDID = try #require(DID("did:plc:object"))
-        let record = OME.Relationship(
+        var record = OME.Relationship(
             subject: .identity(did: subjectDID, handle: "alice.example"),
             role: .developer,
             object: .identity(did: objectDID, handle: "app.example"),
             createdAt: "2026-07-04T12:00:00Z"
         )
+        try record.assignRecordID(
+            at: try #require(ISO8601DateFormatter().date(from: record.createdAt))
+        )
+        record.cid = "bafy-relationship"
 
         let json = try #require(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
@@ -31,6 +35,8 @@ struct OpenMusicEventRelationshipTests {
         )
 
         #expect(json["$type"] as? String == "app.openmusicevent.relationship")
+        #expect(json["id"] == nil)
+        #expect(json["cid"] == nil)
         #expect(json["role"] as? String == "developer")
         #expect(json["createdAt"] as? String == "2026-07-04T12:00:00Z")
 

@@ -475,6 +475,8 @@ struct DatabaseMigrationTests {
                 sql: #"SELECT "name" FROM pragma_table_info('app.openmusicevent.relationship')"#
             )
             #expect(relationshipColumns == [
+                "id",
+                "cid",
                 "type",
                 "subject",
                 "role",
@@ -505,16 +507,97 @@ struct DatabaseMigrationTests {
                 collection: OME.Performance.nsid,
                 rkey: ATProto.Record.Key("friday-the-portal-1")
             )
-            let relationship = OME.Relationship(
+            var relationship = OME.Relationship(
                 subject: contributor,
                 role: .performer,
                 object: performance,
                 createdAt: "2026-07-04T12:00:00Z"
             )
+            try relationship.assignRecordID(
+                at: try #require(ISO8601DateFormatter().date(from: relationship.createdAt))
+            )
 
             try OME.Relationship.insert { relationship }.execute(db)
 
             #expect(try OME.Relationship.fetchAll(db) == [relationship])
+        }
+    }
+
+    @Test
+    func existingRelationshipRowsGainStableRepositoryURIs() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Create canonical persistent Stage storage")
+
+        try await database.write { db in
+            try db.execute(sql: """
+                INSERT INTO "app.openmusicevent.relationship" (
+                  "type", "subject", "role", "object", "createdAt", "capabilities"
+                ) VALUES (
+                  'app.openmusicevent.relationship',
+                  '{"$type":"app.openmusicevent.relationship#identity","did":"did:plc:collaborator"}',
+                  'collaborator',
+                  '{"$type":"app.openmusicevent.relationship#record","uri":"at://did:plc:owner/events.openmusic.event/3mrdbziccpcah"}',
+                  '2026-07-04T12:00:00Z',
+                  '["propose"]'
+                )
+                """)
+        }
+
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            let relationship = try #require(try OME.Relationship.fetchOne(db))
+            let id = try #require(relationship.id)
+            #expect(id.authority == .did(try #require(DID("did:plc:owner"))))
+            #expect(id.collection == OME.Relationship.nsid)
+            #expect(relationship.cid == nil)
+            #expect(relationship.workspaceRole == .collaborator([.propose]))
+            #expect(relationship.createdAt == "2026-07-04T12:00:00Z")
+            #expect(
+                try Int.fetchOne(
+                    db,
+                    sql: #"SELECT COUNT(*) FROM "app.openmusicevent.relationship""#
+                ) == 1
+            )
+        }
+    }
+
+    @Test
+    func invalidRelationshipBackfillLeavesTheExistingTableAndRowsIntact() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Create canonical persistent Stage storage")
+
+        try await database.write { db in
+            try db.execute(sql: """
+                INSERT INTO "app.openmusicevent.relationship" (
+                  "type", "subject", "role", "object", "createdAt"
+                ) VALUES (
+                  'app.openmusicevent.relationship',
+                  '{"$type":"app.openmusicevent.relationship#identity","did":"did:plc:collaborator"}',
+                  'collaborator',
+                  'not-json',
+                  '2026-07-04T12:00:00Z'
+                )
+                """)
+        }
+
+        #expect(throws: (any Error).self) { try migrator.migrate(database) }
+
+        try await database.read { db in
+            let columns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('app.openmusicevent.relationship')"#
+            )
+            let rowCount = try Int.fetchOne(
+                db,
+                sql: #"SELECT COUNT(*) FROM "app.openmusicevent.relationship""#
+            )
+            #expect(!columns.contains("id"))
+            #expect(rowCount == 1)
         }
     }
 

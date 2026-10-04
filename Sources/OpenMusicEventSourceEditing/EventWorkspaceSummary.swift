@@ -240,6 +240,11 @@ public enum CanonicalWorkspaceRecordChanges {
             try Snapshot.restore(current.posts, from: baseline.posts,
                 delete: { _ = try Social.Post.find($0).delete().execute(db) },
                 upsert: { record in try Social.Post.upsert { record }.execute(db) })
+            try Snapshot.restore(current.relationships, from: baseline.relationships,
+                delete: { id in
+                    try OME.Relationship.where { $0.id.eq(id) }.delete().execute(db)
+                },
+                upsert: { record in try OME.Relationship.upsert { record }.execute(db) })
         }
     }
 
@@ -253,6 +258,7 @@ public enum CanonicalWorkspaceRecordChanges {
         var items: [ProgramItem]
         var categories: [Social.Category]
         var posts: [Social.Post]
+        var relationships: [Event.ID: OME.Relationship]
 
         init(in db: Database, eventID: Event.ID) throws {
             let organizer = eventID.authority
@@ -283,6 +289,15 @@ public enum CanonicalWorkspaceRecordChanges {
             posts = try Social.Post.all.fetchAll(db)
                 .filter { $0.id.authority == organizer }
                 .sorted { $0.id.description < $1.id.description }
+            relationships = Dictionary(uniqueKeysWithValues: try OME.Relationship.all.fetchAll(db)
+                .compactMap { relationship in
+                    guard let id = relationship.id,
+                          id.authority == organizer,
+                          case let .some(.known(.record(object))) = relationship.object,
+                          object.uri == eventID
+                    else { return nil }
+                    return (id, relationship)
+                })
         }
 
         func changes(from baseline: Self) -> [CanonicalWorkspaceRecordChange] {
@@ -295,6 +310,7 @@ public enum CanonicalWorkspaceRecordChanges {
                 + Self.changes(ProgramItem.tableName, current: items, baseline: baseline.items)
                 + Self.changes(Social.Category.tableName, current: categories, baseline: baseline.categories)
                 + Self.changes(Social.Post.tableName, current: posts, baseline: baseline.posts)
+                + Self.changes(OME.Relationship.tableName, current: relationships, baseline: baseline.relationships)
         }
 
         private static func changes<Record: Identifiable & Equatable>(
@@ -304,6 +320,14 @@ public enum CanonicalWorkspaceRecordChanges {
         ) -> [CanonicalWorkspaceRecordChange] where Record.ID == Event.ID {
             let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
             let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
+            return changes(collection, current: currentByID, baseline: baselineByID)
+        }
+
+        private static func changes<Record: Equatable>(
+            _ collection: String,
+            current currentByID: [Event.ID: Record],
+            baseline baselineByID: [Event.ID: Record]
+        ) -> [CanonicalWorkspaceRecordChange] {
             return Set(currentByID.keys).union(baselineByID.keys)
                 .sorted { $0.description < $1.description }
                 .compactMap { id in
@@ -331,10 +355,19 @@ public enum CanonicalWorkspaceRecordChanges {
         ) throws where Record.ID == Event.ID {
             let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
             let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
-            for record in current where baselineByID[record.id] == nil {
-                try delete(record.id)
+            try restore(currentByID, from: baselineByID, delete: delete, upsert: upsert)
+        }
+
+        fileprivate static func restore<Record: Equatable>(
+            _ currentByID: [Event.ID: Record],
+            from baselineByID: [Event.ID: Record],
+            delete: (Event.ID) throws -> Void,
+            upsert: (Record) throws -> Void
+        ) throws {
+            for id in currentByID.keys where baselineByID[id] == nil {
+                try delete(id)
             }
-            for record in baseline where currentByID[record.id] != record {
+            for (id, record) in baselineByID where currentByID[id] != record {
                 try upsert(record)
             }
         }

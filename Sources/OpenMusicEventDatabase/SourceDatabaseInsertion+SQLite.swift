@@ -1,3 +1,5 @@
+import ATProto
+import ATProtoTypes
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
@@ -537,9 +539,17 @@ private struct PreparedSourceDatabaseInsertion: Sendable {
         self.scheduleItems = sourceInsertion.scheduleItems
         self.scheduleItemPerformanceDetails = sourceInsertion.scheduleItemPerformanceDetails
         self.scheduleItemContributors = sourceInsertion.scheduleItemContributors
-        self.relationships = sourceInsertion.relationships.map {
+        var previousRelationshipIDs: [DID: ATProto.URI] = [:]
+        self.relationships = try sourceInsertion.relationships.map {
             var relationship = $0
             relationship.createdAt = Self.relationshipCreatedAt(importedAt)
+            try relationship.assignRecordID(
+                at: importedAt,
+                after: relationship.assertionAuthor.flatMap { previousRelationshipIDs[$0]?.rkey }
+            )
+            if let author = relationship.assertionAuthor, let id = relationship.id {
+                previousRelationshipIDs[author] = id
+            }
             return relationship
         }
         self.localImageBlobs = []

@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoTypes
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -8,6 +9,74 @@ import Testing
 
 @Suite("Canonical workspace record changes")
 struct CanonicalWorkspaceRecordChangesTests {
+    @Test
+    func eventRelationshipChangesResetWithoutTouchingSiblingEvent() throws {
+        let working = try DatabaseQueue()
+        let baseline = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(working)
+        try migrator.migrate(baseline)
+        let reference = SourceBaselineDatabase(path: "baseline", database: baseline)
+        let eventID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"
+        ))
+        let siblingID = try #require(Event.ID(
+            "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai"
+        ))
+        let events = try [eventID, siblingID].map {
+            try Event(id: $0, name: "Wicked Woods", createdAt: "2026-09-01T12:00:00Z", timeZone: .gmt)
+        }
+        try working.write { db in try Event.insert { events }.execute(db) }
+        try baseline.write { db in try Event.insert { events }.execute(db) }
+        let collaborator = try #require(DID("did:plc:collaborator"))
+        let fields = RelationshipRecordEditing.Fields(
+            subject: .known(.identity(did: collaborator)),
+            role: .collaborator,
+            capabilities: [.propose]
+        )
+        let createdAt = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
+
+        // The sibling event receives a collaborator, but this workspace has no changes.
+        let siblingRelationshipID = try working.write {
+            try RelationshipRecordEditing.create(eventID: siblingID, fields: fields, createdAt: createdAt, in: $0)
+        }
+        try working.read { db in
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(changes.isEmpty)
+        }
+
+        // Adding a collaborator to this event produces one URI-addressed change.
+        let relationshipID = try working.write {
+            try RelationshipRecordEditing.create(eventID: eventID, fields: fields, createdAt: createdAt, in: $0)
+        }
+        try working.read { db in
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(changes.count == 1)
+            #expect(changes.first?.id == relationshipID)
+            #expect(changes.first?.collection == OME.Relationship.tableName)
+            #expect(changes.first?.kind == .added)
+        }
+
+        try CanonicalWorkspaceRecordChanges.reset(
+            eventID: eventID,
+            in: working,
+            referenceDatabase: reference
+        )
+        try working.read { db in
+            let relationships = try OME.Relationship.all.fetchAll(db)
+            let changes = try CanonicalWorkspaceRecordChanges.changes(
+                eventID: eventID, in: db, referenceDatabase: reference
+            )
+            #expect(relationships.map(\.id) == [siblingRelationshipID])
+            #expect(changes.isEmpty)
+        }
+    }
+
     @Test
     func detectsOrganizerChangesWithoutCountingOtherRepositories() throws {
         let working = try DatabaseQueue()

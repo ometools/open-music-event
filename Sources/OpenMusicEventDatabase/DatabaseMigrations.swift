@@ -1,3 +1,7 @@
+import ATProto
+import ATProtoTypes
+import Foundation
+import GRDB
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
@@ -1128,6 +1132,88 @@ public extension OME {
                     """).execute(db)
             }
 
+            migrator.registerMigration("Key OpenMusicEvent relationships by record URI") { db in
+                try #sql("ALTER TABLE \"app.openmusicevent.relationship\" ADD COLUMN \"id\" TEXT")
+                    .execute(db)
+                try #sql("ALTER TABLE \"app.openmusicevent.relationship\" ADD COLUMN \"cid\" TEXT")
+                    .execute(db)
+
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT rowid AS localRowID, "subject", "object", "createdAt"
+                        FROM "app.openmusicevent.relationship"
+                        ORDER BY rowid
+                        """
+                )
+                var previousIDs: [DID: ATProto.URI] = [:]
+                let decoder = JSONDecoder()
+                let timestampFormatter = ISO8601DateFormatter()
+                for row in rows {
+                    let rowID: Int64 = row["localRowID"]
+                    let subjectJSON: String = row["subject"]
+                    let objectJSON: String? = row["object"]
+                    let createdAt: String = row["createdAt"]
+                    let subject = try decoder.decode(
+                        Open<OME.Relationship.Entity>.self,
+                        from: Data(subjectJSON.utf8)
+                    )
+                    let object = try objectJSON.map {
+                        try decoder.decode(
+                            Open<OME.Relationship.Entity>.self,
+                            from: Data($0.utf8)
+                        )
+                    }
+                    guard let author = OME.Relationship.assertionAuthor(subject: subject, object: object),
+                          let date = timestampFormatter.date(from: createdAt)
+                    else { throw RelationshipIdentityMigrationError.unaddressableRow(rowID) }
+                    let id = try OME.Relationship.nextRecordID(
+                        author: author,
+                        at: date,
+                        after: previousIDs[author]?.rkey
+                    )
+                    previousIDs[author] = id
+                    try #sql("""
+                        UPDATE "app.openmusicevent.relationship"
+                        SET "id" = \(id.description)
+                        WHERE rowid = \(rowID)
+                        """).execute(db)
+                }
+
+                try #sql("""
+                    CREATE TABLE "app.openmusicevent.relationship_canonical" (
+                      "id" TEXT PRIMARY KEY NOT NULL,
+                      "cid" TEXT,
+                      "type" TEXT NOT NULL,
+                      "subject" TEXT NOT NULL,
+                      "role" TEXT NOT NULL,
+                      "object" TEXT,
+                      "createdAt" TEXT NOT NULL,
+                      "capabilities" TEXT
+                    ) STRICT
+                    """).execute(db)
+                try #sql("""
+                    INSERT INTO "app.openmusicevent.relationship_canonical" (
+                      "id", "cid", "type", "subject", "role", "object", "createdAt", "capabilities"
+                    )
+                    SELECT "id", "cid", "type", "subject", "role", "object", "createdAt", "capabilities"
+                    FROM "app.openmusicevent.relationship"
+                    """).execute(db)
+                try #sql("DROP TABLE \"app.openmusicevent.relationship\"").execute(db)
+                try #sql("""
+                    ALTER TABLE "app.openmusicevent.relationship_canonical"
+                    RENAME TO "app.openmusicevent.relationship"
+                    """).execute(db)
+                try #sql("""
+                    CREATE INDEX "relationships_role_createdAt"
+                    ON "app.openmusicevent.relationship" ("role", "createdAt")
+                    """).execute(db)
+            }
+
         }
     }
+}
+
+private enum RelationshipIdentityMigrationError: Error {
+    case unaddressableRow(Int64)
 }
