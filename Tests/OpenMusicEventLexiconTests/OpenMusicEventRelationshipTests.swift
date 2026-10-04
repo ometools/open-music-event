@@ -7,6 +7,36 @@ import Testing
 @Suite("OpenMusicEvent relationships")
 struct OpenMusicEventRelationshipTests {
     @Test
+    func publicSchemaValidatesRelationshipWire() throws {
+        let schemaURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Lexicons/app/openmusicevent/relationship.json")
+        let document = try JSONDecoder().decode(
+            Lexicon.Document.self,
+            from: Data(contentsOf: schemaURL)
+        )
+        try SchemaValidator().validate(document)
+
+        let subject = try #require(DID("did:plc:subject"))
+        let object = try #require(DID("did:plc:object"))
+        let relationship = OME.Relationship(
+            subject: .identity(did: subject, handle: "alice.example"),
+            role: .collaborator([.propose, .merge]),
+            object: .identity(did: object),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+        let wire = try JSONDecoder().decode(
+            Lexicon.JSONValue.self,
+            from: JSONEncoder().encode(relationship)
+        )
+        let schema = try #require(document.defs["main"])
+        try SchemaValidator(definitions: LexiconExporter.definitions(in: [document]))
+            .validate(wire, against: schema, id: .init(nsid: document.id))
+    }
+
+    @Test
     func collectionsExposeNSIDsAndScopes() {
         #expect(OME.RelationshipCollection.relationship.rawValue == "app.openmusicevent.relationship")
         #expect(OME.Relationship.nsid == ATProto.NSID("app.openmusicevent.relationship"))
