@@ -30,13 +30,21 @@ public struct CanonicalEventWorkspace {
         @DebugSnapshotIgnored
         @Fetch public var changes: [CanonicalWorkspaceRecordChange]
         public var isResetting = false
+        public var destination: Destination.State?
 
         public var id: Event.ID { eventID }
         public var badgeCount: Int? { changes.isEmpty ? nil : changes.count }
     }
 
     public enum Action {
+        case destination(Destination.Action)
+        case relationshipsButtonTapped
         case resetChangesButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case relationshipList(RelationshipList)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -44,6 +52,12 @@ public struct CanonicalEventWorkspace {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .destination:
+                break
+
+            case .relationshipsButtonTapped:
+                state.destination = .relationshipList(RelationshipList.State(eventID: state.eventID))
+
             case .resetChangesButtonTapped:
                 guard !state.changes.isEmpty, !state.isResetting else { return }
                 let eventID = state.eventID
@@ -69,6 +83,9 @@ public struct CanonicalEventWorkspace {
                     try store.modify { $0.isResetting = false }
                 }
             }
+        }
+        .ifLet(\.destination) {
+            Destination.body
         }
     }
 }
@@ -101,6 +118,10 @@ public struct CanonicalEventWorkspaceView: View {
             Section("Records") {
                 Button("Event Info", action: onEditEventInfo)
                     .accessibilityIdentifier("workspace.record.event-info")
+                Button("Relationships") {
+                    store.send(.relationshipsButtonTapped)
+                }
+                .accessibilityIdentifier("workspace.record.relationships")
             }
 
             Section("Changes") {
@@ -133,6 +154,9 @@ public struct CanonicalEventWorkspaceView: View {
             }
         }
         .navigationTitle("Workspace")
+        .navigationDestination(item: $store.scope(\.destination).relationshipList) { listStore in
+            RelationshipListView(store: listStore)
+        }
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

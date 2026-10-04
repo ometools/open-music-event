@@ -1,0 +1,63 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.workspace
+- tapOn:
+    id: workspace.record.relationships
+- assertVisible: No relationships have been added to this event yet.
+- tapOn:
+    id: relationship.add
+- assertVisible: Add Relationship
+- tapOn: Kind
+- tapOn: Record
+- tapOn: Record URI
+- inputText: at://did:plc:artist/app.bsky.feed.post/3mrdbziccpcah
+- tapOn: return
+- tapOn: Common roles
+- tapOn: Sponsor
+- tapOn:
+    id: relationship.save
+- extendedWaitUntil:
+    visible: at://did:plc:artist/app.bsky.feed.post/3mrdbziccpcah
+    timeout: 15000
+- tapOn: at://did:plc:artist/app.bsky.feed.post/3mrdbziccpcah
+- assertVisible: Edit Relationship
+- assertVisible: Sponsor
+- tapOn: Common roles
+- tapOn: Organizer
+- tapOn:
+    id: relationship.save
+- extendedWaitUntil:
+    visible: organizer
+    timeout: 15000
+- takeScreenshot: 96-workspace-relationship
+- tapOn:
+    text: Relationship Actions
+- tapOn: Delete
+- tapOn: Delete Relationship
+- extendedWaitUntil:
+    visible: No relationships have been added to this event yet.
+    timeout: 15000
