@@ -1,9 +1,51 @@
+import ATProtoTypes
+import CasePaths
 import CustomDump
 import Foundation
 import GRDB
 import OpenMusicEventLexicon
 import SourceEditing
 import SQLiteData
+
+@CasePathable
+enum SourcePresentationRecord: OpenUnion {
+    case calendar(OME.Calendar)
+    case relationship(OME.Relationship)
+    case event(OME.Event)
+    case stage(OME.Stage)
+    case contributor(OME.Contributor)
+    case schedule(OME.Schedule)
+    case scheduleItem(OME.ScheduleItem)
+    case scheduleItemPerformanceDetails(OME.ScheduleItem.PerformanceDetails)
+    case scheduleItemContributor(OME.ScheduleItem.Contributor)
+    case channel(OME.Channel)
+    case communicationPost(CommsPost)
+    case poster(OME.Poster)
+
+    static let unionTypes: OpenUnionTypes<Self> = [
+        .type(.init(nsid: OME.Calendar.nsid), \.calendar),
+        .type(.init(nsid: OME.Relationship.nsid), \.relationship),
+        .type(.init(nsid: OME.Event.nsid), \.event),
+        .type(.init(nsid: OME.Stage.nsid), \.stage),
+        .type(.init(nsid: OME.Contributor.nsid), \.contributor),
+        .type(.init(nsid: OME.Schedule.nsid), \.schedule),
+        .type("app.openmusicevent.workspace.proposal#scheduleItem", \.scheduleItem),
+        .type(
+            "app.openmusicevent.workspace.proposal#scheduleItemPerformanceDetails",
+            \.scheduleItemPerformanceDetails
+        ),
+        .type(
+            "app.openmusicevent.workspace.proposal#scheduleItemContributor",
+            \.scheduleItemContributor
+        ),
+        .type(.init(nsid: OME.Channel.nsid), \.channel),
+        .type(
+            "app.openmusicevent.workspace.proposal#communicationPost",
+            \.communicationPost
+        ),
+        .type(.init(nsid: OME.Poster.nsid), \.poster),
+    ]
+}
 
 public extension OME {
     static var sourceMetadataProjections: [OpenMusicEventSourceProjection] {
@@ -134,8 +176,8 @@ public extension OME {
 public struct OpenMusicEventSourceProjection {
     struct PresentationRecordComparison: Sendable {
         var title: String?
-        var before: OME.WorkspaceProposal.SourceRecord?
-        var after: OME.WorkspaceProposal.SourceRecord?
+        var before: SourcePresentationRecord?
+        var after: SourcePresentationRecord?
     }
 
     public enum FileFamily: Equatable, Sendable {
@@ -157,14 +199,14 @@ public struct OpenMusicEventSourceProjection {
         AnySourceRecordComparison
     ) -> PresentationRecordComparison?
 
-    public init<Table: SourceEditableTable>(
+    init<Table: SourceEditableTable>(
         tableType: Table.Type,
         recordType: AnySourceEditableRecordType,
         fileFamily: FileFamily,
         title: @escaping @Sendable (Table.QueryOutput) -> String? = { _ in nil },
         sourceRecord: @escaping @Sendable (
             Table.QueryOutput
-        ) -> OME.WorkspaceProposal.SourceRecord
+        ) -> SourcePresentationRecord
     ) where Table.QueryOutput: Sendable {
         self.tableType = tableType
         self.recordType = recordType

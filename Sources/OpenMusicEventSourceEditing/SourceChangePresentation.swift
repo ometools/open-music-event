@@ -1,4 +1,5 @@
 import ATProtoTypes
+import Foundation
 import OpenMusicEventLexicon
 import SourceEditing
 
@@ -100,17 +101,17 @@ private func transition(
 ) throws -> OME.WorkspaceProposal.Presentation.Transition {
     switch (change.kind, presentation.before, presentation.after) {
     case let (.added, nil, .some(after)):
-        return .init(kind: .added, after: .known(after))
+        return .init(kind: .added, after: try wireRecord(after))
 
     case let (.modified, .some(before), .some(after)):
         return .init(
             kind: .modified,
-            before: .known(before),
-            after: .known(after)
+            before: try wireRecord(before),
+            after: try wireRecord(after)
         )
 
     case let (.deleted, .some(before), nil):
-        return .init(kind: .deleted, before: .known(before))
+        return .init(kind: .deleted, before: try wireRecord(before))
 
     default:
         throw SourceChangePresentationRenderingError.inconsistentTransition(
@@ -118,6 +119,13 @@ private func transition(
             kind: change.kind
         )
     }
+}
+
+private func wireRecord(_ record: SourcePresentationRecord) throws -> Lexicon.JSONValue {
+    try JSONDecoder().decode(
+        Lexicon.JSONValue.self,
+        from: JSONEncoder().encode(Open<SourcePresentationRecord>.known(record))
+    )
 }
 
 private func sourceRecordID(

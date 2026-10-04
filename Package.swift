@@ -740,6 +740,7 @@ var applicationTargets: [Target] = [
             "SourceEditing",
             .product(name: "ATProto", package: "swift-atproto"),
             .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
+            .product(name: "CasePaths", package: "swift-case-paths"),
             .product(name: "ComposableAtmosphereConstellation", package: "composable-atmosphere-constellation"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "ComposableAuthoring", package: "swift-composable-workspace"),

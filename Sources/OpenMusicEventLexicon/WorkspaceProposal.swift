@@ -1,5 +1,4 @@
 import ATProto
-import CasePaths
 import Foundation
 import ATProtoTypes
 import Tagged
@@ -260,46 +259,6 @@ public extension OpenMusicEvent.WorkspaceProposal {
         }
     }
 
-    @CasePathable
-    enum SourceRecord: OpenUnion {
-        case calendar(OpenMusicEvent.Calendar)
-        case relationship(OpenMusicEvent.Relationship)
-        case event(OpenMusicEvent.Event)
-        case stage(OpenMusicEvent.Stage)
-        case contributor(OpenMusicEvent.Contributor)
-        case schedule(OpenMusicEvent.Schedule)
-        case scheduleItem(OpenMusicEvent.ScheduleItem)
-        case scheduleItemPerformanceDetails(OpenMusicEvent.ScheduleItem.PerformanceDetails)
-        case scheduleItemContributor(OpenMusicEvent.ScheduleItem.Contributor)
-        case channel(OpenMusicEvent.Channel)
-        case communicationPost(CommsPost)
-        case poster(OpenMusicEvent.Poster)
-
-        public static let unionTypes: OpenUnionTypes<Self> = [
-            .type(.init(nsid: OpenMusicEvent.Calendar.nsid), \.calendar),
-            .type(.init(nsid: OpenMusicEvent.Relationship.nsid), \.relationship),
-            .type(.init(nsid: OpenMusicEvent.Event.nsid), \.event),
-            .type(.init(nsid: OpenMusicEvent.Stage.nsid), \.stage),
-            .type(.init(nsid: OpenMusicEvent.Contributor.nsid), \.contributor),
-            .type(.init(nsid: OpenMusicEvent.Schedule.nsid), \.schedule),
-            .type("app.openmusicevent.workspace.proposal#scheduleItem", \.scheduleItem),
-            .type(
-                "app.openmusicevent.workspace.proposal#scheduleItemPerformanceDetails",
-                \.scheduleItemPerformanceDetails
-            ),
-            .type(
-                "app.openmusicevent.workspace.proposal#scheduleItemContributor",
-                \.scheduleItemContributor
-            ),
-            .type(.init(nsid: OpenMusicEvent.Channel.nsid), \.channel),
-            .type(
-                "app.openmusicevent.workspace.proposal#communicationPost",
-                \.communicationPost
-            ),
-            .type(.init(nsid: OpenMusicEvent.Poster.nsid), \.poster),
-        ]
-    }
-
     struct Presentation: Codable, Equatable, Sendable {
         public static let currentFormatVersion = 1
         public static let empty = Self(groups: [])
@@ -365,13 +324,13 @@ public extension OpenMusicEvent.WorkspaceProposal {
             }
 
             public var kind: Kind
-            public var before: Open<SourceRecord>?
-            public var after: Open<SourceRecord>?
+            public var before: Lexicon.JSONValue?
+            public var after: Lexicon.JSONValue?
 
             public init(
                 kind: Kind,
-                before: Open<SourceRecord>? = nil,
-                after: Open<SourceRecord>? = nil
+                before: Lexicon.JSONValue? = nil,
+                after: Lexicon.JSONValue? = nil
             ) {
                 self.kind = kind
                 self.before = before

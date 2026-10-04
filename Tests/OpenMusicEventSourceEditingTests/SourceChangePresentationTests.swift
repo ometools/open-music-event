@@ -133,11 +133,10 @@ struct SourceChangePresentationTests {
         #expect(contributor.transition.kind == .modified)
         let beforeRecord = try #require(contributor.transition.before)
         let afterRecord = try #require(contributor.transition.after)
-        guard case let .known(.contributor(before)) = beforeRecord,
-              case let .known(.contributor(after)) = afterRecord else {
-            Issue.record("Expected complete contributor records")
-            return
-        }
+        #expect(beforeRecord.object?["$type"]?.string == OME.Contributor.nsid.rawValue)
+        #expect(afterRecord.object?["$type"]?.string == OME.Contributor.nsid.rawValue)
+        let before = try JSONDecoder().decode(OME.Contributor.self, from: JSONEncoder().encode(beforeRecord))
+        let after = try JSONDecoder().decode(OME.Contributor.self, from: JSONEncoder().encode(afterRecord))
         let expectedBefore = try baselineDatabase.read { db in
             let contributor = try OME.Contributor.find(contributorID).fetchOne(db)
             return try #require(contributor)
