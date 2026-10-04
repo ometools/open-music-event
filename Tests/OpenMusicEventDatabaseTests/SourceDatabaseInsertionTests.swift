@@ -162,19 +162,19 @@ struct SourceDatabaseInsertionTests {
                 OME.Relationship(
                     subject: .identity(did: organizerID),
                     role: .organizer,
-                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID(resolvedEventID, organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
                 OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
+                    subject: .record(.init(sourceContributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
                     role: .contributor,
-                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID(resolvedEventID, organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
                 OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
+                    subject: .record(.init(sourceContributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
                     role: .performer,
-                    object: .record(.init(performanceID: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID))),
+                    object: .record(.init(sourcePerformanceID: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]
@@ -753,13 +753,13 @@ struct SourceDatabaseInsertionTests {
                 OME.Relationship(
                     subject: .identity(did: organizerID),
                     role: .organizer,
-                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID(resolvedEventID, organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
                 OME.Relationship(
                     subject: .identity(did: artistID),
                     role: .performer,
-                    object: .record(.init(performanceID: performanceID("did-set", eventID: resolvedEventID, organizerID: organizerID))),
+                    object: .record(.init(sourcePerformanceID: performanceID("did-set", eventID: resolvedEventID, organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]
@@ -832,19 +832,19 @@ struct SourceDatabaseInsertionTests {
                 OME.Relationship(
                     subject: .identity(did: organizerID),
                     role: .organizer,
-                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
                 OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    subject: .record(.init(sourceContributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
                     role: .contributor,
-                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
                 OME.Relationship(
-                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    subject: .record(.init(sourceContributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
                     role: .dj,
-                    object: .record(.init(performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    object: .record(.init(sourcePerformanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]
@@ -899,7 +899,7 @@ struct SourceDatabaseInsertionTests {
                 OME.Relationship(
                     subject: .identity(did: organizerID),
                     role: .organizer,
-                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    object: .record(.init(sourceEventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]

@@ -3,6 +3,50 @@ import FileTree
 import Foundation
 import OpenMusicEventLexicon
 
+public extension OME.Relationship.RecordReference {
+    init(
+        type: String = Self.type,
+        sourceEventID eventID: OME.Event.ID,
+        cid: ATProto.CID? = nil
+    ) {
+        self.init(
+            type: type,
+            author: eventID.organizerID,
+            collection: OME.Event.nsid,
+            rkey: eventID.eventID.rawValue,
+            cid: cid
+        )
+    }
+
+    init(
+        type: String = Self.type,
+        sourceContributorID contributorID: OME.Contributor.ID,
+        cid: ATProto.CID? = nil
+    ) {
+        self.init(
+            type: type,
+            author: contributorID.organizerID,
+            collection: OME.Contributor.nsid,
+            rkey: contributorID.contributorID.rawValue,
+            cid: cid
+        )
+    }
+
+    init(
+        type: String = Self.type,
+        sourcePerformanceID performanceID: OME.Performance.ID,
+        cid: ATProto.CID? = nil
+    ) {
+        self.init(
+            type: type,
+            author: performanceID.organizerID,
+            collection: OME.Performance.nsid,
+            rkey: performanceID.performanceID.rawValue,
+            cid: cid
+        )
+    }
+}
+
 public extension OME {
     struct SourceDatabaseInsertion: Equatable, Sendable {
         public struct Configuration: Equatable, Sendable {
@@ -341,7 +385,7 @@ public extension OME {
                 OME.Relationship(
                     subject: .identity(did: organizerID),
                     role: .organizer,
-                    object: .record(.init(eventID: eventID)),
+                    object: .record(.init(sourceEventID: eventID)),
                     createdAt: Self.pendingRelationshipCreatedAt
                 )
             )
@@ -401,9 +445,9 @@ public extension OME {
 
                 relationships.append(
                     OME.Relationship(
-                        subject: .record(.init(contributorID: contributorID)),
+                        subject: .record(.init(sourceContributorID: contributorID)),
                         role: .contributor,
-                        object: .record(.init(eventID: eventID)),
+                        object: .record(.init(sourceEventID: eventID)),
                         createdAt: Self.pendingRelationshipCreatedAt
                     )
                 )
@@ -772,7 +816,7 @@ public extension OME {
             if let contributorID {
                 subject = .record(
                     .init(
-                        contributorID: .init(
+                        sourceContributorID: .init(
                             organizerID: performanceID.organizerID,
                             eventID: performanceID.eventID,
                             contributorID: contributorID
@@ -788,7 +832,7 @@ public extension OME {
             return OME.Relationship(
                 subject: subject,
                 role: role.map { OME.Relationship.Role($0.rawValue) } ?? .performer,
-                object: .record(.init(performanceID: performanceID)),
+                object: .record(.init(sourcePerformanceID: performanceID)),
                 createdAt: pendingRelationshipCreatedAt
             )
         }
