@@ -121,6 +121,8 @@ public struct ContributorForm {
         public var actorSearchQuery = ""
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         public var contributorDID: DID?
+        var pinnedSourceURI = ""
+        var pinnedSourceCID = ""
         var destination: Destination.State?
         var editingLinkID: EditableLink.ID?
         @DebugSnapshotTracked var errorMessage: String?
@@ -146,7 +148,34 @@ public struct ContributorForm {
         }
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && !isSavingActor && mediaDraft == nil && form.canSubmit
+            hasLoadedDraft && !isSaving && !isSavingActor && mediaDraft == nil
+                && form.canSubmit && pinnedSourceValidationMessage == nil
+        }
+
+        var pinnedSourceValidationMessage: String? {
+            let uriText = pinnedSourceURI.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cidText = pinnedSourceCID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if uriText.isEmpty && cidText.isEmpty { return nil }
+            guard let contributorDID else { return "Link an account before pinning its source record." }
+            guard let uri = ATProto.URI(uriText),
+                  case let .did(author) = uri.authority,
+                  author == contributorDID,
+                  uri.collection != nil,
+                  uri.rkey != nil
+            else { return "Enter a complete record URI from the linked account." }
+            guard !cidText.isEmpty else { return "Enter the source record CID." }
+            return nil
+        }
+
+        var pinnedSource: Contributor.Source? {
+            guard pinnedSourceValidationMessage == nil,
+                  let uri = ATProto.URI(pinnedSourceURI.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  !pinnedSourceCID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return Contributor.Source(
+                uri: uri,
+                cid: ATProto.CID(rawValue: pinnedSourceCID.trimmingCharacters(in: .whitespacesAndNewlines))
+            )
         }
 
         var additionalMediaEntries: [MediaEntry] {
@@ -213,6 +242,7 @@ public struct ContributorForm {
             let originalContributor: Contributor?
             let mediaEntries: [MediaEntry]
             let photoImages: [ImageAssetPicker.ImageValue]
+            let pinnedSource: Contributor.Source?
             let roles: [Open<Contributor.Role>]?
 
             init(state: State) {
@@ -226,6 +256,7 @@ public struct ContributorForm {
                 self.originalContributor = state.originalContributor
                 self.mediaEntries = state.mediaEntries
                 self.photoImages = state.photoImagePicker.images
+                self.pinnedSource = state.pinnedSource
                 let roles = state.form.value.roles.compactMap(\.preparedRole)
                 self.roles = roles.isEmpty ? nil : roles
             }
@@ -235,9 +266,7 @@ public struct ContributorForm {
                     ?? ContributorRecordEditing.Fields(name: name)
                 fields.name = name
                 fields.subject = did
-                if originalContributor?.subject != did {
-                    fields.source = nil
-                }
+                fields.source = pinnedSource
                 fields.description = bio
                 fields.links = links
                 fields.media = try preparedMedia()
@@ -311,6 +340,8 @@ public struct ContributorForm {
         mutating func load(_ contributor: Contributor) {
             form = FormFeature.State(value: FormValue(contributor: contributor))
             contributorDID = contributor.subject
+            pinnedSourceURI = contributor.source?.uri.description ?? ""
+            pinnedSourceCID = contributor.source?.cid.description ?? ""
             originalContributor = contributor
             mediaEntries = (contributor.media ?? []).map {
                 MediaEntry(
@@ -412,6 +443,7 @@ public struct ContributorForm {
         case moveLinkButtonTapped(UUID, Int)
         case moveRoleButtonTapped(UUID, Int)
         case photoImagePicker(ImageAssetPicker.Action)
+        case removePinnedSourceButtonTapped
         case removeLinkButtonTapped(UUID)
         case removeRoleButtonTapped(UUID)
         case unlinkAccountButtonTapped
@@ -472,9 +504,15 @@ public struct ContributorForm {
 
             case .unlinkAccountButtonTapped:
                 state.contributorDID = nil
+                state.pinnedSourceURI = ""
+                state.pinnedSourceCID = ""
                 state.resetActorSearch()
 
             case let .actorIdentityTapped(identity):
+                if state.contributorDID != identity.did {
+                    state.pinnedSourceURI = ""
+                    state.pinnedSourceCID = ""
+                }
                 state.contributorDID = identity.did
                 state.prefillFromActorIdentity(identity)
                 state.resetActorSearch()
@@ -560,6 +598,10 @@ public struct ContributorForm {
             case .form:
                 break
 
+            case .removePinnedSourceButtonTapped:
+                state.pinnedSourceURI = ""
+                state.pinnedSourceCID = ""
+
             case let .formSubmitted(value):
                 
                 guard !state.isSaving else { return }
@@ -571,6 +613,10 @@ public struct ContributorForm {
 
                 guard state.form.canSubmit else {
                     state.errorMessage = "Fix the highlighted fields."
+                    return
+                }
+                if let message = state.pinnedSourceValidationMessage {
+                    state.errorMessage = message
                     return
                 }
 
@@ -979,6 +1025,32 @@ struct ContributorFormLoadedForm: View {
                 querySubmitted: actorSearchSubmitted,
                 identityTapped: actorIdentityTapped
             )
+
+            if store.contributorActor != nil {
+                Section("Pinned Profile Record") {
+                    Text("Optionally pin an exact version of a record published by the linked account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    TextField("Record URI", text: $store.pinnedSourceURI)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    TextField("Record CID", text: $store.pinnedSourceCID)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    if !store.pinnedSourceURI.isEmpty || !store.pinnedSourceCID.isEmpty {
+                        Button("Remove Pin", role: .destructive) {
+                            store.send(.removePinnedSourceButtonTapped)
+                        }
+                    }
+                    if let message = store.pinnedSourceValidationMessage {
+                        Text(message).font(.footnote).foregroundStyle(.red)
+                    }
+                }
+            }
 
             Section("Bio") {
                 PortableTextField(

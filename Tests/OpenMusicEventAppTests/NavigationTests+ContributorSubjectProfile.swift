@@ -224,4 +224,101 @@ extension NavigationTests {
         expectNoDifference(contributor.description, "Bio")
     }
 
+    @Test
+    func `contributor form pins updates and removes an account source record`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let actor = try #require(DID("did:plc:alice123"))
+        let sourceURI = try #require(ATProto.URI(
+            "at://did:plc:alice123/app.bsky.actor.profile/self"
+        ))
+        let firstCID = "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
+        let secondCID = "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyky"
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event One")
+        }
+
+        var createState = ContributorForm.State(eventID: eventID)
+        createState.form.value.name = "Alice"
+        createState.contributorDID = actor
+        createState.pinnedSourceURI = sourceURI.description
+        #expect(createState.pinnedSourceValidationMessage == "Enter the source record CID.")
+        createState.pinnedSourceCID = firstCID
+        #expect(createState.pinnedSourceValidationMessage == nil)
+        let createStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: createState) { ContributorForm() }
+        }
+        let createValue = createStore.state.form.value
+        let createTask = createStore.send(.saveButtonTapped)
+        let createdSubmission = await createStore.receive(
+            \.formSubmitted, .equals(createValue), timeout: .seconds(1)
+        )
+        let createdDismissal = await createStore.receive(\.saveSucceeded, timeout: .seconds(1))
+        await createdDismissal?.value
+        await createdSubmission?.value
+        await createTask?.value
+
+        var contributor = try await database.read { db in
+            try #require(try Contributor.where { $0.event.eq(eventID) }.fetchOne(db))
+        }
+        #expect(contributor.source == Contributor.Source(
+            uri: sourceURI, cid: ATProto.CID(rawValue: firstCID)
+        ))
+        let contributorID = contributor.id
+
+        var editState = ContributorForm.State(contributorID: contributorID, eventID: eventID)
+        editState.load(contributor)
+        #expect(editState.pinnedSourceCID == firstCID)
+        editState.pinnedSourceCID = secondCID
+        let editStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: editState) { ContributorForm() }
+        }
+        let editValue = editStore.state.form.value
+        let editTask = editStore.send(.saveButtonTapped)
+        let editedSubmission = await editStore.receive(
+            \.formSubmitted, .equals(editValue), timeout: .seconds(1)
+        )
+        let editedDismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
+        await editedDismissal?.value
+        await editedSubmission?.value
+        await editTask?.value
+
+        contributor = try await database.read { db in
+            try #require(try Contributor.find(contributorID).fetchOne(db))
+        }
+        #expect(contributor.source?.cid == ATProto.CID(rawValue: secondCID))
+
+        var removeState = ContributorForm.State(contributorID: contributorID, eventID: eventID)
+        removeState.load(contributor)
+        let removeStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: removeState) { ContributorForm() }
+        }
+        let removeAction = removeStore.send(.removePinnedSourceButtonTapped)
+        await removeAction?.value
+        #expect(removeStore.state.pinnedSource == nil)
+        let removeValue = removeStore.state.form.value
+        let saveTask = removeStore.send(.saveButtonTapped)
+        let removedSubmission = await removeStore.receive(
+            \.formSubmitted, .equals(removeValue), timeout: .seconds(1)
+        )
+        let removedDismissal = await removeStore.receive(\.saveSucceeded, timeout: .seconds(1))
+        await removedDismissal?.value
+        await removedSubmission?.value
+        await saveTask?.value
+
+        contributor = try await database.read { db in
+            try #require(try Contributor.find(contributorID).fetchOne(db))
+        }
+        #expect(contributor.source == nil)
+    }
+
 }
