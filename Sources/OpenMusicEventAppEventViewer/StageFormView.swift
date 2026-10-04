@@ -241,6 +241,11 @@ public struct StageFormView: View {
                     if !draft.removeThumbnail,
                        draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
                         TextField("Thumbnail Alt Text", text: mediaDraftBinding.thumbnailAlt)
+                        if draft.thumbnailImageInfoState(recordID: store.eventID) != nil {
+                            Button("Thumbnail Info") {
+                                store.send(.mediaImageInfoButtonTapped(draft.thumbnailID))
+                            }
+                        }
                         Button("Remove Thumbnail", role: .destructive) {
                             store.send(.mediaDraftRemoveThumbnailButtonTapped)
                         }

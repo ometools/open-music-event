@@ -702,6 +702,46 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func editingExternalThumbnailURLKeepsImageMetadata() throws {
+        let originalURL = try #require(URL(string: "https://example.com/original.jpg"))
+        let replacementURL = try #require(URL(string: "https://example.com/replacement.jpg"))
+        let mediaURL = try #require(URL(string: "https://example.com/video"))
+        var thumbnail = OME.Image(
+            source: .known(.url(originalURL)),
+            role: .known(.poster),
+            renderingMode: .known(.original)
+        )
+        thumbnail.title = "Poster"
+        thumbnail.appearance = .known(.dark)
+        let external = OME.Media.External(uri: mediaURL, thumbnail: thumbnail)
+        var draft = withDependencies {
+            $0.uuid = .incrementing
+        } operation: {
+            RecordMediaEditing.MediaDraft(entryID: UUID(), external: external)
+        }
+        draft.thumbnailURL = replacementURL.absoluteString
+
+        let imageInfo = try #require(draft.thumbnailImageInfoState(recordID: nil))
+        #expect(imageInfo.image.title == "Poster")
+        #expect(imageInfo.image.role == .known(.poster))
+        #expect(imageInfo.image.appearance == .known(.dark))
+
+        var editedImage = imageInfo.image
+        editedImage.title = "New poster"
+        editedImage.alt = OME.AltText(rawValue: "Main stage")
+        draft.updateThumbnailImageInfo(editedImage)
+        guard case let .some(.known(.external(saved))) = draft.value() else {
+            Issue.record("Expected external media")
+            return
+        }
+        #expect(saved.thumbnail?.source == .known(.url(replacementURL)))
+        #expect(saved.thumbnail?.title == "New poster")
+        #expect(saved.thumbnail?.alt == OME.AltText(rawValue: "Main stage"))
+        #expect(saved.thumbnail?.role == .known(.poster))
+        #expect(saved.thumbnail?.appearance == .known(.dark))
+    }
+
+    @Test
     func programItemMediaLinksCanBeAddedEditedRemovedAndReordered() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
@@ -741,9 +781,8 @@ struct ScheduleAuthoringTests {
         ) { _ in }
         let externalID = try #require(store.state.mediaEntries.dropFirst().first?.id)
         let oldRecordID = try #require(store.state.mediaEntries.last?.id)
-        store.send(.mediaEditButtonTapped(externalID)) {
-            $0.mediaDraft = .init(entryID: externalID, external: external)
-        }
+        store.send(.mediaEditButtonTapped(externalID))
+        #expect(store.state.mediaDraft?.entryID == externalID)
         store.send(.mediaDraftURIChanged("https://example.com/new-video")) {
             $0.mediaDraft?.uri = "https://example.com/new-video"
         }
@@ -767,9 +806,8 @@ struct ScheduleAuthoringTests {
         #expect(store.state.mediaDraft == nil)
         store.send(.mediaDeleteButtonTapped(oldRecordID))
 
-        store.send(.addRecordMediaButtonTapped) {
-            $0.mediaDraft = .init(kind: .record)
-        }
+        store.send(.addRecordMediaButtonTapped)
+        #expect(store.state.mediaDraft?.kind == .record)
         store.send(.mediaDraftURIChanged("https://example.com/not-a-record")) {
             $0.mediaDraft?.uri = "https://example.com/not-a-record"
         }

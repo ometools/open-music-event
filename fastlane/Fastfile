@@ -683,7 +683,8 @@ lane :ios_workspace_ui_tests do |options|
   event_media_flow = File.join(repo_root, ".maestro", "49-workspace-event-media.yaml")
   event_location_map_flow = File.join(repo_root, ".maestro", "50-workspace-event-location-map.yaml")
   relationship_flow = File.join(repo_root, ".maestro", "51-workspace-relationship.yaml")
-  [flow, place_flow, credit_flow, post_flow, contributor_media_flow, event_media_flow, event_location_map_flow, relationship_flow].each do |path|
+  thumbnail_info_flow = File.join(repo_root, ".maestro", "52-workspace-thumbnail-info.yaml")
+  [flow, place_flow, credit_flow, post_flow, contributor_media_flow, event_media_flow, event_location_map_flow, relationship_flow, thumbnail_info_flow].each do |path|
     UI.user_error!("Maestro flow does not exist: #{path}") unless File.file?(path)
   end
 
@@ -718,6 +719,8 @@ lane :ios_workspace_ui_tests do |options|
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: event_location_map_flow)
   reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
   run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: relationship_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: thumbnail_info_flow)
   snapshot_action = options[:snapshot_action] || "compare"
   UI.user_error!("snapshot_action must be compare or record") unless %w[compare record].include?(snapshot_action)
   %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place 95-workspace-contributor-media 96-workspace-relationship].each do |milestone|

@@ -295,6 +295,11 @@ public struct SocialCategoryForm {
                 }
 
             case let .mediaImageInfoButtonTapped(id):
+                if let draft = state.mediaDraft, draft.thumbnailID == id,
+                   let imageInfo = draft.thumbnailImageInfoState(recordID: state.eventID) {
+                    state.destination = .imageInfo(Spawn(imageInfo))
+                    return
+                }
                 guard let entry = state.mediaEntries.first(where: { $0.id == id }),
                       let image = entry.imageValue else { return }
                 state.destination = .imageInfo(Spawn(ImageInfo.State(
@@ -318,6 +323,10 @@ public struct SocialCategoryForm {
                 .ifCaseLet(\.imageInfo) {
                     ImageInfo { imageID, image in
                         try store.modify {
+                            if $0.mediaDraft?.thumbnailID == imageID {
+                                $0.mediaDraft?.updateThumbnailImageInfo(image)
+                                return
+                            }
                             guard let index = $0.mediaEntries.firstIndex(where: { $0.id == imageID }),
                                   case .known(.image) = $0.mediaEntries[index].value
                             else { return }
@@ -497,6 +506,11 @@ public struct SocialCategoryFormView: View {
                     TextField("Thumbnail URL", text: mediaDraftThumbnailURLBinding)
                     if draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
                         TextField("Thumbnail Alt Text", text: mediaDraftAltBinding)
+                        if draft.thumbnailImageInfoState(recordID: store.eventID) != nil {
+                            Button("Thumbnail Info") {
+                                store.send(.mediaImageInfoButtonTapped(draft.thumbnailID))
+                            }
+                        }
                         Button("Remove Thumbnail", role: .destructive) {
                             store.send(.mediaDraftRemoveThumbnailButtonTapped)
                         }

@@ -576,9 +576,12 @@ public struct ContributorForm {
                 )
 
             case .destination(.mediaImageInfo(.saveButtonTapped)):
-                guard case let .mediaImageInfo(imageInfo) = state.destination,
-                      let index = state.mediaEntries.firstIndex(where: { $0.id == imageInfo.id })
-                else { return }
+                guard case let .mediaImageInfo(imageInfo) = state.destination else { return }
+                if state.mediaDraft?.thumbnailID == imageInfo.id {
+                    state.mediaDraft?.updateThumbnailImageInfo(imageInfo.image)
+                    return
+                }
+                guard let index = state.mediaEntries.firstIndex(where: { $0.id == imageInfo.id }) else { return }
                 state.mediaEntries[index].updateImageInfo(imageInfo.image)
 
             case .destination(.photoImageInfo(.saveButtonTapped)):
@@ -669,6 +672,11 @@ public struct ContributorForm {
                 break
 
             case let .mediaImageInfoButtonTapped(id):
+                if let draft = state.mediaDraft, draft.thumbnailID == id,
+                   let imageInfo = draft.thumbnailImageInfoState(recordID: state.eventID) {
+                    state.destination = .mediaImageInfo(imageInfo)
+                    return
+                }
                 guard let entry = state.additionalMediaEntries.first(where: { $0.id == id }),
                       let imageInfo = entry.imageInfoState(recordID: state.eventID) else { return }
                 state.destination = .mediaImageInfo(imageInfo)
@@ -1208,6 +1216,11 @@ struct ContributorFormLoadedForm: View {
                     if !draft.removeThumbnail,
                        draft.thumbnail != nil || !draft.thumbnailURL.isEmpty {
                         TextField("Thumbnail Alt Text", text: mediaDraftBinding.thumbnailAlt)
+                        if draft.thumbnailImageInfoState(recordID: store.eventID) != nil {
+                            Button("Thumbnail Info") {
+                                store.send(.mediaImageInfoButtonTapped(draft.thumbnailID))
+                            }
+                        }
                         Button("Remove Thumbnail", role: .destructive) {
                             store.send(.mediaDraftRemoveThumbnailButtonTapped)
                         }

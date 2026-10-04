@@ -196,6 +196,11 @@ public struct EventForm {
                 state.editMedia(id)
 
             case let .mediaImageInfoButtonTapped(id):
+                if let draft = state.mediaDraft, draft.thumbnailID == id,
+                   let imageInfo = draft.thumbnailImageInfoState(recordID: state.eventID) {
+                    state.destination = .imageInfo(Spawn(imageInfo))
+                    return
+                }
                 guard let entry = state.mediaEntries.first(where: { $0.id == id }),
                       let imageValue = entry.imageValue else { return }
                 state.destination = .imageInfo(Spawn(ImageInfo.State(
@@ -266,6 +271,10 @@ public struct EventForm {
                 .ifCaseLet(\.imageInfo) {
                     ImageInfo { imageID, image in
                         try store.modify {
+                            if $0.mediaDraft?.thumbnailID == imageID {
+                                $0.mediaDraft?.updateThumbnailImageInfo(image)
+                                return
+                            }
                             guard let index = $0.mediaEntries.firstIndex(where: { $0.id == imageID }),
                                   case .known(.image) = $0.mediaEntries[index].value else { return }
                             $0.mediaEntries[index].value = .known(.image(image))

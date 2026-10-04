@@ -446,6 +446,11 @@ public struct StageForm {
                 break
 
             case let .mediaImageInfoButtonTapped(id):
+                if let draft = state.mediaDraft, draft.thumbnailID == id,
+                   let imageInfo = draft.thumbnailImageInfoState(recordID: state.eventID) {
+                    state.destination = .mediaImageInfo(Spawn(imageInfo))
+                    return
+                }
                 guard let entry = state.additionalMediaEntries.first(where: { $0.id == id }),
                       let imageInfo = entry.imageInfoState(recordID: state.eventID) else { return }
                 state.destination = .mediaImageInfo(Spawn(imageInfo))
@@ -527,6 +532,10 @@ public struct StageForm {
                 .ifCaseLet(\.mediaImageInfo) {
                     ImageInfo { id, image in
                         try store.modify {
+                            if $0.mediaDraft?.thumbnailID == id {
+                                $0.mediaDraft?.updateThumbnailImageInfo(image)
+                                return
+                            }
                             guard let index = $0.mediaEntries.firstIndex(where: { $0.id == id }) else {
                                 return
                             }

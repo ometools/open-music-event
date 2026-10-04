@@ -116,8 +116,10 @@ public enum RecordMediaEditing {
         }
 
         public init(kind: Kind, entryID: UUID? = nil) {
+            @Dependency(\.uuid) var uuid
             self.kind = kind
             self.entryID = entryID
+            self.thumbnailID = uuid()
         }
 
         public init(entryID: UUID, external: OME.Media.External) {
@@ -148,6 +150,7 @@ public enum RecordMediaEditing {
 
         public var kind: Kind
         public var entryID: UUID?
+        public var thumbnailID: UUID
         public var uri = ""
         public var title = ""
         public var description = ""
@@ -180,6 +183,47 @@ public enum RecordMediaEditing {
             return nil
         }
 
+        public func thumbnailImageInfoState(recordID: Event.ID?) -> ImageInfo.State? {
+            guard let image = thumbnailImage else { return nil }
+            return ImageInfo.State(
+                id: thumbnailID,
+                image: image,
+                configuration: .allImages,
+                sourceLabel: thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                recordID: recordID
+            )
+        }
+
+        public mutating func updateThumbnailImageInfo(_ image: OME.Image) {
+            thumbnail = image
+            thumbnailAlt = image.alt?.rawValue ?? ""
+            removeThumbnail = false
+            if case let .known(.url(url)) = image.source {
+                thumbnailURL = url.absoluteString
+            }
+        }
+
+        private var thumbnailImage: OME.Image? {
+            guard !removeThumbnail else { return nil }
+            let enteredURL = thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            var image: OME.Image?
+            if enteredURL == originalThumbnailURL {
+                image = thumbnail
+            } else if let url = Self.httpsURL(enteredURL) {
+                image = thumbnail ?? OME.Image(
+                    source: .known(.url(url)),
+                    role: .known(.photo),
+                    renderingMode: .known(.original)
+                )
+                image?.source = .known(.url(url))
+            } else if originalThumbnailURL.isEmpty {
+                image = thumbnail
+            }
+            image?.alt = thumbnailAlt.trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty.map(OME.AltText.init(rawValue:))
+            return image
+        }
+
         public func value() -> Open<OME.Media>? {
             guard validationMessage == nil else { return nil }
             switch kind {
@@ -203,22 +247,7 @@ public enum RecordMediaEditing {
                         external.mediaKind = .unknown(.string(kind))
                     }
                 }
-                if !removeThumbnail {
-                    let thumbnailURL = thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if thumbnailURL == originalThumbnailURL {
-                        external.thumbnail = thumbnail
-                    } else if let url = Self.httpsURL(thumbnailURL) {
-                        external.thumbnail = OME.Image(
-                            source: .known(.url(url)),
-                            role: .known(.photo),
-                            renderingMode: .known(.original)
-                        )
-                    } else if originalThumbnailURL.isEmpty {
-                        external.thumbnail = thumbnail
-                    }
-                    external.thumbnail?.alt = thumbnailAlt.trimmingCharacters(in: .whitespacesAndNewlines)
-                        .nilIfEmpty.map(OME.AltText.init(rawValue:))
-                }
+                external.thumbnail = thumbnailImage
                 return .known(.external(external))
             }
         }
