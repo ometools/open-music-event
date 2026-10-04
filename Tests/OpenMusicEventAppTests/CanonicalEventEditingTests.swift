@@ -769,6 +769,7 @@ struct CanonicalEventEditingTests {
         await store.send(.mediaMoveButtonTapped(recordRowID, -1))?.value
         await store.send(.mediaMoveButtonTapped(recordRowID, -1))?.value
         await store.send(.saveButtonTapped)?.value
+        try await waitForEventFormDismissal(store)
 
         let saved = try await database.read { db in
             try #require(try Event.find(original.id).fetchOne(db))
@@ -797,6 +798,7 @@ struct CanonicalEventEditingTests {
         reopened.modify { $0.mediaDraft?.title = "Updated Event Stream" }
         await reopened.send(.mediaDraftSaveButtonTapped)?.value
         await reopened.send(.saveButtonTapped)?.value
+        try await waitForEventFormDismissal(reopened)
 
         let updated = try await database.read { db in
             try #require(try Event.find(original.id).fetchOne(db))
@@ -914,6 +916,16 @@ struct CanonicalEventEditingTests {
         #expect(saved.siteMap == nil)
         #expect(saved.name == record.name)
         #expect(saved.media == record.media)
+    }
+
+    private func waitForEventFormDismissal(_ store: TestStore<EventForm>) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while store.isPresented && clock.now < deadline {
+            try await clock.sleep(for: .milliseconds(5))
+        }
+        #expect(!store.isPresented)
+        #expect(!store.state.isSaving)
     }
 
     private func database() throws -> DatabaseQueue {
