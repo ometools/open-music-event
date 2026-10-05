@@ -105,11 +105,12 @@ struct CanonicalChangesRequest: FetchKeyRequest {
         } ?? []
         let identities = try CanonicalSourceEventIdentity.all.fetchAll(db)
         let source = identities.first { $0.id == eventID }
+        let locallyCreated = try LocallyCreatedEvent.find(eventID).fetchOne(db) != nil
         let eventIDs = Set(identities.filter {
             $0.source == source?.source && $0.publisher == source?.publisher
         }.map(\.id))
         let receipts = try EventRecordPublicationReceipt.all.fetchAll(db)
-        if source != nil || baseline == nil {
+        if source != nil || locallyCreated || baseline == nil {
             let events = try Event.all.fetchAll(db).filter {
                 source == nil ? $0.id == eventID : eventIDs.contains($0.id)
             }
@@ -118,8 +119,10 @@ struct CanonicalChangesRequest: FetchKeyRequest {
                 try CanonicalWorkspaceRecordChange.event(event, receipt: receipts.first { $0.id == event.id })
             }
         }
-        if source != nil {
-            changes.removeAll { $0.collection == Event.tableName && !eventIDs.contains($0.id) }
+        if source != nil || locallyCreated {
+            changes.removeAll {
+                $0.collection == Event.tableName && (source == nil ? $0.id != eventID : !eventIDs.contains($0.id))
+            }
         }
         return changes.sorted { $0.id.description < $1.id.description }
     }
@@ -184,7 +187,7 @@ public struct CanonicalEventWorkspaceView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This restores published content to its last verified version, and unpublished content to its imported version. Your published content is not deleted.")
+            Text("This restores published content to its last verified version, and unpublished content to its starting version. Your published content is not deleted.")
         }
     }
 }

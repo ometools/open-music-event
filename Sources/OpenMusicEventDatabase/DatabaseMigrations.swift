@@ -1236,6 +1236,14 @@ public extension OME {
                 try #sql("""
                     ALTER TABLE \(quote: EventRecordPublicationReceipt.tableName)
                     ADD COLUMN "event" TEXT
+                """).execute(db)
+            }
+            migrator.registerMigration("Track locally created Events") { db in
+                try #sql("""
+                    CREATE TABLE \(quote: LocallyCreatedEvent.tableName) (
+                      "id" TEXT PRIMARY KEY NOT NULL
+                        REFERENCES \(quote: OpenMusicEventLexicon.Event.tableName)("id") ON DELETE CASCADE
+                    ) STRICT
                     """).execute(db)
             }
         }

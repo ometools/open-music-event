@@ -6,6 +6,9 @@ appId: ${APP_ID}
     visible:
       id: button.browse-event.3mrdbziccpcah
     timeout: 30000
+- tapOn: My Events
+- assertNotVisible: {id: events.create}
+- tapOn: Browse
 - tapOn:
     id: button.browse-event.3mrdbziccpcah
 - tapOn:

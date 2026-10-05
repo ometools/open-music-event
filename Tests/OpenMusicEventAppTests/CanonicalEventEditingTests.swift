@@ -27,8 +27,9 @@ import Testing
 struct CanonicalEventEditingTests {
     typealias Event = OpenMusicEventLexicon.Event
 
-    @Test(arguments: [false, true])
-    func signedOutReaderRefreshesPublishedContentWithoutOverwritingImportedEdits(imported: Bool) async throws {
+    @Test(arguments: ["reader", "imported", "created"])
+    func signedOutReaderRefreshesPublishedContentWithoutOverwritingLocalEdits(origin: String) async throws {
+        let locallyAuthored = origin != "reader"
         let database = try database()
         let original = try event()
         var updated = original
@@ -42,7 +43,9 @@ struct CanonicalEventEditingTests {
         try latest.validateReferences()
         try await database.write { db in
             try Event.insert { original }.execute(db)
-            if imported {
+            if origin == "created" {
+                try LocallyCreatedEvent.insert { LocallyCreatedEvent(id: original.id) }.execute(db)
+            } else if origin == "imported" {
                 try #sql("""
                     INSERT INTO canonicalSourceEventIdentities
                     (id, source, directory, publisher, createdAt)
@@ -69,11 +72,11 @@ struct CanonicalEventEditingTests {
             ))) { EventBrowseDetail() }
         }
         await store.send(.task)?.value
-        if !imported { store.expect { $0.record = latest } }
-        #expect(refreshed.value == !imported)
-        expectNoDifference(store.eventDescription, imported ? original.description : latest.description)
+        if !locallyAuthored { store.expect { $0.record = latest } }
+        #expect(refreshed.value == !locallyAuthored)
+        expectNoDifference(store.eventDescription, locallyAuthored ? original.description : latest.description)
         let saved = try await database.read { try Event.find(original.id).fetchOne($0) }
-        expectNoDifference(saved, imported ? original : latest)
+        expectNoDifference(saved, locallyAuthored ? original : latest)
         await store.dismount()
     }
 

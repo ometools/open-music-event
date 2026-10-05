@@ -7,6 +7,9 @@
     "%lld" : {
 
     },
+    "%lld Events are ready in My Events." : {
+
+    },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
       "localizations" : {
@@ -112,9 +115,6 @@
     "Browse" : {
 
     },
-    "Calendars" : {
-
-    },
     "Cancel" : {
       "comment" : "Button title indicating that the operation should be cancelled",
       "localizations" : {
@@ -145,6 +145,9 @@
       }
     },
     "Choose a date" : {
+
+    },
+    "Create Event" : {
 
     },
     "Dark" : {
@@ -208,6 +211,9 @@
     "Done" : {
 
     },
+    "Edit" : {
+
+    },
     "Enter a Tangled repository, not a local source path." : {
 
     },
@@ -227,12 +233,6 @@
       "comment" : "label for the OME service environment picker"
     },
     "Error Handling" : {
-
-    },
-    "Event unavailable" : {
-
-    },
-    "Events" : {
 
     },
     "Events Unavailable" : {
@@ -343,6 +343,15 @@
     "Hybrid" : {
 
     },
+    "Import and edit without signing in. Publishing later requires this account. Existing imported Events keep their local edits." : {
+
+    },
+    "Import Events" : {
+
+    },
+    "Importing Events" : {
+
+    },
     "In person" : {
 
     },
@@ -382,9 +391,6 @@
 
     },
     "Location" : {
-
-    },
-    "main" : {
 
     },
     "More Events" : {
@@ -507,11 +513,20 @@
         }
       }
     },
+    "Preparing Testival" : {
+
+    },
     "Previous" : {
 
     },
     "Production" : {
       "comment" : "production OME service environment name"
+    },
+    "Publisher DID" : {
+
+    },
+    "Repository or local folder" : {
+
     },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
@@ -587,6 +602,9 @@
     "Source import output can only be used with Tangled repositories." : {
 
     },
+    "Source repository" : {
+
+    },
     "Staging" : {
       "comment" : "staging OME service environment name"
     },
@@ -635,9 +653,6 @@
 
     },
     "The Tangled source archive was empty." : {
-
-    },
-    "This calendar has no events." : {
 
     },
     "This organizer has no events." : {
@@ -703,6 +718,9 @@
 
     },
     "Unable to load organizer." : {
+
+    },
+    "Unable to Prepare Testival" : {
 
     },
     "Unable to prepare the downloaded source because a file already exists." : {

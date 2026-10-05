@@ -1,0 +1,43 @@
+appId: ${APP_ID}
+---
+# Run with the workspace account profile in an isolated fixture installation.
+- launchApp
+- tapOn: My Events
+- tapOn: {id: events.create}
+- assertVisible: Create Event
+- tapOn: {id: field.event-info.name}
+- inputText: Cancelled Draft
+- tapOn: Cancel
+- assertNotVisible: Cancelled Draft
+- tapOn: {id: events.create}
+- tapOn: {id: field.event-info.name}
+- inputText: From Scratch
+- tapOn: Save
+- extendedWaitUntil:
+    visible: From Scratch
+    timeout: 15000
+- stopApp
+- launchApp
+- tapOn: My Events
+- assertVisible: From Scratch
+- tapOn: From Scratch
+- tapOn: More
+- tapOn: {id: tab-feature.settings}
+- tapOn: Enter Workspace
+- tapOn: More
+- assertVisible: Leave Workspace
+- runFlow: helpers/back.yaml
+- tapOn: {id: tab-feature.workspace}
+- tapOn: {id: workspace.changes.Events}
+- assertVisible: From Scratch
+- assertVisible: Added
+- takeScreenshot: created-event-workspace
+- tapOn: {id: workspace.publish}
+- tapOn: {id: publication.review}
+- tapOn: {id: workspace.changes.Events}
+- assertVisible: From Scratch
+- assertVisible: Added
+- assertVisible: {id: publication.publish}
+- takeScreenshot: created-event-publication-review
+# This fixture account is not a real publisher. Review only, never publish here.
+- tapOn: {id: publication.close}

@@ -1,6 +1,8 @@
 import ComposableArchitecture2
 import ComposableNotifications
+import Dependencies
 import Foundation
+import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventViewers
@@ -56,9 +58,15 @@ public struct MyEvents {
         }
 
         var sourceImport: ImportEventSource.State?
+        var eventForm: EventForm.State?
+        var errorMessage: String?
+        @DebugSnapshotIgnored let currentAccount = CurrentWorkspaceAccount()
+        var canCreateEvent: Bool { currentAccount.selectedActorID() != nil }
     }
 
     public enum Action {
+        case createButtonTapped
+        case eventForm(EventForm.Action)
         case eventButtonTapped(Event.ID)
         case importButtonTapped
         case sourceImport(ImportEventSource.Action)
@@ -73,9 +81,30 @@ public struct MyEvents {
                 .exists()
         }
 
+    @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
+
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .createButtonTapped:
+                guard state.eventForm == nil, let owner = state.currentAccount.selectedActorID() else { return }
+                state.errorMessage = nil
+                do {
+                    let previous = try database.read { db in
+                        try Event.all.fetchAll(db).filter { $0.id.authority == .did(owner) }
+                            .compactMap(\.id.rkey).max { $0.rawValue < $1.rawValue }
+                    }
+                    let id = try CanonicalRecordID.next(
+                        collection: Event.lexiconID, in: .did(owner), at: now, after: previous
+                    )
+                    let event = try Event(id: id, name: "", createdAt: .init(now.ISO8601Format()), timeZone: .current)
+                    state.eventForm = EventForm.State(event: event, mode: .create)
+                } catch {
+                    state.errorMessage = "Unable to create an event: \(error.localizedDescription)"
+                }
+            case .eventForm:
+                break
             case .importButtonTapped:
                 state.sourceImport = ImportEventSource.State()
             case .sourceImport:
@@ -90,5 +119,6 @@ public struct MyEvents {
             }
         }
         .ifLet(\.sourceImport) { ImportEventSource() }
+        .ifLet(\.eventForm) { EventForm() }
     }
 }

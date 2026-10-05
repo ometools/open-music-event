@@ -1393,10 +1393,11 @@ public struct EventBrowseDetail {
                             }
                             if let cached, let advertisedCID, cached.cid != advertisedCID,
                                consumer.accountDID == nil {
-                                let imported = try await database.read { db in
+                                let locallyAuthored = try await database.read { db in
                                     try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) != nil
+                                        || LocallyCreatedEvent.find(eventURI).fetchOne(db) != nil
                                 }
-                                if !imported {
+                                if !locallyAuthored {
                                     let latest = try await eventRecords.latestEvent(eventURI)
                                     try latest.validateReferences()
                                     guard latest.id == eventURI else {
@@ -1406,6 +1407,7 @@ public struct EventBrowseDetail {
                                     try await database.write { db in
                                         // A form save or source import during the request owns its local changes.
                                         guard try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) == nil,
+                                              try LocallyCreatedEvent.find(eventURI).fetchOne(db) == nil,
                                               try Event.find(eventURI).fetchOne(db) == cached else { return }
                                         try Event.upsert { latest }.execute(db)
                                     }

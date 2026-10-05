@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventAppEventViewer
 import OpenMusicEventImages
 import OpenMusicEventLexicon
 import SQLiteData
@@ -11,6 +12,9 @@ struct MyEventsView: View {
 
     var body: some View {
         List {
+            if let error = store.errorMessage {
+                Text(error).foregroundStyle(.red)
+            }
             if let error = store.$events.loadError {
                 Text("Unable to load installed events: \(error.localizedDescription)")
                     .font(.footnote)
@@ -32,11 +36,18 @@ struct MyEventsView: View {
         .listStyle(.plain)
         .navigationTitle("My Events")
         .toolbar {
+            if store.canCreateEvent {
+                Button("Create Event") { store.send(.createButtonTapped) }
+                    .accessibilityIdentifier("events.create")
+            }
             Button("Import Events") { store.send(.importButtonTapped) }
                 .accessibilityIdentifier("events.import")
         }
         .navigationDestination(item: $store.scope(\.sourceImport)) { importStore in
             ImportEventSourceView(store: importStore)
+        }
+        .sheet(item: $store.scope(\.eventForm)) { formStore in
+            NavigationStack { EventFormView(store: formStore) }
         }
     }
 }

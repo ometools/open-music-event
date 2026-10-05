@@ -6,10 +6,10 @@ import OpenMusicEventSourceEditing
 
 /// Captures the app's OAuth storage dependency when a feature state is created.
 /// The closure reads the current selection each time an authoring control is evaluated.
-struct CurrentWorkspaceAccount: Sendable {
-    let selectedActorID: @Sendable () -> DID?
+public struct CurrentWorkspaceAccount: Sendable {
+    public let selectedActorID: @Sendable () -> DID?
 
-    init() {
+    public init() {
         @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
         selectedActorID = {
             getOptionalDefaultSession().flatMap {

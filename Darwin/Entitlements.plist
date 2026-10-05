@@ -8,7 +8,5 @@
 	<array>
 		<string>applinks:openmusicevent.app</string>
 	</array>
-	<key>com.apple.developer.usernotifications.critical-alerts</key>
-	<true/>
 </dict>
 </plist>

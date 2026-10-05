@@ -30,7 +30,7 @@
     "1 change" : {
 
     },
-    "A change preview is not available for this proposal." : {
+    "A profile linked to an event place cannot be deleted." : {
 
     },
     "About" : {
@@ -42,46 +42,79 @@
     "Account" : {
 
     },
+    "Actions" : {
+
+    },
     "Add" : {
 
     },
     "Add %@ reaction" : {
 
     },
+    "Add a program to organize performances and places." : {
+
+    },
+    "Add Annotation" : {
+
+    },
     "Add Channel" : {
 
     },
-    "Add Collaborator" : {
-
-    },
-    "Add Contact Number" : {
+    "Add Contact" : {
 
     },
     "Add Contributor" : {
 
     },
-    "Add Event Stage" : {
+    "Add Event Place" : {
 
     },
     "Add Link" : {
 
     },
+    "Add Link Card" : {
+
+    },
     "Add Location" : {
+
+    },
+    "Add Locator" : {
+
+    },
+    "Add Media" : {
 
     },
     "Add Performance" : {
 
     },
+    "Add Place" : {
+
+    },
     "Add Posters" : {
+
+    },
+    "Add Program" : {
+
+    },
+    "Add Referenced Record" : {
+
+    },
+    "Add Relationship" : {
 
     },
     "Add Reporting Link" : {
 
     },
+    "Add Role" : {
+
+    },
     "Add Schedule" : {
 
     },
-    "Add Stage" : {
+    "Add Style" : {
+
+    },
+    "Add Syndication" : {
 
     },
     "Add to a new schedule" : {
@@ -90,10 +123,16 @@
     "Added" : {
 
     },
-    "Added records" : {
+    "Additional Media" : {
+
+    },
+    "Address" : {
 
     },
     "After" : {
+
+    },
+    "After: Not set" : {
 
     },
     "Allow" : {
@@ -105,10 +144,19 @@
     "Allow Notifications" : {
 
     },
+    "Alt Text" : {
+
+    },
+    "Altitude" : {
+
+    },
     "Always Deliver Immediately" : {
 
     },
     "An open-source app for discovering, following, and contributing to music events." : {
+
+    },
+    "Annotation Actions" : {
 
     },
     "Any" : {
@@ -117,13 +165,13 @@
     "Appearance" : {
 
     },
-    "Apple Maps" : {
-
-    },
-    "Apple Maps Link" : {
-
-    },
     "Artist Set" : {
+
+    },
+    "Assign festival day" : {
+
+    },
+    "AT Protocol Record" : {
 
     },
     "AT Protocol records, public feedback, and source proposals become public only when you explicitly submit them. Local drafts and saved schedules are not published automatically." : {
@@ -135,10 +183,10 @@
     "ATProto Identity" : {
 
     },
-    "Attributed by openmusicevent.app" : {
+    "Attached content" : {
 
     },
-    "Author ID" : {
+    "Attributed by openmusicevent.app" : {
 
     },
     "Auto" : {
@@ -147,31 +195,16 @@
     "Before" : {
 
     },
-    "Billing" : {
-
-    },
     "Bio" : {
 
     },
-    "Biography" : {
+    "Browse Stage Profiles" : {
 
     },
-    "Bluesky Actor Profile" : {
-
-    },
-    "Branch" : {
-      "comment" : "Editable source branch name in the workspace switcher"
-    },
-    "Branch name" : {
-
-    },
-    "Calendar" : {
+    "Camping" : {
 
     },
     "Can merge changes" : {
-
-    },
-    "Can propose and merge changes" : {
 
     },
     "Can propose changes" : {
@@ -183,19 +216,25 @@
     "Category" : {
 
     },
-    "Changes" : {
+    "Change Account" : {
+
+    },
+    "Change Stage Profile" : {
+
+    },
+    "Changes could not be loaded" : {
 
     },
     "Changes could not be reset." : {
-
-    },
-    "Changes couldn’t be compared" : {
 
     },
     "Changes not published" : {
 
     },
     "Channel" : {
+
+    },
+    "Channel Actions" : {
 
     },
     "Channel Settings" : {
@@ -207,10 +246,7 @@
     "Check back for times and stages." : {
 
     },
-    "Checking for published changes" : {
-
-    },
-    "Choose a different profile" : {
+    "Choose a day" : {
 
     },
     "Choose another emoji reaction" : {
@@ -219,7 +255,13 @@
     "Choose Files" : {
 
     },
+    "Choose Image" : {
+
+    },
     "Choose Photos" : {
+
+    },
+    "City or locality" : {
 
     },
     "Clear" : {
@@ -234,40 +276,28 @@
     "Close" : {
 
     },
-    "Close proposal" : {
-
-    },
-    "Closing proposal" : {
-
-    },
     "Collaborator" : {
 
     },
-    "Collaborators" : {
+    "Common roles" : {
 
     },
     "Comms" : {
 
     },
-    "Contact Info" : {
+    "Contact" : {
 
     },
-    "Contact numbers" : {
+    "Contact Info" : {
 
     },
     "Contact Numbers" : {
 
     },
-    "Contribution" : {
-
-    },
     "Contributor" : {
 
     },
-    "Contributor Listing" : {
-
-    },
-    "Contributor Profiles" : {
+    "Contributor Actions" : {
 
     },
     "Contributor unavailable" : {
@@ -279,10 +309,22 @@
     "Coordinates" : {
 
     },
+    "Country code" : {
+
+    },
     "Create a schedule for the performances you do not want to miss." : {
 
     },
+    "Create Event" : {
+
+    },
     "Create/reuse contributor" : {
+
+    },
+    "Credit Actions" : {
+
+    },
+    "Credit Name" : {
 
     },
     "Critical Alerts" : {
@@ -309,13 +351,13 @@
     "Dates" : {
 
     },
-    "Default" : {
+    "Day" : {
 
     },
-    "Default branch" : {
+    "Default Style" : {
 
     },
-    "Default notifications" : {
+    "Default subscription" : {
 
     },
     "Delete" : {
@@ -325,6 +367,9 @@
 
     },
     "Delete Channel?" : {
+
+    },
+    "Delete Contact" : {
 
     },
     "Delete Performance" : {
@@ -345,19 +390,37 @@
     "Delete Poster?" : {
 
     },
+    "Delete Program" : {
+
+    },
+    "Delete Program?" : {
+
+    },
+    "Delete Relationship" : {
+
+    },
+    "Delete Reporting Link" : {
+
+    },
     "Delete Schedule" : {
 
     },
     "Delete Schedule?" : {
 
     },
-    "Delete unpublished changes?" : {
+    "Delete Stage Profile" : {
+
+    },
+    "Delete this post?" : {
+
+    },
+    "Delete this relationship?" : {
+
+    },
+    "Delete this stage profile?" : {
 
     },
     "Deleted" : {
-
-    },
-    "Deleted records" : {
 
     },
     "Delivery" : {
@@ -366,34 +429,19 @@
     "Description" : {
 
     },
-    "Description (optional)" : {
-
-    },
     "Details" : {
 
     },
     "Developer profile unavailable" : {
 
     },
-    "Diagnostic" : {
-
-    },
-    "Directions" : {
-
-    },
-    "Discard My Changes" : {
-
-    },
-    "Discard My Changes and Update" : {
-
-    },
-    "Discard my changes and update?" : {
-
-    },
-    "Display" : {
+    "Discard local changes?" : {
 
     },
     "Don't Notify Me For New Posts" : {
+
+    },
+    "Done" : {
 
     },
     "Edit" : {
@@ -402,22 +450,55 @@
     "Edit Channel" : {
 
     },
-    "Edit Collaborator" : {
+    "Edit Contact Info" : {
 
     },
-    "Edit Contact Info" : {
+    "Edit content in the app, then review your changes here before publishing." : {
 
     },
     "Edit Event Info" : {
 
     },
+    "Edit Image" : {
+
+    },
+    "Edit Link" : {
+
+    },
     "Edit Location" : {
+
+    },
+    "Edit Locator" : {
 
     },
     "Edit Performance" : {
 
     },
+    "Edit Post" : {
+
+    },
+    "Edit Program" : {
+
+    },
+    "Edit Schedule" : {
+
+    },
+    "Edit Site Map" : {
+
+    },
+    "Edit Stage Profile" : {
+
+    },
+    "Edit Style" : {
+
+    },
+    "Edited" : {
+
+    },
     "Editor" : {
+
+    },
+    "Embed" : {
 
     },
     "Emergency" : {
@@ -435,29 +516,20 @@
     "Emoji reaction" : {
 
     },
-    "Empty" : {
-
-    },
-    "End date" : {
-
-    },
-    "End time" : {
-
-    },
     "Ends" : {
+
+    },
+    "Enter a complete DID-authored record URI and CID." : {
 
     },
     "Enter one emoji." : {
 
     },
-    "Enter the branch to use as this workspace’s comparison reference." : {
-
-    },
     "Enter Workspace" : {
       "comment" : "Button that enters the event editing workspace"
     },
-    "Entering workspace" : {
-      "comment" : "Progress shown while source workspace access starts"
+    "Entrance" : {
+
     },
     "Error Handling" : {
 
@@ -468,86 +540,107 @@
     "Event Name" : {
 
     },
-    "Event Policies" : {
-      "comment" : "Button that opens the event policy editor"
-    },
-    "Event Settings" : {
+    "Event Place" : {
 
     },
-    "Event Stage" : {
+    "Event Settings" : {
 
     },
     "Exact match" : {
 
     },
+    "Exact time" : {
+
+    },
     "Exit" : {
+
+    },
+    "Expected" : {
 
     },
     "Explore" : {
 
     },
+    "External Link" : {
+
+    },
+    "External Media" : {
+
+    },
+    "First style" : {
+
+    },
     "Focus" : {
 
     },
-    "For" : {
+    "Foursquare Place" : {
+
+    },
+    "Foursquare place ID" : {
 
     },
     "From Other Event" : {
 
     },
-    "Go to main before publishing these changes." : {
+    "H3 cell" : {
 
     },
-    "Google Maps" : {
-
-    },
-    "Google Maps Link" : {
+    "H3 Cell" : {
 
     },
     "Has recordings" : {
 
     },
-    "Header image" : {
-
-    },
     "Icon" : {
 
     },
-    "Icon image" : {
+    "Icon can stand alone" : {
 
     },
-    "Icon shortcode" : {
+    "Icon name" : {
+
+    },
+    "Icon Name" : {
 
     },
     "Image" : {
 
     },
+    "Image Actions" : {
+
+    },
     "Image Info" : {
+
+    },
+    "Image URL" : {
 
     },
     "Images" : {
 
     },
-    "Import" : {
+    "Information" : {
 
     },
     "Keep Editing" : {
 
     },
+    "Keep Site Map" : {
+
+    },
+    "Kind" : {
+
+    },
     "Latitude" : {
 
     },
-    "Leave and Delete Changes" : {
+    "Leave and Discard Changes" : {
       "comment" : "Destructive confirmation that leaves the workspace and deletes local edits"
     },
     "Leave Workspace" : {
       "comment" : "Button that leaves the event editing workspace"
     },
-    "Leaving the workspace restores Published content and permanently deletes unpublished changes on this device." : {
+    "Leaving the workspace restores this organizer’s records from the local reference copy and discards your edits on this device." : {
       "comment" : "Warning shown before leaving a workspace with unpublished edits"
-    },
-    "Leaving workspace" : {
-      "comment" : "Progress shown while workspace access and local edits are removed"
     },
     "Lineup" : {
 
@@ -555,16 +648,31 @@
     "Link" : {
 
     },
+    "Link Actions" : {
+
+    },
+    "Link Card" : {
+
+    },
     "Link identity only" : {
+
+    },
+    "Link Title" : {
+
+    },
+    "Linked" : {
+
+    },
+    "Linked account" : {
+
+    },
+    "Linked Stage" : {
 
     },
     "Links" : {
 
     },
-    "Listing" : {
-
-    },
-    "Load proposal" : {
+    "Loaded Site Map" : {
 
     },
     "Loading contributors…" : {
@@ -573,19 +681,22 @@
     "Loading post" : {
 
     },
-    "Loading proposal" : {
-
-    },
-    "Loading proposals" : {
-
-    },
     "Local events, saved attendee state, preferences, caches, and unpublished workspaces stay on this device. Account credentials use platform-protected storage." : {
 
     },
     "Location" : {
 
     },
-    "Location %lld" : {
+    "Location Actions" : {
+
+    },
+    "Locations" : {
+
+    },
+    "Locator Actions" : {
+
+    },
+    "Locators" : {
 
     },
     "Longitude" : {
@@ -602,6 +713,9 @@
     },
     "Manage Notifications" : {
       "comment" : "Primary button for opening system settings to manage notifications"
+    },
+    "Manage Schedules" : {
+
     },
     "Map Style" : {
       "comment" : "Accessibility label for the site map style menu"
@@ -621,19 +735,28 @@
     "Markdown is saved as entered. Use Preview to see the published post." : {
 
     },
-    "Merge proposal" : {
+    "Media" : {
 
     },
-    "Merging proposal" : {
+    "Media Actions" : {
+
+    },
+    "Media Kind" : {
 
     },
     "Mode" : {
 
     },
-    "Modified" : {
+    "Move Down" : {
 
     },
-    "Modified records" : {
+    "Move or delete this channel's posts before deleting it." : {
+
+    },
+    "Move or delete this program's items first." : {
+
+    },
+    "Move Up" : {
 
     },
     "Name" : {
@@ -645,16 +768,16 @@
     "New Post" : {
 
     },
-    "New published changes overlap with your workspace edits. Your edits are safe, but publishing is paused." : {
+    "New Program" : {
 
     },
     "New Schedule" : {
 
     },
-    "No changes" : {
+    "New Stage Profile" : {
 
     },
-    "No Collaborators" : {
+    "Next day" : {
 
     },
     "No communication channels have been added to this event yet." : {
@@ -681,19 +804,25 @@
     "No notification settings are available for this event yet." : {
 
     },
-    "No one else has access to propose or merge workspace changes." : {
-
-    },
-    "No open proposals" : {
+    "No persistent stage profiles available" : {
 
     },
     "No Personal Schedules" : {
 
     },
+    "No places have been added to this event yet." : {
+
+    },
+    "No places match your search." : {
+
+    },
     "No posters have been added to this event yet." : {
 
     },
-    "No recordings" : {
+    "No Programs" : {
+
+    },
+    "No relationships have been added to this event yet." : {
 
     },
     "No Results" : {
@@ -705,13 +834,16 @@
     "No site map has been added to this event yet." : {
 
     },
-    "No stages have been added to this event yet." : {
+    "Non-emergency" : {
 
     },
-    "No stages match your search." : {
+    "Non-Emergency" : {
 
     },
-    "Not set" : {
+    "None" : {
+
+    },
+    "Not expected" : {
 
     },
     "Notification" : {
@@ -741,10 +873,10 @@
     "Notify Me For New Posts" : {
 
     },
-    "Notify people by default" : {
+    "Now" : {
 
     },
-    "Now" : {
+    "Occurrence %lld" : {
 
     },
     "Off" : {
@@ -753,19 +885,13 @@
     "On" : {
       "comment" : "System notification or Critical Alert permission status"
     },
+    "Open in Apple Maps" : {
+
+    },
     "Open Music Event could not request notification permission." : {
 
     },
     "Open Notification Settings" : {
-
-    },
-    "Open patch" : {
-
-    },
-    "Open proposal page" : {
-
-    },
-    "Open proposals" : {
 
     },
     "OpenMusicEvent" : {
@@ -786,13 +912,22 @@
     "Opens %@ in a browser." : {
 
     },
-    "Organization" : {
+    "Optionally pin an exact version of a record published by the linked account." : {
+
+    },
+    "Organizer" : {
+
+    },
+    "Other (preserved)" : {
 
     },
     "Other reaction" : {
 
     },
     "Other Reaction" : {
+
+    },
+    "Other: %@" : {
 
     },
     "People can choose whether to receive notifications from this channel." : {
@@ -813,7 +948,10 @@
     "performer" : {
 
     },
-    "Permissions" : {
+    "Performer" : {
+
+    },
+    "Persistent Stage" : {
 
     },
     "Personal schedules" : {
@@ -822,10 +960,31 @@
     "Personal Schedules" : {
 
     },
-    "Phone Number" : {
+    "Phone, email, or URL" : {
+
+    },
+    "Pin Post" : {
 
     },
     "Pinned Posts" : {
+
+    },
+    "Pinned Profile Record" : {
+
+    },
+    "Place" : {
+
+    },
+    "Place actions" : {
+
+    },
+    "Place unavailable" : {
+
+    },
+    "Places" : {
+
+    },
+    "Places in display order" : {
 
     },
     "Platform" : {
@@ -834,13 +993,13 @@
     "Point" : {
 
     },
-    "Policies" : {
-
-    },
     "Post" : {
 
     },
     "Post Actions" : {
+
+    },
+    "Postal code" : {
 
     },
     "Poster" : {
@@ -849,22 +1008,10 @@
     "Posters" : {
 
     },
-    "Preparing changes" : {
-
-    },
-    "Preparing proposal changes" : {
-
-    },
-    "Preparing workspace" : {
-
-    },
     "Preview" : {
 
     },
-    "Preview unavailable" : {
-
-    },
-    "Previous version" : {
+    "Previous day" : {
 
     },
     "Primary" : {
@@ -873,68 +1020,50 @@
     "Primary contributor" : {
 
     },
-    "Profile" : {
-
-    },
-    "Profile unavailable" : {
-
-    },
     "Profiles" : {
+
+    },
+    "Program" : {
+
+    },
+    "Program actions" : {
+
+    },
+    "Programs" : {
+
+    },
+    "Programs…" : {
 
     },
     "Project" : {
 
     },
-    "Proposal" : {
-
-    },
-    "Proposal details could not be loaded" : {
-
-    },
-    "Proposal status" : {
-
-    },
-    "Proposals" : {
-
-    },
-    "Proposals could not be loaded" : {
-
-    },
-    "Proposals have not been loaded" : {
-
-    },
-    "Propose" : {
-
-    },
-    "Publication" : {
+    "Publication result" : {
 
     },
     "Publish" : {
 
     },
+    "Publish as" : {
+
+    },
     "Publish Changes" : {
 
     },
-    "Publish directly to %@?" : {
+    "Published %lld events" : {
 
     },
-    "Publish Now" : {
+    "Publishing changes and images…" : {
 
     },
-    "Published" : {
+    "Publishing currently supports event details and images. These other changes stay on this device; they will not be included." : {
 
     },
-    "Publishes changes to" : {
-
-    },
-    "Publishing proposal" : {
+    "Purpose" : {
 
     },
     "Quiet" : {
       "comment" : "Notification permission status when notifications are delivered provisionally or quietly"
-    },
-    "Raw record diff" : {
-
     },
     "Reactions" : {
 
@@ -942,10 +1071,19 @@
     "Read" : {
 
     },
-    "Read-only access" : {
+    "Recent Posts" : {
 
     },
-    "Recent Posts" : {
+    "Record" : {
+
+    },
+    "Record CID" : {
+
+    },
+    "Record CID (optional)" : {
+
+    },
+    "Record URI" : {
 
     },
     "Recording" : {
@@ -954,7 +1092,22 @@
     "Recordings" : {
 
     },
-    "Relationship" : {
+    "Referenced record" : {
+
+    },
+    "Referenced Record" : {
+
+    },
+    "Region" : {
+
+    },
+    "Relationship Actions" : {
+
+    },
+    "Relationships" : {
+
+    },
+    "Remove" : {
 
     },
     "Remove %@ reaction" : {
@@ -963,25 +1116,25 @@
     "Remove as primary" : {
 
     },
-    "Remove Collaborator" : {
-
-    },
-    "Remove Contact Number" : {
+    "Remove Embed" : {
 
     },
     "Remove Image" : {
 
     },
-    "Remove Link" : {
+    "Remove Link Card" : {
 
     },
-    "Remove Location" : {
+    "Remove Pin" : {
 
     },
-    "Remove Reporting Link" : {
+    "Remove Referenced Record" : {
 
     },
-    "Remove this collaborator?" : {
+    "Remove Site Map" : {
+
+    },
+    "Remove Thumbnail" : {
 
     },
     "Remove Unavailable Performances" : {
@@ -1005,12 +1158,6 @@
     "Reporting Link" : {
 
     },
-    "Reporting links" : {
-
-    },
-    "Repository" : {
-
-    },
     "Reset" : {
 
     },
@@ -1023,13 +1170,31 @@
     "Resetting changes" : {
 
     },
-    "Restoring workspace" : {
-      "comment" : "Progress shown while saved workspace access is restored"
-    },
     "Retry" : {
 
     },
+    "Review Changes" : {
+
+    },
+    "Review Remaining Changes" : {
+
+    },
+    "Review your event changes and images before making them public. Other workspace changes are not included." : {
+
+    },
     "Role" : {
+
+    },
+    "Role Actions" : {
+
+    },
+    "Roles" : {
+
+    },
+    "RSVPs" : {
+
+    },
+    "Same day" : {
 
     },
     "Save" : {
@@ -1050,6 +1215,9 @@
     "Schedule Name" : {
 
     },
+    "Scheduled items must be moved or deleted first." : {
+
+    },
     "Schedules" : {
 
     },
@@ -1065,22 +1233,19 @@
     "Search or add contributor" : {
 
     },
-    "Search profiles" : {
+    "Search Places" : {
 
     },
-    "Search Stages" : {
+    "Search profiles" : {
 
     },
     "Search this event" : {
 
     },
-    "Searching" : {
-
-    },
-    "Select or enter a collaborator." : {
-
-    },
     "Selected" : {
+
+    },
+    "Selected account" : {
 
     },
     "Selected schedule" : {
@@ -1092,22 +1257,28 @@
     "Set as primary" : {
 
     },
+    "Set end time" : {
+
+    },
+    "Set start time" : {
+
+    },
     "Set Up" : {
       "comment" : "Notification permission status before the person has made a choice"
     },
     "Settings" : {
 
     },
-    "SF Symbol" : {
-
-    },
     "Share" : {
 
     },
-    "Short Code" : {
+    "Short Label" : {
 
     },
-    "Show Stage Labels" : {
+    "Sign in with the account that owns this event to enter Workspace." : {
+
+    },
+    "Silent" : {
 
     },
     "Site Map" : {
@@ -1119,34 +1290,31 @@
     "Source" : {
 
     },
-    "Source details" : {
-
-    },
-    "Source File" : {
-
-    },
-    "Source files" : {
-
-    },
-    "Source record" : {
-
-    },
-    "Source repository ID" : {
+    "Sponsor" : {
 
     },
     "Stage" : {
 
     },
-    "Stage categories" : {
+    "Stage Color" : {
 
     },
-    "Stage Color" : {
+    "Stage Fallback" : {
+
+    },
+    "Stage Lineup" : {
 
     },
     "Stage Lineups" : {
 
     },
-    "Stage unavailable" : {
+    "Stage Profile" : {
+
+    },
+    "Stage profile unavailable" : {
+
+    },
+    "Stage Profiles" : {
 
     },
     "Stages" : {
@@ -1155,10 +1323,7 @@
     "Standard" : {
 
     },
-    "Start date" : {
-
-    },
-    "Start time" : {
+    "Start Day" : {
 
     },
     "Starts" : {
@@ -1173,25 +1338,31 @@
     "Status" : {
 
     },
+    "Street" : {
+
+    },
+    "Style Actions" : {
+
+    },
+    "Style Title" : {
+
+    },
+    "Styles" : {
+
+    },
     "Subject" : {
 
     },
-    "Switch" : {
+    "Subscribed" : {
 
     },
-    "Switch branch" : {
+    "Syndicated Records" : {
 
     },
-    "Switch branch…" : {
+    "Syndication Actions" : {
 
     },
-    "Switch to main" : {
-      "comment" : "Menu action that restores the Published main branch context"
-    },
-    "System icon" : {
-
-    },
-    "Target repository ID" : {
+    "Syndications" : {
 
     },
     "TBA" : {
@@ -1200,43 +1371,25 @@
     "Technical details" : {
 
     },
-    "Technical Details" : {
-
-    },
-    "Technical details changed" : {
-
-    },
     "Test error." : {
 
     },
-    "The collaborator could not be added." : {
+    "Text Annotations" : {
 
     },
-    "The collaborator could not be removed." : {
+    "Text in post" : {
 
     },
-    "The collaborator could not be updated." : {
+    "The previous publication was verified, but its content was not saved for comparison. Current content is shown below." : {
 
     },
-    "The proposal could not be closed." : {
-
-    },
-    "The proposal could not be merged." : {
-
-    },
-    "The proposal was published successfully. Its details are still being prepared." : {
-
-    },
-    "The workspace source does not match the app’s data model." : {
+    "The site map will be removed when you save." : {
 
     },
     "There are no posts in this channel yet." : {
 
     },
-    "They will no longer be able to propose or merge changes in this workspace." : {
-
-    },
-    "This calendar could not be loaded." : {
+    "These appear when the stage has no logo. Use an icon name such as calendar or heart." : {
 
     },
     "This communication channel could not be loaded." : {
@@ -1245,19 +1398,19 @@
     "This contributor could not be loaded." : {
 
     },
-    "This discards every unpublished workspace change and installs the latest published branch. Remote proposals are not deleted." : {
-
-    },
     "This event could not be loaded." : {
 
     },
-    "This event stage could not be loaded." : {
+    "This Event Place" : {
+
+    },
+    "This event place could not be loaded." : {
 
     },
     "This event wants to send you important updates." : {
 
     },
-    "This merges these changes immediately without creating a proposal." : {
+    "This locator is preserved without changes." : {
 
     },
     "This permanently removes the post from this channel." : {
@@ -1266,13 +1419,13 @@
     "This post could not be loaded." : {
 
     },
+    "This post has an existing embed." : {
+
+    },
+    "This post uses an unrecognized delivery setting. It will be preserved." : {
+
+    },
     "This poster could not be loaded." : {
-
-    },
-    "This proposal does not include a previewable snapshot for this record." : {
-
-    },
-    "This proposal is no longer available." : {
 
     },
     "This removes saved performances that are no longer in the published event." : {
@@ -1290,16 +1443,31 @@
     "This removes the schedule and its saved performances." : {
 
     },
-    "This restores every source record to its reference copy and clears local proposal publication recovery. Remote proposals are not deleted." : {
+    "This restores published content to its last verified version, and unpublished content to its starting version. Your published content is not deleted." : {
 
     },
     "This site map could not be loaded." : {
 
     },
-    "Time" : {
+    "This stage profile could not be loaded." : {
 
     },
-    "Time zone" : {
+    "This subject type cannot be edited here." : {
+
+    },
+    "Thumbnail Alt Text" : {
+
+    },
+    "Thumbnail Info" : {
+
+    },
+    "Thumbnail URL" : {
+
+    },
+    "Tickets" : {
+
+    },
+    "Time" : {
 
     },
     "Time Zone" : {
@@ -1309,9 +1477,6 @@
 
     },
     "Title" : {
-
-    },
-    "Try Again" : {
 
     },
     "Turn On Notifications" : {
@@ -1335,25 +1500,58 @@
     "Unknown" : {
 
     },
+    "Unlink Account" : {
+
+    },
+    "Unlink Stage" : {
+
+    },
+    "Unpin Post" : {
+
+    },
+    "Unplaced" : {
+
+    },
     "Unread" : {
 
     },
     "Unread posts: %lld" : {
 
     },
-    "Update Required" : {
+    "Unrecognized kind" : {
+
+    },
+    "Unrecognized media" : {
+
+    },
+    "Unrecognized value" : {
+
+    },
+    "Unscheduled" : {
+
+    },
+    "Unspecified" : {
+
+    },
+    "Unsubscribed" : {
+
+    },
+    "Unsupported" : {
+
+    },
+    "Unsupported format" : {
 
     },
     "URL" : {
 
     },
-    "Versions" : {
+    "Use" : {
 
     },
-    "Waiting for its server projection." : {
+    "Use for This Place" : {
 
     },
-    "Waiting for the server projection" : {
+    "Website" : {
 
     },
     "What changed" : {
@@ -1365,28 +1563,13 @@
     "Workspace" : {
       "comment" : "Settings section for entering or leaving the event workspace"
     },
-    "Workspace not prepared" : {
-
-    },
-    "Workspace source unavailable" : {
-
-    },
-    "Workspace unavailable" : {
-
-    },
     "Write" : {
 
     },
-    "You can review this proposal, but you do not have permission to change its state." : {
+    "Your edits are preserved. Review remaining changes to try again." : {
 
     },
-    "You do not have permission to publish these changes." : {
-
-    },
-    "Your changes and publication details are still here. You can try again." : {
-
-    },
-    "Your changes will appear here when the source is ready." : {
+    "Your local edits are still here. You can try again." : {
 
     }
   },

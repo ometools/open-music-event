@@ -1,8 +1,10 @@
 import ATProto
+import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventComponents
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventTimeZones
 import SQLiteData
@@ -17,13 +19,16 @@ import SwiftUI
 public struct EventForm {
     public init() {}
 
+    public enum Mode: Equatable, Sendable { case create, edit }
+
     typealias MediaEntry = RecordMediaEditing.MediaEntry
     public typealias MediaDraft = RecordMediaEditing.MediaDraft
 
     public struct State {
-        public init(event: Event) {
+        public init(event: Event, mode: Mode = .edit) {
             @Dependency(\.date.now) var now
             self.original = event
+            self.mode = mode
             self.draft = event
             let links = (event.links ?? []).map(EditableLink.init)
             self.links = links
@@ -35,6 +40,7 @@ public struct EventForm {
         }
 
         let original: Event
+        let mode: Mode
         @DebugSnapshotTracked var draft: Event
         var links: [EditableLink]
         let originalLinks: [EditableLink]
@@ -146,6 +152,7 @@ public struct EventForm {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
 
     public var body: some Feature {
         Update { state, action in
@@ -165,6 +172,7 @@ public struct EventForm {
                 state.mediaDraft = MediaDraft(kind: .record)
 
             case .cancelButtonTapped:
+                guard !state.isSaving else { return }
                 store.addTask { try store.dismiss() }
 
             case .destination:
@@ -237,6 +245,9 @@ public struct EventForm {
                 let mediaEntries = state.mediaEntries
                 let mediaChanged = mediaEntries != state.originalMediaEntries
                 let original = state.original
+                let mode = state.mode
+                let getOptionalDefaultSession = getOptionalDefaultSession
+                let database = database
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
@@ -246,12 +257,22 @@ public struct EventForm {
                             record.media = try RecordMediaEditing.preparedMedia(mediaEntries)
                         }
                         try database.write { db in
-                            guard let current = try Event.find(original.id).fetchOne(db) else {
-                                throw SaveError.deleted
+                            if mode == .create {
+                                guard let account = getOptionalDefaultSession(),
+                                      original.id.authority == .did(account.accountID.rawValue)
+                                else { throw SaveError.accountChanged }
+                                try record.validateReferences()
+                                try Event.insert { record }.execute(db)
+                                try InstalledEvent.insert { InstalledEvent(id: record.id) }.execute(db)
+                                try LocallyCreatedEvent.insert { LocallyCreatedEvent(id: record.id) }.execute(db)
+                            } else {
+                                guard let current = try Event.find(original.id).fetchOne(db) else {
+                                    throw SaveError.deleted
+                                }
+                                guard current == original else { throw SaveError.changed }
+                                try record.validateReferences()
+                                try Event.upsert { record }.execute(db)
                             }
-                            guard current == original else { throw SaveError.changed }
-                            try record.validateReferences()
-                            try Event.upsert { record }.execute(db)
                         }
                         try store.modify { $0.isSaving = false }
                         try store.dismiss()
@@ -290,10 +311,11 @@ public struct EventForm {
     }
 
     private enum SaveError: Error {
-        case changed, deleted
+        case accountChanged, changed, deleted
 
         var message: String {
             switch self {
+            case .accountChanged: "Sign in with the account you started this event with to save it. Your draft is unchanged."
             case .changed: "This event changed while you were editing. Reopen the form to edit the latest version."
             case .deleted: "This event is no longer available."
             }
@@ -401,7 +423,8 @@ public struct EventFormView: View {
             }
         }
         .disabled(store.isSaving)
-        .navigationTitle("Edit Event Info")
+        .navigationTitle(store.mode == .create ? "Create Event" : "Edit Event Info")
+        .interactiveDismissDisabled(store.isSaving)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button { store.send(.cancelButtonTapped) } label: {
