@@ -31,6 +31,13 @@ struct MyEventsView: View {
         }
         .listStyle(.plain)
         .navigationTitle("My Events")
+        .toolbar {
+            Button("Import Events") { store.send(.importButtonTapped) }
+                .accessibilityIdentifier("events.import")
+        }
+        .navigationDestination(item: $store.scope(\.sourceImport)) { importStore in
+            ImportEventSourceView(store: importStore)
+        }
     }
 }
 

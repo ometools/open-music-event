@@ -88,6 +88,10 @@ private extension SharedKey where Self == AppStorageKey<[Atmosphere.Account.ID]>
 #endif
 
 public enum OpenMusicEventOAuth {
+    public static let eventRecordPublicationAuthRequirement = OAuth.AuthRequirement(
+        permissions: Set(OpenMusicEventOAuthClient.eventPublicationPermissions.map { OAuth.Permission($0) }),
+        reason: "Publish event records and their images."
+    )
     public static let sourceRecordCreatePermission =
         OAuth.Permission("repo:app.openmusicevent.source?action=create")
 
@@ -283,6 +287,7 @@ public enum OpenMusicEventOAuth {
         redirectURIs: [appConfiguration.redirectURI],
         basePermissions: OAuth.GrantedPermissions([.atproto]),
         registeredRequirements: [
+            eventRecordPublicationAuthRequirement,
             tangledPublicKeyAuthRequirement,
             tangledPullRequestSurfaceAuthRequirement,
             tangledPullMergeAuthRequirement,

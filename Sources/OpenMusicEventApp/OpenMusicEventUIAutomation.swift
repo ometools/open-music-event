@@ -121,8 +121,8 @@ enum OpenMusicEventUIAutomationFixture {
         OpenMusicEventOAuth.selectedSessionID.withLock { $0 = selectedAccountID }
     }
     static func prepareCanonicalRecords(into database: any DatabaseWriter) async throws {
-        guard let publicMapURL = Bundle.module.url(forResource: "public-map", withExtension: "png"),
-              let safetyMapURL = Bundle.module.url(forResource: "safety-map", withExtension: "png")
+        guard let publicMapURL = Bundle.module.url(forResource: "public-map", withExtension: "png", subdirectory: "TestivalSource/events/testival-2026/maps"),
+              let safetyMapURL = Bundle.module.url(forResource: "safety-map", withExtension: "png", subdirectory: "TestivalSource/events/testival-2026/maps")
         else {
             throw URLError(.fileDoesNotExist)
         }

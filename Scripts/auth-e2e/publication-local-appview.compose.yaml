@@ -1,0 +1,19 @@
+# Optional overlay while the package restructuring uses local Swift checkouts.
+# The existing HTTPS gateway forwards to the real AppView running on this Mac.
+services:
+  ome-metadata:
+    image: caddy:2.11.4-alpine
+    entrypoint: [caddy]
+    cap_add: [NET_BIND_SERVICE]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    command: [reverse-proxy, --from, ":8080", --to, "host.docker.internal:18080"]
+    networks:
+      atmosinabox: {priority: 0}
+      host-access: {priority: 100, gw_priority: 1}
+    healthcheck:
+      test: [CMD, wget, --spider, -q, http://127.0.0.1:8080/healthz]
+  hydrant:
+    ports: ["127.0.0.1:18300:3000"]
+    networks:
+      atmosinabox: {priority: 0}
+      host-access: {priority: 100, gw_priority: 1}

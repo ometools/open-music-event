@@ -354,14 +354,12 @@ let customDumpDependency: Package.Dependency = {
 var applicationDependencies: [Package.Dependency] = [
     .package(
         path: workspacePackagePath("swift-hero-image-list"),
-        traits: ["Skip"]
+        traits: isAndroidAppBuild || isSkipBridgeHostBuild ? ["Skip"] : []
     ),
     composableAtmosphereUserInputDependency,
     appViewComposableCalendarEventsDependency,
     composableNotificationsDependency,
-    isAndroidAppBuild
-        ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
-        : .package(name: "swift-composable-forms", path: "/Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg"),
+    .package(name: "swift-composable-forms", path: "/Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     fileTreeDependency,
     composableWorkspaceDependency,
@@ -960,7 +958,12 @@ applicationTargets.append(contentsOf: [
     .target(
         name: "OpenMusicEventApp",
         dependencies: openMusicEventAppDependencies,
-        resources: [.process("Resources")],
+        resources: [
+            .process("Resources/Module.xcassets"),
+            .process("Resources/Localizable.xcstrings"),
+            .process("Resources/UIAutomation/testival-refresh-b-gzip.fixture"),
+            .copy("Resources/UIAutomation/TestivalSource"),
+        ],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
     .target(

@@ -38,12 +38,14 @@ public struct CanonicalEventWorkspace {
 
     public enum Action {
         case destination(Destination.Action)
+        case publishRecordsButtonTapped
         case relationshipsButtonTapped
         case resetChangesButtonTapped
     }
 
     @Feature
     public enum Destination {
+        case recordPublishing(EventRecordPublishing)
         case relationshipList(RelationshipList)
     }
 
@@ -57,6 +59,9 @@ public struct CanonicalEventWorkspace {
 
             case .relationshipsButtonTapped:
                 state.destination = .relationshipList(RelationshipList.State(eventID: state.eventID))
+
+            case .publishRecordsButtonTapped:
+                state.destination = .recordPublishing(EventRecordPublishing.State(eventID: state.eventID))
 
             case .resetChangesButtonTapped:
                 guard !state.changes.isEmpty, !state.isResetting else { return }
@@ -122,6 +127,10 @@ public struct CanonicalEventWorkspaceView: View {
                     store.send(.relationshipsButtonTapped)
                 }
                 .accessibilityIdentifier("workspace.record.relationships")
+                Button("Publish records") {
+                    store.send(.publishRecordsButtonTapped)
+                }
+                .accessibilityIdentifier("workspace.record.publish")
             }
 
             Section("Changes") {
@@ -156,6 +165,9 @@ public struct CanonicalEventWorkspaceView: View {
         .navigationTitle("Workspace")
         .navigationDestination(item: $store.scope(\.destination).relationshipList) { listStore in
             RelationshipListView(store: listStore)
+        }
+        .navigationDestination(item: $store.scope(\.destination).recordPublishing) { publishingStore in
+            EventRecordPublishingView(store: publishingStore)
         }
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)

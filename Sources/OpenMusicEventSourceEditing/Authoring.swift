@@ -20,24 +20,27 @@ public struct EventWorkspaceSession: Equatable, Sendable {
     public let eventID: Event.ID
     public let actorID: DID
     public let baseline: SourceBaselineDatabase
+    public let isLocalSource: Bool
 
     public init(
         eventID: Event.ID,
         actorID: DID,
-        baseline: SourceBaselineDatabase
+        baseline: SourceBaselineDatabase,
+        isLocalSource: Bool = false
     ) {
         self.eventID = eventID
         self.actorID = actorID
         self.baseline = baseline
+        self.isLocalSource = isLocalSource
     }
 
     public func authorizes(
         eventID: Event.ID,
-        selectedActorID: DID
+        selectedActorID: DID?
     ) -> Bool {
         self.eventID == eventID
-            && actorID == selectedActorID
-            && eventID.authority == .did(selectedActorID)
+            && eventID.authority == .did(actorID)
+            && (isLocalSource || actorID == selectedActorID)
     }
 }
 

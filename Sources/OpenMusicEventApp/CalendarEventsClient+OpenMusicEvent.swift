@@ -59,19 +59,21 @@ extension CalendarEventsClient {
                         request,
                         appViewHost: appViewHost
                     )
-                    return CalendarEvent.Page(
-                        events: try page.events.map { try $0.event().calendarEvent() },
-                        cursor: page.cursor
-                    )
+                    var events: [CalendarEvent] = []
+                    for record in page.events {
+                        events.append(try await Self.displayEvent(record))
+                    }
+                    return CalendarEvent.Page(events: events, cursor: page.cursor)
                 }
                 return try await atmo.browse(request)
             },
             event: { uri in
                 if uri.collection == ATProto.NSID(Event.lexiconID.rawValue) {
-                    return try await Self.canonicalEvent(
+                    let record = try await Self.canonicalEvent(
                         uri,
                         appViewHost: appViewHost
-                    ).event().calendarEvent()
+                    )
+                    return try await Self.displayEvent(record)
                 }
                 return try await atmo.event(uri)
             },
@@ -108,6 +110,23 @@ extension CalendarEventsClient {
         }
     }
 
+    static func displayEvent(_ record: Event.IndexedRecord) async throws -> CalendarEvent {
+        let event = try record.event()
+        let hasBlob = (event.media ?? []).contains {
+            if case .known(.image(let image)) = $0,
+               case .known(.blob) = image.source { return true }
+            return false
+        }
+        let host: ATProto.PDSHost?
+        if hasBlob {
+            @Dependency(ATProto.Repository.PDSHostResolver.self) var pdsHosts
+            host = try await pdsHosts.pdsHost(forRecordURI: event.id)
+        } else {
+            host = nil
+        }
+        return try event.calendarEvent(imageHost: host)
+    }
+
     static func canonicalEvent(
         _ uri: ATProto.URI,
         appViewHost: ATProto.PDSHost
@@ -123,7 +142,7 @@ extension CalendarEventsClient {
 }
 
 private extension Event {
-    func calendarEvent() throws -> CalendarEvent {
+    func calendarEvent(imageHost: ATProto.PDSHost? = nil) throws -> CalendarEvent {
         guard case let .did(organizerID) = id.authority else {
             throw CalendarEventsClientError.invalidEventURI(id.description)
         }
@@ -155,9 +174,24 @@ private extension Event {
             locations: (locations ?? []).map { .init(name: $0.name) },
             links: (links ?? []).map { .init(name: $0.title, uri: $0.url) },
             media: (media ?? []).compactMap { medium in
-                guard case let .known(.image(image)) = medium,
-                      case let .known(.url(url)) = image.source
-                else { return nil }
+                guard case let .known(.image(image)) = medium else { return nil }
+                let url: URL
+                switch image.source {
+                case let .known(.url(value)):
+                    url = value
+                case let .known(.blob(blob)):
+                    guard let imageHost,
+                          var components = URLComponents(string: "https://\(imageHost)") else { return nil }
+                    components.path = "/xrpc/com.atproto.sync.getBlob"
+                    components.queryItems = [
+                        URLQueryItem(name: "did", value: organizerID.description),
+                        URLQueryItem(name: "cid", value: blob.ref.rawValue),
+                    ]
+                    guard let value = components.url else { return nil }
+                    url = value
+                case .unknown:
+                    return nil
+                }
                 let role: String? = switch image.role {
                 case let .known(role): role.rawValue
                 case let .unknown(value): value.string

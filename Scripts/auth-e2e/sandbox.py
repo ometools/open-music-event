@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -13,7 +14,7 @@ import urllib.request
 ARCHIVE_SHA256 = 'f6fbc8d72316aa4a553ecf4ab2ce0201eeb802ea284715f7b976c2896984d383'
 REVISION = '26cf1f60f81b491b065dfc830efd27aba8b89a54'
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-STATE = ROOT / '.build/auth-e2e'
+STATE = pathlib.Path(os.environ.get('OME_AUTH_E2E_STATE_DIRECTORY', ROOT / '.build/auth-e2e')).resolve()
 UPSTREAM = STATE / f'atmosphereinabox-{REVISION}'
 SOURCE = pathlib.Path(__file__).resolve().parent
 PROJECT = 'ome-auth-e2e'

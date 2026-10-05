@@ -18,11 +18,13 @@ public enum OpenMusicEventUIAutomation: String, Sendable, Equatable {
     case attendee
     case authentication
     case workspace
+    case publication
 
     public static func buildProfile(_ name: String, legacyAttendee: Bool) -> Self {
         #if DEBUG
         if name == "authentication" { return .authentication }
         if name == "workspace" { return .workspace }
+        if name == "publication" { return .publication }
         if name == "attendee" || legacyAttendee { return .attendee }
         #endif
         return .normal
@@ -56,7 +58,8 @@ enum OpenMusicEventAuthenticationAutomation {
             appID: appID,
             appName: "OME Private Authentication Tests",
             redirectURIs: [.init(client.redirectURL)],
-            basePermissions: [.atproto]
+            basePermissions: [.atproto],
+            registeredRequirements: [OpenMusicEventOAuth.eventRecordPublicationAuthRequirement]
         )
         dependencies.didResolvers.resolve["plc"] = { did in
             @Dependency(\.httpClient) var httpClient

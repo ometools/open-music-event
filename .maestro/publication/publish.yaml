@@ -1,0 +1,26 @@
+appId: ${APP_ID}
+---
+# Start at the saved Event workspace. The harness never writes a record directly.
+- tapOn: {id: workspace.record.publish}
+- tapOn: {id: publication.review}
+- assertVisible: Testival 2026
+- assertVisible: Minimal Event
+- scrollUntilVisible:
+    element: {id: publication.publish}
+    direction: DOWN
+- takeScreenshot: reviewed-publication
+- tapOn: {id: publication.publish}
+- runFlow:
+    when: {visible: Continue}
+    commands:
+      - tapOn: Continue
+      - extendedWaitUntil:
+          visible: Password
+          timeout: 30000
+- runFlow:
+    when: {visible: Password}
+    file: authorize.yaml
+- extendedWaitUntil:
+    visible: {id: publication.verified, text: 'Verified 2 event records'}
+    timeout: 60000
+- takeScreenshot: verified-publication

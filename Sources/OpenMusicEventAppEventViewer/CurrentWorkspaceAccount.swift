@@ -23,8 +23,7 @@ struct CurrentWorkspaceAccount: Sendable {
         for eventID: Event.ID
     ) -> EventWorkspaceSession? {
         guard let session,
-              let selectedActorID = selectedActorID(),
-              session.authorizes(eventID: eventID, selectedActorID: selectedActorID)
+              session.authorizes(eventID: eventID, selectedActorID: selectedActorID())
         else { return nil }
         return session
     }

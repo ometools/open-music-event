@@ -5,6 +5,17 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
     case production
     case privateAuthentication = "private-authentication"
 
+    public static let eventPublicationPermissions = [
+        "repo:events.openmusic.event?action=create",
+        "repo:events.openmusic.event?action=update",
+        "blob:image/png",
+        "blob:image/jpeg",
+    ]
+
+    public static var privateScope: String {
+        (["atproto"] + eventPublicationPermissions).joined(separator: " ")
+    }
+
     public var metadataURL: URL {
         switch self {
         case .production: URL(string: "https://openmusicevent.app/.well-known/oauth-client-metadata.json")!
@@ -46,7 +57,7 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
             "application_type": "native",
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
-            "scope": "atproto",
+            "scope": Self.privateScope,
             "token_endpoint_auth_method": "none",
             "dpop_bound_access_tokens": true,
         ]))

@@ -251,12 +251,18 @@ extension OME {
         if uiAutomation == .attendee || uiAutomation == .workspace {
             dependencies.date = .constant(OpenMusicEventUIAutomationFixture.now)
         }
-        dependencies.calendarEvents = uiAutomation != .normal
+        dependencies.calendarEvents = uiAutomation != .normal && uiAutomation != .publication
             ? .uiAutomation(database: database)
             : .openMusicEventAndAtmo(
-                appViewHost: environment.appViewHost
+                appViewHost: uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost
             )
-        if uiAutomation == .authentication || uiAutomation == .workspace {
+        if uiAutomation == .normal || uiAutomation == .publication {
+            let host: ATProto.PDSHost = uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost
+            dependencies.eventRecords.latestEvent = { id in
+                try await CalendarEventsClient.canonicalEvent(id, appViewHost: host).event()
+            }
+        }
+        if uiAutomation == .authentication || uiAutomation == .workspace || uiAutomation == .publication {
             OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)
         }
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
@@ -269,7 +275,7 @@ extension OME {
             : .http(baseURL: environment.serverURL)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
-        if uiAutomation == .authentication || uiAutomation == .workspace {
+        if uiAutomation == .authentication || uiAutomation == .workspace || uiAutomation == .publication {
             OpenMusicEventAuthenticationAutomation.prepareDependencies(&dependencies)
         }
         if uiAutomation == .workspace {

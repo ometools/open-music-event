@@ -1018,22 +1018,34 @@ public struct EventDetail {
                                 fallbackMessage: .workspaceEntryFailed,
                                 operation: .workspaceEntry
                             ) {
-                                guard let account = getOptionalDefaultSession(),
-                                      let actorID = DID(account.accountID.rawValue.description),
-                                      eventID.authority == .did(actorID)
-                                else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                let imported = try await database.read {
+                                    try CanonicalSourceEventIdentity.find(eventID).fetchOne($0)
+                                }
+                                let actorID: DID
+                                if let imported {
+                                    actorID = imported.publisher
+                                } else {
+                                    guard let account = getOptionalDefaultSession(),
+                                          let owner = DID(account.accountID.rawValue.description),
+                                          eventID.authority == .did(owner)
+                                    else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                    actorID = owner
+                                }
                                 let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
                                     for: eventID,
                                     from: database
                                 )
-                                guard let current = getOptionalDefaultSession(),
-                                      DID(current.accountID.rawValue.description) == actorID
-                                else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                if imported == nil {
+                                    guard let current = getOptionalDefaultSession(),
+                                          DID(current.accountID.rawValue.description) == actorID
+                                    else { throw EventWorkspaceEntryError.ownerAccountRequired }
+                                }
                                 sessionStorage.withLock {
                                     $0 = EventWorkspaceSession(
                                         eventID: eventID,
                                         actorID: actorID,
-                                        baseline: baseline
+                                        baseline: baseline,
+                                        isLocalSource: imported != nil
                                     )
                                 }
                             }
@@ -1062,6 +1074,7 @@ public struct EventDetail {
                         }
                     }
                     .onTrigger(store.authoringAuthorizationInvalidated) { state in
+                        guard state.workspaceSession?.isLocalSource != true else { return }
                         let sessionStorage = sharedWorkspaceSession(for: state.eventID)
                         sessionStorage.withLock { $0 = nil }
                         state.canonicalWorkspace = nil

@@ -18,7 +18,7 @@ import Testing
     #expect(metadata["client_id"] as? String == "https://metadata.ome-auth.test/oauth-client-metadata.json")
     #expect(metadata["client_uri"] as? String == "https://metadata.ome-auth.test/")
     #expect(metadata["redirect_uris"] as? [String] == ["test.ome-auth.metadata:/oauth/callback"])
-    #expect(metadata["scope"] as? String == "atproto")
+    #expect(metadata["scope"] as? String == OpenMusicEventOAuthClient.privateScope)
     #expect(!String(decoding: data, as: UTF8.self).contains("openmusicevent.app"))
     #expect(identity.isCallbackURL(URL(string: "test.ome-auth.metadata:/oauth/callback?code=fixture&state=fixture")!))
     #expect(!identity.isCallbackURL(URL(string: "app.openmusicevent:/oauth/callback")!))

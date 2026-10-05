@@ -39,10 +39,10 @@ android {
         targetSdk = libs.versions.android.sdk.compile.get().toInt()
         buildConfigField("boolean", "OME_UI_AUTOMATION", uiAutomation.toString())
         val automationProfile = System.getenv("OME_UI_AUTOMATION_PROFILE") ?: ""
-        require(automationProfile in listOf("", "attendee", "authentication"))
+        require(automationProfile in listOf("", "attendee", "authentication", "publication"))
         buildConfigField("String", "OME_UI_AUTOMATION_PROFILE", "\"$automationProfile\"")
         manifestPlaceholders["OME_OAUTH_CALLBACK_SCHEME"] =
-            if (automationProfile == "authentication") "test.ome-auth.metadata" else "app.openmusicevent"
+            if (automationProfile in listOf("authentication", "publication")) "test.ome-auth.metadata" else "app.openmusicevent"
         // skip.tools.skip-build-plugin will automatically use Skip.env properties for:
         // applicationId = ANDROID_APPLICATION_ID ?? PRODUCT_BUNDLE_IDENTIFIER
         // versionCode = CURRENT_PROJECT_VERSION

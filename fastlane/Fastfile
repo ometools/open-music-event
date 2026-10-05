@@ -220,7 +220,7 @@ def build_ios_ui_app(device:, profile: "attendee")
       "-skipMacroValidation",
       "OME_UI_AUTOMATION=YES",
       "OME_UI_AUTOMATION_PROFILE=#{profile}",
-      "OME_OAUTH_CALLBACK_SCHEME=#{profile == "authentication" ? "test.ome-auth.metadata" : "app.openmusicevent"}",
+      "OME_OAUTH_CALLBACK_SCHEME=#{%w[authentication publication].include?(profile) ? "test.ome-auth.metadata" : "app.openmusicevent"}",
       "build"
     )
   end

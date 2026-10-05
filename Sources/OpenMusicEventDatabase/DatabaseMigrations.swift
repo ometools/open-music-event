@@ -1210,6 +1210,28 @@ public extension OME {
                     """).execute(db)
             }
 
+            migrator.registerMigration("Persist verified Event record publication receipts") { db in
+                try #sql("""
+                    CREATE TABLE \(quote: EventRecordPublicationReceipt.tableName) (
+                      "id" TEXT PRIMARY KEY NOT NULL,
+                      "cid" TEXT NOT NULL,
+                      "payloadSHA256" TEXT NOT NULL,
+                      "images" TEXT NOT NULL
+                    ) STRICT
+                    """).execute(db)
+            }
+            migrator.registerMigration("Preserve canonical source Event identities") { db in
+                try #sql("""
+                    CREATE TABLE "canonicalSourceEventIdentities" (
+                      "id" TEXT PRIMARY KEY NOT NULL,
+                      "source" TEXT NOT NULL,
+                      "directory" TEXT NOT NULL,
+                      "publisher" TEXT NOT NULL,
+                      "createdAt" TEXT NOT NULL,
+                      UNIQUE("source", "directory", "publisher")
+                    ) STRICT
+                    """).execute(db)
+            }
         }
     }
 }

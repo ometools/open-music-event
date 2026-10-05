@@ -8,9 +8,11 @@ import SQLiteData
 
 public struct EventRecordClient: Sendable {
     public var load: @Sendable (Event.ID) async throws -> EventRecordGraph
+    public var latestEvent: @Sendable (Event.ID) async throws -> Event
 
     public init(load: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph) {
         self.load = load
+        self.latestEvent = { try await load($0).event }
     }
 
     public func install(_ eventID: Event.ID) async throws -> Event.ID {

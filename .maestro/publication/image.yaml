@@ -1,0 +1,11 @@
+appId: ${APP_ID}
+---
+- tapOn: Edit Event Info
+- scrollUntilVisible:
+    element: Add Media
+    direction: DOWN
+    centerElement: true
+- tapOn: Add Media
+- tapOn: Image
+- tapOn: Choose Photos
+- takeScreenshot: choose-event-image

@@ -1381,16 +1381,36 @@ public struct EventBrowseDetail {
             case .task:
                 state.errorMessage = nil
                 let eventURI = state.event.uri
+                let advertisedCID = state.event.cid
                 let consumer = EventRSVP.Consumer(
                     accountDID: selectedAccountID()?.rawValue
                 )
                 store.addTask {
                     do {
                         if eventURI.collection == ATProto.NSID(Event.lexiconID.rawValue) {
-                            let exists = try await database.read { db in
-                                try Event.find(eventURI).fetchOne(db) != nil
+                            let cached = try await database.read { db in
+                                try Event.find(eventURI).fetchOne(db)
                             }
-                            if !exists {
+                            if let cached, let advertisedCID, cached.cid != advertisedCID,
+                               consumer.accountDID == nil {
+                                let imported = try await database.read { db in
+                                    try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) != nil
+                                }
+                                if !imported {
+                                    let latest = try await eventRecords.latestEvent(eventURI)
+                                    try latest.validateReferences()
+                                    guard latest.id == eventURI else {
+                                        throw ValidationError("The AppView returned a different Event")
+                                    }
+                                    try Task.checkCancellation()
+                                    try await database.write { db in
+                                        // A form save or source import during the request owns its local changes.
+                                        guard try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) == nil,
+                                              try Event.find(eventURI).fetchOne(db) == cached else { return }
+                                        try Event.upsert { latest }.execute(db)
+                                    }
+                                }
+                            } else if cached == nil {
                                 let graph = try await eventRecords.load(eventURI)
                                 guard graph.event.id == eventURI else {
                                     throw ValidationError("The downloaded event has a different record ID")

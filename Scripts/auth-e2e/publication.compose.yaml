@@ -1,0 +1,39 @@
+# Overlay the existing private sandbox; never destroy/recreate its accounts or volumes.
+services:
+  ome-metadata:
+    environment:
+      OME_APPVIEW_HYDRANT_ENDPOINT: ws://hydrant:3000/stream
+      OME_APPVIEW_HYDRANT_SUBSCRIPTION_ID: private-event-publication
+    depends_on:
+      hydrant:
+        condition: service_started
+  hydrant:
+    image: ome-publication-hydrant:local
+    environment:
+      HYDRANT_RELAY_HOSTS: pds::wss://pds1.ome-auth.test
+      HYDRANT_PLC_URL: https://plc.ome-auth.test
+      HYDRANT_FULL_NETWORK: "false"
+      HYDRANT_ENABLE_CRAWLER: "false"
+      HYDRANT_CRAWLER_URLS: ""
+      HYDRANT_SEED_HOSTS: ""
+      HYDRANT_FILTER_COLLECTIONS: events.openmusic.event
+      HYDRANT_FILTER_SIGNALS: events.openmusic.event
+      HYDRANT_VERIFY_SIGNATURES: full
+      HYDRANT_VERIFY_CIDS: "true"
+      HYDRANT_API_BIND: 0.0.0.0:3000
+      HYDRANT_DATABASE_PATH: /data/hydrant.db
+      SSL_CERT_FILE: /ca/root.crt
+    volumes:
+      - publication-hydrant-data:/data
+      - public-ca:/ca:ro
+    networks: [atmosinabox]
+    dns: [172.30.248.3]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      pds1:
+        condition: service_healthy
+volumes:
+  publication-hydrant-data:

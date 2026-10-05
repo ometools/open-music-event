@@ -54,10 +54,14 @@ public struct MyEvents {
                 }
             )
         }
+
+        var sourceImport: ImportEventSource.State?
     }
 
     public enum Action {
         case eventButtonTapped(Event.ID)
+        case importButtonTapped
+        case sourceImport(ImportEventSource.Action)
     }
 
     static let query = Event
@@ -70,8 +74,12 @@ public struct MyEvents {
         }
 
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
+            case .importButtonTapped:
+                state.sourceImport = ImportEventSource.State()
+            case .sourceImport:
+                break
             case let .eventButtonTapped(eventID):
                 store.addTask {
                     try store.post(
@@ -81,5 +89,6 @@ public struct MyEvents {
                 }
             }
         }
+        .ifLet(\.sourceImport) { ImportEventSource() }
     }
 }

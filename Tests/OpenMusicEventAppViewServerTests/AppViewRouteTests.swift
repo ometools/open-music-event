@@ -6,6 +6,7 @@ import HummingbirdLambda
 import HummingbirdLambdaTesting
 import HummingbirdTesting
 import OpenMusicEventLexicon
+import OpenMusicEventOAuthClient
 import OpenMusicEventRouting
 import SQLiteData
 import Testing
@@ -512,7 +513,7 @@ struct AppViewRouteTests {
                 #expect(metadata["client_id"] as? String == "https://metadata.ome-auth.test/oauth-client-metadata.json")
                 #expect(metadata["client_uri"] as? String == "https://metadata.ome-auth.test/")
                 #expect(metadata["redirect_uris"] as? [String] == ["test.ome-auth.metadata:/oauth/callback"])
-                #expect(metadata["scope"] as? String == "atproto")
+                #expect(metadata["scope"] as? String == OpenMusicEventOAuthClient.privateScope)
                 #expect(metadata["application_type"] as? String == "native")
                 #expect(metadata["dpop_bound_access_tokens"] as? Bool == true)
                 #expect(!String(buffer: response.body).contains("openmusicevent.app"))

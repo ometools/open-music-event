@@ -1,0 +1,18 @@
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible: Password
+    timeout: 30000
+- tapOn: Password
+- inputText: ${PASSWORD}
+- tapOn: Enter your password
+- tapOn: {text: Done, optional: true}
+- scrollUntilVisible:
+    element: {text: Sign in, below: Password}
+    direction: DOWN
+- tapOn: {text: Sign in, below: Password}
+- runFlow: ../auth/consent.yaml
+- extendedWaitUntil:
+    visible: {id: publication.verified, text: 'Verified 2 event records'}
+    timeout: 60000
+- takeScreenshot: verified-publication

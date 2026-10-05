@@ -10,6 +10,7 @@ import DebugSnapshots
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSourceEditing
 import Observation
 import SQLiteData
 #if os(Android)
@@ -25,6 +26,56 @@ import Testing
 @MainActor
 struct CanonicalEventEditingTests {
     typealias Event = OpenMusicEventLexicon.Event
+
+    @Test(arguments: [false, true])
+    func signedOutReaderRefreshesPublishedContentWithoutOverwritingImportedEdits(imported: Bool) async throws {
+        let database = try database()
+        let original = try event()
+        var updated = original
+        updated.cid = localImageBlob(Data("new record".utf8), mimeType: .png).ref
+        updated.description = "Image B and updated description"
+        updated.media = [.known(.image(.init(
+            source: .known(.blob(localImageBlob(Data("image B".utf8), mimeType: .png))),
+            alt: "Image B", role: .known(.hero)
+        )))]
+        let latest = updated
+        try latest.validateReferences()
+        try await database.write { db in
+            try Event.insert { original }.execute(db)
+            if imported {
+                try #sql("""
+                    INSERT INTO canonicalSourceEventIdentities
+                    (id, source, directory, publisher, createdAt)
+                    VALUES (\(original.id), '/fixture', 'testival', 'did:plc:organizer', \(original.createdAt))
+                    """).execute(db)
+            }
+        }
+        let refreshed = LockIsolated(false)
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.getSelectedOAuthSessionID = { nil }
+            var client = EventRecordClient { _ in throw ValidationError("A cached reader needs no graph download") }
+            client.latestEvent = { id in
+                expectNoDifference(id, original.id)
+                refreshed.setValue(true)
+                return latest
+            }
+            $0.eventRecords = client
+        } operation: {
+            TestStore(initialState: EventBrowseDetail.State(event: CalendarEvent(
+                uri: original.id, cid: latest.cid, name: original.name, startsAt: nil,
+                organizer: .init(id: DID("did:plc:organizer")!),
+                source: .init(collection: .init(Event.lexiconID.rawValue))
+            ))) { EventBrowseDetail() }
+        }
+        await store.send(.task)?.value
+        if !imported { store.expect { $0.record = latest } }
+        #expect(refreshed.value == !imported)
+        expectNoDifference(store.eventDescription, imported ? original.description : latest.description)
+        let saved = try await database.read { try Event.find(original.id).fetchOne($0) }
+        expectNoDifference(saved, imported ? original : latest)
+        await store.dismount()
+    }
 
     @Test
     func editingFromBrowsePreservesProtocolIdentityAndUneditedFields() async throws {
