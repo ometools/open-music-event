@@ -1232,6 +1232,12 @@ public extension OME {
                     ) STRICT
                     """).execute(db)
             }
+            migrator.registerMigration("Retain verified Event content for workspace review") { db in
+                try #sql("""
+                    ALTER TABLE \(quote: EventRecordPublicationReceipt.tableName)
+                    ADD COLUMN "event" TEXT
+                    """).execute(db)
+            }
         }
     }
 }

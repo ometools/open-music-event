@@ -1021,16 +1021,11 @@ public struct EventDetail {
                                 let imported = try await database.read {
                                     try CanonicalSourceEventIdentity.find(eventID).fetchOne($0)
                                 }
-                                let actorID: DID
-                                if let imported {
-                                    actorID = imported.publisher
-                                } else {
-                                    guard let account = getOptionalDefaultSession(),
-                                          let owner = DID(account.accountID.rawValue.description),
-                                          eventID.authority == .did(owner)
-                                    else { throw EventWorkspaceEntryError.ownerAccountRequired }
-                                    actorID = owner
-                                }
+                                guard let actorID = EventWorkspaceSession.entryActorID(
+                                    for: eventID,
+                                    importedPublisher: imported?.publisher,
+                                    selectedActorID: getOptionalDefaultSession()?.accountID.rawValue
+                                ) else { throw EventWorkspaceEntryError.ownerAccountRequired }
                                 let baseline = try CanonicalWorkspaceBaseline.openOrCapture(
                                     for: eventID,
                                     from: database
@@ -1466,8 +1461,7 @@ public struct EventDetailView: View {
                         navigation: .stack
                     ) {
                         CanonicalEventWorkspaceView(
-                            store: featureStore,
-                            onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                            store: featureStore
                         )
                     }
                 }
@@ -1659,8 +1653,7 @@ public struct EventDetailView: View {
             if let featureStore = store.scope(\.canonicalWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     CanonicalEventWorkspaceView(
-                        store: featureStore,
-                        onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                        store: featureStore
                     )
                 }
                 .tag(EventDetail.EventFeature.workspace)
@@ -1786,8 +1779,7 @@ public struct EventDetailView: View {
             if let featureStore = store.scope(\.canonicalWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.badgeCount) {
                     CanonicalEventWorkspaceView(
-                        store: featureStore,
-                        onEditEventInfo: { store.send(.editEventInfoButtonTapped) }
+                        store: featureStore
                     )
                 }
                 .tag(EventDetail.EventFeature.workspace)

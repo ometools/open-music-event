@@ -1,4 +1,7 @@
 import GRDB
+import ATProto
+import Foundation
+import OpenMusicEventSource
 import OpenMusicEventLexicon
 import SQLiteData
 import SourceEditing
@@ -177,6 +180,57 @@ public struct CanonicalWorkspaceRecordChange: Equatable, Sendable {
     public let collection: String
     public let id: Event.ID
     public let kind: Kind
+    public let before: Lexicon.JSONValue?
+    public let after: Lexicon.JSONValue?
+    public let fields: [Field]
+
+    public init(
+        collection: String, id: Event.ID, kind: Kind,
+        before: Lexicon.JSONValue? = nil, after: Lexicon.JSONValue? = nil
+    ) throws {
+        self.collection = collection
+        self.id = id
+        self.kind = kind
+        self.before = before
+        self.after = after
+        self.fields = try Self.fields(before: before, after: after)
+    }
+
+    public var title: String {
+        after?.object?["name"]?.string ?? after?.object?["title"]?.string
+            ?? before?.object?["name"]?.string ?? before?.object?["title"]?.string
+            ?? collectionTitle
+    }
+
+    public var collectionTitle: String {
+        switch collection {
+        case Event.tableName: "Events"
+        case Program.tableName: "Programs"
+        case Schedule.tableName: "Schedules"
+        case EventPlace.tableName: "Places"
+        case Stage.tableName: "Stages"
+        case Contributor.tableName: "Contributors"
+        case ProgramItem.tableName: "Program items"
+        case Social.Category.tableName: "Channels"
+        case Social.Post.tableName: "Posts"
+        case OME.Relationship.tableName: "Relationships"
+        default: "Other changes"
+        }
+    }
+
+    public var canPublish: Bool { collection == Event.tableName && kind != .deleted }
+
+    public static func event(_ event: Event, receipt: EventRecordPublicationReceipt?) throws -> Self? {
+        let payload = try event.encodeLexicon()
+        if let receipt,
+           try OpenMusicEventSourcePublicationCompiler.encodeEvent(event).sha256 == receipt.payloadSHA256 {
+            return nil
+        }
+        return try Self(
+            collection: Event.tableName, id: event.id, kind: receipt == nil ? .added : .edited,
+            before: receipt?.event?.value, after: payload
+        )
+    }
 }
 
 public enum CanonicalWorkspaceRecordChanges {
@@ -198,21 +252,53 @@ public enum CanonicalWorkspaceRecordChanges {
         referenceDatabase: SourceBaselineDatabase
     ) throws -> [CanonicalWorkspaceRecordChange] {
         let current = try Snapshot(in: database, eventID: eventID)
+        let receipts = try EventRecordPublicationReceipt.all.fetchAll(database)
         return try referenceDatabase.read { baseline in
-            current.changes(from: try Snapshot(in: baseline, eventID: eventID))
+            var reference = try Snapshot(in: baseline, eventID: eventID)
+            for receipt in receipts where receipt.id.authority == eventID.authority {
+                if let event = try receipt.event?.event() {
+                    reference.events.removeAll { $0.id == event.id }
+                    reference.events.append(event)
+                }
+            }
+            var changes = try current.changes(from: reference)
+            for event in current.events {
+                guard let receipt = receipts.first(where: { $0.id == event.id }) else { continue }
+                changes.removeAll { $0.collection == Event.tableName && $0.id == event.id }
+                if let change = try CanonicalWorkspaceRecordChange.event(event, receipt: receipt) {
+                    changes.append(change)
+                }
+            }
+            return changes
         }
     }
 
     public static func reset(
         eventID: Event.ID,
         in database: any DatabaseWriter,
-        referenceDatabase: SourceBaselineDatabase
+        referenceDatabase: SourceBaselineDatabase,
+        recordIDs: Set<Event.ID>? = nil
     ) throws {
-        let baseline = try referenceDatabase.read {
-            try Snapshot(in: $0, eventID: eventID)
+        var baseline = try referenceDatabase.read {
+            try Snapshot(in: $0, eventID: eventID, recordIDs: recordIDs)
         }
         try database.write { db in
-            let current = try Snapshot(in: db, eventID: eventID)
+            for receipt in try EventRecordPublicationReceipt.all.fetchAll(db)
+            where receipt.id.authority == eventID.authority && (recordIDs?.contains(receipt.id) ?? true) {
+                if let event = try receipt.event?.event() {
+                    baseline.events.removeAll { $0.id == event.id }
+                    baseline.events.append(event)
+                } else if let event = try Event.find(receipt.id).fetchOne(db) {
+                    guard try CanonicalWorkspaceRecordChange.event(event, receipt: receipt) == nil else {
+                        throw ResetError.publishedContentUnavailable
+                    }
+                    baseline.events.removeAll { $0.id == event.id }
+                    baseline.events.append(event)
+                } else {
+                    throw ResetError.publishedContentUnavailable
+                }
+            }
+            let current = try Snapshot(in: db, eventID: eventID, recordIDs: recordIDs)
             try Snapshot.restore(current.events, from: baseline.events,
                 delete: { _ = try Event.find($0).delete().execute(db) },
                 upsert: { record in try Event.upsert { record }.execute(db) })
@@ -248,6 +334,14 @@ public enum CanonicalWorkspaceRecordChanges {
         }
     }
 
+    public enum ResetError: Error, LocalizedError {
+        case publishedContentUnavailable
+
+        public var errorDescription: String? {
+            "The last published content was not saved by the earlier app version. Your edits have been preserved; reset is unavailable for this event."
+        }
+    }
+
     private struct Snapshot: Equatable {
         var events: [Event]
         var programs: [Program]
@@ -260,7 +354,7 @@ public enum CanonicalWorkspaceRecordChanges {
         var posts: [Social.Post]
         var relationships: [Event.ID: OME.Relationship]
 
-        init(in db: Database, eventID: Event.ID) throws {
+        init(in db: Database, eventID: Event.ID, recordIDs: Set<Event.ID>? = nil) throws {
             let organizer = eventID.authority
             events = try Event.all.fetchAll(db)
                 .filter { $0.id.authority == organizer }
@@ -298,10 +392,22 @@ public enum CanonicalWorkspaceRecordChanges {
                     else { return nil }
                     return (id, relationship)
                 })
+            if let recordIDs {
+                events.removeAll { !recordIDs.contains($0.id) }
+                programs.removeAll { !recordIDs.contains($0.id) }
+                schedules.removeAll { !recordIDs.contains($0.id) }
+                places.removeAll { !recordIDs.contains($0.id) }
+                stages.removeAll { !recordIDs.contains($0.id) }
+                contributors.removeAll { !recordIDs.contains($0.id) }
+                items.removeAll { !recordIDs.contains($0.id) }
+                categories.removeAll { !recordIDs.contains($0.id) }
+                posts.removeAll { !recordIDs.contains($0.id) }
+                relationships = relationships.filter { recordIDs.contains($0.key) }
+            }
         }
 
-        func changes(from baseline: Self) -> [CanonicalWorkspaceRecordChange] {
-            Self.changes(Event.tableName, current: events, baseline: baseline.events)
+        func changes(from baseline: Self) throws -> [CanonicalWorkspaceRecordChange] {
+            try Self.changes(Event.tableName, current: events, baseline: baseline.events)
                 + Self.changes(Program.tableName, current: programs, baseline: baseline.programs)
                 + Self.changes(Schedule.tableName, current: schedules, baseline: baseline.schedules)
                 + Self.changes(EventPlace.tableName, current: places, baseline: baseline.places)
@@ -313,22 +419,22 @@ public enum CanonicalWorkspaceRecordChanges {
                 + Self.changes(OME.Relationship.tableName, current: relationships, baseline: baseline.relationships)
         }
 
-        private static func changes<Record: Identifiable & Equatable>(
+        private static func changes<Record: Identifiable & Equatable & Encodable>(
             _ collection: String,
             current: [Record],
             baseline: [Record]
-        ) -> [CanonicalWorkspaceRecordChange] where Record.ID == Event.ID {
+        ) throws -> [CanonicalWorkspaceRecordChange] where Record.ID == Event.ID {
             let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
             let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
-            return changes(collection, current: currentByID, baseline: baselineByID)
+            return try changes(collection, current: currentByID, baseline: baselineByID)
         }
 
-        private static func changes<Record: Equatable>(
+        private static func changes<Record: Equatable & Encodable>(
             _ collection: String,
             current currentByID: [Event.ID: Record],
             baseline baselineByID: [Event.ID: Record]
-        ) -> [CanonicalWorkspaceRecordChange] {
-            return Set(currentByID.keys).union(baselineByID.keys)
+        ) throws -> [CanonicalWorkspaceRecordChange] {
+            return try Set(currentByID.keys).union(baselineByID.keys)
                 .sorted { $0.description < $1.description }
                 .compactMap { id in
                     let kind: CanonicalWorkspaceRecordChange.Kind
@@ -339,10 +445,12 @@ public enum CanonicalWorkspaceRecordChanges {
                         kind = .edited
                     default: return nil
                     }
-                    return CanonicalWorkspaceRecordChange(
+                    return try CanonicalWorkspaceRecordChange(
                         collection: collection,
                         id: id,
-                        kind: kind
+                        kind: kind,
+                        before: try baselineByID[id].map { try Lexicon.JSONValue(encoding: $0) },
+                        after: try currentByID[id].map { try Lexicon.JSONValue(encoding: $0) }
                     )
                 }
         }

@@ -17,6 +17,16 @@ public struct AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
 }
 
 public struct EventWorkspaceSession: Equatable, Sendable {
+    public static func entryActorID(
+        for eventID: Event.ID, importedPublisher: DID?, selectedActorID: DID?
+    ) -> DID? {
+        if let importedPublisher, eventID.authority == .did(importedPublisher) {
+            return importedPublisher
+        }
+        guard let selectedActorID, eventID.authority == .did(selectedActorID) else { return nil }
+        return selectedActorID
+    }
+
     public let eventID: Event.ID
     public let actorID: DID
     public let baseline: SourceBaselineDatabase

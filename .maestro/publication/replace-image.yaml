@@ -1,7 +1,9 @@
 appId: ${APP_ID}
 ---
+- tapOn: Done
 - runFlow: ../helpers/back.yaml
-- tapOn: {id: workspace.record.event-info}
+- tapOn: {id: tab-feature.about}
+- tapOn: {id: button.event-info.edit}
 - assertVisible: Edit Event Info
 - tapOn: 'Testival published from the app with image A'
 - tapOn: {point: '87%,43%'}

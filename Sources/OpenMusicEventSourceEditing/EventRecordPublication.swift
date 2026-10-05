@@ -164,6 +164,8 @@ public struct EventRecordPublicationReceipt: Codable, Equatable, Sendable, Ident
     public let payloadSHA256: String
     @Column(as: [ATProto.Blob].JSONRepresentation.self)
     public var images: [ATProto.Blob]
+    @Column(as: Event.IndexedRecord.JSONRepresentation?.self)
+    public var event: Event.IndexedRecord? = nil
 }
 
 public struct EventRecordPublicationResult: Equatable, Sendable {
@@ -198,7 +200,8 @@ public struct EventRecordPublisher: Sendable {
                 }
                 result.receipts.append(.init(
                     id: record.id, cid: written.cid, payloadSHA256: record.payloadSHA256,
-                    images: record.images.map(\.blob)
+                    images: record.images.map(\.blob),
+                    event: .init(uri: record.id, cid: written.cid, value: observed.value)
                 ))
             } catch is CancellationError {
                 result.failures[record.id] = "Publication was cancelled. Retry to verify this record."

@@ -1,10 +1,12 @@
 appId: ${APP_ID}
 ---
-# Start at the saved Event workspace. The harness never writes a record directly.
-- tapOn: {id: workspace.record.publish}
+# Start in Event Info after saving edits. The app owns every publication write.
+- runFlow: ../helpers/back.yaml
+- tapOn: {id: tab-feature.workspace}
+- tapOn: {id: workspace.publish}
 - tapOn: {id: publication.review}
+- tapOn: {id: workspace.changes.Events}
 - assertVisible: Testival 2026
-- assertVisible: Minimal Event
 - scrollUntilVisible:
     element: {id: publication.publish}
     direction: DOWN
@@ -21,6 +23,6 @@ appId: ${APP_ID}
     when: {visible: Password}
     file: authorize.yaml
 - extendedWaitUntil:
-    visible: {id: publication.verified, text: 'Verified 2 event records'}
+    visible: {id: publication.verified}
     timeout: 60000
 - takeScreenshot: verified-publication

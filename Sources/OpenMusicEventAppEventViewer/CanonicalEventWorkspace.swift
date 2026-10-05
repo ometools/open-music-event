@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SQLiteData
@@ -39,14 +40,12 @@ public struct CanonicalEventWorkspace {
     public enum Action {
         case destination(Destination.Action)
         case publishRecordsButtonTapped
-        case relationshipsButtonTapped
         case resetChangesButtonTapped
     }
 
     @Feature
     public enum Destination {
         case recordPublishing(EventRecordPublishing)
-        case relationshipList(RelationshipList)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -57,17 +56,17 @@ public struct CanonicalEventWorkspace {
             case .destination:
                 break
 
-            case .relationshipsButtonTapped:
-                state.destination = .relationshipList(RelationshipList.State(eventID: state.eventID))
-
             case .publishRecordsButtonTapped:
-                state.destination = .recordPublishing(EventRecordPublishing.State(eventID: state.eventID))
+                state.destination = .recordPublishing(EventRecordPublishing.State(
+                    eventID: state.eventID, baseline: state.baseline
+                ))
 
             case .resetChangesButtonTapped:
                 guard !state.changes.isEmpty, !state.isResetting else { return }
                 let eventID = state.eventID
                 let baseline = state.baseline
                 let changes = state.$changes
+                let changeIDs = Set(state.changes.map(\.id))
                 let database = database
                 state.isResetting = true
                 store.addTask {
@@ -78,7 +77,8 @@ public struct CanonicalEventWorkspace {
                         try CanonicalWorkspaceRecordChanges.reset(
                             eventID: eventID,
                             in: database,
-                            referenceDatabase: baseline
+                            referenceDatabase: baseline,
+                            recordIDs: changeIDs
                         )
                         try await changes.load()
                     } cleanup: {
@@ -95,58 +95,67 @@ public struct CanonicalEventWorkspace {
     }
 }
 
-private struct CanonicalChangesRequest: FetchKeyRequest {
+struct CanonicalChangesRequest: FetchKeyRequest {
     let eventID: Event.ID
-    let baseline: SourceBaselineDatabase
+    let baseline: SourceBaselineDatabase?
 
     func fetch(_ db: Database) throws -> [CanonicalWorkspaceRecordChange] {
-        try CanonicalWorkspaceRecordChanges.changes(
-            eventID: eventID,
-            in: db,
-            referenceDatabase: baseline
-        )
+        var changes = try baseline.map {
+            try CanonicalWorkspaceRecordChanges.changes(eventID: eventID, in: db, referenceDatabase: $0)
+        } ?? []
+        let identities = try CanonicalSourceEventIdentity.all.fetchAll(db)
+        let source = identities.first { $0.id == eventID }
+        let eventIDs = Set(identities.filter {
+            $0.source == source?.source && $0.publisher == source?.publisher
+        }.map(\.id))
+        let receipts = try EventRecordPublicationReceipt.all.fetchAll(db)
+        if source != nil || baseline == nil {
+            let events = try Event.all.fetchAll(db).filter {
+                source == nil ? $0.id == eventID : eventIDs.contains($0.id)
+            }
+            changes.removeAll { $0.collection == Event.tableName && $0.kind != .deleted }
+            changes += try events.compactMap { event in
+                try CanonicalWorkspaceRecordChange.event(event, receipt: receipts.first { $0.id == event.id })
+            }
+        }
+        if source != nil {
+            changes.removeAll { $0.collection == Event.tableName && !eventIDs.contains($0.id) }
+        }
+        return changes.sorted { $0.id.description < $1.id.description }
     }
 }
 
 public struct CanonicalEventWorkspaceView: View {
     @Bindable var store: StoreOf<CanonicalEventWorkspace>
     @State var isResetConfirmationPresented = false
-    let onEditEventInfo: () -> Void
-
-    public init(store: StoreOf<CanonicalEventWorkspace>, onEditEventInfo: @escaping () -> Void) {
+    public init(store: StoreOf<CanonicalEventWorkspace>) {
         self.store = store
-        self.onEditEventInfo = onEditEventInfo
     }
 
     public var body: some View {
         List {
-            Section("Records") {
-                Button("Event Info", action: onEditEventInfo)
-                    .accessibilityIdentifier("workspace.record.event-info")
-                Button("Relationships") {
-                    store.send(.relationshipsButtonTapped)
-                }
-                .accessibilityIdentifier("workspace.record.relationships")
-                Button("Publish records") {
+            Section {
+                Text("Edit content in the app, then review your changes here before publishing.")
+                    .foregroundStyle(.secondary)
+                Button("Publish Changes") {
                     store.send(.publishRecordsButtonTapped)
                 }
-                .accessibilityIdentifier("workspace.record.publish")
+                .disabled(!store.changes.contains(where: \.canPublish) || store.isResetting)
+                .accessibilityIdentifier("workspace.publish")
             }
-
-            Section("Changes") {
-                if store.changes.isEmpty {
-                    Text("No local changes.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(store.changes, id: \.id) { change in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(changeTitle(change))
-                            Text(change.id.description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+            WorkspaceChangeSummarySection(
+                changes: store.changes.filter(\.canPublish),
+                emptyMessage: store.changes.isEmpty ? "No local changes." : "No event changes to publish."
+            )
+            let deferred = store.changes.filter { !$0.canPublish }
+            if !deferred.isEmpty {
+                Section {
+                    Text("Publishing currently supports event details and images. These other changes stay on this device; they will not be included.")
                 }
+                WorkspaceChangeSummarySection(changes: deferred, title: "Not included in publication")
+            }
+            if let error = store.$changes.loadError {
+                Section("Changes could not be loaded") { Text(error.localizedDescription) }
             }
 
             if !store.changes.isEmpty || store.isResetting {
@@ -163,11 +172,8 @@ public struct CanonicalEventWorkspaceView: View {
             }
         }
         .navigationTitle("Workspace")
-        .navigationDestination(item: $store.scope(\.destination).relationshipList) { listStore in
-            RelationshipListView(store: listStore)
-        }
-        .navigationDestination(item: $store.scope(\.destination).recordPublishing) { publishingStore in
-            EventRecordPublishingView(store: publishingStore)
+        .sheet(item: $store.scope(\.destination).recordPublishing) { publishingStore in
+            NavigationStack { EventRecordPublishingView(store: publishingStore) }
         }
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -178,20 +184,8 @@ public struct CanonicalEventWorkspaceView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This restores this organizer’s records to the local reference copy.")
+            Text("This restores published content to its last verified version, and unpublished content to its imported version. Your published content is not deleted.")
         }
-    }
-
-    private func changeTitle(_ change: CanonicalWorkspaceRecordChange) -> String {
-        let action: String
-        switch change.kind {
-        case .added: action = "Added"
-        case .edited: action = "Edited"
-        case .deleted: action = "Deleted"
-        }
-        let recordType = change.collection.split(separator: ".").last.map(String.init)
-            ?? change.collection
-        return "\(action) \(recordType)"
     }
 }
 

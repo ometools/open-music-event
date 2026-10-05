@@ -10,6 +10,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
+import SourceEditing
 #if os(Android)
 import SkipSwiftUI
 #else
@@ -23,10 +24,12 @@ public struct EventRecordPublishing {
     public struct State {
         public init(
             eventID: Event.ID,
+            baseline: SourceBaselineDatabase? = nil,
             selectedSessionID: Shared<Atmosphere.Account.ID?> = OpenMusicEventOAuth.selectedSessionID
         ) {
             self.eventID = eventID
             self._selectedSessionID = selectedSessionID
+            self._changes = Fetch(wrappedValue: [], CanonicalChangesRequest(eventID: eventID, baseline: baseline))
         }
 
         public let eventID: Event.ID
@@ -34,10 +37,17 @@ public struct EventRecordPublishing {
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
         @FetchAll public var events: [Event]
         @FetchAll public var importedIdentities: [CanonicalSourceEventIdentity]
+        @DebugSnapshotIgnored @Fetch public var changes: [CanonicalWorkspaceRecordChange]
         public var review: EventRecordPublication?
+        public var reviewChanges: [CanonicalWorkspaceRecordChange] = []
         public var result: EventRecordPublicationResult?
         public var errorMessage: String?
         public var isPublishing = false
+
+        var pendingEvents: [Event] {
+            let ids = Set(changes.filter(\.canPublish).map(\.id))
+            return workspaceEvents.filter { ids.contains($0.id) }
+        }
 
         var workspaceEvents: [Event] {
             guard let source = importedIdentities.first(where: { $0.id == eventID }) else {
@@ -51,6 +61,7 @@ public struct EventRecordPublishing {
     }
 
     public enum Action {
+        case closeButtonTapped
         case reviewButtonTapped
         case publishButtonTapped
     }
@@ -62,6 +73,10 @@ public struct EventRecordPublishing {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .closeButtonTapped:
+                guard !state.isPublishing else { return }
+                store.addTask { try store.dismiss() }
+
             case .reviewButtonTapped:
                 guard !state.isPublishing else { return }
                 state.result = nil
@@ -70,9 +85,13 @@ public struct EventRecordPublishing {
                     guard let account = state.selectedSessionID?.rawValue else {
                         throw EventRecordPublication.PublicationError.wrongAccount
                     }
-                    state.review = try Self.prepare(events: state.workspaceEvents, account: account)
+                    if let error = state.$changes.loadError { throw error }
+                    state.review = try Self.prepare(events: state.pendingEvents, account: account)
+                    let ids = Set(state.review!.records.map(\.id))
+                    state.reviewChanges = state.changes.filter { ids.contains($0.id) }
                 } catch {
                     state.review = nil
+                    state.reviewChanges = []
                     state.errorMessage = error.localizedDescription
                 }
 
@@ -80,6 +99,7 @@ public struct EventRecordPublishing {
                 guard !state.isPublishing, let review = state.review else { return }
                 guard state.selectedSessionID?.rawValue == review.account else {
                     state.review = nil
+                    state.reviewChanges = []
                     state.errorMessage = EventRecordPublication.PublicationError.wrongAccount.localizedDescription
                     return
                 }
@@ -87,6 +107,7 @@ public struct EventRecordPublishing {
                 let database = database
                 let authorization = authorization
                 let publisher = publisher
+                let changes = state.$changes
                 state.isPublishing = true
                 state.errorMessage = nil
                 state.result = nil
@@ -115,9 +136,12 @@ public struct EventRecordPublishing {
                                 try EventRecordPublicationReceipt.upsert { receipt }.execute(db)
                             }
                         }
+                        try await changes.load()
                         try store.modify {
                             $0.result = result
                             $0.isPublishing = false
+                            $0.review = nil
+                            $0.reviewChanges = []
                         }
                     } catch {
                         try store.modify {
@@ -133,9 +157,11 @@ public struct EventRecordPublishing {
         .spawn(\.account) { Account() }
         .onChange(of: store.selectedSessionID) { state in
             state.review = nil
+            state.reviewChanges = []
         }
         .onChange(of: store.events) { state in
             state.review = nil
+            state.reviewChanges = []
         }
     }
 
@@ -151,50 +177,53 @@ public struct EventRecordPublishing {
 
 public struct EventRecordPublishingView: View {
     @Bindable var store: StoreOf<EventRecordPublishing>
+    @Bindable var accountStore: StoreOf<Account>
 
-    public init(store: StoreOf<EventRecordPublishing>) { self.store = store }
+    public init(store: StoreOf<EventRecordPublishing>) {
+        self.store = store
+        self.accountStore = store.spawn(\.account)
+    }
 
     public var body: some View {
         Form {
-            AccountView(store: store.spawn(\.account))
+            Section("Publish as") {
+                HStack {
+                    Text(accountStore.accountRows.first(where: \.isSelected)?.title ?? "Select an account")
+                    Spacer()
+                    AccountPicker(store: accountStore)
+                }
                 .disabled(store.isPublishing)
+            }
             Section {
-                Text("Publish this workspace’s Event records and images to the selected account. This does not publish source changes to Tangled.")
-                Button("Review records") { store.send(.reviewButtonTapped) }
-                    .disabled(store.isPublishing)
+                Text("Review your event changes and images before making them public. Other workspace changes are not included.")
+                Button(store.result == nil ? "Review Changes" : "Review Remaining Changes") { store.send(.reviewButtonTapped) }
+                    .disabled(store.isPublishing || store.pendingEvents.isEmpty)
                     .accessibilityIdentifier("publication.review")
             }
-            if let review = store.review {
-                ForEach(review.records) { record in
-                    Section(record.event.name) {
-                        if let description = record.event.description { Text(description) }
-                        ForEach(Array((record.event.media ?? []).enumerated()), id: \.offset) { _, media in
-                            if case let .known(.image(image)) = media {
-                                ImageAssetAsyncImage(image: .record(image, record.id)) {
-                                    ProgressView()
-                                }
-                                .frame(height: 150)
-                                if let alt = image.alt { Text(alt.rawValue) }
-                            }
-                        }
-                    }
-                }
-                Section {
-                    Button("Publish records") { store.send(.publishButtonTapped) }
-                        .disabled(store.isPublishing)
-                        .accessibilityIdentifier("publication.publish")
+            WorkspaceChangeSummarySection(
+                changes: store.review == nil ? store.changes.filter(\.canPublish) : store.reviewChanges
+            )
+            if store.isPublishing { ProgressView("Publishing changes and images…") }
+            if let error = store.errorMessage {
+                Section("Changes not published") {
+                    Text(error).accessibilityIdentifier("publication.error")
+                    Text("Your local edits are still here. You can try again.")
                 }
             }
-            if store.isPublishing { ProgressView("Publishing records and images") }
-            if let error = store.errorMessage {
-                Text(error).accessibilityIdentifier("publication.error")
+            if let error = store.$changes.loadError {
+                Section("Changes could not be loaded") { Text(error.localizedDescription) }
             }
             if let result = store.result {
                 Section("Publication result") {
-                    Text("Verified \(result.receipts.count) event records")
+                    Text("Published \(result.receipts.count) events")
                         .accessibilityIdentifier("publication.verified")
                     ForEach(result.failures.keys.sorted(by: { $0.description < $1.description }), id: \.self) { id in
-                        Text(result.failures[id] ?? "Publication failed")
+                        VStack(alignment: .leading) {
+                            Text(store.events.first { $0.id == id }?.name ?? "Event").font(.headline)
+                            Text(result.failures[id] ?? "Publication failed")
+                            Text("Your edits are preserved. Review remaining changes to try again.")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     DisclosureGroup("Technical details") {
                         ForEach(result.receipts) { receipt in
@@ -208,6 +237,25 @@ public struct EventRecordPublishingView: View {
                 }
             }
         }
-        .navigationTitle("Publish records")
+        .navigationTitle("Publish Changes")
+        .interactiveDismissDisabled(store.isPublishing)
+        .sheet(
+            item: $accountStore.presentation,
+            onDismiss: { accountStore.send(.accountPresentationDismissed) }
+        ) { _ in
+            AccountPresentationView(store: accountStore)
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(store.result == nil ? "Cancel" : "Done") { store.send(.closeButtonTapped) }
+                    .disabled(store.isPublishing)
+                    .accessibilityIdentifier("publication.close")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Publish") { store.send(.publishButtonTapped) }
+                    .disabled(store.isPublishing || store.review == nil)
+                    .accessibilityIdentifier("publication.publish")
+            }
+        }
     }
 }

@@ -17,12 +17,8 @@ appId: ${APP_ID}
 - tapOn: More
 - tapOn:
     id: tab-feature.settings
-- assertVisible: Enter Workspace
+- assertNotVisible: Enter Workspace
 - assertNotVisible: Edit Event
 - takeScreenshot: 90-workspace-signed-out
-- tapOn: Enter Workspace
-- extendedWaitUntil:
-    visible: Sign in with the account that owns this event to enter Workspace.
-    timeout: 15000
 - assertNotVisible:
     id: tab-feature.workspace

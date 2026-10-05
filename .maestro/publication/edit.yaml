@@ -9,8 +9,8 @@ appId: ${APP_ID}
     visible: Leave Workspace
     timeout: 15000
 - runFlow: ../helpers/back.yaml
-- tapOn: {id: tab-feature.workspace}
-- tapOn: {id: workspace.record.event-info}
+- tapOn: {id: tab-feature.about}
+- tapOn: {id: button.event-info.edit}
 - assertVisible: Edit Event Info
 - tapOn:
     text: 'A compact, deterministic festival that exercises the attendee experience without network content.'

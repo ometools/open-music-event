@@ -13,6 +13,6 @@ appId: ${APP_ID}
 - tapOn: {text: Sign in, below: Password}
 - runFlow: ../auth/consent.yaml
 - extendedWaitUntil:
-    visible: {id: publication.verified, text: 'Verified 2 event records'}
+    visible: {id: publication.verified}
     timeout: 60000
 - takeScreenshot: verified-publication

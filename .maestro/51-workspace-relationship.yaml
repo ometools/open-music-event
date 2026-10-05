@@ -22,11 +22,8 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: Leave Workspace
     timeout: 15000
-- runFlow: helpers/back.yaml
 - tapOn:
-    id: tab-feature.workspace
-- tapOn:
-    id: workspace.record.relationships
+    id: settings.relationships
 - assertVisible: No relationships have been added to this event yet.
 - tapOn:
     id: relationship.add

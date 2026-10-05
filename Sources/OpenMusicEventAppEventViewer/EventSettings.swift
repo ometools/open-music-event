@@ -26,11 +26,13 @@ public struct EventSettings {
             self.eventID = eventID
             self._workspaceSession = .eventWorkspaceSession(for: eventID)
             self.currentWorkspaceAccount = CurrentWorkspaceAccount()
+            self._importedIdentity = FetchOne(CanonicalSourceEventIdentity.find(eventID))
         }
 
         public var destination: Destination.State?
         public var eventID: Event.ID
         @SharedReader public var workspaceSession: EventWorkspaceSession?
+        @FetchOne public var importedIdentity: CanonicalSourceEventIdentity?
         @DebugSnapshotIgnored let currentWorkspaceAccount: CurrentWorkspaceAccount
         @SharedReader(.devicePermissions) public var permissions: DevicePermissions
 
@@ -41,6 +43,13 @@ public struct EventSettings {
         public var validatedWorkspaceSession: EventWorkspaceSession? {
             currentWorkspaceAccount.validated(workspaceSession, for: eventID)
         }
+
+        public var canEnterWorkspace: Bool {
+            EventWorkspaceSession.entryActorID(
+                for: eventID, importedPublisher: importedIdentity?.publisher,
+                selectedActorID: currentWorkspaceAccount.selectedActorID()
+            ) != nil
+        }
     }
 
     public enum Action {
@@ -49,12 +58,14 @@ public struct EventSettings {
         case enterAuthoringButtonTapped
         case exitAuthoringButtonTapped
         case notificationPermissionButtonTapped
+        case relationshipsButtonTapped
         case testErrorButtonTapped
     }
 
     @Feature
     public enum Destination {
         case exitAuthoringConfirmation(ExitAuthoringConfirmation)
+        case relationships(RelationshipList)
     }
 
     @Feature
@@ -80,6 +91,10 @@ public struct EventSettings {
 
         Update { state, action in
             switch action {
+            case .relationshipsButtonTapped:
+                guard state.validatedWorkspaceSession != nil else { return }
+                state.destination = .relationships(RelationshipList.State(eventID: state.eventID))
+
             case .destination(.exitAuthoringConfirmation(.cancelButtonTapped)):
                 break
 
@@ -87,6 +102,7 @@ public struct EventSettings {
                 requestAuthoringExit()
 
             case .enterAuthoringButtonTapped:
+                guard state.canEnterWorkspace else { return }
                 store.addTask {
                     let task = try store.post(key: AuthoringRequested.self, value: ())
                     await task?.value
@@ -266,14 +282,18 @@ public struct EventSettingsView: View {
 
     public var body: some View {
         Form {
-            Section("Workspace") {
-                if store.validatedWorkspaceSession != nil {
-                    Button("Leave Workspace") {
-                        store.send(.exitAuthoringButtonTapped)
-                    }
-                } else {
-                    Button("Enter Workspace") {
-                        store.send(.enterAuthoringButtonTapped)
+            if store.validatedWorkspaceSession != nil || store.canEnterWorkspace {
+                Section("Workspace") {
+                    if store.validatedWorkspaceSession != nil {
+                        Button("Relationships") { store.send(.relationshipsButtonTapped) }
+                            .accessibilityIdentifier("settings.relationships")
+                        Button("Leave Workspace") {
+                            store.send(.exitAuthoringButtonTapped)
+                        }
+                    } else if store.canEnterWorkspace {
+                        Button("Enter Workspace") {
+                            store.send(.enterAuthoringButtonTapped)
+                        }
                     }
                 }
             }
@@ -370,6 +390,9 @@ public struct EventSettingsView: View {
             }
         }
         .navigationTitle("Event Settings")
+        .navigationDestination(item: $store.scope(\.destination).relationships) { relationshipsStore in
+            RelationshipListView(store: relationshipsStore)
+        }
         .alert(
             "Discard local changes?",
             isPresented: $store.scope(\.destination).exitAuthoringConfirmation.isPresented

@@ -31,13 +31,17 @@ appId: ${APP_ID}
 - tapOn:
     id: tab-feature.workspace
 - assertVisible: No local changes.
+- assertNotVisible: Records
 - takeScreenshot: 91-workspace-empty
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.about
 - extendedWaitUntil:
     visible:
-      id: workspace.record.event-info
+      id: button.event-info.edit
     timeout: 15000
 - tapOn:
-    id: workspace.record.event-info
+    id: button.event-info.edit
 - extendedWaitUntil:
     visible: Edit Event Info
     timeout: 15000
@@ -47,12 +51,6 @@ appId: ${APP_ID}
 - inputText: Testival Workspace Edit
 - tapOn: Save
 - extendedWaitUntil:
-    visible: Edited event
-    timeout: 15000
-- runFlow: helpers/back.yaml
-- tapOn:
-    id: tab-feature.about
-- extendedWaitUntil:
     visible: Testival Workspace Edit
     timeout: 15000
 - assertVisible:
@@ -61,9 +59,14 @@ appId: ${APP_ID}
 - runFlow: helpers/back.yaml
 - tapOn:
     id: tab-feature.workspace
+- tapOn:
+    id: workspace.changes.Events
 - extendedWaitUntil:
-    visible: Edited event
+    visible: Testival Workspace Edit
     timeout: 15000
+- assertVisible: Before
+- assertVisible: After
+- assertVisible: Testival 2026
 - tapOn:
     id: workspace.changes.reset
 - assertVisible: Reset workspace changes?

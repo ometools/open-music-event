@@ -24,9 +24,9 @@ appId: ${APP_ID}
     timeout: 15000
 - runFlow: helpers/back.yaml
 - tapOn:
-    id: tab-feature.workspace
+    id: tab-feature.about
 - tapOn:
-    id: workspace.record.event-info
+    id: button.event-info.edit
 - assertVisible: Edit Event Info
 - scrollUntilVisible:
     element:
@@ -52,9 +52,8 @@ appId: ${APP_ID}
     id: button.event-media.done
 - assertVisible: Event Stream
 - tapOn: Save
-- assertVisible: Edited event
 - tapOn:
-    id: workspace.record.event-info
+    id: button.event-info.edit
 - scrollUntilVisible:
     element:
       text: Event Stream

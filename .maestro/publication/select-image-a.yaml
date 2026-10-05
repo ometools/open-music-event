@@ -13,6 +13,6 @@ appId: ${APP_ID}
 - tapOn: Save
 - tapOn: Save
 - extendedWaitUntil:
-    visible: {id: workspace.record.publish}
+    visible: {id: button.event-info.edit}
     timeout: 15000
 - takeScreenshot: authored-event-image-a
