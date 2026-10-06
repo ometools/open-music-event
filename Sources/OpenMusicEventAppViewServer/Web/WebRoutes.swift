@@ -1,3 +1,5 @@
+import ATProto
+import Dependencies
 import OpenMusicEventOAuthClient
 import Foundation
 import Hummingbird
@@ -11,7 +13,8 @@ extension OpenMusicEventAppViewServer {
         routeResolver: OpenMusicEventRouter,
         staticSiteFiles: StaticSiteFiles,
         wellKnownFiles: WellKnownFiles,
-        store: OpenMusicEventAppViewStore?
+        store: OpenMusicEventAppViewStore?,
+        webPDSHosts: [String: ATProto.PDSHost] = [:]
     ) {
         router.get(RouterPath(oauthClient.metadataURL.path)) { request, _ async throws -> Response in
             let data: Data
@@ -53,14 +56,26 @@ extension OpenMusicEventAppViewServer {
         }
 
         router.get("/events/{eventClaim}") { request, context async throws -> Response in
-            try response(
-                host: request.authority,
-                path: "/events/\(context.parameters.get("eventClaim") ?? "")",
-                routeResolver: routeResolver,
-                staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles,
-                store: store
-            )
+            let route = try routeResolver.route(host: request.authority,
+                path: "/events/\(context.parameters.get("eventClaim") ?? "")")
+            guard case .brandedEvent(let claim) = route else { throw HTTPError(.notFound) }
+            if let store, case .catchingUp = await store.readiness.snapshot() {
+                return textResponse("Event index is catching up.", status: .serviceUnavailable)
+            }
+            return try viewerResponse(claim: claim, canonicalURL: routeResolver.url(for: route),
+                query: request.uri.query, store: store)
+        }
+        router.get("/event-media") { request, _ async throws -> Response in
+            let selection = try EventViewerSelection(query: request.uri.query)
+            guard let recordText = selection.values["record"], let record = ATProto.URI(recordText),
+                  let cid = selection.values["cid"], try store?.containsWebBlob(record: record, cid: cid) == true
+            else { throw HTTPError(.notFound) }
+            @Dependency(ATProto.Repository.PDSHostResolver.self) var hosts
+            let host: ATProto.PDSHost
+            if let configured = webPDSHosts[record.authority.description] { host = configured }
+            else { host = try await hosts.pdsHost(forRecordURI: record) }
+            let url = "https://\(host.rawValue)/xrpc/com.atproto.sync.getBlob" + webQuery(["did": record.authority.description, "cid": cid])
+            return Response(status: .temporaryRedirect, headers: [.location: url])
         }
 
         router.get("/healthz") { request, _ async throws -> Response in
@@ -197,16 +212,7 @@ extension OpenMusicEventAppViewServer {
             return file.response
 
         case let .brandedEvent(claim):
-            guard let event = try store?.event(id: claim.eventID) else {
-                return textResponse(
-                    "Event \(claim.eventClaim) is temporarily unavailable.",
-                    status: .serviceUnavailable
-                )
-            }
-            return BrandedEventPage.response(
-                event: event,
-                canonicalURL: routeResolver.url(for: route)
-            )
+            return try viewerResponse(claim: claim, canonicalURL: routeResolver.url(for: route), query: nil, store: store)
 
         case .health:
             return textResponse("ok")

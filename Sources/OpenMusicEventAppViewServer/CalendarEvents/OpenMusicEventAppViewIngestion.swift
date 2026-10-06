@@ -53,7 +53,7 @@ public struct OpenMusicEventAppViewIngestion: Service {
             try await AppViewIngest(
                 provider: .hydrant(
                     configuration: hydrantConfiguration,
-                    subscriptionID: configuration.subscriptionID,
+                    subscriptionID: "\(configuration.subscriptionID)|event-graph-v1",
                     client: client,
                     caughtUpBehavior: .continueStreaming,
                     caughtUp: { marker in

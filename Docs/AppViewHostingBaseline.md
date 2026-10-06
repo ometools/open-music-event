@@ -128,6 +128,26 @@ Wicked Woods production entry is:
 The attendee URL therefore stays `https://wickedwoods.openmusicevent.app/events/2026`; the event
 rkey is deployment configuration and never appears in the branded path.
 
+The event route renders the indexed event graph through `OpenMusicEventWeb`. Public sections,
+search, program/day/stage selection, and the four schedule layouts use ordinary links and GET
+forms; reading the event requires neither authentication nor JavaScript. The route returns `503`
+while ingestion is catching up or required referenced records are missing.
+
+Hydrant must retain and deliver all eight collections: `events.openmusic.event`,
+`events.openmusic.eventPlace`, `events.openmusic.contributor`, `events.openmusic.program`,
+`events.openmusic.schedule`, `events.openmusic.programItem`, `social.ome.category`, and
+`social.ome.post`. The projection appends `|event-graph-v1` to its configured subscription ID to
+replay records that the earlier Event-only projection ignored. If Hydrant itself previously
+filtered those records out, expand its collection/signal filters and resync the publisher repo;
+changing only the AppView checkpoint cannot recover records absent from the upstream stream.
+
+Blob images use `/event-media?record=...&cid=...`. AppView confirms the CID is referenced by an
+indexed record, then redirects to the owning PDS. Public deployments resolve the PDS from the
+record authority. Private Atmosphere-in-a-Box environments may set `OME_WEB_PDS_HOSTS` to a JSON
+object mapping publisher DIDs to HTTPS PDS host names, for example
+`{"did:plc:example":"pds1.ome-auth.test"}`. This is server deployment configuration, not a
+viewer-supplied redirect destination.
+
 The notification destination key belongs to the deployment, not the database or source tree.
 AppView stores AES-GCM ciphertext plus its key version so a future key rotation can retain old keys
 after the protection dependency grows key-ring support. Do not increment the configured version or

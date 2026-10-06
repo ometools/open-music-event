@@ -42,6 +42,9 @@ public struct AppViewConfiguration: Sendable {
     public var oauthClient: OpenMusicEventOAuthClient
     public var host: String
     public var port: Int
+    /// Explicit repository host bindings for private Atmosphere deployments.
+    public var webPDSHosts: [String: ATProto.PDSHost] = [:]
+
     public var publicAppViewHost: ATProto.PDSHost
     public var siteRoot: URL
     public var wellKnownRoot: URL

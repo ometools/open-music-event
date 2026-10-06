@@ -16,8 +16,8 @@ services:
       HYDRANT_ENABLE_CRAWLER: "false"
       HYDRANT_CRAWLER_URLS: ""
       HYDRANT_SEED_HOSTS: ""
-      HYDRANT_FILTER_COLLECTIONS: events.openmusic.event
-      HYDRANT_FILTER_SIGNALS: events.openmusic.event
+      HYDRANT_FILTER_COLLECTIONS: events.openmusic.event,events.openmusic.eventPlace,events.openmusic.contributor,events.openmusic.program,events.openmusic.schedule,events.openmusic.programItem,social.ome.category,social.ome.post
+      HYDRANT_FILTER_SIGNALS: events.openmusic.event,events.openmusic.eventPlace,events.openmusic.contributor,events.openmusic.program,events.openmusic.schedule,events.openmusic.programItem,social.ome.category,social.ome.post
       HYDRANT_VERIFY_SIGNATURES: full
       HYDRANT_VERIFY_CIDS: "true"
       HYDRANT_API_BIND: 0.0.0.0:3000

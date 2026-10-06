@@ -431,6 +431,7 @@ if isAndroidAppBuild {
 }
 
 let appViewDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/elementary-swift/elementary", exact: "0.7.0"),
     .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
@@ -1213,9 +1214,12 @@ applicationTargets.append(contentsOf: [
 // AppView targets
 
 let appViewTargets: [Target] = [
+    .target(name: "OpenMusicEventWeb", dependencies: [.product(name: "Elementary", package: "elementary")]),
+    .testTarget(name: "OpenMusicEventWebTests", dependencies: ["OpenMusicEventWeb"]),
     .target(
         name: "OpenMusicEventAppViewServer",
         dependencies: [
+            "OpenMusicEventWeb",
             "OpenMusicEventOAuthClient",
             "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",

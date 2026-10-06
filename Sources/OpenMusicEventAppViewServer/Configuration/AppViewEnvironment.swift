@@ -101,7 +101,7 @@ public extension AppViewConfiguration {
             throw AppViewConfigurationError.sourceArtifactConfigurationMissing
         }
 
-        return Self(
+        var configuration = Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
             publicAppViewHost: ATProto.PDSHost(
@@ -120,6 +120,16 @@ public extension AppViewConfiguration {
             tangledWebhook: tangledWebhook,
             sourceArtifacts: sourceArtifacts
         )
+        if let bindings = environment["OME_WEB_PDS_HOSTS"] {
+            let hosts = try JSONDecoder().decode([String: String].self, from: Data(bindings.utf8))
+            for (did, host) in hosts {
+                guard did.hasPrefix("did:"), let url = URLComponents(string: "https://" + host),
+                      url.host != nil, url.user == nil, url.password == nil, url.path.isEmpty,
+                      url.query == nil, url.fragment == nil else { throw WebPDSConfigurationError.invalidBinding }
+                configuration.webPDSHosts[did] = ATProto.PDSHost(host)
+            }
+        }
+        return configuration
     }
 
     static func lambda(
@@ -152,3 +162,5 @@ public extension AppViewConfiguration {
         .init(address: .hostname(host, port: port))
     }
 }
+
+enum WebPDSConfigurationError: Error { case invalidBinding }

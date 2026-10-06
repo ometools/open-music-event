@@ -173,7 +173,8 @@ public enum OpenMusicEventAppViewServer {
             ),
             staticSiteFiles: StaticSiteFiles(rootDirectory: configuration.siteRoot),
             wellKnownFiles: WellKnownFiles(rootDirectory: configuration.wellKnownRoot),
-            store: store
+            store: store,
+            webPDSHosts: configuration.webPDSHosts
         )
 
         return router
