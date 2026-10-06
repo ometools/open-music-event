@@ -34,6 +34,13 @@ struct OpenMusicEventViewerPresentation<
     }
 
     func body(content base: Content) -> some View {
+        #if os(macOS)
+        if let item {
+            presentedContent(item)
+        } else {
+            base
+        }
+        #else
         ZStack {
             base
                 .allowsHitTesting(item == nil)
@@ -46,6 +53,7 @@ struct OpenMusicEventViewerPresentation<
             }
         }
         .animation(.default, value: item?.id)
+        #endif
     }
 
     #if os(Android) && SKIP_BRIDGE

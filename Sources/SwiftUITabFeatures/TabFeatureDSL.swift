@@ -842,7 +842,11 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             #endif
         } detail: {
             if let selectedFeature = selectedSidebarFeature(for: resolved) {
-                primaryFeatureDestination(for: selectedFeature)
+                if let moreContent {
+                    moreContent.applyToolbar(AnyView(primaryFeatureDestination(for: selectedFeature)))
+                } else {
+                    primaryFeatureDestination(for: selectedFeature)
+                }
             } else {
                 EmptyView()
             }
@@ -1018,6 +1022,7 @@ struct TabFeatureSidebarRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)

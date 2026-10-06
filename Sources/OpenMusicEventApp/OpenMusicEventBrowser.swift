@@ -653,6 +653,7 @@ public struct BrowseView: View {
                     event: event,
                     artworkSources: event.artworkSources
                 )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(
