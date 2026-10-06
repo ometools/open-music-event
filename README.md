@@ -163,6 +163,51 @@ Tangled repository reference. The validator parses the source tree, checks its
 event files, imports valid records into the default local database, and prints a
 summary.
 
+### Publishing source event records
+
+`ome protocol publish-events` publishes selected source editions to their owner's
+PDS. Add `--all-records` to include contributors, stage places and lineups, programs,
+festival days, timed program items and credits, communication categories and posts,
+posters, and site maps. Map each edition to an Event URI explicitly:
+
+```sh
+ome protocol publish-events /path/to/source \
+  --event '2026=at://did:plc:publisher/events.openmusic.event/3mx6isyz5jy22' \
+  --created-at '2026-10-06T03:35:50Z' \
+  --all-records --identity-map /path/to/publication-identities.json \
+  --image-cache /path/to/publication-images \
+  --dry-run
+```
+
+Repeat `--event` for other editions. The dry run validates the complete graphs,
+downloads post embed images, saves the identity map, and prints the exact records
+without authenticating. Clear bare domains receive an HTTPS scheme. Ambiguous
+contributor link strings fail by default; `--preserve-link-text` instead appends
+them as labeled contributor description text and reports each conversion. Keep that identity map, the Event mappings, and the
+creation timestamp for every retry. The optional image cache freezes downloaded
+bytes across dry runs and retries; choose a new cache directory to refresh artwork. Removing `--dry-run` publishes using the
+stored OME OAuth session; `--output /path/to/new-receipts.json` saves verified
+URI, CID, payload, and hash receipts. Existing receipt files are never overwritten.
+
+Related records are written and read back before the parent Event is updated.
+A failed write or mismatched readback stops publication. Successful earlier
+writes remain on the PDS; retrying with the same identity map updates those same
+records. This command does not delete records removed from the source.
+
+Local images and post embeds are uploaded as blobs. Oversized post images are
+compressed to fit the 2 MB embed limit at their original dimensions; the post
+also retains a link to the original source image. Other HTTPS artwork keeps its
+source URL. Stages become edition-specific EventPlace records; publishing does
+not invent cross-edition Stage identities. Source calendar/workspace metadata and
+legacy `organizer-info.yml` are not canonical event graph records. PDS verification
+does not imply that an AppView supports or indexes every published collection.
+
+For a local sandbox, `--session-file /private/session.json --pds pds.example.test`
+accepts an explicitly provided createSession result. The optional
+`--ca-certificate /path/to/root.crt` trusts that PDS's test CA for this invocation.
+Keep session files private and remove them after use; never commit credentials.
+
+
 ## Testing
 
 Run the package test suite with:

@@ -20,7 +20,7 @@
           },
           "description" : {
             "description" : "The organizer-authored public description of this contributor for this event.",
-            "maxGraphemes" : 3000,
+            "maxGraphemes" : 5000,
             "maxLength" : 30000,
             "type" : "string"
           },

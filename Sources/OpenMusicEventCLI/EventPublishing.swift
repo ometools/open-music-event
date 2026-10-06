@@ -7,6 +7,7 @@ import FileTree
 import Foundation
 import HTTPTypesFoundation
 import OpenMusicEventAuthentication
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -37,7 +38,7 @@ extension OpenMusicEventCommand.ProtocolRecords {
         @Option(help: "Stable ISO-8601 creation timestamp. Reuse it when retrying.")
         var createdAt: String
 
-        @Option(help: "Publisher DID; defaults to the selected stored OAuth account.")
+        @Option(help: "Publisher DID; inferred from the mapped Event URIs when omitted.")
         var account: String?
 
         @Flag(help: "Validate and print the records without authenticating or writing.")
@@ -55,7 +56,22 @@ extension OpenMusicEventCommand.ProtocolRecords {
         @Option(help: "CA certificate for the explicit PDS; scoped to this invocation.")
         var caCertificate: String?
 
+        @Flag(help: "Publish the complete source graphs, including contributors, places, programs, schedules, posts and maps.")
+        var allRecords = false
+
+        @Flag(help: "Preserve non-URL contributor link values as labeled description text.")
+        var preserveLinkText = false
+
+        @Option(help: "Cache downloaded source images for a reviewed publication and its retries. Use a new directory to refresh images.")
+        var imageCache: String?
+
+        @Option(help: "Persistent source-to-record identity map; required with --all-records and saved before network writes.")
+        var identityMap: String?
+
         func validate() throws {
+            guard allRecords == (identityMap != nil) else {
+                throw ValidationError("--all-records and --identity-map must be supplied together.")
+            }
             guard !event.isEmpty else { throw ValidationError("Pass at least one --event mapping.") }
             guard ISO8601DateFormatter().date(from: createdAt) != nil else {
                 throw ValidationError("--created-at must be an ISO-8601 timestamp.")
@@ -91,17 +107,69 @@ extension OpenMusicEventCommand.ProtocolRecords {
             let publication = try EventRecordPublication.prepare(events: records, account: owner) { blob in
                 throw EventRecordPublication.PublicationError.missingImage(blob.ref)
             }
+            let related: SourceRecordPublication?
+            if let identityMap {
+                let path = URL(filePath: identityMap)
+                var identities = FileManager.default.fileExists(atPath: path.path)
+                    ? try JSONDecoder().decode(SourcePublicationIdentities.self, from: Data(contentsOf: path))
+                    : SourcePublicationIdentities()
+                let sourceURL = URL(filePath: source)
+                let repository = try OpenMusicEventSourceRepositoryFileTree().read(from: sourceURL).output.requiredValue
+                let events = Dictionary(uniqueKeysWithValues: try inputs.map { input in
+                    guard let record = records.first(where: { $0.id == input.uri }) else { throw ValidationError("Missing selected Event") }
+                    return (input.eventDirectory, record)
+                })
+                let cacheDirectory = imageCache.map { URL(filePath: $0) }
+                related = try await SourceRecordPublication.prepare(source: repository, sourceRoot: sourceURL,
+                    events: events, identities: &identities, preserveLinkText: preserveLinkText) { url in
+                        if url.isFileURL { return try Data(contentsOf: url) }
+                        return try await loadPublicationImage(from: url, cacheDirectory: cacheDirectory) { url in
+                            var request = URLRequest(url: url)
+                            request.setValue("image/png, image/jpeg", forHTTPHeaderField: "Accept")
+                            let (data, response) = try await URLSession.shared.data(for: request)
+                            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                                throw ValidationError("Could not download source image: \(url)")
+                            }
+                            return data
+                        }
+                    }
+                for diagnostic in related?.diagnostics ?? [] {
+                    FileHandle.standardError.write(Data((diagnostic + "\n").utf8))
+                }
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                try encoder.encode(identities).write(to: path, options: .atomic)
+            } else {
+                related = nil
+            }
             if dryRun {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                for record in publication.records {
-                    print(record.id.description)
-                    print(String(decoding: try encoder.encode(record.payload), as: UTF8.self))
+                let payloads = related?.records.map { ($0.id, $0.payload) }
+                    ?? publication.records.map { ($0.id, $0.payload) }
+                for (id, payload) in payloads {
+                    print(id.description)
+                    print(String(decoding: try encoder.encode(payload), as: UTF8.self))
                 }
                 return
             }
 
-            let result: EventRecordPublicationResult
+            let executePublication: @Sendable () async throws -> SourceRecordPublication.Result = {
+                if let related {
+                    @Dependency(SourceRecordPublisher.self) var publisher
+                    return await publisher.publish(related)
+                }
+                @Dependency(EventRecordPublisher.self) var publisher
+                let published = try await publisher.publish(publication)
+                var result = SourceRecordPublication.Result()
+                result.failures = published.failures
+                result.receipts = try published.receipts.map { receipt in
+                    guard let record = receipt.event else { throw ValidationError("Missing verified record payload") }
+                    return .init(id: receipt.id, cid: receipt.cid, payloadSHA256: receipt.payloadSHA256, value: record.value)
+                }
+                return result
+            }
+            let result: SourceRecordPublication.Result
             if let sessionFile, let pds {
                 let session = try JSONDecoder().decode(
                     EventPublicationSession.self, from: Data(contentsOf: URL(filePath: sessionFile))
@@ -125,8 +193,7 @@ extension OpenMusicEventCommand.ProtocolRecords {
                     guard observed.did.rawValue == owner else {
                         throw ValidationError("The PDS session does not belong to the publisher.")
                     }
-                    @Dependency(EventRecordPublisher.self) var publisher
-                    return try await publisher.publish(publication)
+                    return try await executePublication()
                 }
             } else {
                 try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
@@ -139,8 +206,7 @@ extension OpenMusicEventCommand.ProtocolRecords {
                     $0.getDefaultSession = { OpenMusicEventOAuth.sessionStore.wrappedValue[session.accountID] ?? session }
                     $0.getOptionalDefaultSession = { OpenMusicEventOAuth.sessionStore.wrappedValue[session.accountID] ?? session }
                 } operation: {
-                    @Dependency(EventRecordPublisher.self) var publisher
-                    return try await publisher.publish(publication)
+                    return try await executePublication()
                 }
             }
             if let output {

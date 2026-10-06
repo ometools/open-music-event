@@ -245,6 +245,18 @@ struct ContributorTests {
     }
 
     @Test
+    func `long source biographies are preserved within the five thousand character limit`() throws {
+        let biography = String(repeating: "é", count: 5_000)
+        var contributor = try Contributor(id: contributorURI, event: eventURI, name: "Artist",
+            createdAt: createdAt, description: biography)
+        let payload = try contributor.encodeLexicon()
+        let decoded = try Contributor.decodeLexicon(payload, metadata: .init(uri: contributorURI))
+        expectNoDifference(decoded.description, biography)
+        contributor.description = biography + "x"
+        #expect(throws: (any Error).self) { try contributor.encodeLexicon() }
+    }
+
+    @Test
     func `the exporter exposes the complete contributor contract and no confirmation claim`() throws {
         let documents = try LexiconExporter.documents(for: [Contributor.self])
         expectNoDifference(Set(documents.map(\.id.rawValue)), [
@@ -257,6 +269,7 @@ struct ContributorTests {
         expectNoDifference(record["required"], .array(["event", "name", "createdAt"]))
         expectNoDifference(record["nullable"], .array(["subject", "source", "description", "roles", "links", "media"]))
         let properties = try #require(record["properties"]?.object)
+        expectNoDifference(properties["description"]?.object?["maxGraphemes"], 5_000)
         expectNoDifference(properties["source"], .object([
             "description": "A pinned DID-authored profile record used as provenance when hydrating this organizer-owned snapshot.",
             "type": "ref",

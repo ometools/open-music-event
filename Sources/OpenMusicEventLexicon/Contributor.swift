@@ -30,7 +30,7 @@ public struct Contributor: RecordCodable, Equatable {
     @Column(as: Source.JSONRepresentation?.self)
     public var source: Source? = nil
 
-    @LexiconField(description: "The organizer-authored public description of this contributor for this event.", maxLength: 30_000, maxGraphemes: 3_000)
+    @LexiconField(description: "The organizer-authored public description of this contributor for this event.", maxLength: 30_000, maxGraphemes: 5_000)
     public var description: String? = nil
 
     @LexiconField(description: "Ordered event-wide roles. Array order is the organizer's preferred display order.", minLength: 1)
