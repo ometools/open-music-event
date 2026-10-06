@@ -25,7 +25,10 @@ import Testing
         let post = uri("social.ome.post")
         // Dependencies intentionally arrive before their parent Event.
         return [
-            ("events.openmusic.programItem", ["event": event, "program": program, "title": "Midnight set", "schedule": day, "eventPlace": place,
+            ("events.openmusic.programItem", ["event": event, "program": program, "title": "Midnight set", "description": "Live <em>set</em>", "media": [
+                    ["$type": "events.openmusic.defs#image", "alt": "Performance artwork", "source": ["$type": "events.openmusic.defs#imageURL", "url": "https://example.com/performance.jpg"]],
+                    ["$type": "events.openmusic.defs#externalMedia", "uri": "https://example.com/recording", "title": "Listen to the recording"]
+                ], "schedule": day, "eventPlace": place,
                 "startsAt": "2026-08-30T05:30:00Z", "endsAt": "2026-08-30T07:00:00Z", "credits": [["name": "Forest Artist", "contributor": contributor]]]),
             ("events.openmusic.program", ["event": event, "title": "Music", "eventPlaces": [place]]),
             ("events.openmusic.schedule", ["event": event, "date": "2026-08-29", "title": "Saturday"]),
@@ -82,6 +85,26 @@ import Testing
                     #expect(!html.contains("fetch("))
                     #expect(!html.contains("feature=workspace"))
                 }
+            }
+            // A schedule card opens the indexed occurrence, with escaped copy and contributor navigation.
+            let performance = try #require(model.schedulePerformances.first)
+            #expect(performance.detailURL.contains("performance="))
+            try await client.execute(uri: "/events/woods" + performance.detailURL, method: .get) { response in
+                #expect(response.status == .ok)
+                let html = String(buffer: response.body)
+                #expect(html.contains("Back to schedule"))
+                #expect(html.contains("https://example.com/performance.jpg"))
+                #expect(html.contains("Performance artwork"))
+                #expect(html.contains("https://example.com/recording"))
+                #expect(html.contains("Listen to the recording"))
+                #expect(html.contains("Live &lt;em&gt;set&lt;/em&gt;"))
+                #expect(html.contains("Forest Artist"))
+                #expect(html.contains("contributor="))
+                #expect(html.contains("1:00 AM"))
+                #expect(!html.contains("class=\"timeline-card"))
+            }
+            try await client.execute(uri: "/events/woods?performance=unknown", method: .get) { response in
+                #expect(response.status == .notFound)
             }
             try await client.execute(uri: "/events/woods?feature=communications", method: .get) { response in
                 #expect(String(buffer: response.body).contains("Bring water &lt;script&gt;"))

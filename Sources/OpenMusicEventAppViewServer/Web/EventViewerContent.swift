@@ -93,6 +93,7 @@ extension EventViewerContent {
         if let contributor = selection.values["contributor"], !graph.contributors.contains(where: { $0.id.description == contributor }) { throw HTTPError(.notFound) }
         if let category = selection.values["category"], !graph.categories.contains(where: { $0.id.description == category }) { throw HTTPError(.notFound) }
         if let post = selection.values["post"], !posts.contains(where: { $0.id.description == post && (selection.values["category"] == nil || $0.category?.description == selection.values["category"]) }) { throw HTTPError(.notFound) }
+        if let performance = selection.values["performance"], !graph.items.contains(where: { $0.id.description == performance }) { throw HTTPError(.notFound) }
         let maps: [(id: String, title: String, image: OME.Image)]
         if let siteMap = event.siteMap {
             maps = siteMap.styles.map { ($0.id, $0.title, $0.image) }
@@ -139,6 +140,21 @@ extension EventViewerContent {
                 startMinute: midnight.flatMap { zero in itemDates[item.id]?.start.map { Int($0.timeIntervalSince(zero) / 60) } },
                 endMinute: midnight.flatMap { zero in itemDates[item.id]?.end.map { Int($0.timeIntervalSince(zero) / 60) } },
                 stageColor: place.flatMap(webStageColor), stageLogoURL: place.flatMap { mediaImages($0.media).first }.flatMap { webImage($0, owner: event.id) })
+            value.detailURL = webQuery(["feature": "schedule", "performance": item.id.description]) + "#viewer"
+            value.description = item.description
+            value.dateLine = itemDates[item.id]?.start.map(dateFormatter.string) ?? midnight.map(dateFormatter.string)
+            value.credits = (item.credits ?? []).map { credit in
+                ViewerText(text: credit.name + (credit.role.map { " · " + $0 } ?? ""),
+                    url: credit.contributor.map { webQuery(["feature": "contributors", "contributor": $0.description]) + "#viewer" })
+            }
+            value.images = mediaImages(item.media).enumerated().map { index, image in
+                EventPoster(id: String(index), title: image.alt?.rawValue ?? image.title ?? item.title,
+                    imageURL: webImage(image, owner: item.id), accentColor: place.flatMap(webStageColor) ?? "#78e0d6")
+            }
+            value.mediaLinks = (item.media ?? []).compactMap { media in
+                guard case .known(.external(let external)) = media, let url = safeWebURL(external.uri) else { return nil }
+                return ViewerText(text: external.title ?? "Open media", url: url)
+            }
             value.stageID = place?.id.description ?? ""
             value.scheduleURL = scheduleURL(item, stage: place?.id.description)
             return value
@@ -148,6 +164,7 @@ extension EventViewerContent {
             dateLine: event.start?.date(in: event.timeZone).map(dateFormatter.string),
             scheduleLabel: program?.title ?? "Schedule", timeZoneIdentifier: event.timeZone.identifier,
             summary: event.description, performances: performances)
+        model.selectedPerformance = performances.first { $0.id == selection.values["performance"] }
         model.scheduleQuery = String(webQuery(["feature": "schedule", "program": programID, "day": dayID, "stage": selection.values["stage"]]).dropFirst())
         let selectedItemIDs = Set(graph.items.filter { $0.program.description == programID && $0.schedule?.description == dayID }.map { $0.id.description })
         model.schedulePerformances = places.flatMap { place in performances.filter { $0.stageID == place.id.description && selectedItemIDs.contains($0.id) && $0.startMinute != nil } }

@@ -48,6 +48,7 @@ public enum EventViewerScheduleKind: String, CaseIterable, Equatable, Sendable {
 }
 
 public struct EventModel: Equatable, Sendable {
+    public var selectedPerformance: Performance? = nil
     public var schedulePerformances: [Performance] = []
     public var scheduleStages: [Performance] = []
     public var stagePerformances: [Performance] = []
@@ -118,6 +119,12 @@ public struct EventModel: Equatable, Sendable {
 }
 
 public struct Performance: Equatable, Identifiable, Sendable {
+    public var detailURL: String = "?feature=schedule"
+    public var description: String? = nil
+    public var dateLine: String? = nil
+    public var credits: [ViewerText] = []
+    public var images: [EventPoster] = []
+    public var mediaLinks: [ViewerText] = []
     public var stageID: String = ""
     public var scheduleURL: String = "?feature=schedule"
     public var id: String

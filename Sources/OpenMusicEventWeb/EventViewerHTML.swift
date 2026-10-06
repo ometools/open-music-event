@@ -31,7 +31,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
         self.selectedContributorID = selectedContributorID
     }
 
-    public var title: String { model.name }
+    public var title: String { model.selectedPerformance.map { $0.title + " · " + model.name } ?? model.name }
     public var lang: String { "en" }
 
     public var head: some HTML {
@@ -364,6 +364,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 border-bottom: 1px solid var(--line-soft);
             }
             .schedule-row:last-child { border-bottom: 0; }
+            a.timeline-card, a.schedule-card, a.schedule-row { text-decoration: none; }
             .schedule-time { align-self: start; padding-top: .35rem; color: var(--cyan); font-size: .84rem; font-weight: 850; white-space: nowrap; }
             .stage-rail { align-self: stretch; min-height: 3.9rem; border-radius: 999px; }
             .schedule-row .stage-icon { width: 3.75rem; height: 3.75rem; border-radius: .35rem; }
@@ -999,6 +1000,9 @@ struct EventViewerFeatureViews: HTML {
     var body: some HTML {
         div(.class("feature-views"), .id("viewer")) {
             div(.class("feature-view is-active")) {
+                if let performance = model.selectedPerformance {
+                    EventViewerPerformanceDetail(performance: performance, timeZone: model.timeZoneIdentifier)
+                } else {
                 switch feature {
                 case .schedule:
                     EventViewerSchedule(model: model, theme: theme, scheduleKind: scheduleKind, selectedStage: selectedStage)
@@ -1012,6 +1016,7 @@ struct EventViewerFeatureViews: HTML {
                 case .siteMap: EventViewerSiteMap(model: model)
                 case .posters: EventViewerPosters(model: model)
                 default: EventViewerInfo(model: model)
+                }
                 }
             }
         }
@@ -1161,7 +1166,7 @@ struct EventViewerContributorProfile: HTML {
                             for performance in appearances {
                                 a(
                                     .class("appearance-chip"),
-                                    .href(performance.scheduleURL),
+                                    .href(performance.detailURL),
                                     .data("feature", value: EventViewerFeature.schedule.webValue),
                                     .data("schedule-stage", value: performance.stageID)
                                 ) {
@@ -1239,7 +1244,7 @@ struct EventViewerSearchDirectory: HTML {
                             EventViewerSymbol(icon: .performance, style: "search-result-icon")
                             a(
                                 .class("search-result-link"),
-                                .href(performance.scheduleURL),
+                                .href(performance.detailURL),
                                 .data("feature", value: EventViewerFeature.schedule.webValue),
                                 .data("schedule-stage", value: performance.stageID)
                             ) {
@@ -1884,7 +1889,8 @@ struct EventViewerTimelineCard: HTML {
     let orientation: EventViewerTimelineOrientation
 
     var body: some HTML {
-        article(
+        a(
+            .href(performance.detailURL),
             .class([
                 "timeline-card",
                 orientation == .horizontal ? "horizontal-timeline-card" : "vertical-timeline-card"
@@ -1970,7 +1976,8 @@ struct EventViewerScheduleCard: HTML {
     let theme: EventViewerTheme
 
     var body: some HTML {
-        article(
+        a(
+            .href(performance.detailURL),
             .class("schedule-card"),
             .style("border-left-color: \(performance.stageColor ?? theme.accent)")
         ) {
@@ -2029,7 +2036,7 @@ struct EventViewerScheduleRow: HTML {
     let theme: EventViewerTheme
 
     var body: some HTML {
-        article(.class("schedule-row")) {
+        a(.href(performance.detailURL), .class("schedule-row")) {
             time(.class("schedule-time")) { performance.timeRangeText }
             div(
                 .class("stage-rail"),
@@ -2193,6 +2200,45 @@ struct EventViewerChoices: HTML {
             nav(.class("viewer-choices"), .custom(name: "aria-label", value: title)) {
                 for choice in choices {
                     a(.href(choice.url), .class(choice.selected ? "selected" : "")) { choice.title }
+                }
+            }
+        }
+    }
+}
+
+struct EventViewerPerformanceDetail: HTML {
+    let performance: Performance
+    let timeZone: String?
+
+    var body: some HTML {
+        section(.class("feature-section")) {
+            div(.class("feature-section-inner")) {
+                a(.href(performance.scheduleURL)) { "Back to schedule" }
+                h2 { performance.title }
+                if let date = performance.dateLine { p { date } }
+                p { performance.timeRangeText + (timeZone.map { " · " + $0 } ?? "") }
+                p { a(.href(performance.scheduleURL)) { performance.stage } }
+                if let description = performance.description {
+                    p(.style("white-space: pre-wrap")) { description }
+                }
+                if !performance.credits.isEmpty {
+                    h3 { "Contributors" }
+                    ul {
+                        for credit in performance.credits {
+                            li {
+                                if let url = credit.url { a(.href(url)) { credit.text } }
+                                else { span { credit.text } }
+                            }
+                        }
+                    }
+                }
+                for image in performance.images {
+                    if let url = image.imageURL {
+                        img(.src(url), .alt(image.title), .style("max-width: 100%; height: auto"))
+                    }
+                }
+                for media in performance.mediaLinks {
+                    if let url = media.url { p { a(.href(url)) { media.text } } }
                 }
             }
         }
