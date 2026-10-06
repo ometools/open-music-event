@@ -56,7 +56,7 @@ struct EventViewerSelection {
     var values: [String: String]
 
     init(query: String?) throws {
-        let pairs = URLComponents(string: "?" + (query ?? ""))?.queryItems ?? []
+        let pairs = URLComponents(string: "?" + (query ?? "").replacingOccurrences(of: "+", with: "%20"))?.queryItems ?? []
         var values: [String: String] = [:]
         for pair in pairs {
             guard values[pair.name] == nil else { throw HTTPError(.badRequest) }

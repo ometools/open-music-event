@@ -665,7 +665,7 @@ struct EventViewerSiteHeader: HTML {
     var body: some HTML {
         header(.class("site-header")) {
             nav(.class("nav")) {
-                a(.class("brand-link"), .href("#top")) {
+                a(.class("brand-link"), .href("/")) {
                     img(.class("brand-mark"), .src(theme.brandMarkURL), .alt(""))
                     span(.class("brand-name")) { theme.productName }
                 }

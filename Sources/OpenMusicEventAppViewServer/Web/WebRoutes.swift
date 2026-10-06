@@ -78,6 +78,20 @@ extension OpenMusicEventAppViewServer {
             return Response(status: .temporaryRedirect, headers: [.location: url])
         }
 
+        router.get("/record/{repo}/{rkey}") { request, context async throws -> Response in
+            guard let repo = context.parameters.get("repo"), let rkey = context.parameters.get("rkey"),
+                  let uri = ATProto.URI("at://" + repo + "/events.openmusic.event/" + rkey),
+                  case .did = uri.authority else { throw HTTPError(.badRequest) }
+            guard let store, try store.event(id: uri) != nil else { throw HTTPError(.notFound) }
+            if case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
+            let claim = BrandedEventRouteClaim(host: request.authority, eventClaim: "event", eventID: uri)
+            return try viewerResponse(claim: claim, canonicalURL: URL(string: "https://" + request.authority + "/record/" + uri.authority.description + "/" + (uri.rkey?.rawValue ?? ""))!, query: request.uri.query, store: store)
+        }
+        router.get("/browse") { request, _ async throws -> Response in
+            if let store, case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
+            return try browseResponse(query: request.uri.query, host: request.authority, routeResolver: routeResolver, store: store)
+        }
+
         router.get("/healthz") { request, _ async throws -> Response in
             try response(
                 host: request.authority,
@@ -104,6 +118,10 @@ extension OpenMusicEventAppViewServer {
         }
 
         router.get("/") { request, _ async throws -> Response in
+            if let store {
+                if case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
+                return try browseResponse(query: request.uri.query, host: request.authority, routeResolver: routeResolver, store: store)
+            }
             if oauthClient == .privateAuthentication {
                 guard request.authority == oauthClient.homepageURL.host else { throw HTTPError(.notFound) }
                 return textResponse("OME Private Authentication Tests")
