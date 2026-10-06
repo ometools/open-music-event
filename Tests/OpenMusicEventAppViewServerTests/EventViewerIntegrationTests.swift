@@ -29,7 +29,7 @@ import Testing
                 "startsAt": "2026-08-30T05:30:00Z", "endsAt": "2026-08-30T07:00:00Z", "credits": [["name": "Forest Artist", "contributor": contributor]]]),
             ("events.openmusic.program", ["event": event, "title": "Music", "eventPlaces": [place]]),
             ("events.openmusic.schedule", ["event": event, "date": "2026-08-29", "title": "Saturday"]),
-            ("events.openmusic.eventPlace", ["event": event, "name": "Forest"]),
+            ("events.openmusic.eventPlace", ["event": event, "name": "Forest", "kind": ["$type": "events.openmusic.defs#eventPlaceStage", "color": 0x009af7]]),
             ("events.openmusic.contributor", ["event": event, "name": "Forest Artist", "description": "A real biography"]),
             ("social.ome.category", ["event": event, "name": "General", "pinnedPosts": [post]]),
             ("social.ome.post", ["event": event, "category": category, "title": "Arrival", "text": "Bring water <script>alert(1)</script>", "embed": ["$type": "app.bsky.embed.images", "images": [["alt": "Arrival map", "image": ["$type": "blob", "ref": ["$link": "bafkreigh2akiscaildcw4533wvg6wlj3n6yqun26ucfqocgpamdfhhx5lq"], "mimeType": "image/png", "size": 4]]]]]),
@@ -60,6 +60,10 @@ import Testing
         expectNoDifference(model.schedulePerformances.map(\.endTime), ["1:00 AM"])
         expectNoDifference(model.schedulePerformances.map(\.startMinute), [1410])
         expectNoDifference(model.schedulePerformances.map(\.endMinute), [1500])
+        // The published stage color reaches cards and lanes, retaining leading zeroes.
+        expectNoDifference(model.schedulePerformances.map(\.stageColor), ["#009af7"])
+        expectNoDifference(model.scheduleStages.map(\.stageColor), ["#009af7"])
+        expectNoDifference(model.stagePerformances.map(\.stageColor), ["#009af7"])
         #expect(model.posts.first?.pinned == true)
         #expect(model.contributors.first?.performanceIDs == [uri("events.openmusic.programItem")])
         var configuration = AppViewConfiguration(host: "127.0.0.1", port: 0)
@@ -74,6 +78,7 @@ import Testing
                     let html = String(buffer: response.body)
                     #expect(html.contains("Midnight set"))
                     #expect(html.contains("11:30 PM"))
+                    #expect(html.contains("--stage-color: #009af7"))
                     #expect(!html.contains("fetch("))
                     #expect(!html.contains("feature=workspace"))
                 }

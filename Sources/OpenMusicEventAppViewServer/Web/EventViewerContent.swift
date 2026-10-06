@@ -138,7 +138,7 @@ extension EventViewerContent {
                 endTime: itemDates[item.id]?.end.map(formatter.string),
                 startMinute: midnight.flatMap { zero in itemDates[item.id]?.start.map { Int($0.timeIntervalSince(zero) / 60) } },
                 endMinute: midnight.flatMap { zero in itemDates[item.id]?.end.map { Int($0.timeIntervalSince(zero) / 60) } },
-                stageColor: "#78e0d6", stageLogoURL: place.flatMap { mediaImages($0.media).first }.flatMap { webImage($0, owner: event.id) })
+                stageColor: place.flatMap(webStageColor), stageLogoURL: place.flatMap { mediaImages($0.media).first }.flatMap { webImage($0, owner: event.id) })
             value.stageID = place?.id.description ?? ""
             value.scheduleURL = scheduleURL(item, stage: place?.id.description)
             return value
@@ -152,7 +152,7 @@ extension EventViewerContent {
         let selectedItemIDs = Set(graph.items.filter { $0.program.description == programID && $0.schedule?.description == dayID }.map { $0.id.description })
         model.schedulePerformances = places.flatMap { place in performances.filter { $0.stageID == place.id.description && selectedItemIDs.contains($0.id) && $0.startMinute != nil } }
         model.stagePerformances = graph.places.sorted { $0.name < $1.name }.map { place in
-            var row = Performance(id: place.id.description, title: place.name, stage: place.name, time: "", stageLogoURL: mediaImages(place.media).first.flatMap { webImage($0, owner: place.id) })
+            var row = Performance(id: place.id.description, title: place.name, stage: place.name, time: "", stageColor: webStageColor(place), stageLogoURL: mediaImages(place.media).first.flatMap { webImage($0, owner: place.id) })
             row.stageID = place.id.description
             let placeProgram = programs.first { $0.eventPlaces.contains(place.id) }
             let firstItem = graph.items.filter { $0.eventPlace == place.id && $0.schedule != nil }.sorted { (itemDates[$0.id]?.start ?? .distantFuture) < (itemDates[$1.id]?.start ?? .distantFuture) }.first
@@ -272,4 +272,9 @@ func webDate(_ value: ATProto.DateTime) -> Date? {
     if let date = formatter.date(from: value.rawValue) { return date }
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.date(from: value.rawValue)
+}
+
+func webStageColor(_ place: EventPlace) -> String? {
+    guard case let .known(.stage(stage)) = place.kind, let color = stage.color else { return nil }
+    return String(format: "#%06x", color.rawValue)
 }
