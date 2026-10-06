@@ -13,74 +13,73 @@ import Testing
 @testable import OpenMusicEventApp
 
 struct EventRecordClientTests {
-    @Test(arguments: ["valid", "wrong-id", "changed-commit"])
-    func downloadsCanonicalRecordsFromTheirPublisherPDS(scenario: String) async throws {
+    @Test func overlappingReadersShareOneDownload() async throws {
+        try await withMainSerialExecutor {
+            let event = try Event(
+                id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah")),
+                name: "Wicked Woods", createdAt: "2026-09-01T12:00:00Z",
+                timeZone: #require(TimeZone(identifier: "America/Denver"))
+            )
+            let calls = LockIsolated(0)
+            let gate = AsyncStream<Void>.makeStream()
+            let client = EventRecordClient { _ in
+                calls.withValue { $0 += 1 }
+                for await _ in gate.stream { break }
+                return EventRecordGraph(event: event)
+            }
+            let details = Task { try await client.load(event.id) }
+            await Task.yield()
+            let entry = Task { try await client.load(event.id) }
+            await Task.yield()
+            #expect(calls.value == 1)
+            details.cancel()
+            gate.continuation.yield(())
+            gate.continuation.finish()
+            let loadedEntry = try await entry.value
+            expectNoDifference(loadedEntry, EventRecordGraph(event: event))
+            _ = try await details.value
+            #expect(calls.value == 1)
+        }
+    }
+
+    @Test(arguments: ["valid", "wrong-id", "unsupported-version"])
+    func downloadsOneEventBundleFromAppView(scenario: String) async throws {
         let event = try Event(
             id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah")),
             name: "Wicked Woods", createdAt: "2026-09-01T12:00:00Z",
             timeZone: #require(TimeZone(identifier: "America/Denver"))
         )
-        let payload = try event.encodeLexicon()
         let requests = LockIsolated<[String]>([])
-        let commitReads = LockIsolated(0)
-
+        var bundle = Event.Bundle(uri: event.id, revision: "event-content-hash",
+            records: [.init(uri: event.id, cid: event.cid, value: try event.encodeLexicon())])
+        if scenario == "wrong-id" {
+            bundle.uri = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai"))
+        }
+        if scenario == "unsupported-version" { bundle.formatVersion = 2 }
+        let data = try JSONEncoder().encode(bundle)
         try await withDependencies {
-            $0[ATProto.Repository.PDSHostResolver.self] = .init { repository in
-                expectNoDifference(repository, event.id.authority)
-                return "pds.ome-auth.test"
-            }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .liveValue
             $0.requestInterceptors = []
             $0.dataForURL = { request, body in
                 let url = try #require(request.url)
-                #expect(url.host == "pds.ome-auth.test")
+                #expect(url.host == "metadata.ome-auth.test")
                 #expect(url.scheme == "https")
                 #expect(body == nil)
                 requests.withValue { $0.append(url.path) }
                 let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-                let values = Dictionary(uniqueKeysWithValues: (query.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-                let response: Lexicon.JSONValue
-                switch url.lastPathComponent {
-                case "com.atproto.sync.getLatestCommit":
-                    #expect(values["did"] == "did:plc:organizer")
-                    let count = commitReads.withValue { $0 += 1; return $0 }
-                    response = .object([
-                        "cid": .string("bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"),
-                        "rev": .string(scenario == "changed-commit" && count == 2 ? "next-revision" : "original-revision"),
-                    ])
-                case "com.atproto.repo.getRecord":
-                    #expect(values["repo"] == "did:plc:organizer")
-                    #expect(values["collection"] == Event.lexiconID.rawValue)
-                    #expect(values["rkey"] == "3mrdbziccpcah")
-                    response = .object([
-                        "uri": .string(scenario == "wrong-id"
-                            ? "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai"
-                            : event.id.description),
-                        "value": payload,
-                    ])
-                case "com.atproto.repo.listRecords":
-                    #expect(values["repo"] == "did:plc:organizer")
-                    #expect(["events.openmusic.eventPlace", "events.openmusic.contributor", "events.openmusic.programItem"]
-                        .contains(values["collection"] ?? ""))
-                    response = .object(["records": .array([])])
-                default:
-                    Issue.record("Unexpected protocol request: \(url.path)")
-                    response = .object([:])
-                }
-                return (try JSONEncoder().encode(response), HTTPResponse(status: .ok))
+                #expect(query.queryItems?.first(where: { $0.name == "uri" })?.value == event.id.description)
+                return (data, HTTPResponse(status: .ok))
             }
         } operation: {
+            let client = EventRecordClient.appView(host: "metadata.ome-auth.test")
             if scenario == "valid" {
-                let graph = try await EventRecordClient.liveValue.load(event.id)
+                let graph = try await client.load(event.id)
                 expectNoDifference(graph, EventRecordGraph(event: event))
             } else {
-                await #expect(throws: ValidationError.self) {
-                    try await EventRecordClient.liveValue.load(event.id)
-                }
+                await #expect(throws: ValidationError.self) { try await client.load(event.id) }
             }
         }
-        #expect(requests.value.contains("/xrpc/com.atproto.repo.getRecord"))
-        #expect(commitReads.value == (scenario == "wrong-id" ? 1 : 2))
+        expectNoDifference(requests.value, ["/xrpc/events.openmusic.getEventBundle"])
     }
 }

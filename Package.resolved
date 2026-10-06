@@ -1,5 +1,5 @@
 {
-  "originHash" : "f4d06d02d7b95af462f27370acaaa663c491e432b06c88f0faabc428227e1411",
+  "originHash" : "46763d4f7533de7431eb771db61fd35371f6ba558b7bb5791bd309d982809a4d",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -89,15 +89,6 @@
       "state" : {
         "revision" : "d66f3ef5eb338313c340b0bf3ea2a76724488f28",
         "version" : "2.1.0"
-      }
-    },
-    {
-      "identity" : "jmespath.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jmespath/jmespath.swift.git",
-      "state" : {
-        "revision" : "3877a5060e85ae33e3b9fe51ab581784f65ec80e",
-        "version" : "1.0.3"
       }
     },
     {
@@ -242,15 +233,6 @@
       "state" : {
         "revision" : "c89af47fd645e04db863e938ade39f91e1bb62b8",
         "version" : "1.7.0"
-      }
-    },
-    {
-      "identity" : "soto-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/soto-project/soto-core.git",
-      "state" : {
-        "revision" : "47454bf79649691da406978ae803b51b54246d6e",
-        "version" : "7.14.0"
       }
     },
     {
@@ -530,15 +512,6 @@
       "state" : {
         "revision" : "322d9ffeeba85c9f7c4984b39422ec7cc3c56597",
         "version" : "1.1.1"
-      }
-    },
-    {
-      "identity" : "swift-issue-reporting",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-issue-reporting",
-      "state" : {
-        "revision" : "75b000cea2ca6d7527a57e1b9cc0bdf21a9abe9f",
-        "version" : "2.1.1"
       }
     },
     {

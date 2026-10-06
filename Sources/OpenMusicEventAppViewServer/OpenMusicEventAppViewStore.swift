@@ -6,6 +6,7 @@ import OpenMusicEventDatabase
 
 public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     public let readiness: OpenMusicEventAppViewReadiness
+    let eventBundles = EventBundleCache()
     let database: any DatabaseWriter
     let webhookSecretProtection: WebhookSecretProtection?
 

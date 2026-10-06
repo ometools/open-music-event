@@ -11,8 +11,9 @@ public struct EventRecordClient: Sendable {
     public var latestEvent: @Sendable (Event.ID) async throws -> Event
 
     public init(load: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph) {
-        self.load = load
-        self.latestEvent = { try await load($0).event }
+        let downloads = EventRecordDownloads()
+        self.load = { id in try await downloads.load(id, operation: load) }
+        self.latestEvent = { id in try await downloads.load(id, operation: load).event }
     }
 
     public func install(_ eventID: Event.ID) async throws -> Event.ID {
@@ -29,14 +30,13 @@ public struct EventRecordClient: Sendable {
             guard graph.event.id == eventID else {
                 throw ValidationError("The downloaded event has a different record ID")
             }
-            try graph.validate()
             downloaded = graph
         }
 
         try Task.checkCancellation()
         try await database.write { db in
             if let local = try EventRecordGraph.fetch(eventID: eventID, from: db) {
-                try local.validate()
+                try local.validateRelationships()
             } else if let downloaded {
                 try downloaded.upsert(in: db)
             } else {
@@ -50,99 +50,22 @@ public struct EventRecordClient: Sendable {
 
 extension EventRecordClient: DependencyKey {
     public static var liveValue: Self {
+        appView(host: "openmusicevent.app")
+    }
+
+    public static func appView(host: ATProto.PDSHost) -> Self {
         Self { eventID in
             try LexiconCoding.validateRecordURI(eventID, type: Event.self)
-            @Dependency(ATProto.Repository.PDSHostResolver.self) var hosts
             @Dependency(XRPC.Client.self) var xrpc
-            let host = try await hosts.pdsHost(forRecordURI: eventID)
-            guard case let .did(did) = eventID.authority else {
-                throw ValidationError("An event must have a DID-based record ID")
+            let bundle = try await withDependencies {
+                $0.pdsHost = host
+            } operation: {
+                try await xrpc.run(Event.GetEventBundle(uri: eventID))
             }
-            let commitRequest = ATProto.Repository.LatestCommitRequest(did: did, pdsHost: host)
-            let before = try await xrpc.run(commitRequest)
-
-            func read<Record: RecordCodable & NamedLexiconDefinition>(
-                _ type: Record.Type, id: ATProto.URI
-            ) async throws -> Record {
-                try LexiconCoding.validateRecordURI(id, type: type)
-                let response = try await xrpc.getRecord(
-                    Lexicon.JSONValue.self,
-                    repo: id.authority,
-                    collection: ATProto.NSID(Record.lexiconID.rawValue),
-                    rkey: id.rkey!,
-                    pdsHost: host
-                )
-                guard response.uri == id else {
-                    throw ValidationError("The PDS returned a different record ID")
-                }
-                return try decode(type, response)
+            guard bundle.uri == eventID else {
+                throw ValidationError("The AppView returned a different event bundle")
             }
-
-            func list<Record: RecordCodable & NamedLexiconDefinition>(
-                _ type: Record.Type
-            ) async throws -> [Record] {
-                var records: [Record] = []
-                var cursor: ATProto.Repository.Cursor?
-                var seen: Set<ATProto.Repository.Cursor> = []
-                repeat {
-                    let page = try await xrpc.listRecords(
-                        Lexicon.JSONValue.self,
-                        repo: eventID.authority,
-                        collection: ATProto.NSID(Record.lexiconID.rawValue),
-                        limit: 100, cursor: cursor, pdsHost: host
-                    )
-                    for record in page.records
-                    where record.value.object?["event"]?.string == eventID.description {
-                        records.append(try decode(type, record))
-                    }
-                    cursor = page.cursor
-                    if let cursor, !seen.insert(cursor).inserted {
-                        throw ValidationError("The PDS repeated a record-list cursor")
-                    }
-                } while cursor != nil
-                return records
-            }
-
-            func decode<Record: RecordCodable>(
-                _ type: Record.Type,
-                _ response: ATProto.Repository.ListedRecord<Lexicon.JSONValue>
-            ) throws -> Record {
-                try JSONDecoder().decode(
-                    type,
-                    from: JSONEncoder().encode(response.value),
-                    configuration: RecordMetadata(uri: response.uri, cid: response.cid)
-                )
-            }
-
-            let event = try await read(Event.self, id: eventID)
-            try event.validateReferences()
-            var programs: [Program] = []
-            for id in event.programs ?? [] {
-                programs.append(try await read(Program.self, id: id))
-            }
-            var schedules: [Schedule] = []
-            for id in event.schedules ?? [] {
-                schedules.append(try await read(Schedule.self, id: id))
-            }
-            var categories: [Social.Category] = []
-            for id in event.categories ?? [] {
-                categories.append(try await read(Social.Category.self, id: id))
-            }
-            let graph = try await EventRecordGraph(
-                event: event,
-                programs: programs,
-                schedules: schedules,
-                places: list(EventPlace.self),
-                contributors: list(Contributor.self),
-                items: list(ProgramItem.self),
-                categories: categories
-            )
-            try graph.validate()
-            let after = try await xrpc.run(commitRequest)
-            guard before == after else {
-                throw ValidationError("The repository changed while downloading the event. Try again.")
-            }
-            return graph
+            return try EventRecordGraph(bundle: bundle)
         }
     }
 
@@ -155,5 +78,23 @@ public extension DependencyValues {
     var eventRecords: EventRecordClient {
         get { self[EventRecordClient.self] }
         set { self[EventRecordClient.self] = newValue }
+    }
+}
+
+
+// A detail preload and Enter Event share one in-flight request. Cancelling one caller
+// does not cancel another caller's download; each installer checks cancellation before writing.
+actor EventRecordDownloads {
+    var tasks: [Event.ID: Task<EventRecordGraph, Error>] = [:]
+
+    func load(
+        _ id: Event.ID,
+        operation: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph
+    ) async throws -> EventRecordGraph {
+        if let task = tasks[id] { return try await task.value }
+        let task = Task { try await operation(id) }
+        tasks[id] = task
+        defer { tasks[id] = nil }
+        return try await task.value
     }
 }

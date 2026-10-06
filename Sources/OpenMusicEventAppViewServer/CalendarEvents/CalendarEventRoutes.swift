@@ -8,6 +8,7 @@ extension OpenMusicEventAppViewServer {
         on router: Router<Context>,
         store: OpenMusicEventAppViewStore?
     ) {
+        installEventBundleRoute(on: router, store: store)
         router.register(Event.GetEvent.self) { parameters, _ in
             guard let store else {
                 throw XRPC.ResponseError(

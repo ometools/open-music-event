@@ -61,6 +61,33 @@ struct EventRecordGraphTests {
         try database.write { try graph.upsert(in: $0) }
         expectNoDifference(try database.read { try EventRecordGraph.fetch(eventID: id, from: $0) }, graph)
 
+        // Bundle round trips preserve canonical identities and reject malformed envelopes.
+        let values: [any RecordCodable] = [
+            event, graph.programs[0], graph.schedules[0], graph.places[0],
+            graph.contributors[0], graph.items[0], graph.categories[0]
+        ]
+        let records = try values.map { value in
+            Event.IndexedRecord(uri: value.id, cid: nil, value: try value.encodeLexicon())
+        }
+        let bundle = Event.Bundle(uri: id, revision: "snapshot", records: records)
+        expectNoDifference(try EventRecordGraph(bundle: bundle), graph)
+        var duplicate = bundle
+        duplicate.records.append(duplicate.records[0])
+        #expect(throws: ValidationError.self) { try EventRecordGraph(bundle: duplicate) }
+
+        // Relationship validation still rejects unavailable or undeclared dependencies.
+        for scenario in ["program", "schedule", "place", "membership", "duplicate"] {
+            var broken = graph
+            switch scenario {
+            case "program": broken.programs = []
+            case "schedule": broken.schedules = []
+            case "place": broken.places = []
+            case "membership": broken.programs[0].eventPlaces = []
+            default: broken.items.append(broken.items[0])
+            }
+            #expect(throws: ValidationError.self) { try broken.validateRelationships() }
+        }
+
         // A second edition cannot see the first edition's programs or places.
         let anotherID = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai"))
         let anotherEvent = try Event(

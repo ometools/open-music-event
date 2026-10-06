@@ -12,6 +12,7 @@ public struct EventRecordGraph: Equatable, Sendable {
     public var contributors: [Contributor]
     public var items: [ProgramItem]
     public var categories: [Social.Category]
+    public var posts: [Social.Post]
 
     public init(
         event: Event,
@@ -20,7 +21,8 @@ public struct EventRecordGraph: Equatable, Sendable {
         places: [EventPlace] = [],
         contributors: [Contributor] = [],
         items: [ProgramItem] = [],
-        categories: [Social.Category] = []
+        categories: [Social.Category] = [],
+        posts: [Social.Post] = []
     ) {
         self.event = event
         self.programs = programs
@@ -29,56 +31,52 @@ public struct EventRecordGraph: Equatable, Sendable {
         self.contributors = contributors
         self.items = items
         self.categories = categories
+        self.posts = posts
     }
 
     public func validate() throws {
+        // Validate each payload once. A performance must not revalidate its entire parent graph.
         try event.validateReferences()
+        for record in programs { try record.validateReferences() }
+        for record in schedules { try record.validateReferences() }
+        for record in places { try record.validateReferences() }
+        for record in contributors { try record.validateReferences() }
+        for record in categories { try record.validateReferences() }
+        for record in items { try record.validateReferences() }
+        for record in posts { try record.validateReferences() }
+        try validateRelationships()
+    }
+
+    /// Checks a graph whose individual records were validated at ingestion or decoding.
+    public func validateRelationships() throws {
         guard Set(programs.map(\.id)) == Set(event.programs ?? []),
               Set(schedules.map(\.id)) == Set(event.schedules ?? []),
-              Set(categories.map(\.id)) == Set(event.categories ?? [])
-        else {
-            throw ValidationError("The installed records must include the event's declared programs, schedules and categories")
-        }
-        for program in programs {
-            try program.validateReferences()
-            guard program.event == event.id else {
-                throw ValidationError("A program belongs to another event")
-            }
-            guard Set(program.eventPlaces).isSubset(of: Set(places.map(\.id))) else {
-                throw ValidationError("A program refers to an unavailable event place")
-            }
-        }
-        for schedule in schedules {
-            try schedule.validateReferences()
-            guard schedule.event == event.id else {
-                throw ValidationError("A schedule belongs to another event")
-            }
-        }
-        for place in places {
-            try place.validateReferences()
-            guard place.event == event.id else {
-                throw ValidationError("A place belongs to another event")
-            }
-        }
-        for contributor in contributors {
-            try contributor.validateReferences()
-            guard contributor.event == event.id else {
-                throw ValidationError("A contributor belongs to another event")
-            }
-        }
-        for category in categories {
-            try category.validateGraph(event: event)
-        }
+              Set(categories.map(\.id)) == Set(event.categories ?? []),
+              Set(programs.map(\.id)).count == programs.count,
+              Set(schedules.map(\.id)).count == schedules.count,
+              Set(places.map(\.id)).count == places.count,
+              Set(contributors.map(\.id)).count == contributors.count,
+              Set(items.map(\.id)).count == items.count,
+              Set(categories.map(\.id)).count == categories.count,
+              Set(posts.map(\.id)).count == posts.count
+        else { throw ValidationError("The event graph has missing or duplicate records") }
+        let programsByID = Dictionary(uniqueKeysWithValues: programs.map { ($0.id, $0) })
+        let scheduleIDs = Set(schedules.map(\.id))
+        let placeIDs = Set(places.map(\.id))
+        let categoryIDs = Set(categories.map(\.id))
+        guard programs.allSatisfy({ $0.event == event.id && Set($0.eventPlaces).isSubset(of: placeIDs) }),
+              schedules.allSatisfy({ $0.event == event.id }),
+              places.allSatisfy({ $0.event == event.id }),
+              contributors.allSatisfy({ $0.event == event.id }),
+              categories.allSatisfy({ $0.event == event.id }),
+              posts.allSatisfy({ $0.event == event.id && $0.id.authority == event.id.authority
+                && ($0.category.map { categoryIDs.contains($0) } ?? true) })
+        else { throw ValidationError("A record belongs to another event or refers to unavailable content") }
         for item in items {
-            guard let program = programs.first(where: { $0.id == item.program }) else {
-                throw ValidationError("A program item refers to an unavailable program")
-            }
-            try item.validateGraph(
-                event: event,
-                program: program,
-                schedule: schedules.first { $0.id == item.schedule },
-                eventPlace: places.first { $0.id == item.eventPlace }
-            )
+            guard item.event == event.id, let program = programsByID[item.program],
+                  item.schedule.map({ scheduleIDs.contains($0) }) ?? true,
+                  item.eventPlace.map({ placeIDs.contains($0) && program.eventPlaces.contains($0) }) ?? true
+            else { throw ValidationError("A program item refers to unavailable event content") }
         }
     }
 
@@ -91,7 +89,9 @@ public struct EventRecordGraph: Equatable, Sendable {
             places: try EventPlace.where { $0.event.eq(eventID) }.fetchAll(db),
             contributors: try Contributor.where { $0.event.eq(eventID) }.fetchAll(db),
             items: try ProgramItem.where { $0.event.eq(eventID) }.fetchAll(db),
-            categories: try Social.Category.where { $0.event.eq(eventID) }.fetchAll(db)
+            categories: try Social.Category.where { $0.event.eq(eventID) }.fetchAll(db),
+            posts: try Social.Post.where { $0.event.eq(eventID) }.fetchAll(db)
+                .filter { $0.id.authority == eventID.authority }
         )
     }
 
@@ -104,5 +104,6 @@ public struct EventRecordGraph: Equatable, Sendable {
         for record in contributors { try Contributor.upsert { record }.execute(db) }
         for record in items { try ProgramItem.upsert { record }.execute(db) }
         for record in categories { try Social.Category.upsert { record }.execute(db) }
+        for record in posts { try Social.Post.upsert { record }.execute(db) }
     }
 }

@@ -1240,6 +1240,7 @@ let appViewTargets: [Target] = [
                 package: "swift-composable-notifications"
             ),
             .product(name: "Crypto", package: "swift-crypto"),
+            .product(name: "Gzip", package: "gzipswift"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "GRDB", package: grdbPackageName),
