@@ -140,7 +140,7 @@ extension EventViewerContent {
                 startMinute: midnight.flatMap { zero in itemDates[item.id]?.start.map { Int($0.timeIntervalSince(zero) / 60) } },
                 endMinute: midnight.flatMap { zero in itemDates[item.id]?.end.map { Int($0.timeIntervalSince(zero) / 60) } },
                 stageColor: place.flatMap(webStageColor), stageLogoURL: place.flatMap { mediaImages($0.media).first }.flatMap { webImage($0, owner: event.id) })
-            value.detailURL = webQuery(["feature": "schedule", "performance": item.id.description]) + "#viewer"
+            value.detailURL = webQuery(["feature": "schedule", "performance": item.id.description, "program": item.program.description, "day": item.schedule?.description]) + "#viewer"
             value.description = item.description
             value.dateLine = itemDates[item.id]?.start.map(dateFormatter.string) ?? midnight.map(dateFormatter.string)
             value.credits = (item.credits ?? []).map { credit in

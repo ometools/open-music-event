@@ -89,6 +89,7 @@ import Testing
             // A schedule card opens the indexed occurrence, with escaped copy and contributor navigation.
             let performance = try #require(model.schedulePerformances.first)
             #expect(performance.detailURL.contains("performance="))
+            #expect(performance.detailURL.contains("program="))
             try await client.execute(uri: "/events/woods" + performance.detailURL, method: .get) { response in
                 #expect(response.status == .ok)
                 let html = String(buffer: response.body)

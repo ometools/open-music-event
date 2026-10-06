@@ -14,4 +14,20 @@ import Testing
         #expect(html.contains("?feature=site-map#viewer"))
         #expect(html.contains("?feature=communications#viewer"))
     }
+    @Test func programsAreExploreTabsRatherThanScheduleOptions() {
+        var model = EventModel(name: "Woods", location: "Fairmont", scheduleLabel: "Workshops", performances: [])
+        model.programChoices = [
+            .init(title: "Music", url: "?program=music", selected: false),
+            .init(title: "Workshops", url: "?program=workshops", selected: true)
+        ]
+        let html = EventViewerHTMLPage(model: model).render()
+        #expect(html.contains("href=\"?program=music#viewer\""))
+        #expect(!html.contains("class=\"sidebar-link selected\" href=\"?program=music#viewer\""))
+        #expect(html.contains("class=\"sidebar-link selected\" href=\"?program=workshops#viewer\""))
+        #expect(html.contains("class=\"feature-nav-link selected\" href=\"?program=workshops#viewer\""))
+        #expect(html.contains("<h1>Workshops</h1>"))
+        #expect(!html.contains("aria-label=\"Program\""))
+        #expect(!html.contains("<h1>Schedule</h1>"))
+    }
+
 }

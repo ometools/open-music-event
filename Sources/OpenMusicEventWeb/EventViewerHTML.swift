@@ -573,7 +573,9 @@ public struct EventViewerHTMLPage: HTMLDocument {
                     left: .75rem;
                     z-index: 6;
                     display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    grid-auto-flow: column;
+                    grid-auto-columns: minmax(5.5rem, 1fr);
+                    overflow-x: auto;
                     gap: .25rem;
                     padding: .3rem;
                     border: 1px solid rgba(255,255,255,.16);
@@ -638,8 +640,8 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 )
                 div(.class("viewer-main")) {
                     main {
-                        EventViewerPageHeader(feature: feature)
-                        EventViewerFeatureNavigation(feature: feature)
+                        EventViewerPageHeader(feature: feature, programTitle: model.scheduleLabel)
+                        EventViewerFeatureNavigation(model: model, feature: feature)
                         EventViewerFeatureViews(
                             model: model,
                             theme: theme,
@@ -693,11 +695,10 @@ struct EventViewerSidebar: HTML {
                 p { model.location }
             }
             nav(.class("sidebar-navigation")) {
-                EventViewerSidebarGroup(
-                    label: "Explore",
-                    features: EventViewerFeature.primary,
-                    selectedFeature: feature
-                )
+                div(.class("sidebar-group")) {
+                    p(.class("sidebar-group-label")) { "Explore" }
+                    EventViewerExploreLinks(model: model, feature: feature, style: .sidebar)
+                }
                 EventViewerSidebarGroup(
                     label: "Event",
                     features: EventViewerFeature.event.filter { $0 != .notifications },
@@ -762,12 +763,13 @@ struct EventViewerFeatureLink: HTML {
 
 struct EventViewerPageHeader: HTML {
     let feature: EventViewerFeature
+    let programTitle: String?
 
     var body: some HTML {
         header(.class("viewer-page-header"), .data("feature-page-header", value: "true")) {
             div(.class("viewer-page-title")) {
                 EventViewerSymbol(icon: feature.icon, style: "viewer-page-title-icon")
-                h1 { feature.title }
+                h1 { feature == .schedule ? (programTitle ?? feature.title) : feature.title }
             }
         }
     }
@@ -971,18 +973,37 @@ struct EventViewerSymbol: HTML {
     }
 }
 
+struct EventViewerExploreLinks: HTML {
+    let model: EventModel
+    let feature: EventViewerFeature
+    let style: EventViewerFeatureLink.Style
+
+    var body: some HTML {
+        if model.programChoices.isEmpty {
+            EventViewerFeatureLink(feature: .schedule, selectedFeature: feature, style: style)
+        } else {
+            for program in model.programChoices {
+                a(.class([style == .sidebar ? "sidebar-link" : "feature-nav-link",
+                          feature == .schedule && program.selected ? "selected" : ""]),
+                  .href(program.url + "#viewer")) {
+                    EventViewerSymbol(icon: .schedule, style: style == .sidebar ? "sidebar-link-glyph" : "feature-nav-glyph")
+                    span { program.title }
+                }
+            }
+        }
+        for item in EventViewerFeature.primary.filter({ $0 != .schedule }) {
+            EventViewerFeatureLink(feature: item, selectedFeature: feature, style: style)
+        }
+    }
+}
+
 struct EventViewerFeatureNavigation: HTML {
+    let model: EventModel
     let feature: EventViewerFeature
 
     var body: some HTML {
         nav(.class("feature-nav")) {
-            for item in EventViewerFeature.primary {
-                EventViewerFeatureLink(
-                    feature: item,
-                    selectedFeature: feature,
-                    style: .mobile
-                )
-            }
+            EventViewerExploreLinks(model: model, feature: feature, style: .mobile)
         }
     }
 }
@@ -1475,15 +1496,11 @@ struct EventViewerSchedule: HTML {
         section(.class("section"), .id("schedule")) {
             div(.class("section-inner")) {
                 div(.class("section-heading")) {
-                    div {
-                        h2 { model.scheduleLabel ?? "Schedule" }
-                    }
                     div(.class("schedule-heading-actions")) {
                         EventViewerScheduleKindMenu(scheduleKind: scheduleKind, context: model.scheduleQuery)
                     }
                 }
 
-                EventViewerChoices(title: "Program", choices: model.programChoices)
                 EventViewerChoices(title: "Day", choices: model.dayChoices)
                 if model.schedulePerformances.isEmpty { p { "No timed items published for this selection." } }
                 div(.class("schedule-panel")) {
