@@ -313,8 +313,9 @@ public struct ViewerChoice: Equatable, Sendable {
     public var title: String
     public var url: String
     public var selected: Bool
-    public init(title: String, url: String, selected: Bool) {
-        self.title = title; self.url = url; self.selected = selected
+    public var icon: EventViewerIcon?
+    public init(title: String, url: String, selected: Bool, icon: EventViewerIcon? = nil) {
+        self.title = title; self.url = url; self.selected = selected; self.icon = icon
     }
 }
 public struct ViewerPost: Equatable, Sendable {

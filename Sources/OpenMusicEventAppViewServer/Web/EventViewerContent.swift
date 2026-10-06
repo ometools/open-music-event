@@ -180,7 +180,14 @@ extension EventViewerContent {
         for index in model.scheduleStages.indices {
             model.scheduleStages[index].scheduleURL = webQuery(["program": programID, "day": dayID, "stage": model.scheduleStages[index].stageID])
         }
-        model.programChoices = programs.map { .init(title: $0.title, url: webQuery(["program": $0.id.description, "day": dayID, "schedule-kind": selection.kind.webValue]), selected: $0.id.description == programID) }
+        model.programChoices = programs.map {
+            .init(
+                title: $0.title,
+                url: webQuery(["program": $0.id.description, "day": dayID, "schedule-kind": selection.kind.webValue]),
+                selected: $0.id.description == programID,
+                icon: EventViewerIcon(programSemanticName: $0.icon?.rawValue)
+            )
+        }
         model.dayChoices = days.map { .init(title: $0.title ?? dateFormatter.string(from: $0.date.atStartOfDay(in: event.timeZone)), url: webQuery(["program": programID, "day": $0.id.description, "schedule-kind": selection.kind.webValue]), selected: $0.id.description == dayID) }
         model.contributors = graph.contributors.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { contributor in
             var value = OpenMusicEventWeb.Contributor(id: contributor.id.description, name: contributor.name,

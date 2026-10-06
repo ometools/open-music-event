@@ -437,15 +437,14 @@ public struct EventViewerHTMLPage: HTMLDocument {
             .feature-search-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 .2rem rgba(255, 255, 255, .12); }
             .contributor-grid { display: grid; grid-template-columns: repeat(var(--stage-count, 3), minmax(0, 1fr)); gap: .85rem; }
             .contributor-grid.profile-browse-hidden { display: none; }
-            .contributor-card { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); gap: .8rem; min-height: 10.5rem; padding: 1rem; border: 1px solid var(--line-soft); border-radius: .55rem; background: var(--panel); box-shadow: 0 .8rem 2rem rgba(0,0,0,.14); }
+            .contributor-card { border: 1px solid var(--line-soft); border-radius: .55rem; background: var(--panel); box-shadow: 0 .8rem 2rem rgba(0,0,0,.14); }
             .contributor-card[hidden] { display: none; }
-            .contributor-card-link { display: grid; grid-column: 1 / -1; grid-template-columns: 3.5rem minmax(0, 1fr); gap: .8rem; min-height: 8.4rem; color: inherit; text-decoration: none; }
+            .contributor-card-link { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); align-items: center; gap: .8rem; padding: .85rem; color: inherit; text-decoration: none; }
             .contributor-card-link:hover h3 { color: var(--cyan); }
             .contributor-avatar { display: grid; place-items: center; width: 3.5rem; height: 3.5rem; overflow: hidden; border-radius: 999px; background: var(--contributor-color); color: white; font-size: .78rem; font-weight: 900; }
             .contributor-avatar img { width: 100%; height: 100%; object-fit: cover; }
             .contributor-card h3 { margin-bottom: .2rem; font-size: 1rem; line-height: 1.1; }
             .contributor-role { margin-bottom: .5rem; color: var(--cyan); font-size: .74rem; font-weight: 850; }
-            .contributor-bio { grid-column: 1 / -1; margin-bottom: .2rem; color: var(--soft); font-size: .82rem; line-height: 1.4; }
             .contributor-handle { color: var(--muted); font-size: .75rem; }
             .contributor-appearances { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .35rem; margin-top: auto; }
             .appearance-chip { padding: .25rem .45rem; border-radius: 999px; background: color-mix(in srgb, var(--contributor-color) 24%, transparent); color: var(--soft); font-size: .68rem; font-weight: 800; }
@@ -573,9 +572,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                     left: .75rem;
                     z-index: 6;
                     display: grid;
-                    grid-auto-flow: column;
-                    grid-auto-columns: minmax(5.5rem, 1fr);
-                    overflow-x: auto;
+                    grid-template-columns: repeat(var(--feature-count), minmax(0, 1fr));
                     gap: .25rem;
                     padding: .3rem;
                     border: 1px solid rgba(255,255,255,.16);
@@ -594,6 +591,48 @@ public struct EventViewerHTMLPage: HTMLDocument {
                     font-size: .66rem;
                     line-height: 1.1;
                     text-align: center;
+                }
+                .feature-nav-more { position: relative; min-width: 0; }
+                .feature-nav-more > summary {
+                    display: grid;
+                    justify-items: center;
+                    gap: .2rem;
+                    padding: .45rem .2rem .35rem;
+                    border-radius: 1.15rem;
+                    color: var(--muted);
+                    font-size: .66rem;
+                    font-weight: 800;
+                    line-height: 1.1;
+                    list-style: none;
+                    text-align: center;
+                    cursor: pointer;
+                }
+                .feature-nav-more > summary::-webkit-details-marker { display: none; }
+                .feature-nav-more.selected > summary { background: rgba(120,224,214,.16); color: var(--cyan); }
+                .feature-nav-more-menu {
+                    position: absolute;
+                    right: 0;
+                    bottom: calc(100% + .65rem);
+                    display: grid;
+                    width: min(17rem, calc(100vw - 1.5rem));
+                    max-height: min(28rem, calc(100vh - 8rem));
+                    overflow-y: auto;
+                    padding: .45rem;
+                    border: 1px solid rgba(255,255,255,.16);
+                    border-radius: 1rem;
+                    background: rgba(22, 24, 26, .98);
+                    box-shadow: 0 1rem 2.5rem rgba(0,0,0,.45);
+                }
+                .feature-nav .feature-nav-more-link {
+                    display: flex;
+                    grid-template-columns: none;
+                    justify-items: normal;
+                    align-items: center;
+                    gap: .65rem;
+                    padding: .7rem .75rem;
+                    border-radius: .75rem;
+                    font-size: .88rem;
+                    text-align: left;
                 }
                 .feature-nav a.selected { border: 0; background: rgba(120,224,214,.16); color: var(--cyan); }
                 .feature-nav .ome-symbol { width: 1.2rem; height: 1.2rem; flex-basis: 1.2rem; }
@@ -673,7 +712,7 @@ struct EventViewerSiteHeader: HTML {
                 }
                 details(.class("event-menu")) {
                     summary { eventName }
-                    EventViewerSidebarGroup(label: "Event", features: EventViewerFeature.event.filter { $0 != .notifications } + [.about], selectedFeature: feature)
+                    EventViewerSidebarGroup(label: "Event", features: EventViewerFeature.more, selectedFeature: feature)
                 }
             }
         }
@@ -694,14 +733,20 @@ struct EventViewerSidebar: HTML {
                 }
                 p { model.location }
             }
-            nav(.class("sidebar-navigation")) {
+            nav(.class("sidebar-navigation"), .custom(name: "aria-label", value: "Event sections")) {
                 div(.class("sidebar-group")) {
                     p(.class("sidebar-group-label")) { "Explore" }
-                    EventViewerExploreLinks(model: model, feature: feature, style: .sidebar)
+                    EventViewerProgramLinks(model: model, feature: feature, style: .sidebar)
+                    EventViewerFeatureLink(feature: .communications, selectedFeature: feature, style: .sidebar)
                 }
                 EventViewerSidebarGroup(
+                    label: "Browse",
+                    features: EventViewerFeature.browse,
+                    selectedFeature: feature
+                )
+                EventViewerSidebarGroup(
                     label: "Event",
-                    features: EventViewerFeature.event.filter { $0 != .notifications },
+                    features: EventViewerFeature.event,
                     selectedFeature: feature
                 )
                 EventViewerSidebarGroup(
@@ -737,6 +782,22 @@ struct EventViewerFeatureLink: HTML {
     enum Style: Equatable {
         case sidebar
         case mobile
+        case more
+
+        var linkClass: String {
+            switch self {
+            case .sidebar: "sidebar-link"
+            case .mobile: "feature-nav-link"
+            case .more: "feature-nav-more-link"
+            }
+        }
+
+        var glyphClass: String {
+            switch self {
+            case .sidebar: "sidebar-link-glyph"
+            case .mobile, .more: "feature-nav-glyph"
+            }
+        }
     }
 
     let feature: EventViewerFeature
@@ -745,16 +806,14 @@ struct EventViewerFeatureLink: HTML {
 
     var body: some HTML {
         a(
-            .class([
-                style == .sidebar ? "sidebar-link" : "feature-nav-link",
-                feature == selectedFeature ? "selected" : ""
-            ]),
+            .class(feature == selectedFeature ? "\(style.linkClass) selected" : style.linkClass),
             .href("?feature=\(feature.webValue)#viewer"),
-            .data("feature", value: feature.webValue)
+            .data("feature", value: feature.webValue),
+            .custom(name: "aria-current", value: feature == selectedFeature ? "page" : "false")
         ) {
             EventViewerSymbol(
                 icon: feature.icon,
-                style: style == .sidebar ? "sidebar-link-glyph" : "feature-nav-glyph"
+                style: style.glyphClass
             )
             span { feature.title }
         }
@@ -780,6 +839,16 @@ extension EventViewerIcon {
         switch self {
         case .schedule:
             return "calendar"
+        case .heart:
+            return "heart"
+        case .thumbsUp:
+            return "thumbs-up"
+        case .personDoingYoga:
+            return "person-standing"
+        case .speechBubbles:
+            return "messages-square"
+        case .gridOfSquares:
+            return "grid-2x2"
         case .contributors:
             return "users-round"
         case .stages:
@@ -816,6 +885,8 @@ extension EventViewerIcon {
             return "columns-3"
         case .list:
             return "list"
+        case .more:
+            return "ellipsis"
         }
     }
 
@@ -831,6 +902,35 @@ extension EventViewerIcon {
             <path d='M16 2v4' />
             <rect width='18' height='18' x='3' y='4' rx='2' />
             <path d='M3 10h18' />
+            """
+        case .heart:
+            return """
+            <path d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z' />
+            """
+        case .thumbsUp:
+            return """
+            <path d='M7 10v12' />
+            <path d='M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z' />
+            """
+        case .personDoingYoga:
+            return """
+            <circle cx='12' cy='4' r='2' />
+            <path d='m6 9 6 2 6-2' />
+            <path d='M12 6v7' />
+            <path d='m8 21 4-8 4 8' />
+            <path d='M5 21h14' />
+            """
+        case .speechBubbles:
+            return """
+            <path d='M14 15a2 2 0 0 1-2 2H6l-4 4V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z' />
+            <path d='M18 3h2a2 2 0 0 1 2 2v12l-4-4h-2' />
+            """
+        case .gridOfSquares:
+            return """
+            <rect width='7' height='7' x='3' y='3' rx='1' />
+            <rect width='7' height='7' x='14' y='3' rx='1' />
+            <rect width='7' height='7' x='3' y='14' rx='1' />
+            <rect width='7' height='7' x='14' y='14' rx='1' />
             """
         case .contributors:
             return """
@@ -938,6 +1038,12 @@ extension EventViewerIcon {
             <path d='M8 18h13' />
             <path d='M8 6h13' />
             """
+        case .more:
+            return """
+            <circle cx='5' cy='12' r='1' />
+            <circle cx='12' cy='12' r='1' />
+            <circle cx='19' cy='12' r='1' />
+            """
         }
     }
 }
@@ -973,7 +1079,7 @@ struct EventViewerSymbol: HTML {
     }
 }
 
-struct EventViewerExploreLinks: HTML {
+struct EventViewerProgramLinks: HTML {
     let model: EventModel
     let feature: EventViewerFeature
     let style: EventViewerFeatureLink.Style
@@ -983,16 +1089,15 @@ struct EventViewerExploreLinks: HTML {
             EventViewerFeatureLink(feature: .schedule, selectedFeature: feature, style: style)
         } else {
             for program in model.programChoices {
-                a(.class([style == .sidebar ? "sidebar-link" : "feature-nav-link",
-                          feature == .schedule && program.selected ? "selected" : ""]),
-                  .href(program.url + "#viewer")) {
-                    EventViewerSymbol(icon: .schedule, style: style == .sidebar ? "sidebar-link-glyph" : "feature-nav-glyph")
+                let selected = feature == .schedule && program.selected
+                let linkClass = style == .sidebar ? "sidebar-link" : "feature-nav-link"
+                a(.class(selected ? "\(linkClass) selected" : linkClass),
+                  .href(program.url + "#viewer"),
+                  .custom(name: "aria-current", value: selected ? "page" : "false")) {
+                    EventViewerSymbol(icon: program.icon ?? .schedule, style: style == .sidebar ? "sidebar-link-glyph" : "feature-nav-glyph")
                     span { program.title }
                 }
             }
-        }
-        for item in EventViewerFeature.primary.filter({ $0 != .schedule }) {
-            EventViewerFeatureLink(feature: item, selectedFeature: feature, style: style)
         }
     }
 }
@@ -1002,8 +1107,26 @@ struct EventViewerFeatureNavigation: HTML {
     let feature: EventViewerFeature
 
     var body: some HTML {
-        nav(.class("feature-nav")) {
-            EventViewerExploreLinks(model: model, feature: feature, style: .mobile)
+        let programCount = max(model.programChoices.count, 1)
+        nav(
+            .class("feature-nav"),
+            .custom(name: "aria-label", value: "Primary"),
+            .style("--feature-count: \(programCount + 3)")
+        ) {
+            EventViewerProgramLinks(model: model, feature: feature, style: .mobile)
+            EventViewerFeatureLink(feature: .communications, selectedFeature: feature, style: .mobile)
+            details(.class(EventViewerFeature.more.contains(feature) ? "feature-nav-more selected" : "feature-nav-more")) {
+                summary {
+                    EventViewerSymbol(icon: .more, style: "feature-nav-glyph")
+                    span { "More" }
+                }
+                div(.class("feature-nav-more-menu")) {
+                    for item in EventViewerFeature.more {
+                        EventViewerFeatureLink(feature: item, selectedFeature: feature, style: .more)
+                    }
+                }
+            }
+            EventViewerFeatureLink(feature: .search, selectedFeature: feature, style: .mobile)
         }
     }
 }
@@ -1068,11 +1191,7 @@ struct EventViewerContributorDirectory: HTML {
                 }
                 div(.class(selectedContributorID == nil ? "contributor-grid" : "hidden"), .id("contributor-results-\(identifier)")) {
                     for contributor in model.contributors.filter({ (searchQuery ?? "").isEmpty || $0.searchText.localizedCaseInsensitiveContains(searchQuery ?? "") }) {
-                        EventViewerContributorCard(
-                            contributor: contributor,
-                            performances: model.performances,
-                            theme: theme
-                        )
+                        EventViewerContributorCard(contributor: contributor)
                     }
                 }
                 for contributor in model.contributors.filter({ $0.id == selectedContributorID }) {
@@ -1093,13 +1212,10 @@ struct EventViewerContributorDirectory: HTML {
 
 struct EventViewerContributorCard: HTML {
     let contributor: Contributor
-    let performances: [Performance]
-    let theme: EventViewerTheme
 
     var body: some HTML {
         article(
             .class("contributor-card"),
-            .data("search", value: contributor.searchText),
             .style("--contributor-color: \(contributor.accentColor)")
         ) {
             a(
@@ -1119,16 +1235,6 @@ struct EventViewerContributorCard: HTML {
                     p(.class("contributor-role")) { contributor.role }
                     if let handle = contributor.handle {
                         p(.class("contributor-handle")) { handle }
-                    }
-                }
-                p(.class("contributor-bio")) { contributor.bio }
-                div(.class("contributor-appearances")) {
-                    for performanceID in contributor.performanceIDs {
-                        if let performance = performances.first(where: { $0.id == performanceID }) {
-                            span(.class("appearance-chip")) {
-                                "\(performance.title) · \(performance.time)"
-                            }
-                        }
                     }
                 }
             }

@@ -30,7 +30,7 @@ import Testing
                     ["$type": "events.openmusic.defs#externalMedia", "uri": "https://example.com/recording", "title": "Listen to the recording"]
                 ], "schedule": day, "eventPlace": place,
                 "startsAt": "2026-08-30T05:30:00Z", "endsAt": "2026-08-30T07:00:00Z", "credits": [["name": "Forest Artist", "contributor": contributor]]]),
-            ("events.openmusic.program", ["event": event, "title": "Music", "eventPlaces": [place]]),
+            ("events.openmusic.program", ["event": event, "title": "Music", "icon": "personDoingYoga", "eventPlaces": [place]]),
             ("events.openmusic.schedule", ["event": event, "date": "2026-08-29", "title": "Saturday"]),
             ("events.openmusic.eventPlace", ["event": event, "name": "Forest", "kind": ["$type": "events.openmusic.defs#eventPlaceStage", "color": 0x009af7]]),
             ("events.openmusic.contributor", ["event": event, "name": "Forest Artist", "description": "A real biography"]),
@@ -67,6 +67,7 @@ import Testing
         expectNoDifference(model.schedulePerformances.map(\.stageColor), ["#009af7"])
         expectNoDifference(model.scheduleStages.map(\.stageColor), ["#009af7"])
         expectNoDifference(model.stagePerformances.map(\.stageColor), ["#009af7"])
+        expectNoDifference(model.programChoices.map(\.icon), [.personDoingYoga])
         #expect(model.posts.first?.pinned == true)
         #expect(model.contributors.first?.performanceIDs == [uri("events.openmusic.programItem")])
         var configuration = AppViewConfiguration(host: "127.0.0.1", port: 0)
