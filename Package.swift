@@ -765,6 +765,8 @@ var applicationTargets: [Target] = [
     .executableTarget(
         name: "OpenMusicEventCLI",
         dependencies: [
+            .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
+            "OpenMusicEventSourceEditing",
             "OpenMusicEventAuthentication",
             "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",

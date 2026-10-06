@@ -19,6 +19,7 @@ struct OpenMusicEventCommand: AsyncParsableCommand {
         commandName: "ome",
         abstract: "OpenMusicEvent source repository tools.",
         subcommands: [
+            ProtocolRecords.self,
             Source.self
         ]
     )
