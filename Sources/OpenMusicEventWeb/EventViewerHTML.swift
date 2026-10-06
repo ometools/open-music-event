@@ -81,12 +81,11 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 min-height: 100vh;
                 background:
                     linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 34rem),
-                    linear-gradient(90deg, rgba(120, 224, 214, 0.08), rgba(241, 138, 168, 0.06) 46%, rgba(255, 196, 115, 0.06)),
                     var(--bg);
                 color: var(--text);
             }
             body, a { font: inherit; }
-            a { color: inherit; text-decoration-color: rgba(120, 224, 214, 0.65); text-underline-offset: .2em; }
+            a { color: inherit; text-decoration-color: rgba(255, 255, 255, 0.65); text-underline-offset: .2em; }
             a:hover { text-decoration-color: var(--cyan); }
             img { max-width: 100%; }
             .page-shell { min-height: 100vh; }
@@ -165,7 +164,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 font-weight: 800;
                 text-decoration: none;
             }
-            .sidebar-link:hover, .sidebar-link.selected { border-color: rgba(120, 224, 214, .24); background: rgba(120, 224, 214, .1); color: var(--text); }
+            .sidebar-link:hover, .sidebar-link.selected { border-color: rgba(255, 255, 255, .24); background: rgba(255, 255, 255, .1); color: var(--text); }
             .sidebar-link.selected { box-shadow: inset .2rem 0 var(--cyan); }
             .ome-symbol {
                 display: block;
@@ -205,7 +204,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 font-weight: 800;
                 text-decoration: none;
             }
-            .brand-mark { display: block; width: 2.15rem; height: 2.15rem; object-fit: contain; }
+            .brand-mark { display: block; width: 2.75rem; height: 2.75rem; object-fit: contain; }
             .brand-name {
                 display: inline-block;
                 background: linear-gradient(90deg, #47a9a8, #6650d3 34%, #d34f7a 68%, #d8823d);
@@ -232,7 +231,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 font-weight: 800;
                 text-decoration: none;
             }
-            .button.primary { border-color: rgba(120, 224, 214, .72); background: var(--cyan); color: #071010; }
+            .button.primary { border-color: rgba(255, 255, 255, .72); background: var(--cyan); color: #071010; }
             .button:hover { transform: translateY(-1px); }
 
             .feature-nav {
@@ -302,7 +301,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 font-weight: 800;
                 text-decoration: none;
             }
-            .mode-option:hover, .mode-option.selected { background: rgba(120, 224, 214, .1); color: var(--text); }
+            .mode-option:hover, .mode-option.selected { background: rgba(255, 255, 255, .1); color: var(--text); }
             .mode-option.selected .mode-icon { color: var(--green); }
             .mode-check { color: var(--green); font-size: 1rem; text-align: right; }
 
@@ -336,8 +335,8 @@ public struct EventViewerHTMLPage: HTMLDocument {
                 white-space: nowrap;
             }
             .stage-chip { text-decoration: none; }
-            .stage-chip:hover, .stage-chip.selected { border-color: rgba(120, 224, 214, .62); background: rgba(120, 224, 214, .1); color: var(--text); }
-            .stage-chip.selected .stage-icon { box-shadow: 0 0 0 .2rem rgba(120, 224, 214, .18); }
+            .stage-chip:hover, .stage-chip.selected { border-color: rgba(255, 255, 255, .62); background: rgba(255, 255, 255, .1); color: var(--text); }
+            .stage-chip.selected .stage-icon { box-shadow: 0 0 0 .2rem rgba(255, 255, 255, .18); }
             .stage-icon { position: relative;
                 display: grid;
                 place-items: center;
@@ -435,7 +434,7 @@ public struct EventViewerHTMLPage: HTMLDocument {
             .feature-toolbar p { margin-bottom: 0; color: var(--muted); line-height: 1.45; }
             .feature-search-form { display: flex; min-width: min(100%, 22rem); gap: .6rem; }
             .feature-search-input { width: 100%; min-height: 2.85rem; padding: .7rem .85rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--panel); color: var(--text); outline: none; }
-            .feature-search-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 .2rem rgba(120, 224, 214, .12); }
+            .feature-search-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 .2rem rgba(255, 255, 255, .12); }
             .contributor-grid { display: grid; grid-template-columns: repeat(var(--stage-count, 3), minmax(0, 1fr)); gap: .85rem; }
             .contributor-grid.profile-browse-hidden { display: none; }
             .contributor-card { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); gap: .8rem; min-height: 10.5rem; padding: 1rem; border: 1px solid var(--line-soft); border-radius: .55rem; background: var(--panel); box-shadow: 0 .8rem 2rem rgba(0,0,0,.14); }
@@ -472,9 +471,9 @@ public struct EventViewerHTMLPage: HTMLDocument {
             .contact-row p, .channel-row p, .alert-row p { margin-bottom: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
             .contact-value { color: var(--cyan); font-size: .9rem; font-weight: 800; text-align: right; }
             .channel-row { cursor: pointer; }
-            .channel-row:hover { border-color: rgba(120, 224, 214, .62); background: rgba(120, 224, 214, .06); }
+            .channel-row:hover { border-color: rgba(255, 255, 255, .62); background: rgba(255, 255, 255, .06); }
             .channel-meta { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; color: var(--muted); font-size: .72rem; }
-            .channel-badge, .alert-badge, .setting-badge { padding: .24rem .46rem; border-radius: 999px; background: rgba(120, 224, 214, .12); color: var(--cyan); font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+            .channel-badge, .alert-badge, .setting-badge { padding: .24rem .46rem; border-radius: 999px; background: rgba(255, 255, 255, .12); color: var(--cyan); font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
             .channel-unread { min-width: 1.65rem; padding: .22rem .4rem; border-radius: 999px; background: var(--rose); color: #190c12; font-size: .72rem; font-weight: 900; text-align: center; }
             .channel-detail { display: none; margin-top: .8rem; padding: 1.1rem; border: 1px solid var(--line-soft); background: rgba(255,255,255,.025); }
             .channel-detail.is-active { display: block; }

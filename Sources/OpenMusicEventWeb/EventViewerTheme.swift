@@ -53,7 +53,7 @@ public struct EventViewerTheme: Equatable, Sendable {
 public extension EventViewerTheme {
     static let ome = EventViewerTheme(
         productName: "Open Music Event",
-        brandMarkURL: "/assets/ome-mark.jpg",
+        brandMarkURL: "/assets/ome-mark-sphere-cage-2026-07-13.png",
         canvas: "#060708",
         surface: "#0d0f10",
         raisedSurface: "#121517",
@@ -62,8 +62,8 @@ public extension EventViewerTheme {
         softInk: "#d9e0e2",
         line: "#30363a",
         lineSoft: "rgba(255, 255, 255, 0.1)",
-        accent: "#78e0d6",
-        accentSoft: "rgba(120, 224, 214, 0.08)",
+        accent: "#d9e0e2",
+        accentSoft: "rgba(255, 255, 255, 0.08)",
         secondaryAccent: "#a8d98e",
         tertiaryAccent: "#f18aa8",
         warmAccent: "#ffc473"
