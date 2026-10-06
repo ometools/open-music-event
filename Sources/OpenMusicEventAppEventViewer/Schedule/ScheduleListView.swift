@@ -36,6 +36,8 @@ public struct ScheduleAddMenu: View {
 
     public var body: some View {
         Menu {
+            Button("Add Stage") { store.send(.addStageButtonTapped) }
+
             Button {
                 store.send(.addScheduleButtonTapped)
             } label: {
@@ -288,6 +290,23 @@ public struct ScheduleListView: View {
             }
     }
 
+    var emptyScheduleActions: ScheduleEmptyActions? {
+        guard showsAuthoringControls else { return nil }
+        var actions = ScheduleEmptyActions(
+            addStage: { store.send(.addStageButtonTapped) },
+            addSchedule: { store.send(.addScheduleButtonTapped) }
+        )
+        if ScheduleList.canAddPerformance(
+            selectedScheduleID: selectedScheduleID,
+            schedules: store.orderedSchedules,
+            division: store.scheduleDivision,
+            event: store.event
+        ) {
+            actions.addPerformance = { store.send(.addPerformanceButtonTapped(selectedScheduleID)) }
+        }
+        return actions
+    }
+
     var chromeContent: some View {
         content
             .scheduleAccessibilityIdentifier(
@@ -374,11 +393,24 @@ public struct ScheduleListView: View {
         Group {
             if store.orderedSchedules.isEmpty
                 && !store.state.requiresListPresentation(selectedScheduleID: selectedScheduleID) {
-                ViewerPlaceholderView(
-                    title: "Schedule coming soon",
-                    systemImage: "calendar",
-                    description: "Check back for times and stages."
-                )
+                if showsAuthoringControls {
+                    ScheduleEmptyView(
+                        title: "Start Your Schedule",
+                        otherScheduleDivisions: ScheduleList.scheduleDivisions(
+                            event: store.event,
+                            programs: store.singleStageAtOnce.programs
+                        ).filter { $0 != store.scheduleDivision },
+                        onScheduleDivisionTapped: {
+                            store.spawn(\.singleStageAtOnce).send(.scheduleDivisionButtonTapped($0))
+                        }
+                    )
+                } else {
+                    ViewerPlaceholderView(
+                        title: "Schedule coming soon",
+                        systemImage: "calendar",
+                        description: "Check back for times and stages."
+                    )
+                }
             } else if store.state.requiresListPresentation(selectedScheduleID: selectedScheduleID) {
                 scheduleList
             } else {
@@ -411,6 +443,7 @@ public struct ScheduleListView: View {
                 }
             }
         }
+        .environment(\.scheduleEmptyActions, emptyScheduleActions)
     }
 
     var scheduleList: some View {

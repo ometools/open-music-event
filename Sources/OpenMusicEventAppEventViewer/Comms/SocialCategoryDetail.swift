@@ -555,8 +555,16 @@ struct SocialCategoryDetailList: View {
                 Text(channel.description ?? "")
                     .font(.subheadline)
             } footer: {
-                if store.shouldShowEmptyPostsFooter {
+                if store.shouldShowEmptyPostsFooter && !store.canEditChannel {
                     Text("There are no posts in this channel yet.")
+                }
+            }
+
+            if store.shouldShowEmptyPostsFooter && store.canEditChannel {
+                Section {
+                    Text("Write the first post to share an update in this channel.")
+                        .foregroundStyle(.secondary)
+                    Button("New Post") { store.send(.newPostButtonTapped) }
                 }
             }
 

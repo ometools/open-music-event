@@ -193,11 +193,18 @@ public struct ContributorListView: View {
     public var body: some View {
         Group {
             if store.contributorRows.isEmpty {
-                ViewerPlaceholderView(
-                    title: "Contributors",
-                    systemImage: "person.3",
-                    description: "No contributors have been added to this event yet."
-                )
+                ContentUnavailableView {
+                    Label("Contributors", mappedSystemImage: "person.3")
+                } description: {
+                    Text(showsAuthoringControls
+                        ? "Add the artists, speakers, and other contributors taking part in this event."
+                        : "No contributors have been added to this event yet.")
+                } actions: {
+                    if showsAuthoringControls {
+                        Button("Add Contributor") { store.send(.addButtonTapped) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
             } else if store.filteredContributorRows.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",

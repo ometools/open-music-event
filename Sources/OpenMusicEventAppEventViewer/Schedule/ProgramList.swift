@@ -132,11 +132,14 @@ public struct ProgramListView: View {
                 Text(errorMessage).font(.footnote).foregroundStyle(.red)
             }
             if store.state.orderedPrograms.isEmpty {
-                ContentUnavailableView(
-                    "No Programs",
-                    systemImage: "calendar",
-                    description: Text("Add a program to organize performances and places.")
-                )
+                ContentUnavailableView {
+                    Label("No Programs", mappedSystemImage: "calendar")
+                } description: {
+                    Text("Add a program to organize performances and places.")
+                } actions: {
+                    Button("Add Program") { store.send(.addButtonTapped) }
+                        .buttonStyle(.borderedProminent)
+                }
             }
             ForEach(store.state.orderedPrograms) { program in
                 HStack {

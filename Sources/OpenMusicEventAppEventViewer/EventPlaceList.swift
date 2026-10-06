@@ -713,7 +713,9 @@ struct EmptyPlacesView: View {
             VStack(spacing: 6) {
                 Text("Places")
                     .font(.title2.weight(.semibold))
-                Text("No places have been added to this event yet.")
+                Text(showsAuthoringControls
+                    ? "Add a stage or another place, or copy places from an existing event."
+                    : "No places have been added to this event yet.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

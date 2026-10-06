@@ -101,13 +101,23 @@ public struct ContactInfoViewerView: View {
                 }
                 .navigationTitle("Contact Info")
             } else {
-                ViewerPlaceholderView(
-                    title: "Contact Info",
-                    systemImage: "phone",
-                    description: store.event == nil
-                        ? "This event could not be loaded."
-                        : "No contact information has been added to this event yet."
-                )
+                ContentUnavailableView {
+                    Label("Contact Info", mappedSystemImage: "phone")
+                } description: {
+                    if store.event == nil {
+                        Text("This event could not be loaded.")
+                    } else if showsAuthoringControls {
+                        Text("Add contact details and reporting links so attendees know how to reach you.")
+                    } else {
+                        Text("No contact information has been added to this event yet.")
+                    }
+                } actions: {
+                    if showsAuthoringControls, store.event != nil {
+                        Button("Add Contact Info") { store.send(.editButtonTapped) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .navigationTitle("Contact Info")
             }
         }
         .toolbar {

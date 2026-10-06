@@ -127,6 +127,8 @@ public struct EventPlaceDetail {
     }
 
     public enum Action {
+        case addPerformanceButtonTapped
+        case addScheduleButtonTapped
         case destination(Destination.Action)
         case editButtonTapped
         case performanceButtonTapped(ProgramItem.ID)
@@ -154,6 +156,34 @@ public struct EventPlaceDetail {
             switch action {
             case .destination:
                 break
+
+            case .addPerformanceButtonTapped:
+                let eventID = state.eventID
+                let stageID = state.eventPlaceID
+                let scheduleID = state.resolvedSelectedScheduleID
+                let programID = state.scheduleDivision.programID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .addPerformance(
+                            eventID: eventID,
+                            scheduleID: scheduleID,
+                            programID: programID,
+                            stageID: stageID
+                        )
+                    )
+                    await task?.value
+                }
+
+            case .addScheduleButtonTapped:
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .addSchedule(eventID)
+                    )
+                    await task?.value
+                }
 
             case .editButtonTapped:
                 let eventID = state.eventID
@@ -272,12 +302,19 @@ public struct EventPlaceDetailView: View {
                         EventPlaceStageIconFallback(place: place, size: 150)
                     }
                 } content: {
-                    if place.stageUse != nil && !store.schedules.isEmpty {
+                    if place.stageUse != nil && (!store.schedules.isEmpty || showsAuthoringControls) {
                         Section("Schedule") {
                             StageScheduleView(
                                 stage: place,
                                 store: store,
                                 selectedScheduleID: $store.eventViewerState.selectedScheduleID
+                            )
+                            .environment(
+                                \.scheduleEmptyActions,
+                                showsAuthoringControls ? ScheduleEmptyActions(
+                                    addPerformance: { store.send(.addPerformanceButtonTapped) },
+                                    addSchedule: { store.send(.addScheduleButtonTapped) }
+                                ) : nil
                             )
                         }
                     }

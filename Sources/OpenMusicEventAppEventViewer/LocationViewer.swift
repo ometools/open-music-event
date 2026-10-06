@@ -147,13 +147,23 @@ public struct LocationViewerView: View {
                 }
                 .navigationTitle("Location")
             } else {
-                ViewerPlaceholderView(
-                    title: "Location",
-                    systemImage: "mappin.and.ellipse",
-                    description: store.event == nil
-                        ? "This event could not be loaded."
-                        : "No locations have been added to this event yet."
-                )
+                ContentUnavailableView {
+                    Label("Location", mappedSystemImage: "mappin.and.ellipse")
+                } description: {
+                    if store.event == nil {
+                        Text("This event could not be loaded.")
+                    } else if showsAuthoringControls {
+                        Text("Add a location so attendees know where to go.")
+                    } else {
+                        Text("No locations have been added to this event yet.")
+                    }
+                } actions: {
+                    if showsAuthoringControls, store.event != nil {
+                        Button("Add Location") { store.send(.editButtonTapped) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .navigationTitle("Location")
             }
         }
         .toolbar {

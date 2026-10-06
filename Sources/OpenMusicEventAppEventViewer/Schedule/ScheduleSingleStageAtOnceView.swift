@@ -441,7 +441,25 @@ public struct ScheduleSingleStageAtOnceView: View {
 
 }
 
+struct ScheduleEmptyActions: Sendable {
+    var addStage: (@MainActor @Sendable () -> Void)?
+    var addPerformance: (@MainActor @Sendable () -> Void)?
+    var addSchedule: (@MainActor @Sendable () -> Void)?
+}
+
+enum ScheduleEmptyActionsKey: EnvironmentKey {
+    static let defaultValue: ScheduleEmptyActions? = nil
+}
+
+extension EnvironmentValues {
+    var scheduleEmptyActions: ScheduleEmptyActions? {
+        get { self[ScheduleEmptyActionsKey.self] }
+        set { self[ScheduleEmptyActionsKey.self] = newValue }
+    }
+}
+
 struct ScheduleEmptyView: View {
+    @Environment(\.scheduleEmptyActions) var authoringActions
     let title: String
     let otherScheduleDivisions: [ScheduleList.ScheduleDivision]
     let onScheduleDivisionTapped: (ScheduleList.ScheduleDivision) -> Void
@@ -453,6 +471,35 @@ struct ScheduleEmptyView: View {
                     title,
                     mappedSystemImage: "calendar.day.timeline.leading"
                 )
+            } description: {
+                if let authoringActions {
+                    if authoringActions.addStage != nil {
+                        Text("Build your schedule by adding stages and performances. Add a schedule to organize them by day.")
+                    } else {
+                        Text("Add a performance to this stage, or add a schedule to organize performances by day.")
+                    }
+                    if authoringActions.addPerformance == nil {
+                        Text("Choose a program below to add a performance.")
+                    }
+                }
+            } actions: {
+                if let authoringActions {
+                    VStack(spacing: 12) {
+                        if let addStage = authoringActions.addStage {
+                            Button("Add Stage", action: addStage)
+                                .accessibilityIdentifier("schedule.empty.add-stage")
+                        }
+                        if let addPerformance = authoringActions.addPerformance {
+                            Button("Add Performance", action: addPerformance)
+                                .accessibilityIdentifier("schedule.empty.add-performance")
+                        }
+                        if let addSchedule = authoringActions.addSchedule {
+                            Button("Add Schedule", action: addSchedule)
+                                .accessibilityIdentifier("schedule.empty.add-schedule")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
 

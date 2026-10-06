@@ -103,8 +103,9 @@ public struct RelationshipListView: View {
         List {
             if store.eventRelationships.isEmpty {
                 Section {
-                    Text("No relationships have been added to this event yet.")
+                    Text("Add a relationship to connect an account or record to this event.")
                         .foregroundStyle(.secondary)
+                    Button("Add Relationship") { store.send(.addButtonTapped) }
                 }
             } else {
                 Section("Relationships") {

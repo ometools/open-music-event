@@ -457,6 +457,7 @@ public struct ScheduleList {
     public enum Action {
         case addPerformanceButtonTapped(Schedule.ID?)
         case addScheduleButtonTapped
+        case addStageButtonTapped
         case addToNewUserScheduleButtonTapped(ProgramItem.ID)
         case destination(Destination.Action)
         case editScheduleButtonTapped(Schedule.ID)
@@ -730,6 +731,16 @@ public struct ScheduleList {
                             programID: programID,
                             stageID: selectedStageID
                         )
+                    )
+                    await task?.value
+                }
+
+            case .addStageButtonTapped:
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .createPlace(eventID)
                     )
                     await task?.value
                 }

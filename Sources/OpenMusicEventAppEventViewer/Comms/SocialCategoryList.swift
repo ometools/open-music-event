@@ -440,13 +440,22 @@ public struct SocialCategoryListView: View {
                     }
                 }
             } else {
-                ViewerPlaceholderView(
-                    title: "Comms",
-                    systemImage: "megaphone",
-                    description: store.event == nil
-                        ? "This event could not be loaded."
-                        : "No communication channels have been added to this event yet."
-                )
+                ContentUnavailableView {
+                    Label("Comms", mappedSystemImage: "megaphone")
+                } description: {
+                    if store.event == nil {
+                        Text("This event could not be loaded.")
+                    } else if store.canManageChannels {
+                        Text("Add a channel to share news and updates with attendees.")
+                    } else {
+                        Text("No communication channels have been added to this event yet.")
+                    }
+                } actions: {
+                    if store.canManageChannels, store.event != nil {
+                        Button("Add Channel") { store.send(.addChannelButtonTapped) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
             }
         }
         .navigationTitle("Comms")
@@ -498,8 +507,13 @@ public struct SocialCategoryListView: View {
     private var channelsSection: some View {
         if store.channelRows.isEmpty {
             Section {
-                Text("No communication channels have been added to this event yet.")
+                Text(store.canManageChannels
+                    ? "Add a channel to share news and updates with attendees."
+                    : "No communication channels have been added to this event yet.")
                     .foregroundStyle(.secondary)
+                if store.canManageChannels {
+                    Button("Add Channel") { store.send(.addChannelButtonTapped) }
+                }
             }
         } else {
             Section("Channels") {

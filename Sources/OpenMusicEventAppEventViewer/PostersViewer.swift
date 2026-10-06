@@ -670,7 +670,9 @@ public struct PostersViewerView: View {
                         mappedSystemImage: "photo.on.rectangle"
                     )
                 } description: {
-                    Text("No posters have been added to this event yet.")
+                    Text(showsAuthoringControls
+                        ? "Add posters to share the lineup and other event information."
+                        : "No posters have been added to this event yet.")
                 } actions: {
                     if showsAuthoringControls {
                         Button {

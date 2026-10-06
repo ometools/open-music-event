@@ -148,6 +148,97 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func emptyScheduleCanStartWithAStageOrPerformance() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        try await database.write { db in
+            try ProgramItem.delete().execute(db)
+            try Program.delete().execute(db)
+            try Schedule.delete().execute(db)
+            try EventPlace.delete().execute(db)
+            var event = fixture.event
+            event.programs = nil
+            event.schedules = nil
+            try Event.upsert { event }.execute(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.uuid = .incrementing
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: ScheduleList.State(eventID: fixture.event.id)) {
+                ScheduleList()
+            }
+        }
+
+        // An editor can start an empty event with a stage, without a schedule first.
+        let stageTask = store.send(.addStageButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.createPlace(fixture.event.id)),
+            timeout: .seconds(1)
+        )
+        await stageTask?.value
+
+        // Or start with a performance; the existing editor resolves its prerequisites.
+        let performanceTask = store.send(.addPerformanceButtonTapped(nil))
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.addPerformance(
+                eventID: fixture.event.id,
+                scheduleID: nil,
+                programID: nil,
+                stageID: nil
+            )),
+            timeout: .seconds(1)
+        )
+        await performanceTask?.value
+    }
+
+    @Test
+    func emptyStageScheduleCreatesPerformanceOnThatStage() async throws {
+        let database = try canonicalPerformanceDatabase()
+        let fixture = try seedCanonicalPerformanceFixture(database: database)
+        try await database.write { db in
+            try ProgramItem.delete().execute(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.uuid = .incrementing
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: EventPlaceDetail.State(
+                eventPlaceID: fixture.stage.id,
+                eventID: fixture.event.id
+            )) {
+                EventPlaceDetail()
+            }
+        }
+
+        // Starting from an empty stage retains both its program and selected day.
+        let task = store.send(.addPerformanceButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.addPerformance(
+                eventID: fixture.event.id,
+                scheduleID: fixture.schedule.id,
+                programID: fixture.program.id,
+                stageID: fixture.stage.id
+            )),
+            timeout: .seconds(1)
+        )
+        await task?.value
+
+        let scheduleTask = store.send(.addScheduleButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.addSchedule(fixture.event.id)),
+            timeout: .seconds(1)
+        )
+        await scheduleTask?.value
+    }
+
+    @Test
     func scheduleViewerCanAddPerformanceWhileSchedulelessEventIsLoading() {
         expectNoDifference(
             ScheduleList.canAddPerformance(

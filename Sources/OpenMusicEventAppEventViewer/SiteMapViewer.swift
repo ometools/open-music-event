@@ -111,7 +111,18 @@ public struct SiteMapViewerView: View {
                     .id(store.selectedStyleIdentity)
                 #endif
             } else if store.event != nil {
-                SiteMapPlaceholderView()
+                ContentUnavailableView {
+                    Label("Site Map", mappedSystemImage: "map")
+                } description: {
+                    Text(showsAuthoringControls
+                        ? "Add a site map to help attendees find their way around the event."
+                        : "No site map has been added to this event yet.")
+                } actions: {
+                    if showsAuthoringControls {
+                        Button("Add Site Map") { store.send(.editButtonTapped) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -471,16 +482,6 @@ struct SiteMapLoadedAccessibilityMarker: View {
             .frame(width: 1, height: 1)
             .accessibilityLabel("Loaded Site Map")
             .accessibilityIdentifier("image.site-map.\(styleIdentity)")
-    }
-}
-
-struct SiteMapPlaceholderView: View {
-    var body: some View {
-        ViewerPlaceholderView(
-            title: "Site Map",
-            systemImage: "map",
-            description: "No site map has been added to this event yet."
-        )
     }
 }
 

@@ -237,11 +237,14 @@ public struct UserScheduleListView: View {
     public var body: some View {
         Group {
             if store.schedules.isEmpty {
-                ContentUnavailableView(
-                    "No Personal Schedules",
-                    systemImage: "calendar",
-                    description: Text("Create a schedule for the performances you do not want to miss.")
-                )
+                ContentUnavailableView {
+                    Label("No Personal Schedules", mappedSystemImage: "calendar")
+                } description: {
+                    Text("Create a schedule for the performances you do not want to miss.")
+                } actions: {
+                    Button("New Schedule") { store.send(.addButtonTapped) }
+                        .buttonStyle(.borderedProminent)
+                }
             } else {
                 List(store.schedules) { schedule in
                     HStack(spacing: 12) {

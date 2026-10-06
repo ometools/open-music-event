@@ -21,6 +21,28 @@ struct MyEventsView: View {
                     .foregroundStyle(.red)
             }
 
+            if store.sortedEvents.isEmpty && store.$events.loadError == nil {
+                VStack(spacing: 12) {
+                    PortableContentUnavailableView(
+                        "My Events",
+                        systemImage: "calendar",
+                        description: Text(store.canCreateEvent
+                            ? "Create your first event, or import an existing event."
+                            : "Import an event to get started.")
+                    )
+                    VStack(spacing: 12) {
+                        if store.canCreateEvent {
+                            Button("Create Event") { store.send(.createButtonTapped) }
+                                .buttonStyle(.borderedProminent)
+                                .accessibilityIdentifier("events.empty.create")
+                        }
+                        Button("Import Events") { store.send(.importButtonTapped) }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("events.empty.import")
+                    }
+                }
+            }
+
             ForEach(store.sortedEvents) { event in
                 Button {
                     store.send(.eventButtonTapped(event.id))
