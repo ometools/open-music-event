@@ -33,8 +33,9 @@ source revisions, and dataset alongside reports when comparing runs.
 Transport markers record only paths (no queries, headers, or bodies). They cover
 the automation HTTP transport, not every image-loading transport. Bundle markers
 also directly observe `EventRecordClient.appView`. A cached detail can still
-refresh when the advertised event CID differs; Enter skips downloading when the
-Event record exists, but currently rereads the entire local graph.
+refresh when the advertised event CID differs; Enter skips downloading when an installation marker and the Event row exist.
+The existence query does not decode the Event payload or its graph. A cached
+browse detail alone is not an installation.
 
 Validate the report parser with `python3 Scripts/test-ui-performance.py`.
 
@@ -77,3 +78,45 @@ Raw local evidence: `/private/tmp/ome-entry-metrics-warm-2/performance.json` and
 `app-performance.log` in the same directory. The iOS build passed, report-parser
 unit tests passed, and all three warm-entry UI iterations passed. Android was
 not verified (temporary gate). No production latency target is established.
+
+
+## Browse/installation boundary follow-up (2026-10-07)
+
+The app root now owns installation. Browse details fetch only `getEvent`.
+Installed entry checks the installation marker and performs a scalar Event
+existence query; it does not decode the graph or write to the database. Search
+loading is unchanged and remains a separate follow-up.
+
+Same device, runtime, Debug publication build, installed Wicked Woods 2026:
+
+| Measurement (milliseconds) | Run 1 after simulator restart | Run 2 | Run 3 |
+| --- | ---: | ---: | ---: |
+| Enter action to schedule onAppear | 1860 | 1160 | 1222 |
+| Installer, called once | 51.0 | 1.5 | 1.8 |
+| Search dashboard | 849 | 792 | 801 |
+| Maestro tap through schedule assertion | 7491 | 4642 | 4524 |
+| Bundle requests | 0 | 0 | 0 |
+
+The simulator needed a restart after an app-launch stall; its database was
+preserved. Do not interpret first-run differences as an isolated code benchmark.
+The marker/existence-only SQL regression establishes the removed work directly.
+
+Live first-install check used Wicked Woods 2025, previously absent from the test
+database. Browsing called `getEvent` and saved one Event, zero children, and no
+installation marker. Tapping Enter then made one `getEventBundle` request,
+opened the schedule, and saved all 387 published records plus its installation
+marker. No database reset was used.
+
+Evidence:
+- `/private/tmp/ome-entry-seam-warm-retry/performance.json`
+- `/private/tmp/ome-entry-seam-browse/database-counts.json`
+- `/private/tmp/ome-entry-seam-first-entry/database-verification.json`
+- `/private/tmp/ome-entry-seam-ios-build.log` (iOS build passed)
+- `/private/tmp/ome-entry-seam-focused-tests.log` (52 focused tests passed)
+- `/private/tmp/ome-entry-seam-workspace-tests.log` (6 passed; 2 authorization-reporting assertions failed)
+
+The broader 237-test run was not green: contributor/media lifecycle assertions
+failed, and an installed deep-link fixture lacked its installation marker. The
+fixture was corrected and its focused rerun passed; the unrelated lifecycle and
+authorization-reporting failures were not changed. Android was not verified
+(temporary gate). Source remained isolated, destination unset.

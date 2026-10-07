@@ -1,5 +1,6 @@
 import ATProto
 import ATProtoTypes
+import ComposableCalendarEvents
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
@@ -10,10 +11,15 @@ public struct EventRecordClient: Sendable {
     public var load: @Sendable (Event.ID) async throws -> EventRecordGraph
     public var latestEvent: @Sendable (Event.ID) async throws -> Event
 
-    public init(load: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph) {
+    public init(
+        latestEvent: @escaping @Sendable (Event.ID) async throws -> Event = { _ in
+            throw ValidationError("Event detail loading is not configured")
+        },
+        load: @escaping @Sendable (Event.ID) async throws -> EventRecordGraph
+    ) {
         let downloads = EventRecordDownloads()
         self.load = { id in try await downloads.load(id, operation: load) }
-        self.latestEvent = { id in try await downloads.load(id, operation: load).event }
+        self.latestEvent = latestEvent
     }
 
     public func install(_ eventID: Event.ID) async throws -> Event.ID {
@@ -22,13 +28,21 @@ public struct EventRecordClient: Sendable {
         try LexiconCoding.validateRecordURI(eventID, type: Event.self)
         @Dependency(\.defaultDatabase) var database
         AttendeePerformance.mark("cache-read.begin", event: eventID.description)
-        let cached = try await database.read { db in
-            try Event.find(eventID).fetchOne(db) != nil
+        let installed = try await database.read { db in
+            try InstalledEvent.find(eventID).fetchOne(db) != nil
+                && Event.find(eventID).fetchCount(db) > 0
         }
         AttendeePerformance.mark("cache-read.end", event: eventID.description)
-        AttendeePerformance.mark(cached ? "cache.hit" : "cache.miss", event: eventID.description)
+        AttendeePerformance.mark(installed ? "cache.hit" : "cache.miss", event: eventID.description)
+        if installed { return eventID }
+
+        // Local authoring owns its records; browsing alone does not establish a complete graph.
+        let locallyAuthored = try await database.read { db in
+            try CanonicalSourceEventIdentity.find(eventID).fetchOne(db) != nil
+                || LocallyCreatedEvent.find(eventID).fetchOne(db) != nil
+        }
         let downloaded: EventRecordGraph?
-        if cached {
+        if locallyAuthored {
             downloaded = nil
         } else {
             let graph = try await load(eventID)
@@ -41,13 +55,16 @@ public struct EventRecordClient: Sendable {
         try Task.checkCancellation()
         AttendeePerformance.mark("install-write.begin", event: eventID.description)
         try await database.write { db in
-            AttendeePerformance.mark("graph-read.begin", event: eventID.description)
-            let local = try EventRecordGraph.fetch(eventID: eventID, from: db)
-            AttendeePerformance.mark("graph-read.end", event: eventID.description)
-            if let local {
-                AttendeePerformance.mark("relationships.begin", event: eventID.description)
-                try local.validateRelationships()
-                AttendeePerformance.mark("relationships.end", event: eventID.description)
+            // Another entry may have completed, or local authoring may have started, while downloading.
+            if try InstalledEvent.find(eventID).fetchOne(db) != nil,
+               try Event.find(eventID).fetchCount(db) > 0 { return }
+            let local = try CanonicalSourceEventIdentity.find(eventID).fetchOne(db) != nil
+                || LocallyCreatedEvent.find(eventID).fetchOne(db) != nil
+            if local {
+                guard let graph = try EventRecordGraph.fetch(eventID: eventID, from: db) else {
+                    throw ValidationError("The locally authored event is no longer available")
+                }
+                try graph.validateRelationships()
             } else if let downloaded {
                 try downloaded.upsert(in: db)
             } else {
@@ -66,7 +83,9 @@ extension EventRecordClient: DependencyKey {
     }
 
     public static func appView(host: ATProto.PDSHost) -> Self {
-        Self { eventID in
+        Self(latestEvent: { eventID in
+            try await CalendarEventsClient.canonicalEvent(eventID, appViewHost: host).event()
+        }) { eventID in
             try LexiconCoding.validateRecordURI(eventID, type: Event.self)
             @Dependency(XRPC.Client.self) var xrpc
             AttendeePerformance.mark("bundle-request.begin", event: eventID.description)
@@ -98,8 +117,7 @@ public extension DependencyValues {
 }
 
 
-// A detail preload and Enter Event share one in-flight request. Cancelling one caller
-// does not cancel another caller's download; each installer checks cancellation before writing.
+// Concurrent entry requests share a download; each installer checks cancellation before writing.
 actor EventRecordDownloads {
     var tasks: [Event.ID: Task<EventRecordGraph, Error>] = [:]
 

@@ -860,7 +860,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func enteringWickedWoodsInstallsTheCanonicalRecordGraph() async throws {
+    func enteringWickedWoodsRequestsRootNavigationWithoutInstalling() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
@@ -908,11 +908,9 @@ struct EventBrowseStoryTests {
         }
 
         let enterEventTask = store.send(.detail(.enterEventButtonTapped))
-        #expect(store.detail.isEnteringEvent)
         await enterEventTask?.value
-        expectNoDifference(requestedIDs.withLock { $0 }, [eventID])
+        expectNoDifference(requestedIDs.withLock { $0 }, [])
         expectNoDifference(store.lastRequest, .event(eventID, nil))
-        #expect(!store.detail.isEnteringEvent)
 
         let saved = try await database.read { db in
             (
@@ -920,8 +918,8 @@ struct EventBrowseStoryTests {
                 installation: try InstalledEvent.find(eventID).fetchOne(db)
             )
         }
-        #expect(saved.event?.name == "Wicked Woods 2026")
-        #expect(saved.installation == InstalledEvent(id: eventID))
+        #expect(saved.event == nil)
+        #expect(saved.installation == nil)
     }
 
     @Test
@@ -984,7 +982,7 @@ struct EventBrowseStoryTests {
     }
 
     @Test @MainActor
-    func `a failed event installation is reported without becoming detail state`() async throws {
+    func `detail navigation does not invoke the unavailable bundle loader`() async throws {
         struct InstallationFailure: Error {}
 
         let database = try SQLiteData.defaultDatabase()
@@ -1013,11 +1011,9 @@ struct EventBrowseStoryTests {
             await store.send(.detail(.enterEventButtonTapped))?.value
         }
 
-        #expect(!store.detail.isEnteringEvent)
         #expect(store.detail.errorMessage == nil)
-        #expect(store.lastError?.message.fallback == "Unable to enter this event.")
-        #expect(store.lastError?.operation.rawValue == "event.install")
-        #expect(store.lastRequest == nil)
+        #expect(store.lastError == nil)
+        expectNoDifference(store.lastRequest, .event(omeEvent.uri, nil))
     }
 
     func event(

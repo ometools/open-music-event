@@ -42,6 +42,34 @@ struct EventRecordClientTests {
         }
     }
 
+    @Test
+    func detailsFetchOnlyTheEventXRPCRecord() async throws {
+        let event = try Event(
+            id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah")),
+            name: "Wicked Woods", createdAt: "2026-09-01T12:00:00Z",
+            timeZone: #require(TimeZone(identifier: "America/Denver"))
+        )
+        let data = try JSONEncoder().encode(Event.IndexedRecord(
+            uri: event.id, cid: event.cid, value: try event.encodeLexicon()
+        ))
+        let requests = LockIsolated<[String]>([])
+        try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.dataForURL = { request, _ in
+                let url = try #require(request.url)
+                #expect(url.host == "metadata.ome-auth.test")
+                requests.withValue { $0.append(url.path) }
+                return (data, HTTPResponse(status: .ok))
+            }
+        } operation: {
+            let detail = try await EventRecordClient.appView(host: "metadata.ome-auth.test").latestEvent(event.id)
+            expectNoDifference(detail, event)
+        }
+        expectNoDifference(requests.value, ["/xrpc/events.openmusic.getEvent"])
+    }
+
     @Test(arguments: ["valid", "wrong-id", "unsupported-version"])
     func downloadsOneEventBundleFromAppView(scenario: String) async throws {
         let event = try Event(

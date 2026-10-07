@@ -1281,7 +1281,6 @@ public struct EventBrowseDetail {
 
         public var errorMessage: String?
         public var event: CalendarEvent
-        public var isEnteringEvent = false
         public var isSavingRSVP = false
         public var organizationDetail: OrganizationDetail.State?
         public var rsvpStatus: EventRSVP.Status?
@@ -1319,24 +1318,9 @@ public struct EventBrowseDetail {
                 let eventURI = state.event.uri
                 AttendeePerformance.mark("enter.begin", event: eventURI.description)
                 state.errorMessage = nil
-                state.isEnteringEvent = true
                 store.addTask {
-                    let _: Void? = await store.withErrorHandling(
-                        fallbackMessage: .eventInstallationFailed,
-                        operation: .eventInstallation
-                    ) {
-                        let eventID = try await eventRecords.install(eventURI)
-                        try store.modify {
-                            $0.isEnteringEvent = false
-                        }
-                        AttendeePerformance.mark("navigation.begin", event: eventID.description)
-                        try store.post(
-                            key: NavigationRequested.self,
-                            value: .event(eventID, nil)
-                        )
-                    } cleanup: {
-                        $0.isEnteringEvent = false
-                    }
+                    AttendeePerformance.mark("navigation.begin", event: eventURI.description)
+                    try store.post(key: NavigationRequested.self, value: .event(eventURI, nil))
                 }
 
             case .organizerButtonTapped:
@@ -1416,14 +1400,14 @@ public struct EventBrowseDetail {
                                     }
                                 }
                             } else if cached == nil {
-                                let graph = try await eventRecords.load(eventURI)
-                                guard graph.event.id == eventURI else {
+                                let event = try await eventRecords.latestEvent(eventURI)
+                                guard event.id == eventURI else {
                                     throw ValidationError("The downloaded event has a different record ID")
                                 }
                                 try Task.checkCancellation()
                                 try await database.write { db in
                                     guard try Event.find(eventURI).fetchOne(db) == nil else { return }
-                                    try graph.upsert(in: db)
+                                    try Event.upsert { event }.execute(db)
                                 }
                             }
                         } else {
@@ -1479,15 +1463,11 @@ public struct EventBrowseDetailView: View {
                         store.send(.enterEventButtonTapped)
                     } label: {
                         HStack(spacing: 8) {
-                            if store.isEnteringEvent {
-                                ProgressView()
-                            }
-                            Text(store.isEnteringEvent ? "Entering…" : "Enter Event")
+                            Text("Enter Event")
                                 .lineLimit(1)
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(store.isEnteringEvent)
                     .accessibilityIdentifier(
                         "button.enter-event.\(store.event.uri.rkey?.rawValue ?? "unknown")"
                     )

@@ -259,9 +259,22 @@ extension OME {
         if uiAutomation == .normal || uiAutomation == .publication {
             let host: ATProto.PDSHost = uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost
             dependencies.eventRecords = .appView(host: host)
-            dependencies.eventRecords.latestEvent = { id in
-                try await CalendarEventsClient.canonicalEvent(id, appViewHost: host).event()
-            }
+        } else if uiAutomation == .attendee || uiAutomation == .workspace {
+            dependencies.eventRecords = EventRecordClient(latestEvent: { id in
+                try await database.read { db in
+                    guard let event = try OpenMusicEventLexicon.Event.find(id).fetchOne(db) else {
+                        throw ValidationError("The fixture event is unavailable")
+                    }
+                    return event
+                }
+            }, load: { id in
+                try await database.read { db in
+                    guard let graph = try EventRecordGraph.fetch(eventID: id, from: db) else {
+                        throw ValidationError("The fixture event graph is unavailable")
+                    }
+                    return graph
+                }
+            })
         }
         if uiAutomation == .authentication || uiAutomation == .workspace || uiAutomation == .publication {
             OpenMusicEventAuthenticationAutomation.prepareSignUp(&dependencies)

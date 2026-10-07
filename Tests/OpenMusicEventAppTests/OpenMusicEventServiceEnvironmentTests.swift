@@ -106,7 +106,7 @@ struct OpenMusicEventServiceEnvironmentTests {
             $0.context = .test
             $0.defaultDatabase = stagingDatabase
         } operation: {
-            try await EventRecordClient.testValue.install(eventID)
+            try await EventRecordClient { _ in graph }.install(eventID)
         }
 
         expectNoDifference(installedEventID, eventID)

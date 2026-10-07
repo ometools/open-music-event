@@ -123,7 +123,7 @@ struct EventRecordInstallationTests {
     }
 
     @Test(arguments: [false, true])
-    func installingACachedOrConcurrentlySavedEventPreservesItsLocalGraph(cached: Bool) async throws {
+    func installingAnInstalledOrConcurrentlyInstalledEventPreservesItsLocalGraph(cached: Bool) async throws {
         let database = try database()
         let graph = try graph()
         let local: EventRecordGraph = {
@@ -133,15 +133,21 @@ struct EventRecordInstallationTests {
             return result
         }()
         if cached {
-            try await database.write { try local.upsert(in: $0) }
+            try await database.write { db in
+                try local.upsert(in: db)
+                try InstalledEvent.insert { InstalledEvent(id: local.event.id) }.execute(db)
+            }
         }
-        // Caching an event for browsing is not an installation.
+        // The marker records an installation, including one completed by a concurrent entry.
         let before = try await database.read { try InstalledEvent.all.fetchAll($0) }
-        expectNoDifference(before, [])
+        expectNoDifference(before, cached ? [InstalledEvent(id: local.event.id)] : [])
         let downloads = LockIsolated(0)
         let client = EventRecordClient { _ in
             downloads.withValue { $0 += 1 }
-            try await database.write { try local.upsert(in: $0) }
+            try await database.write { db in
+                try local.upsert(in: db)
+                try InstalledEvent.insert { InstalledEvent(id: local.event.id) }.execute(db)
+            }
             return graph
         }
         try await withDependencies {
@@ -154,6 +160,73 @@ struct EventRecordInstallationTests {
         expectNoDifference(saved, local)
         expectNoDifference(installed, [InstalledEvent(id: graph.event.id)])
         expectNoDifference(downloads.value, cached ? 0 : 1)
+    }
+
+    @Test
+    func cachedEventDetailsStillRequireTheBundleOnFirstEntry() async throws {
+        let database = try database()
+        let graph = try graph()
+        // Browsing saves only the Event; its program has not been downloaded.
+        try await database.write { try Event.insert { graph.event }.execute($0) }
+        let downloads = LockIsolated(0)
+        let client = EventRecordClient { _ in
+            downloads.withValue { $0 += 1 }
+            return graph
+        }
+        try await withDependencies { $0.defaultDatabase = database } operation: {
+            _ = try await client.install(graph.event.id)
+            _ = try await client.install(graph.event.id)
+        }
+        expectNoDifference(downloads.value, 1)
+        let saved = try await database.read { try EventRecordGraph.fetch(eventID: graph.event.id, from: $0) }
+        expectNoDifference(saved, graph)
+    }
+
+    @Test
+    func installedEntryDoesNotReadGraphTablesOrWriteAnything() async throws {
+        let reads = LockIsolated<[String]>([])
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            db.trace { event in
+                let statement = event.description
+                reads.withValue { $0.append(statement) }
+            }
+        }
+        let database = try DatabaseQueue(configuration: configuration)
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        let graph = try graph()
+        try await database.write { db in
+            try graph.upsert(in: db)
+            try InstalledEvent.insert { InstalledEvent(id: graph.event.id) }.execute(db)
+        }
+        reads.withValue { $0 = [] }
+        try await withDependencies { $0.defaultDatabase = database } operation: {
+            _ = try await EventRecordClient.testValue.install(graph.event.id)
+        }
+        let statements = reads.value.joined(separator: "\n")
+        #expect(statements.contains("installedEventRecords"))
+        #expect(statements.uppercased().contains("COUNT(*)"))
+        #expect(!statements.contains("events.openmusic.program"))
+        #expect(!statements.contains("events.openmusic.contributor"))
+        #expect(!statements.contains("media"))
+        #expect(!statements.uppercased().contains("INSERT"))
+        #expect(!statements.uppercased().contains("UPDATE"))
+    }
+
+    @Test
+    func aRetainedInstallationChoiceWithMissingRecordsDownloadsAgain() async throws {
+        let database = try database()
+        let graph = try graph()
+        try await database.write { db in
+            try InstalledEvent.insert { InstalledEvent(id: graph.event.id) }.execute(db)
+        }
+        try await withDependencies { $0.defaultDatabase = database } operation: {
+            _ = try await EventRecordClient { _ in graph }.install(graph.event.id)
+        }
+        let saved = try await database.read { try EventRecordGraph.fetch(eventID: graph.event.id, from: $0) }
+        expectNoDifference(saved, graph)
     }
 
     private func database(path: String = ":memory:") throws -> DatabaseQueue {

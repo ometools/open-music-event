@@ -44,6 +44,7 @@ struct WorkspaceAuthoringStoryTests {
         await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
         } operation: {
             @Dependency(\.defaultDatabase) var preparedDatabase
             recorder.record(.preparedScope, database: preparedDatabase)
@@ -76,6 +77,7 @@ struct WorkspaceAuthoringStoryTests {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
         } operation: {
             try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
@@ -96,6 +98,7 @@ struct WorkspaceAuthoringStoryTests {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.uuid = .incrementing
             $0.eventRecords = EventRecordClient { _ in
@@ -103,6 +106,10 @@ struct WorkspaceAuthoringStoryTests {
             }
         } operation: {
             try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
+            // This story starts with an installed event, not merely cached fixture records.
+            try await database.write { db in
+                try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
+            }
             @Dependency(\.eventRecords) var eventRecords
             let installedEventID = try await eventRecords.install(eventID)
             expectNoDifference(installedEventID, eventID)
@@ -152,6 +159,7 @@ struct WorkspaceAuthoringStoryTests {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
             $0.canonicalWorkspaceStorage = .fileBacked(
                 rootURL: FileManager.default.temporaryDirectory
                     .appending(path: "OME-WorkspaceRelaunch-\(UUID())", directoryHint: .isDirectory)
@@ -230,6 +238,7 @@ struct WorkspaceAuthoringStoryTests {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
             $0.uuid = .incrementing
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.continuousClock = ContinuousClock()
@@ -285,6 +294,7 @@ struct WorkspaceAuthoringStoryTests {
             try await withDependencies {
                 $0.context = .test
                 OME.prepareDependencies(&$0, database: database)
+                $0.eventRecords = workspaceStoryEventRecords(database: database)
                 $0.defaultEventID = eventID
                 $0.canonicalWorkspaceStorage = .fileBacked(
                     rootURL: FileManager.default.temporaryDirectory
@@ -339,6 +349,7 @@ struct WorkspaceAuthoringStoryTests {
         try await withDependencies {
             $0.context = .test
             OME.prepareDependencies(&$0, database: database)
+            $0.eventRecords = workspaceStoryEventRecords(database: database)
             $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
             $0.uuid = .incrementing
             $0.continuousClock = ContinuousClock()
@@ -397,6 +408,7 @@ struct WorkspaceAuthoringStoryTests {
             try await withDependencies {
                 $0.context = .test
                 OME.prepareDependencies(&$0, database: database)
+                $0.eventRecords = workspaceStoryEventRecords(database: database)
                 $0.date = .constant(Date(timeIntervalSince1970: 1_786_000_000))
                 $0.uuid = .incrementing
                 $0.continuousClock = ContinuousClock()
@@ -712,4 +724,13 @@ private func workspaceStoryWaitUntil(
         sourceLocation: sourceLocation
     )
     try #require(condition())
+}
+
+private func workspaceStoryEventRecords(database: any DatabaseWriter) -> EventRecordClient {
+    EventRecordClient { eventID in
+        // Supply the prepared bundle at the external download boundary. Installation stays live.
+        try await database.read { db in
+            try #require(try EventRecordGraph.fetch(eventID: eventID, from: db))
+        }
+    }
 }

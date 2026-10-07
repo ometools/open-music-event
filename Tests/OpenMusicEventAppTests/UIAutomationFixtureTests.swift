@@ -174,7 +174,7 @@ struct UIAutomationFixtureTests {
             )?.performanceID == OpenMusicEventUIAutomationFixture.canonicalOpeningSetID)
 
             // A cached graph installs through the production installer without downloading it.
-            let client = EventRecordClient { _ in throw URLError(.notConnectedToInternet) }
+            @Dependency(\.eventRecords) var client
             let installedID = try await client.install(graph.event.id)
             #expect(installedID == graph.event.id)
             let saved = try await database.read { db in
@@ -213,7 +213,7 @@ struct UIAutomationFixtureTests {
         } operation: {
             try await OpenMusicEventUIAutomationFixture.prepareCanonicalRecords(into: database)
             let eventID = OpenMusicEventUIAutomationFixture.canonicalEventID
-            let client = EventRecordClient { _ in throw URLError(.notConnectedToInternet) }
+            @Dependency(\.eventRecords) var client
             _ = try await client.install(eventID)
 
             let personalSchedule = UserSchedule(

@@ -814,6 +814,8 @@ struct NavigationTests {
                 startsAt: Date(timeIntervalSince1970: 0),
                 endsAt: Date(timeIntervalSince1970: 3_600)
             )
+            // This deep link opens a previously installed event, not a browse-only record.
+            try InstalledEvent.insert { InstalledEvent(id: eventID) }.execute(db)
         }
 
         let store = makeCanonicalRootHarnessStore(

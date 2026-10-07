@@ -83,7 +83,9 @@ struct CanonicalEventEditingTests {
     @Test
     func editingFromBrowsePreservesProtocolIdentityAndUneditedFields() async throws {
         let database = try database()
-        let event = try event()
+        var detail = try event()
+        detail.programs = [try #require(Program.ID("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcah"))]
+        let event = detail
         try await database.write { db in
             try #sql("""
                 CREATE TABLE notes (
@@ -98,22 +100,26 @@ struct CanonicalEventEditingTests {
             $0.date.now = Date(timeIntervalSince1970: 0)
             $0.uuid = .incrementing
             $0.getSelectedOAuthSessionID = { nil }
-            $0.eventRecords = .init { id in
+            $0.eventRecords = .init(latestEvent: { id in
                 expectNoDifference(id, event.id)
-                return EventRecordGraph(event: event)
-            }
+                return event
+            }, load: { _ in throw ValidationError("Browsing must not request a bundle") })
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: listing(event))) {
                 EventBrowseDetail()
             }
         }
 
-        // Opening the browse result loads the canonical record without a source checkout.
+        // Opening the browse result loads only the canonical record, without a bundle or installation.
         #expect(store.record == nil)
         await store.send(.task)?.value
         store.expect {
             $0.record = event
         }
+        let browsingCounts = try await database.read { db in
+            [try Program.all.fetchCount(db), try InstalledEvent.all.fetchCount(db)]
+        }
+        expectNoDifference(browsingCounts, [0, 0])
         expectNoDifference(store.record, event)
         try await database.write { db in
             try #sql("INSERT INTO notes VALUES (\(event.id), 'Meet at the gate')").execute(db)
@@ -544,7 +550,7 @@ struct CanonicalEventEditingTests {
         #expect(detail.artworkTitleSources.containsLogo == !cleared)
     }
 
-    @Test(arguments: ["offline", "wrong-record", "incomplete-graph"])
+    @Test(arguments: ["offline", "wrong-record"])
     func failedDownloadsLeaveNoPartialRecordsAndCanBeRetried(scenario: String) async throws {
         let database = try database()
         let original = try event()
@@ -554,30 +560,18 @@ struct CanonicalEventEditingTests {
             $0.date.now = Date(timeIntervalSince1970: 0)
             $0.uuid = .incrementing
             $0.getSelectedOAuthSessionID = { nil }
-            $0.eventRecords = .init { id in
+            $0.eventRecords = .init(latestEvent: { id in
                 expectNoDifference(id, original.id)
                 let attempt = attempts.withValue { $0 += 1; return $0 }
                 if attempt == 1 {
-                    switch scenario {
-                    case "offline":
-                        throw URLError(.notConnectedToInternet)
-                    case "wrong-record":
-                        return EventRecordGraph(event: try Event(
-                            id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai")),
-                            name: "Another event",
-                            createdAt: original.createdAt,
-                            timeZone: original.timeZone
-                        ))
-                    default:
-                        var incomplete = original
-                        incomplete.programs = [
-                            try #require(ATProto.URI("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcai"))
-                        ]
-                        return EventRecordGraph(event: incomplete)
-                    }
+                    if scenario == "offline" { throw URLError(.notConnectedToInternet) }
+                    return try Event(
+                        id: #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai")),
+                        name: "Another event", createdAt: original.createdAt, timeZone: original.timeZone
+                    )
                 }
-                return EventRecordGraph(event: original)
-            }
+                return original
+            }, load: { _ in throw ValidationError("Browsing must not request a bundle") })
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: listing(original))) {
                 EventBrowseDetail()
@@ -620,11 +614,11 @@ struct CanonicalEventEditingTests {
             $0.defaultDatabase = database
             $0.date.now = Date(timeIntervalSince1970: 0)
             $0.getSelectedOAuthSessionID = { nil }
-            $0.eventRecords = .init { _ in
+            $0.eventRecords = .init(latestEvent: { _ in
                 // Another opening of this event finishes and saves before this response arrives.
                 try await database.write { try Event.insert { local }.execute($0) }
-                return EventRecordGraph(event: original)
-            }
+                return original
+            }, load: { _ in throw ValidationError("Browsing must not request a bundle") })
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: listing(original))) {
                 EventBrowseDetail()
