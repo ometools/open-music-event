@@ -36,17 +36,8 @@ public struct EventSearch {
             )
             AttendeePerformance.mark("search-query-timeZone.end", event: eventID.description)
             self.destination = destination
-            self.content = .dashboard(Self.emptyDashboard)
-            AttendeePerformance.mark("search-query-contributors.begin", event: eventID.description)
-            _contributors = FetchAll(
-                ContributorProfile.all(eventID: eventID, hydration: .none)
-            )
-            AttendeePerformance.mark("search-query-contributors.end", event: eventID.description)
-            AttendeePerformance.mark("search-query-performanceRows.begin", event: eventID.description)
-            _performanceRows = FetchAll(
-                PerformanceRow.all(eventID: eventID)
-            )
-            AttendeePerformance.mark("search-query-performanceRows.end", event: eventID.description)
+            self._content = Fetch(wrappedValue: .dashboard(Self.emptyDashboard))
+
         }
 
         public let eventID: Event.ID
@@ -55,10 +46,8 @@ public struct EventSearch {
             timeZone.map { EventTimePresentation(timeZone: $0) }
         }
 
-        public var content: EventSearchContent
+        @Fetch public var content: EventSearchContent = .dashboard(Self.emptyDashboard)
 
-        @FetchAll var contributors: [ContributorProfile]
-        @FetchAll var performanceRows: [PerformanceRow]
 
         public var query = ""
 
@@ -125,7 +114,6 @@ public struct EventSearch {
         case stageDetail(Spawn<EventPlaceDetail>)
     }
 
-    @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @StoreTaskID var searchTask
 
@@ -183,43 +171,35 @@ public struct EventSearch {
 
             case let .timelineTick(now):
                 guard EventSearchTerm(rawValue: state.query) == nil else { return }
-                let eventID = state.eventID
-                let query = state.query
+                let content = state.$content
+                let request = EventSearchContentRequest(eventID: state.eventID, query: state.query, now: now)
                 store.addTask(id: searchTask) {
-                    let content = try database.read { db in
-                        try State.content(eventID: eventID, query: query, now: now, db: db)
-                    }
-                    try store.modify {
-                        guard $0.eventID == eventID,
-                              $0.query == query,
-                              $0.content != content
-                        else { return }
-                        $0.content = content
-                    }
+                    try await content.load(request).task
                 }
             }
         }
         .onChange(of: store.query, initial: true) { _, query, state in
-            let eventID = state.eventID
-            let currentDate = now
+            let content = state.$content
+            let request = EventSearchContentRequest(eventID: state.eventID, query: query, now: now)
             store.addTask(id: searchTask) {
-                AttendeePerformance.mark("search-load.begin", event: eventID.description)
-                let content = try database.read { db in
-                    try State.content(eventID: eventID, query: query, now: currentDate, db: db)
-                }
-                AttendeePerformance.mark("search-load.end", event: eventID.description)
-                try store.modify {
-                    guard $0.eventID == eventID,
-                          $0.query == query,
-                          $0.content != content
-                    else { return }
-                    $0.content = content
-                }
+                try await content.load(request).task
             }
         }
         .ifLet(\.destination) {
             Destination.body
         }
+    }
+}
+
+struct EventSearchContentRequest: FetchKeyRequest {
+    let eventID: Event.ID
+    let query: String
+    let now: Date
+
+    func fetch(_ db: Database) throws -> EventSearchContent {
+        AttendeePerformance.mark("search-load.begin", event: eventID.description)
+        defer { AttendeePerformance.mark("search-load.end", event: eventID.description) }
+        return try EventSearch.State.content(eventID: eventID, query: query, now: now, db: db)
     }
 }
 
@@ -240,10 +220,8 @@ public struct EventSearchView: View {
                     EventSearchContentView(
                         content: store.content,
                         now: currentDate,
-                        contributors: store.contributors,
                         eventTimePresentation: eventTimePresentation,
                         timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
-                        performanceRows: store.performanceRows,
                         openTarget: { store.send(.openTarget($0)) }
                     )
                     .task(id: currentDate) {
@@ -272,10 +250,8 @@ public struct EventSearchView: View {
 struct EventSearchContentView: View {
     let content: EventSearchContent
     let now: Date
-    let contributors: [ContributorProfile]
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
-    let performanceRows: [PerformanceRow]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -285,7 +261,6 @@ struct EventSearchContentView: View {
                 EventSearchDashboardView(
                     dashboard: dashboard,
                     now: now,
-                    contributors: contributors,
                     eventTimePresentation: eventTimePresentation,
                     timeZoneDisclosure: timeZoneDisclosure,
                     openTarget: openTarget
@@ -305,7 +280,6 @@ struct EventSearchContentView: View {
                     } label: {
                         EventSearchResultRow(
                             result: result,
-                            contributor: contributor(for: result),
                             performanceRow: performanceRow(for: result),
                             now: now,
                             eventTimePresentation: eventTimePresentation,
@@ -320,21 +294,14 @@ struct EventSearchContentView: View {
         .background(Color.secondary.opacity(0.04))
     }
 
-    func contributor(for result: EventSearchResult) -> ContributorProfile? {
-        guard case let .contributor(contributorID) = result.document.target else { return nil }
-        return contributors.first { $0.contributorID == contributorID }
-    }
-
     func performanceRow(for result: EventSearchResult) -> PerformanceRow? {
-        guard case let .performance(performanceID) = result.document.target else { return nil }
-        return performanceRows.first { $0.performanceID == performanceID }
+        result.performance.map { PerformanceRow(performance: $0.performance, stage: $0.stage) }
     }
 }
 
 struct EventSearchDashboardView: View {
     let dashboard: EventSearchDashboard
     let now: Date
-    let contributors: [ContributorProfile]
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
     let openTarget: (EventSearchDocument.Target) -> Void
@@ -351,7 +318,6 @@ struct EventSearchDashboardView: View {
                             EventSearchStageCard(
                                 row: dashboard.stageRows[index],
                                 now: now,
-                                leadContributors: leadContributors,
                                 showStageNameLabels: showStageNameLabels(
                                     for: dashboard.stageRows[index].stage
                                 ),
@@ -364,8 +330,7 @@ struct EventSearchDashboardView: View {
                                 EventSearchStageCard(
                                     row: dashboard.stageRows[index + 1],
                                     now: now,
-                                    leadContributors: leadContributors,
-                                    showStageNameLabels: showStageNameLabels(
+                                        showStageNameLabels: showStageNameLabels(
                                         for: dashboard.stageRows[index + 1].stage
                                     ),
                                     eventTimePresentation: eventTimePresentation,
@@ -430,24 +395,6 @@ struct EventSearchDashboardView: View {
         return indices
     }
 
-    var leadContributors: [ProgramItem.ID: ContributorProfile] {
-        let contributorsByID = Dictionary(
-            uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
-        )
-        let rows = dashboard.stageRows.flatMap { $0.nowPlayingRows + $0.comingNextRows }
-        return Dictionary(
-            rows.compactMap { row in
-                let contributorID = row.performance.credits?.first {
-                    if case .known(.primary) = $0.billing { return $0.contributor != nil }
-                    return false
-                }?.contributor
-                guard let contributorID, let profile = contributorsByID[contributorID] else { return nil }
-                return (row.performanceID, profile)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
-
     func showStageNameLabels(for stage: EventPlace) -> Bool {
         dashboard.stageRows.filter { $0.stage.stageUse?.category == stage.stageUse?.category }.count > 1
     }
@@ -456,7 +403,6 @@ struct EventSearchDashboardView: View {
 struct EventSearchStageCard: View {
     let row: StageDashboardRow
     let now: Date
-    let leadContributors: [ProgramItem.ID: ContributorProfile]
     let showStageNameLabels: Bool
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
@@ -518,8 +464,7 @@ struct EventSearchStageCard: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
-                if let contributor = leadContributors[performance.performanceID],
-                   let image = contributor.artworkDisplayImage {
+                if let image = performance.artwork?.displayImageAsset(recordID: performance.performance.event) {
                     ContributorArtworkView(
                         image: image,
                         size: 54
@@ -669,19 +614,18 @@ struct EventSearchPerformanceRow: View {
 
 struct EventSearchResultRow: View {
     let result: EventSearchResult
-    let contributor: ContributorProfile?
     let performanceRow: PerformanceRow?
     let now: Date
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
 
     var body: some View {
-        if let contributor {
+        if result.document.kind == .contributor {
             EventSearchRow(
                 title: result.document.title,
                 subtitle: result.document.subtitle ?? result.document.kind.title,
                 chrome: ContributorArtworkView(
-                    image: contributor.artworkDisplayImage,
+                    image: result.artwork?.displayImageAsset(recordID: result.document.eventID),
                     size: 44
                 )
             )

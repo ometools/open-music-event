@@ -86,19 +86,26 @@ extension NavigationTests {
                     .first { $0.contributorID == contributorID }
             )
         }
-        let contributorProfile = row.profile
+        let contributorProfile = row
 
-        #expect(contributorProfile.contributorActor == actor)
-        #expect(!contributorProfile.usesActorProfileAsPrimary)
+        #expect(contributorProfile.subject == actor)
         #expect(contributorProfile.name == "Explicit Alice")
         #expect(contributorProfile.handle == "alice.bsky.social")
         #expect(contributorProfile.subtitle == "@alice.bsky.social")
-        #expect(contributorProfile.bio == "OME bio")
         #expect(contributorProfile.artworkDisplayImage?.url == explicitImageURL)
         #expect(contributorProfile.artworkDisplayImage?.recordID != nil)
-        #expect(row.matchesSearch("Explicit Alice"))
-        #expect(row.matchesSearch("alice.bsky.social"))
-        #expect(!row.matchesSearch("Bluesky Alice"))
+        let matchesExplicitAlice = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "Explicit Alice").fetch(db)
+        }
+        #expect(matchesExplicitAlice.contains { $0.id == contributorID })
+        let matchesalicebskysocial = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "alice.bsky.social").fetch(db)
+        }
+        #expect(matchesalicebskysocial.contains { $0.id == contributorID })
+        let matchesBlueskyAlice = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "Bluesky Alice").fetch(db)
+        }
+        #expect(matchesBlueskyAlice.isEmpty)
     }
 
     @Test
@@ -174,9 +181,9 @@ extension NavigationTests {
 
         #expect(await requestRecorder.actors == [actor.description])
         let row = try #require(store.contributorRows.first { $0.contributorID == contributorID })
-        #expect(row.profile.name == "Alice at Wicked Woods")
-        #expect(row.profile.subtitle == "@alice.bsky.social")
-        #expect(row.profile.artworkDisplayImage?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(row.name == "Alice at Wicked Woods")
+        #expect(row.subtitle == "@alice.bsky.social")
+        #expect(row.artworkDisplayImage?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
     }
 
     @Test
@@ -413,4 +420,71 @@ extension NavigationTests {
         )
     }
 
+}
+
+extension NavigationTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_DIAGNOSTIC_DATABASE"] != nil))
+    func measureInstalledContributorProjection() throws {
+        let path = try #require(ProcessInfo.processInfo.environment["OME_DIAGNOSTIC_DATABASE"])
+        var configuration = Configuration()
+        configuration.readonly = true
+        let database = try DatabaseQueue(path: path, configuration: configuration)
+        let eventID = try #require(Event.ID("at://did:plc:a2ln7umogxgflsobz2unqfeu/events.openmusic.event/3mx6isyz5jy22"))
+        try database.read { db in
+            for iteration in 0..<5 {
+                let before = ProcessInfo.processInfo.systemUptime
+                let full = try ContributorProfile.all(eventID: eventID, hydration: .bskyActorProfile).fetchAll(db)
+                let projectedStart = ProcessInfo.processInfo.systemUptime
+                let projected = try ContributorListRequest(eventID: eventID).fetch(db)
+                let end = ProcessInfo.processInfo.systemUptime
+                expectNoDifference(projected.map(\.id), full.map(\.id))
+                expectNoDifference(projected.map(\.artworkDisplayImage), full.map(\.artworkDisplayImage))
+                print("CONTRIBUTOR_METRIC \(iteration) full_records_ms \((projectedStart - before) * 1000) projected_rows_ms \((end - projectedStart) * 1000)")
+            }
+        }
+    }
+}
+
+extension NavigationTests {
+    @Test(.timeLimit(.minutes(1)))
+    func searchArtworkProjectionObservesContributorEdits() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = canonicalRouteEventID
+        let contributorID = canonicalRouteRecordID("events.openmusic.contributor", "3mrdbziccpcaj")
+        let first = OME.Image(source: .known(.url(URL(string: "https://example.com/first.jpg")!)), role: .known(.photo))
+        let updated = OME.Image(source: .known(.url(URL(string: "https://example.com/updated.jpg")!)), role: .known(.photo))
+        try await database.write { db in
+            try Self.insertCanonicalEvent(db, id: eventID, name: "Event")
+            let contributor = try Contributor(id: contributorID, event: eventID, name: "North",
+                                              createdAt: "2026-09-01T12:00:00Z", media: [.known(.image(first))])
+            try Contributor.insert { contributor }.execute(db)
+        }
+        let content = Fetch(
+            wrappedValue: EventSearchContent.noResults,
+            EventSearchContentRequest(eventID: eventID, query: "north", now: Date(timeIntervalSince1970: 0)),
+            database: database
+        )
+        guard case let .results(initial) = content.wrappedValue else {
+            Issue.record("The matching contributor should be available immediately")
+            return
+        }
+        expectNoDifference(initial.map(\.artwork), [first])
+        let (updates, continuation) = AsyncStream<EventSearchContent>.makeStream()
+        let subscription = content.publisher.sink { @Sendable value in continuation.yield(value) }
+        defer { subscription.cancel(); continuation.finish() }
+
+        // The same mounted request observes artwork edits without loading all contributors.
+        try await database.write { db in
+            try Contributor.find(contributorID).update {
+                $0.media = #bind([Open<OME.Media>.known(.image(updated))])
+            }.execute(db)
+        }
+        for await value in updates {
+            if case let .results(results) = value, results.first?.artwork == updated {
+                expectNoDifference(results.map(\.document.target), [.contributor(contributorID)])
+                return
+            }
+        }
+        Issue.record("The observed artwork did not update")
+    }
 }

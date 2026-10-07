@@ -82,19 +82,26 @@ extension NavigationTests {
                     .first { $0.contributorID == contributorID }
             )
         }
-        let contributorProfile = row.profile
+        let contributorProfile = row
 
-        #expect(contributorProfile.contributorActor == actor)
-        #expect(!contributorProfile.usesActorProfileAsPrimary)
+        #expect(contributorProfile.subject == actor)
         #expect(contributorProfile.name == "Alice at Wicked Woods")
         #expect(contributorProfile.handle == "alice.bsky.social")
         #expect(contributorProfile.subtitle == "@alice.bsky.social")
-        #expect(contributorProfile.bio == "Festival bio")
         #expect(contributorProfile.artworkDisplayImage?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
         #expect(contributorProfile.artworkDisplayImage?.recordID == nil)
-        #expect(row.matchesSearch("Alice at Wicked Woods"))
-        #expect(row.matchesSearch("alice.bsky.social"))
-        #expect(!row.matchesSearch("Alice Example"))
+        let matchesAliceatWickedWoods = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "Alice at Wicked Woods").fetch(db)
+        }
+        #expect(matchesAliceatWickedWoods.contains { $0.id == contributorID })
+        let matchesalicebskysocial = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "alice.bsky.social").fetch(db)
+        }
+        #expect(matchesalicebskysocial.contains { $0.id == contributorID })
+        let matchesAliceExample = try await database.read { db in
+            try ContributorListRequest(eventID: selectedEventID, search: "Alice Example").fetch(db)
+        }
+        #expect(matchesAliceExample.isEmpty)
     }
 
 }

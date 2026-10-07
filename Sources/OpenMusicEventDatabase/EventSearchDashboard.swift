@@ -51,16 +51,49 @@ public struct EventSearchDashboard: Equatable, Sendable {
             .fetchAll(db)
 
         let placesByID = Dictionary(uniqueKeysWithValues: places.map { ($0.id, $0) })
-        let performanceRows = try now.map { _ in
-            try ProgramItem
+        let performanceRows: [(row: PerformanceDashboardRow, start: Date?, end: Date?)] = try now.map { instantDate in
+            let itemTable = ProgramItem.tableName
+            let instant = instantDate.timeIntervalSince1970
+            let artwork = ContributorArtworkQuery.image(media: Contributor.media.queryFragment)
+            return try ProgramItem
                 .where { $0.event.eq(eventID) }
+                .where { item in
+                    #sql(
+                        """
+                        ((unixepoch(\(item.startsAt), 'subsec') <= \(instant)
+                          AND unixepoch(\(item.endsAt), 'subsec') > \(instant))
+                         OR unixepoch(\(item.startsAt), 'subsec') = (
+                             SELECT MIN(unixepoch(next.startsAt, 'subsec')) FROM \(quote: itemTable) AS next
+                             WHERE next.event = \(eventID) AND next.eventPlace IS \(item.eventPlace)
+                               AND unixepoch(next.startsAt, 'subsec') > \(instant))
+                         OR unixepoch(\(item.startsAt), 'subsec') = (
+                             SELECT MIN(unixepoch(next.startsAt, 'subsec')) FROM \(quote: itemTable) AS next
+                             WHERE next.event = \(eventID) AND unixepoch(next.startsAt, 'subsec') > \(instant)))
+                        """, as: Bool.self
+                    )
+                }
                 .order { ($0.startsAt.asc(nulls: .last), $0.title.collate(.nocase)) }
+                .select { item -> DashboardItem.Columns in
+                    .init(performance: item, artwork: #sql(
+                        """
+                        (SELECT \(artwork) FROM \(Contributor.self)
+                         WHERE \(Contributor.event) = \(eventID) AND \(Contributor.id) = (
+                           SELECT json_extract(value, '$.contributor') FROM json_each(\(item.credits))
+                           WHERE json_extract(value, '$.billing') = 'primary'
+                             AND json_extract(value, '$.contributor') IS NOT NULL
+                           ORDER BY CAST(key AS INTEGER) LIMIT 1
+                         ))
+                        """, as: OME.Image.JSONRepresentation?.self
+                    ))
+                }
                 .fetchAll(db)
-                .map { item in
-                    (
+                .map { entry in
+                    let item = entry.performance
+                    return (
                         row: PerformanceDashboardRow(
                             performance: item,
-                            stage: item.eventPlace.flatMap { placesByID[$0] }
+                            stage: item.eventPlace.flatMap { placesByID[$0] },
+                            artwork: entry.artwork
                         ),
                         start: item.startDate,
                         end: item.endDate
@@ -124,6 +157,8 @@ public struct EventSearchDashboard: Equatable, Sendable {
 public struct PerformanceDashboardRow: Equatable, Identifiable, Sendable {
     public let performance: ProgramItem
     public let stage: EventPlace?
+    @Column(as: OME.Image.JSONRepresentation?.self)
+    public var artwork: OME.Image? = nil
 
     public var id: ProgramItem.ID { performance.id }
     public var performanceID: ProgramItem.ID { performance.id }
@@ -141,7 +176,7 @@ extension PerformanceDashboardRow {
                 (item.startsAt.asc(nulls: .last), item.title.collate(.nocase))
             }
             .select { item, place -> PerformanceDashboardRow.Columns in
-                PerformanceDashboardRow.Columns(performance: item, stage: place)
+                PerformanceDashboardRow.Columns(performance: item, stage: place, artwork: #sql("NULL", as: OME.Image.JSONRepresentation?.self))
             }
     }
 }
@@ -175,4 +210,11 @@ public struct ChannelShortcutRow: Equatable, Identifiable, Sendable {
 
     public var id: Social.Category.ID { channel.id }
     public var channel: Social.Category
+}
+
+@Selection
+private struct DashboardItem {
+    let performance: ProgramItem
+    @Column(as: OME.Image.JSONRepresentation?.self)
+    let artwork: OME.Image?
 }

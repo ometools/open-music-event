@@ -1135,7 +1135,7 @@ struct NavigationTests {
     ) async throws {
         for _ in 0..<100 {
             if store.contributorRows.first(where: { $0.contributorID == contributorID })?
-                .profile.handle != nil {
+                .handle != nil {
                 return
             }
             try await Task.sleep(for: .milliseconds(10))
@@ -1143,7 +1143,7 @@ struct NavigationTests {
 
         #expect(
             store.contributorRows.first(where: { $0.contributorID == contributorID })?
-                .profile.handle != nil
+                .handle != nil
         )
     }
 

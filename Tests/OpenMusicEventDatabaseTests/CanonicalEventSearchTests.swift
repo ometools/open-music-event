@@ -205,3 +205,68 @@ struct CanonicalEventSearchTests {
         }
     }
 }
+
+extension CanonicalEventSearchTests {
+    @Test
+    func dashboardAndSearchSelectOnlyRelevantContributorArtwork() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        let eventID = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"))
+        let otherEventID = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai"))
+        let programID = try #require(Program.ID("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcah"))
+        let artistID = try #require(Contributor.ID("at://did:plc:organizer/events.openmusic.contributor/3mrdbziccpcah"))
+        let foreignID = try #require(Contributor.ID("at://did:plc:organizer/events.openmusic.contributor/3mrdbziccpcai"))
+        let placeID = try #require(EventPlace.ID("at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcah"))
+        let itemID = try #require(ProgramItem.ID("at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcah"))
+        let createdAt: ATProto.DateTime = "2026-09-01T12:00:00Z"
+        let photo = OME.Image(source: .known(.url(URL(string: "https://example.com/photo.jpg")!)), role: .known(.photo))
+        let logo = OME.Image(source: .known(.url(URL(string: "https://example.com/logo.jpg")!)), role: .known(.logo))
+        let unclassified = OME.Image(source: photo.source)
+        let artist = try Contributor(id: artistID, event: eventID, name: "Écho North", createdAt: createdAt,
+                                    description: "Deep forest sound", media: [.known(.image(unclassified)), .known(.image(logo)), .known(.image(photo))])
+        let foreign = try Contributor(id: foreignID, event: otherEventID, name: "Écho Other", createdAt: createdAt,
+                                     media: [.known(.image(logo))])
+        let item = try ProgramItem(id: itemID, event: eventID, program: programID, title: "Écho Night", createdAt: createdAt,
+                                   eventPlace: placeID, startsAt: "2026-09-04T20:00:00Z", endsAt: "2026-09-04T21:00:00Z",
+                                   credits: [.init(name: "Support", contributor: foreignID, billing: .known(.supporting)), .init(name: "Écho North", contributor: artistID, billing: .known(.primary))])
+        try database.write { db in
+            let event = try Event(id: eventID, name: "Event", createdAt: createdAt, timeZone: .gmt)
+            let otherEvent = try Event(id: otherEventID, name: "Other", createdAt: createdAt, timeZone: .gmt)
+            try Event.insert { event; otherEvent }.execute(db)
+            try Contributor.insert { artist; foreign }.execute(db)
+            let place = try EventPlace(id: placeID, event: eventID, name: "Meadow", createdAt: createdAt, kind: .known(.stage(.init())))
+            let program = try Program(id: programID, event: eventID, title: "Music", createdAt: createdAt, eventPlaces: [placeID])
+            try EventPlace.insert { place }.execute(db)
+            try Program.insert { program }.execute(db)
+            try ProgramItem.insert { item }.execute(db)
+        }
+        try database.read { db in
+            // The dashboard carries the primary artist's photo, not every contributor record.
+            let now = try #require(ISO8601DateFormatter().date(from: "2026-09-04T20:30:00Z"))
+            let dashboard = try EventSearchDashboard.fetch(eventID: eventID, now: now, db: db)
+            expectNoDifference(dashboard.nowPlayingRows.map(\.artwork), [photo])
+            expectNoDifference(dashboard.stageRows.first?.nowPlayingRows.first?.artwork, photo)
+
+            // Matching, ranking, and limiting keep Unicode word-prefix semantics.
+            let results = try EventSearchIndex.results(matching: #require(EventSearchTerm("ÉCH")), in: eventID, db: db)
+            expectNoDifference(results.map(\.document.target), [.performance(itemID), .contributor(artistID)])
+            expectNoDifference(results.last?.artwork, photo)
+            expectNoDifference(results.first?.performance?.performance.id, itemID)
+            let limited = try EventSearchIndex.results(matching: #require(EventSearchTerm("ÉCH")), in: eventID, limit: 1, db: db)
+            expectNoDifference(limited.map(\.document.target), [.performance(itemID)])
+            let body = try EventSearchIndex.results(matching: #require(EventSearchTerm("north fore")), in: eventID, db: db)
+            expectNoDifference(body.map(\.document.target), [.contributor(artistID)])
+            #expect(try EventSearchIndex.results(matching: #require(EventSearchTerm("cho")), in: eventID, db: db).isEmpty)
+        }
+        // Editing the selected photo makes the existing logo become the artwork.
+        try database.write { db in
+            try Contributor.find(artistID).update { $0.media = #bind([Open<OME.Media>.known(.image(logo))]) }.execute(db)
+        }
+        try database.read { db in
+            let results = try EventSearchIndex.results(matching: #require(EventSearchTerm("north")), in: eventID, db: db)
+            expectNoDifference(results.first?.artwork, logo)
+        }
+    }
+}

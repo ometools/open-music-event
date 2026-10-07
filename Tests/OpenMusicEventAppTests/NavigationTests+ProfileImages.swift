@@ -196,10 +196,9 @@ extension NavigationTests {
             let row = try #require(state.contributorRows.first {
                 $0.contributorID == contributorID
             })
-            return state.stageContext(for: row)
+            return row
         }
 
-        #expect(rowContext.lineupOnlyStages.map(\.name) == ["Main"])
         #expect(rowContext.stages.map(\.name) == ["Main", "Meadow", "Tent"])
     }
 

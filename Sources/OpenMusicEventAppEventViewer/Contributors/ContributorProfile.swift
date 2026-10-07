@@ -6,6 +6,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
 import SQLiteData
+import class GRDB.DatabaseFunction
 
 @Selection
 public struct ContributorProfile: Identifiable, Sendable {
@@ -200,33 +201,107 @@ extension ContributorProfile {
 
 @Selection
 struct ContributorListRow: Identifiable, Sendable {
-    let profile: ContributorProfile
+    let id: Contributor.ID
+    let eventID: Event.ID
+    let name: String
+    let subject: DID?
+    let actorProfileHandle: String?
+    let actorProfileAvatar: URL?
+    @Column(as: OME.Image.JSONRepresentation?.self)
+    let artwork: OME.Image?
+    @Column(as: [ContributorListStage].JSONRepresentation.self)
+    let stages: [ContributorListStage]
 
-    var id: Contributor.ID { profile.id }
-    var contributorID: Contributor.ID { profile.contributorID }
-    var contributor: Contributor { profile.contributor }
-
-    func matchesSearch(_ query: String) -> Bool {
-        profile.matchesSearch(query)
+    var contributorID: Contributor.ID { id }
+    var handle: String? {
+        guard let value = actorProfileHandle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty, value != name else { return nil }
+        return value
+    }
+    var subtitle: String? { handle.map { "@\($0)" } }
+    var artworkDisplayImage: DisplayImageAsset? {
+        artwork?.displayImageAsset(recordID: eventID)
+            ?? actorProfileAvatar.flatMap {
+                OME.Image(source: .known(.url($0)), role: .known(.photo)).displayImageAsset()
+            }
     }
 }
 
 extension ContributorListRow {
     static func all(
         eventID: Event.ID,
-        hydration: ContributorProfile.Hydration
+        hydration: ContributorProfile.Hydration,
+        search: String = ""
     ) -> some Statement<ContributorListRow> {
-        Contributor
-            .where { $0.event.eq(eventID) }
-            .order { $0.name.collate(.nocase) }
-            .select { contributor -> ContributorListRow.Columns in
-                ContributorListRow.Columns(
-                    profile: ContributorProfile.columns(
-                        contributor: contributor,
-                        hydration: hydration
-                    )
-                )
-            }
+        let profiles: QueryFragment = hydration == .bskyActorProfile
+            ? "\(BlueskyActorProfile.self)"
+            : "(SELECT NULL AS did, NULL AS handle, NULL AS avatar) AS \(quote: BlueskyActorProfile.tableName)"
+        let filter: SQLQueryExpression<Bool> = search.isEmpty ? #sql("1") : #sql(
+            """
+            (ome_contributor_contains(\(Contributor.name), \(search))
+             OR ome_contributor_contains(\(Contributor.description), \(search))
+             OR ome_contributor_contains(\(BlueskyActorProfile.handle), \(search)))
+            """, as: Bool.self
+        )
+        let artwork = ContributorArtworkQuery.image(media: Contributor.media.queryFragment)
+        return #sql(
+            """
+            WITH associations(contributorID, placeID) AS MATERIALIZED (
+                SELECT json_extract(credit.value, '$.contributor'), item.eventPlace
+                FROM \(ProgramItem.self) AS item, json_each(item.credits) AS credit
+                WHERE item.event = \(eventID) AND item.eventPlace IS NOT NULL
+                  AND json_extract(credit.value, '$.contributor') IS NOT NULL
+                UNION
+                SELECT lineup.value, place.id
+                FROM \(EventPlace.self) AS place, json_each(place.kind, '$.lineup') AS lineup
+                WHERE place.event = \(eventID)
+                  AND json_extract(place.kind, '$.$type') = 'events.openmusic.defs#eventPlaceStage'
+            ), orderedStages AS MATERIALIZED (
+                SELECT associations.contributorID, place.id, place.name,
+                       CASE WHEN json_extract(place.kind, '$.$type') = 'events.openmusic.defs#eventPlaceStage'
+                            THEN json_extract(place.kind, '$.color') END AS color
+                FROM associations JOIN \(EventPlace.self) AS place ON place.id = associations.placeID
+                WHERE place.event = \(eventID)
+                ORDER BY json_extract(place.kind, '$.sortIndex') IS NULL,
+                         json_extract(place.kind, '$.sortIndex'),
+                         place.name COLLATE swiftLocalizedStandardCompare, place.id
+            ), contexts AS (
+                SELECT contributorID, json_group_array(json_object('id', id, 'name', name, 'color', color)) AS stages
+                FROM orderedStages GROUP BY contributorID
+            )
+            SELECT \(Contributor.id), \(Contributor.event), \(Contributor.name), \(Contributor.subject),
+                   \(BlueskyActorProfile.handle), \(BlueskyActorProfile.avatar), \(artwork),
+                   COALESCE(contexts.stages, '[]')
+            FROM \(Contributor.self)
+            LEFT JOIN \(profiles) ON \(BlueskyActorProfile.did) = \(Contributor.subject)
+            LEFT JOIN contexts ON contexts.contributorID = \(Contributor.id)
+            WHERE \(Contributor.event) = \(eventID) AND \(filter)
+            ORDER BY \(Contributor.name) COLLATE NOCASE
+            """, as: ContributorListRow.self
+        )
+    }
+}
+
+struct ContributorListStage: Codable, Sendable, Equatable {
+    let id: EventPlace.ID
+    let name: String
+    let color: Int?
+}
+
+struct ContributorListRequest: FetchKeyRequest {
+    let eventID: Event.ID
+    var search = ""
+
+    func fetch(_ db: Database) throws -> [ContributorListRow] {
+        db.add(function: GRDB.DatabaseFunction("ome_contributor_contains", argumentCount: 2, pure: true) { values in
+            guard let text = String.fromDatabaseValue(values[0]),
+                  let term = String.fromDatabaseValue(values[1]) else { return false }
+            return text.localizedStandardContains(term)
+        })
+        return try ContributorListRow.all(
+            eventID: eventID, hydration: .bskyActorProfile,
+            search: search.trimmingCharacters(in: .whitespacesAndNewlines)
+        ).fetchAll(db)
     }
 }
 

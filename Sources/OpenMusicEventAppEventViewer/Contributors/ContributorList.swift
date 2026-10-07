@@ -28,19 +28,12 @@ public struct ContributorList {
             self.eventID = eventID
             self.destination = destination
             AttendeePerformance.mark("contributors-query-contributorRows.begin", event: eventID.description)
-            _contributorRows = FetchAll(
-                ContributorList.contributorRowsQuery(
-                    eventID: eventID,
-                    hydration: .bskyActorProfile
-                )
-            )
+            _contributorRows = Fetch(wrappedValue: [], ContributorListRequest(eventID: eventID))
             AttendeePerformance.mark("contributors-query-contributorRows.end", event: eventID.description)
-            AttendeePerformance.mark("contributors-query-performanceRows.begin", event: eventID.description)
-            _performanceRows = FetchAll(PerformanceRow.all(eventID: eventID))
-            AttendeePerformance.mark("contributors-query-performanceRows.end", event: eventID.description)
-            AttendeePerformance.mark("contributors-query-eventPlaces.begin", event: eventID.description)
-            _eventPlaces = FetchAll(EventPlace.where { $0.event.eq(eventID) })
-            AttendeePerformance.mark("contributors-query-eventPlaces.end", event: eventID.description)
+            _actorSubjects = FetchAll(
+                Contributor.where { $0.event.eq(eventID) && $0.subject.isNot(nil) }
+                    .select { $0.subject }.distinct()
+            )
         }
 
         public let eventID: Event.ID
@@ -49,38 +42,12 @@ public struct ContributorList {
         public var searchText = ""
 
         @DebugSnapshotIgnored
-        @FetchAll var contributorRows: [ContributorListRow]
+        @Fetch var contributorRows: [ContributorListRow] = []
         @DebugSnapshotIgnored
-        @FetchAll var performanceRows: [PerformanceRow]
-        @DebugSnapshotIgnored
-        @FetchAll var eventPlaces: [EventPlace]
-
-        var filteredContributorRows: [ContributorListRow] {
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return contributorRows }
-
-            return contributorRows.filter { $0.matchesSearch(query) }
-        }
+        @FetchAll var actorSubjects: [DID?]
 
         var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
-            contributorRows.map(\.profile).actorProfileLoadRequests
-        }
-
-        func stageContext(for row: ContributorListRow) -> ContributorStageContext {
-            let creditedRows = performanceRows.filter { item in
-                item.performance.credits?.contains {
-                    $0.contributor == row.contributorID
-                } == true
-            }
-            let lineupPlaces = eventPlaces.filter { place in
-                guard case let .known(.stage(use)) = place.kind else { return false }
-                return use.lineup?.contains(row.contributorID) == true
-            }
-            return ContributorStageContext(
-                contributorID: row.contributorID,
-                performanceRows: creditedRows,
-                lineupStages: lineupPlaces
-            )
+            actorSubjects.compactMap { $0.map { .init(actor: $0) } }
         }
     }
 
@@ -95,6 +62,8 @@ public struct ContributorList {
     public enum Destination {
         case contributorDetail(Spawn<ContributorDetail>)
     }
+
+    @StoreTaskID var searchTask
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.defaultDatabase) var database
@@ -160,6 +129,13 @@ public struct ContributorList {
                 }
             }
         }
+        .onChange(of: store.searchText) { _, search, state in
+            let rows = state.$contributorRows
+            let request = ContributorListRequest(eventID: state.eventID, search: search)
+            store.addTask(id: searchTask) {
+                try await rows.load(request).task
+            }
+        }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
             guard !requests.isEmpty else { return }
 
@@ -198,7 +174,7 @@ public struct ContributorListView: View {
 
     public var body: some View {
         Group {
-            if store.contributorRows.isEmpty {
+            if store.contributorRows.isEmpty && store.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ContentUnavailableView {
                     Label("Contributors", mappedSystemImage: "person.3")
                 } description: {
@@ -211,7 +187,7 @@ public struct ContributorListView: View {
                             .buttonStyle(.borderedProminent)
                     }
                 }
-            } else if store.filteredContributorRows.isEmpty {
+            } else if store.contributorRows.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "person.3",
@@ -227,10 +203,9 @@ public struct ContributorListView: View {
                         }
                     }
 
-                    ForEach(store.filteredContributorRows) { row in
+                    ForEach(store.contributorRows) { row in
                         ContributorListButton(
-                            row: row,
-                            stageContext: store.state.stageContext(for: row)
+                            row: row
                         ) { contributorID in
                             store.send(.contributorButtonTapped(contributorID))
                         }
@@ -274,8 +249,8 @@ public struct ContributorListView: View {
 
     func deleteContributors(at offsets: IndexSet) {
         let contributorIDs = offsets.compactMap { offset in
-            store.filteredContributorRows.indices.contains(offset)
-                ? store.filteredContributorRows[offset].contributorID
+            store.contributorRows.indices.contains(offset)
+                ? store.contributorRows[offset].contributorID
                 : nil
         }
         store.send(.deleteContributors(contributorIDs))
@@ -284,7 +259,6 @@ public struct ContributorListView: View {
 
 struct ContributorListButton: View {
     let row: ContributorListRow
-    let stageContext: ContributorStageContext
     let contributorButtonTapped: (Contributor.ID) -> Void
 
     var body: some View {
@@ -292,8 +266,14 @@ struct ContributorListButton: View {
             contributorButtonTapped(row.contributorID)
         } label: {
             ContributorsRowView(
-                profile: row.profile,
-                stageContext: stageContext
+                name: row.name,
+                image: row.artworkDisplayImage,
+                stageColors: row.stages.map { stage in
+                    stage.color.map { Color(red: Double(($0 >> 16) & 255) / 255,
+                                      green: Double(($0 >> 8) & 255) / 255,
+                                      blue: Double($0 & 255) / 255) } ?? .secondary
+                },
+                subtitle: row.subtitle
             )
         }
         .navigationLinkListRowStyle()
@@ -305,18 +285,26 @@ struct ContributorListButton: View {
 
 struct ContributorsRowView: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    let profile: ContributorProfile
-    let stageContext: ContributorStageContext?
+    let name: String
+    let image: DisplayImageAsset?
+    let stageColors: [Color]
     let subtitle: String?
+
+    init(name: String, image: DisplayImageAsset?, stageColors: [Color], subtitle: String?) {
+        self.name = name
+        self.image = image
+        self.stageColors = stageColors
+        self.subtitle = subtitle
+    }
 
     init(
         profile: ContributorProfile,
         stageContext: ContributorStageContext? = nil,
         subtitle: String? = nil
     ) {
-        self.profile = profile
-        self.stageContext = stageContext
-        self.subtitle = subtitle
+        self.init(name: profile.name, image: profile.artworkDisplayImage,
+                  stageColors: stageContext?.stages.map(\.stageUIColor) ?? [],
+                  subtitle: subtitle ?? profile.subtitle)
     }
 
     init(
@@ -324,24 +312,23 @@ struct ContributorsRowView: View {
         stageContext: ContributorStageContext? = nil,
         subtitle: String? = nil
     ) {
-        self.profile = ContributorProfile(contributor: contributor)
-        self.stageContext = stageContext
-        self.subtitle = subtitle
+        self.init(profile: ContributorProfile(contributor: contributor),
+                  stageContext: stageContext, subtitle: subtitle)
     }
 
     var body: some View {
         HStack(spacing: 12) {
             HStack {
                 ContributorArtworkView(
-                    image: profile.artworkDisplayImage,
+                    image: image,
                     size: 60
                 )
 
                 if needsStageDisambiguation {
                     Group {
-                        if let stageContext, !stageContext.stages.isEmpty {
+                        if !stageColors.isEmpty {
                             ContributorStageIndicatorView(
-                                colors: stageContext.stages.map(\.stageUIColor)
+                                colors: stageColors
                             )
                         } else {
                             Rectangle()
@@ -353,10 +340,10 @@ struct ContributorsRowView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(profile.name)
+                Text(name)
                     .lineLimit(1)
 
-                if let subtitle = subtitle ?? profile.subtitle {
+                if let subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)

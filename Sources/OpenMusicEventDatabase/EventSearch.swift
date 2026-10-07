@@ -1,6 +1,7 @@
 import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
+import class GRDB.DatabaseFunction
 import Tagged
 
 public struct EventSearchFeature: Equatable, Identifiable, Sendable {
@@ -200,14 +201,18 @@ public struct EventSearchRank: Equatable, Comparable, Sendable {
 }
 
 public struct EventSearchResult: Equatable, Identifiable, Sendable {
-    public init(document: EventSearchDocument, rank: EventSearchRank) {
+    public init(document: EventSearchDocument, rank: EventSearchRank, artwork: OME.Image? = nil, performance: PerformanceDashboardRow? = nil) {
         self.document = document
         self.rank = rank
+        self.artwork = artwork
+        self.performance = performance
     }
 
     public var id: String { document.id }
     public var document: EventSearchDocument
     public var rank: EventSearchRank
+    public var artwork: OME.Image?
+    public var performance: PerformanceDashboardRow?
 }
 
 public enum EventSearchIndex {
@@ -220,149 +225,114 @@ public enum EventSearchIndex {
         guard limit > 0, try Event.find(eventID).fetchOne(db) != nil
         else { return [] }
 
-        let categories = try Social.Category
-            .where { $0.event.eq(eventID) }
-            .fetchAll(db)
-        let contributors = try Contributor
-            .where { $0.event.eq(eventID) }
-            .fetchAll(db)
-        let places = try EventPlace
-            .where { $0.event.eq(eventID) }
-            .fetchAll(db)
-        let items = try ProgramItem
-            .where { $0.event.eq(eventID) }
-            .fetchAll(db)
-
-        var documents = EventSearchFeature.indexedFeatures.map { feature in
-            EventSearchDocument(
-                id: "feature:\(feature.id.rawValue)",
-                eventID: eventID,
-                kind: .feature,
-                title: feature.title,
-                subtitle: feature.subtitle,
-                body: feature.body,
-                keywords: feature.keywords,
-                target: .feature(feature.id),
-                baseRank: feature.baseRank
-            )
-        }
-        documents += categories.map { category in
-            EventSearchDocument(
-                id: "channel:\(category.id)",
-                eventID: eventID,
-                kind: .channel,
-                title: category.name,
-                subtitle: "Comms",
-                body: category.description,
-                keywords: "channel announcements updates communications",
-                target: .channel(category.id),
-                baseRank: 700
-            )
-        }
-        documents += contributors.map { contributor in
-            EventSearchDocument(
-                id: "contributor:\(contributor.id)",
-                eventID: eventID,
-                kind: .contributor,
-                title: contributor.name,
-                subtitle: "Artist",
-                body: contributor.description,
-                keywords: "artist contributor performer lineup",
-                target: .contributor(contributor.id),
-                baseRank: 850
-            )
-        }
-        documents += places.compactMap { place -> EventSearchDocument? in
-            guard case .known(.stage) = place.kind else { return nil }
-            return EventSearchDocument(
-                id: "stage:\(place.id)",
-                eventID: eventID,
-                kind: .stage,
-                title: place.name,
-                subtitle: "Stage",
-                body: place.description,
-                keywords: "stage venue area location \(place.name)",
-                target: .stage(place.id),
-                baseRank: 900
-            )
-        }
-        documents += items.map { item in
-            EventSearchDocument(
-                id: "performance:\(item.id)",
-                eventID: eventID,
-                kind: .performance,
-                title: item.title,
-                subtitle: "Performance",
-                body: item.description,
-                keywords: "performance set show music lineup",
-                target: .performance(item.id),
-                baseRank: 950
-            )
-        }
-
-        return documents
-            .filter { matches($0, term: term) }
-            .map {
-                EventSearchResult(
-                    document: $0,
-                    rank: EventSearchRank(
-                        baseRank: $0.baseRank,
-                        field: matchedField(in: $0, term: term)
-                    )
-                )
+        db.add(function: GRDB.DatabaseFunction("ome_search_field", argumentCount: 4, pure: true) { values in
+            let fields = values.map { String.fromDatabaseValue($0) ?? "" }
+            let words = fields.joined(separator: " ").lowercased()
+                .split { !$0.isLetter && !$0.isNumber }
+            guard term.tokens.allSatisfy({ token in words.contains { $0.hasPrefix(token) } })
+            else { return -1 }
+            for (index, rank) in [400, 300, 200, 100].enumerated() {
+                if term.tokens.contains(where: { fields[index].lowercased().contains($0) }) {
+                    return rank
+                }
             }
-            .sorted { lhs, rhs in
-                guard lhs.rank == rhs.rank
-                else { return lhs.rank > rhs.rank }
-
-                guard lhs.document.title == rhs.document.title
-                else { return lhs.document.title < rhs.document.title }
-
-                return lhs.document.id < rhs.document.id
+            return 0
+        })
+        let features = try String(decoding: JSONSerialization.data(withJSONObject:
+            EventSearchFeature.indexedFeatures.map {
+                ["id": $0.id.rawValue, "title": $0.title, "subtitle": $0.subtitle,
+                 "body": $0.body ?? "", "keywords": $0.keywords, "baseRank": $0.baseRank] as [String: Any]
+            }), as: UTF8.self)
+        let artwork = ContributorArtworkQuery.image(media: Contributor.media.queryFragment)
+        let matches = try #sql(
+            """
+            WITH documents(kind, recordID, title, subtitle, body, keywords, baseRank) AS (
+                SELECT 'feature', json_extract(value, '$.id'), json_extract(value, '$.title'),
+                       json_extract(value, '$.subtitle'), json_extract(value, '$.body'),
+                       json_extract(value, '$.keywords'), json_extract(value, '$.baseRank')
+                FROM json_each(\(features))
+                UNION ALL
+                SELECT 'channel', id, name, 'Comms', description,
+                       'channel announcements updates communications', 700
+                FROM \(Social.Category.self) WHERE event = \(eventID)
+                UNION ALL
+                SELECT 'contributor', id, name, 'Artist', description,
+                       'artist contributor performer lineup', 850
+                FROM \(Contributor.self) WHERE event = \(eventID)
+                UNION ALL
+                SELECT 'stage', id, name, 'Stage', description,
+                       'stage venue area location ' || name, 900
+                FROM \(EventPlace.self) WHERE event = \(eventID)
+                  AND json_extract(kind, '$.$type') = 'events.openmusic.defs#eventPlaceStage'
+                UNION ALL
+                SELECT 'performance', id, title, 'Performance', description,
+                       'performance set show music lineup', 950
+                FROM \(ProgramItem.self) WHERE event = \(eventID)
+            ), ranked AS MATERIALIZED (
+                SELECT *, ome_search_field(title, keywords, subtitle, body) AS field FROM documents
+            ), matches AS MATERIALIZED (
+                SELECT * FROM ranked WHERE field >= 0
+                ORDER BY baseRank + field DESC, baseRank DESC, field DESC, title, kind || ':' || recordID
+                LIMIT \(limit)
+            )
+            SELECT matches.kind, recordID, matches.title, subtitle, body, keywords, baseRank, field,
+                   (SELECT \(artwork) FROM \(Contributor.self)
+                    WHERE \(Contributor.id) = matches.recordID AND \(Contributor.event) = \(eventID)
+                      AND matches.kind = 'contributor'),
+                   \(ProgramItem.columns), \(EventPlace.columns)
+            FROM matches
+            LEFT JOIN \(ProgramItem.self) ON \(ProgramItem.id) = matches.recordID
+                AND matches.kind = 'performance' AND \(ProgramItem.event) = \(eventID)
+            LEFT JOIN \(EventPlace.self) ON \(EventPlace.id) = \(ProgramItem.eventPlace)
+                AND \(EventPlace.event) = \(eventID)
+            ORDER BY baseRank + field DESC, baseRank DESC, field DESC, matches.title, matches.kind || ':' || recordID
+            """, as: SearchMatch.self
+        ).fetchAll(db)
+        return matches.compactMap { row in
+            let target: EventSearchDocument.Target
+            switch row.kind {
+            case "feature": target = .feature(.init(row.recordID))
+            case "contributor":
+                guard let id = Contributor.ID(row.recordID) else { return nil }
+                target = .contributor(id)
+            case "performance":
+                guard let id = ProgramItem.ID(row.recordID) else { return nil }
+                target = .performance(id)
+            case "stage":
+                guard let id = EventPlace.ID(row.recordID) else { return nil }
+                target = .stage(id)
+            case "channel":
+                guard let id = Social.Category.ID(row.recordID) else { return nil }
+                target = .channel(id)
+            default: return nil
             }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    private static func matches(
-        _ document: EventSearchDocument,
-        term: EventSearchTerm
-    ) -> Bool {
-        let words = [document.title, document.keywords, document.subtitle, document.body]
-            .compactMap { $0 }
-            .joined(separator: " ")
-            .lowercased()
-            .split { !$0.isLetter && !$0.isNumber }
-        return term.tokens.allSatisfy { token in
-            words.contains { $0.hasPrefix(token) }
+            guard let kind = EventSearchDocument.Kind(rawValue: row.kind),
+                  let field = EventSearchRank.Field(rawValue: row.field) else { return nil }
+            return EventSearchResult(
+                document: EventSearchDocument(
+                    id: "\(row.kind):\(row.recordID)", eventID: eventID, kind: kind,
+                    title: row.title, subtitle: row.subtitle, body: row.body, keywords: row.keywords,
+                    target: target, baseRank: row.baseRank
+                ),
+                rank: EventSearchRank(baseRank: row.baseRank, field: field), artwork: row.artwork,
+                performance: row.programItem.map { PerformanceDashboardRow(performance: $0, stage: row.eventPlace) }
+            )
         }
     }
+}
 
-    private static func matchedField(
-        in document: EventSearchDocument,
-        term: EventSearchTerm
-    ) -> EventSearchRank.Field {
-        if contains(document.title, term: term) {
-            return .title
-        } else if contains(document.keywords, term: term) {
-            return .keywords
-        } else if contains(document.subtitle, term: term) {
-            return .subtitle
-        } else if contains(document.body, term: term) {
-            return .body
-        } else {
-            return .matchedText
-        }
-    }
-
-    private static func contains(
-        _ text: String?,
-        term: EventSearchTerm
-    ) -> Bool {
-        guard let text
-        else { return false }
-
-        let searchableText = text.lowercased()
-        return term.tokens.contains { searchableText.contains($0) }
-    }
+@Selection
+private struct SearchMatch {
+    let kind: String
+    let recordID: String
+    let title: String
+    let subtitle: String?
+    let body: String?
+    let keywords: String
+    let baseRank: Int
+    let field: Int
+    @Column(as: OME.Image.JSONRepresentation?.self)
+    let artwork: OME.Image?
+    let programItem: ProgramItem?
+    let eventPlace: EventPlace?
 }
