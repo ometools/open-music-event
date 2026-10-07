@@ -15,6 +15,26 @@ struct ProgramItemTests {
     let placeURI = ATProto.URI("at://did:plc:wickedwoods/events.openmusic.eventPlace/3mrdbziccpcaj")!
     let createdAt: ATProto.DateTime = "2026-09-22T12:00:00Z"
 
+    @Test(arguments: [
+        ("1970-01-01T00:00:00Z", 0.0),
+        ("1970-01-01T00:00:00.125Z", 0.125),
+        ("1970-01-01T02:00:00+02:00", 0.0),
+        ("1969-12-31T17:00:00.125-07:00", 0.125),
+    ])
+    func sharedDateFormattersPreserveInstants(rawValue: String, seconds: Double) async throws {
+        let timestamp = ATProto.DateTime(rawValue: rawValue)
+        let expected = Date(timeIntervalSince1970: seconds)
+        // Parallel readers share the parser without changing its format options.
+        await withTaskGroup(of: Date?.self) { group in
+            for _ in 0..<20 {
+                group.addTask { ProgramItem.date(timestamp) }
+            }
+            for await date in group {
+                expectNoDifference(date, expected)
+            }
+        }
+    }
+
     @Test
     func `an attendee facing item can be announced before credits place or time are assigned`() throws {
         let doors = try ProgramItem(

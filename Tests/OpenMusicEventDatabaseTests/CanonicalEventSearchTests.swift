@@ -1,3 +1,4 @@
+import CustomDump
 import ATProto
 import Foundation
 import OpenMusicEventDatabase
@@ -7,6 +8,69 @@ import Testing
 
 @Suite
 struct CanonicalEventSearchTests {
+    @Test
+    func dashboardPreservesTimingTiesStageMediaAndEventIsolation() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        let eventID = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah"))
+        let otherEventID = try #require(Event.ID("at://did:plc:organizer/events.openmusic.event/3mrdbziccpcaj"))
+        let programID = try #require(Program.ID("at://did:plc:organizer/events.openmusic.program/3mrdbziccpcah"))
+        let createdAt: ATProto.DateTime = "2026-09-01T12:00:00Z"
+        let meadow = try EventPlace(
+            id: #require(EventPlace.ID("at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcah")),
+            event: eventID, name: "Meadow", createdAt: createdAt,
+            media: [.unknown(.object(["$type": "media.example.image#image", "alt": "Meadow logo"]))],
+            kind: .known(.stage(.init(color: #require(OME.Color(rawValue: 0x336699)), sortIndex: 0)))
+        )
+        let hollow = try EventPlace(
+            id: #require(EventPlace.ID("at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcai")),
+            event: eventID, name: "Hollow", createdAt: createdAt,
+            kind: .known(.stage(.init(sortIndex: 1)))
+        )
+        let foreignPlace = try EventPlace(
+            id: #require(EventPlace.ID("at://did:plc:organizer/events.openmusic.eventPlace/3mrdbziccpcaj")),
+            event: otherEventID, name: "Other event stage", createdAt: createdAt,
+            kind: .known(.stage(.init())))
+        func item(_ key: String, _ title: String, place: EventPlace.ID?, start: ATProto.DateTime?, end: ATProto.DateTime?) throws -> ProgramItem {
+            try ProgramItem(
+                id: #require(ProgramItem.ID("at://did:plc:organizer/events.openmusic.programItem/" + key)),
+                event: eventID, program: programID, title: title, createdAt: createdAt,
+                eventPlace: place, startsAt: start, endsAt: end)
+        }
+        let ended = try item("3mrdbziccpcaa", "Ended", place: meadow.id, start: "2026-09-04T19:00:00Z", end: "2026-09-04T20:00:00Z")
+        let current = try item("3mrdbziccpcab", "Current", place: meadow.id, start: "2026-09-04T20:00:00Z", end: "2026-09-04T21:00:00Z")
+        let nextA = try item("3mrdbziccpcac", "Alpha", place: meadow.id, start: "2026-09-04T21:00:00Z", end: "2026-09-04T22:00:00Z")
+        let nextB = try item("3mrdbziccpcad", "Beta", place: meadow.id, start: "2026-09-04T21:00:00Z", end: nil)
+        let earlier = try item("3mrdbziccpcae", "Earlier", place: hollow.id, start: "2026-09-04T20:30:00.000Z", end: nil)
+        let unplaced = try item("3mrdbziccpcaf", "Unplaced", place: nil, start: "2026-09-04T20:30:00.000Z", end: nil)
+        let foreign = try item("3mrdbziccpcag", "Foreign reference", place: foreignPlace.id, start: "2026-09-04T20:00:00Z", end: "2026-09-04T21:00:00Z")
+        let untimed = try item("3mrdbziccpcak", "To be announced", place: meadow.id, start: nil, end: nil)
+        try database.write { db in
+            try EventPlace.insert { [meadow, hollow, foreignPlace] }.execute(db)
+            try ProgramItem.insert { [ended, current, nextA, nextB, earlier, unplaced, foreign, untimed] }.execute(db)
+        }
+        try database.read { db in
+            // A set is current at its start and disappears exactly at its end.
+            let now = try Date("2026-09-04T20:00:00Z", strategy: .iso8601)
+            let dashboard = try EventSearchDashboard.fetch(eventID: eventID, now: now, db: db)
+            expectNoDifference(dashboard.nowPlayingRows.map(\.id), [current.id, foreign.id])
+            expectNoDifference(dashboard.nowPlayingRows.first?.stage, meadow)
+            #expect(dashboard.nowPlayingRows.last?.stage == nil)
+            expectNoDifference(dashboard.comingNextRows.map(\.id), [earlier.id, unplaced.id])
+            // The stage playing next comes first; all simultaneous sets survive.
+            expectNoDifference(dashboard.stageRows.map(\.id), [hollow.id, meadow.id])
+            expectNoDifference(dashboard.stageRows.last?.comingNextRows.map(\.id), [nextA.id, nextB.id])
+            expectNoDifference(dashboard.stageRows.last?.nowPlayingRows.map(\.id), [current.id])
+            expectNoDifference(dashboard.stageRows.last?.comingNextRows.map(\.stage), [meadow, meadow])
+            let after = try EventSearchDashboard.fetch(eventID: eventID, now: now.addingTimeInterval(86400), db: db)
+            #expect(after.nowPlayingRows.isEmpty)
+            #expect(after.comingNextRows.isEmpty)
+            expectNoDifference(after.stageRows.map(\.id), [meadow.id, hollow.id])
+        }
+    }
+
     @Test
     func searchAndDashboardUseCanonicalEventRecords() throws {
         let database = try DatabaseQueue()

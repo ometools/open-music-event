@@ -380,6 +380,7 @@ var applicationDependencies: [Package.Dependency] = [
     clocksDependency,
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
+    .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.4.1"),
     swiftSharingDependency,
     routingDependency,
     // Collections 1.7 references a Swift 6.4 runtime symbol missing before macOS/iOS 27.
@@ -455,6 +456,7 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
+    .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.4.1"),
     .package(
         url: "https://tangled.org/woody.fm/swift-dependencies-http-client",
         from: "0.3.0"
@@ -628,6 +630,7 @@ let openMusicEventLexiconTarget = Target.target(
     name: "OpenMusicEventLexicon",
     dependencies: [
         "OpenMusicEventTimeZones",
+        .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
         .product(name: "ATProto", package: "swift-atproto"),
         .product(name: "CasePaths", package: "swift-case-paths"),
         .product(name: "ATProtoTypes", package: "swift-atproto"),

@@ -1,5 +1,6 @@
 import ATProto
 import Foundation
+import ConcurrencyExtras
 import ATProtoTypes
 import ATProtoSQLite
 import SQLiteData
@@ -151,12 +152,18 @@ public struct ProgramItem: RecordCodable, Equatable {
         }
     }
 
+    private static let dateFormatters = LockIsolated({
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return (fractional: fractional, wholeSeconds: wholeSeconds)
+    }())
+
     static func date(_ value: ATProto.DateTime) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value.rawValue) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value.rawValue)
+        dateFormatters.withValue {
+            $0.fractional.date(from: value.rawValue) ?? $0.wholeSeconds.date(from: value.rawValue)
+        }
     }
 
     public var startDate: Date? {

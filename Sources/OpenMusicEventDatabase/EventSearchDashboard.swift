@@ -50,40 +50,54 @@ public struct EventSearchDashboard: Equatable, Sendable {
             .order { $0.name.collate(.nocase) }
             .fetchAll(db)
 
+        let placesByID = Dictionary(uniqueKeysWithValues: places.map { ($0.id, $0) })
         let performanceRows = try now.map { _ in
-            try PerformanceDashboardRow.all(eventID: eventID).fetchAll(db)
+            try ProgramItem
+                .where { $0.event.eq(eventID) }
+                .order { ($0.startsAt.asc(nulls: .last), $0.title.collate(.nocase)) }
+                .fetchAll(db)
+                .map { item in
+                    (
+                        row: PerformanceDashboardRow(
+                            performance: item,
+                            stage: item.eventPlace.flatMap { placesByID[$0] }
+                        ),
+                        start: item.startDate,
+                        end: item.endDate
+                    )
+                }
         } ?? []
-        let nowPlayingRows: [PerformanceDashboardRow]
-        let comingNextRows: [PerformanceDashboardRow]
-        if let now {
-            nowPlayingRows = performanceRows.filter { row in
-                guard let start = row.performance.startDate, let end = row.performance.endDate else { return false }
-                return start <= now && now < end
-            }
-            let nextStart = performanceRows.compactMap(\.performance.startDate).filter { now < $0 }.min()
-            comingNextRows = nextStart.map { start in
-                performanceRows.filter { $0.performance.startDate == start }
-            } ?? []
-        } else {
-            nowPlayingRows = []
-            comingNextRows = []
+        let nowPlayingRows = performanceRows.filter { entry in
+            guard let now, let start = entry.start, let end = entry.end else { return false }
+            return start <= now && now < end
         }
+        let nextStart = now.flatMap { now in
+            performanceRows.compactMap(\.start).filter { now < $0 }.min()
+        }
+        let comingNextRows = nextStart.map { start in
+            performanceRows.filter { $0.start == start }
+        } ?? []
 
         let stageRows = stages.map { stage in
-            let performances = performanceRows.filter { $0.performance.eventPlace == stage.id }
-            let current = nowPlayingRows.filter { $0.performance.eventPlace == stage.id }
+            let performances = performanceRows.filter { $0.row.performance.eventPlace == stage.id }
+            let current = nowPlayingRows.filter { $0.row.performance.eventPlace == stage.id }
             let nextStart = now.flatMap { now in
-                performances.compactMap(\.performance.startDate).filter { now < $0 }.min()
+                performances.compactMap(\.start).filter { now < $0 }.min()
             }
             let next = nextStart.map { start in
-                performances.filter { $0.performance.startDate == start }
+                performances.filter { $0.start == start }
             } ?? []
-            return StageDashboardRow(stage: stage, nowPlayingRows: current, comingNextRows: next)
+            return (
+                row: StageDashboardRow(
+                    stage: stage,
+                    nowPlayingRows: current.map(\.row),
+                    comingNextRows: next.map(\.row)
+                ),
+                nextStart: nextStart
+            )
         }
         let orderedStageRows = stageRows.enumerated().sorted { lhs, rhs in
-            let lhsStart = lhs.element.comingNextRows.first?.performance.startDate
-            let rhsStart = rhs.element.comingNextRows.first?.performance.startDate
-            switch (lhsStart, rhsStart) {
+            switch (lhs.element.nextStart, rhs.element.nextStart) {
             case let (lhsStart?, rhsStart?) where lhsStart != rhsStart:
                 return lhsStart < rhsStart
             case (_?, nil):
@@ -94,14 +108,14 @@ public struct EventSearchDashboard: Equatable, Sendable {
                 return lhs.offset < rhs.offset
             }
         }
-        .map(\.element)
+        .map(\.element.row)
 
         return Self(
             stageRows: orderedStageRows,
             featureRows: EventSearchFeature.indexedFeatures.map(FeatureShortcutRow.init(feature:)),
             channelRows: channels.map(ChannelShortcutRow.init(channel:)),
-            nowPlayingRows: nowPlayingRows,
-            comingNextRows: comingNextRows
+            nowPlayingRows: nowPlayingRows.map(\.row),
+            comingNextRows: comingNextRows.map(\.row)
         )
     }
 }
