@@ -120,3 +120,63 @@ failed, and an installed deep-link fixture lacked its installation marker. The
 fixture was corrected and its focused rerun passed; the unrelated lifecycle and
 authorization-reporting failures were not changed. Android was not verified
 (temporary gate). Source remained isolated, destination unset.
+
+
+## Search dashboard cost diagnosis (2026-10-07)
+
+An opt-in `SearchDashboardPerformanceTests` probe reads the installed Wicked
+Woods 2026 simulator database in read-only mode. It exercises the production
+query and dashboard functions without changing app behavior. These are macOS
+Debug test-process timings, not new iOS UI measurements. Five warmed iterations
+used 175 performances and six stages; medians below are milliseconds.
+
+| Probe | Median ms |
+| --- | ---: |
+| Exact joined SQL, raw GRDB rows (no Swift record decoding) | 1.4 |
+| Same joined query, typed performance + stage records | 722.7 |
+| ProgramItem records without stage join | 108.9 |
+| Six EventPlace records fetched once | 20.6 |
+| Repeated joined-stage media JSON decoding alone | 490.6 |
+| Repeated joined-stage kind JSON decoding alone | 100.1 |
+| Dashboard without performance rows | 28.1 |
+| 350 start/end parses through current computed properties | 172.3 |
+| Same 350 parses reusing two ISO8601 formatters | 47.4 |
+| Complete current dashboard | 1121.1 |
+
+These probes overlap and must not be added together. One iteration had a media
+probe outlier of 786.8 ms; all raw samples are retained in the local log.
+The query plan uses the ProgramItem event index and EventPlace primary-key
+index, with a temporary sort. SQL is not the dominant cost.
+
+The join repeats full EventPlace JSON columns for every performance. The
+JSONRepresentation columns invoke Codable/lexicon decoding and validation;
+media metadata dominates, followed by kind metadata. This is local metadata
+decoding, not image downloading. Schema-definition caching does not eliminate
+per-value work. The probe does not split validator time from other decoder work.
+
+The dashboard also repeatedly reads computed startDate/endDate properties;
+each constructs a formatter, tries fractional seconds, then whole seconds.
+For this after-event date there are 700 property parses: 350 in now-playing,
+175 in global next, and 175 in per-stage next. Additional matching/sorting
+parses occur when future items exist. The formatter comparison is diagnostic,
+not a production caching implementation or concurrency proof.
+
+Recommended next seam: fetch each stage once and associate it by ID, then parse
+each item's dates once per dashboard evaluation with a reusable parser. A
+smaller SQL projection for now/next is another option. No production query,
+decoder, scheduler, or UI behavior was changed in this investigation.
+
+Reproduction uses the compiler lane from the publication workspace, with
+`OME_DIAGNOSTIC_DATABASE` set to a read-only-readable installed WW2026 SQLite
+path and `OME_COMPOSABLE_ATMOSPHERE_PATH` set to the same dependency workspace
+used by the app:
+
+```sh
+~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh \
+  --repo "$PWD" --wait --priority interactive \
+  swift-test --skip-update --filter SearchDashboardPerformanceTests
+```
+
+Evidence: `/private/tmp/ome-search-dashboard-diagnostic-refined.log` (one
+opt-in diagnostic test passed, five iterations). No new iOS/Android UI run or
+release-build performance claim. Source remains isolated; destination unset.
