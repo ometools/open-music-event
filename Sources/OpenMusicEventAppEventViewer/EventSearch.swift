@@ -30,17 +30,23 @@ public struct EventSearch {
             destination: Destination.State? = nil
         ) {
             self.eventID = eventID
+            AttendeePerformance.mark("search-query-timeZone.begin", event: eventID.description)
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("search-query-timeZone.end", event: eventID.description)
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
+            AttendeePerformance.mark("search-query-contributors.begin", event: eventID.description)
             _contributors = FetchAll(
                 ContributorProfile.all(eventID: eventID, hydration: .none)
             )
+            AttendeePerformance.mark("search-query-contributors.end", event: eventID.description)
+            AttendeePerformance.mark("search-query-performanceRows.begin", event: eventID.description)
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
+            AttendeePerformance.mark("search-query-performanceRows.end", event: eventID.description)
         }
 
         public let eventID: Event.ID

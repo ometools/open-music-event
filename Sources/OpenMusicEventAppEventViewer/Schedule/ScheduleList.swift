@@ -213,9 +213,11 @@ public struct ScheduleList {
             scheduleDivision: ScheduleDivision = .schedule
         ) {
             self.eventID = eventID
+            AttendeePerformance.mark("schedule-query-timeZone.begin", event: eventID.description)
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-timeZone.end", event: eventID.description)
             self.scheduleDivision = scheduleDivision
             let scheduleViewerState = ScheduleListState(
                 eventID: eventID,
@@ -223,57 +225,83 @@ public struct ScheduleList {
             )
             self.scheduleViewerState = scheduleViewerState
             self.scheduleViewerStateBaseline = scheduleViewerState
+            AttendeePerformance.mark("schedule-query-persistedScheduleViewerState.begin", event: eventID.description)
             self._persistedScheduleViewerState = FetchOne(
                 wrappedValue: nil,
                 ScheduleListState.none
             )
+            AttendeePerformance.mark("schedule-query-persistedScheduleViewerState.end", event: eventID.description)
             self.eventViewerState = EventDetailState(id: eventID)
+            AttendeePerformance.mark("schedule-query-persistedEventViewerState.begin", event: eventID.description)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
                 EventDetailState.none
             )
+            AttendeePerformance.mark("schedule-query-persistedEventViewerState.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-child-singleStageAtOnce.begin", event: eventID.description)
             self.singleStageAtOnce = Spawn(
                 ScheduleSingleStageAtOnce.State(
                     eventID: eventID,
                     scheduleDivision: scheduleDivision
                 )
             )
+            AttendeePerformance.mark("schedule-child-singleStageAtOnce.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-child-manyStagesAtOnce.begin", event: eventID.description)
             self.manyStagesAtOnce = Spawn(
                 ScheduleManyStagesAtOnce.State(
                     eventID: eventID,
                     scheduleDivision: scheduleDivision
                 )
             )
+            AttendeePerformance.mark("schedule-child-manyStagesAtOnce.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-child-performanceList.begin", event: eventID.description)
             self.performanceList = Spawn(
                 SchedulePerformanceList.State(
                     eventID: eventID,
                     scheduleDivision: scheduleDivision
                 )
             )
+            AttendeePerformance.mark("schedule-child-performanceList.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-event.begin", event: eventID.description)
             _event = FetchOne(
                 Event.where { $0.id.eq(eventID) }
             )
+            AttendeePerformance.mark("schedule-query-event.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-performanceRows.begin", event: eventID.description)
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-performanceRows.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-schedules.begin", event: eventID.description)
             _schedules = FetchAll(
                 ScheduleList.schedulesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-schedules.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-stages.begin", event: eventID.description)
             _stages = FetchAll(
                 ScheduleList.stagesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-stages.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-reactions.begin", event: eventID.description)
             _reactions = FetchAll(
                 PerformanceReaction.forEvent(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-reactions.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-reactionUsage.begin", event: eventID.description)
             _reactionUsage = FetchAll(
                 PerformanceReactionEmojiUsage.ranked
             )
+            AttendeePerformance.mark("schedule-query-reactionUsage.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-userSchedules.begin", event: eventID.description)
             _userSchedules = FetchAll(
                 UserSchedule.all(eventID: eventID)
             )
+            AttendeePerformance.mark("schedule-query-userSchedules.end", event: eventID.description)
+            AttendeePerformance.mark("schedule-query-userSchedulePerformances.begin", event: eventID.description)
             _userSchedulePerformances = FetchAll(
                 UserSchedule.Performance.all
             )
+            AttendeePerformance.mark("schedule-query-userSchedulePerformances.end", event: eventID.description)
         }
 
         public let eventID: Event.ID
@@ -1025,6 +1053,8 @@ public struct ScheduleList {
             state.eventViewerState.selectedUserScheduleID = nil
         }
         .onMount { state in
+            AttendeePerformance.mark("schedule-onMount.begin", event: state.eventID.description)
+            defer { AttendeePerformance.mark("schedule-onMount.end", event: state.eventID.description) }
             let eventID = state.eventID
             let scheduleDivision = state.scheduleDivision
             let initialScheduleViewerState = state.scheduleViewerState

@@ -114,6 +114,8 @@ extension OpenMusicEventViewers.EventFeature {
         canEditContent: Bool
     ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
+        AttendeePerformance.mark("feature-discovery.begin", event: eventID.description)
+        defer { AttendeePerformance.mark("feature-discovery.end", event: eventID.description) }
         let divisions: [ScheduleDivision] = (try? database.read { db -> [ScheduleDivision] in
             let event = try Event.find(eventID).fetchOne(db)
             let programs = try Program.where { $0.event.eq(eventID) }.fetchAll(db)
@@ -176,25 +178,39 @@ public struct EventDetail {
             self._workspaceSession = .eventWorkspaceSession(for: eventID)
             self.currentWorkspaceAccount = CurrentWorkspaceAccount()
             self.eventID = eventID
+            AttendeePerformance.mark("viewer-query-event.begin", event: eventID.description)
             self._event = FetchOne(
                 Event.where { $0.id.eq(eventID) }
             )
+            AttendeePerformance.mark("viewer-query-event.end", event: eventID.description)
             self.eventViewerState = EventDetailState(id: eventID)
+            AttendeePerformance.mark("viewer-query-persistedEventViewerState.begin", event: eventID.description)
             self._persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
                 EventDetailState.none
             )
+            AttendeePerformance.mark("viewer-query-persistedEventViewerState.end", event: eventID.description)
+            AttendeePerformance.mark("viewer-query-stages.begin", event: eventID.description)
             self._stages = FetchAll(ScheduleList.stagesQuery(eventID: eventID))
+            AttendeePerformance.mark("viewer-query-stages.end", event: eventID.description)
+            AttendeePerformance.mark("viewer-query-programs.begin", event: eventID.description)
             self._programs = FetchAll(Program.where { $0.event.eq(eventID) })
+            AttendeePerformance.mark("viewer-query-programs.end", event: eventID.description)
+            AttendeePerformance.mark("viewer-query-reactions.begin", event: eventID.description)
             self._reactions = FetchAll(
                 PerformanceReaction.forEvent(eventID: eventID)
             )
+            AttendeePerformance.mark("viewer-query-reactions.end", event: eventID.description)
+            AttendeePerformance.mark("viewer-query-reactionUsage.begin", event: eventID.description)
             self._reactionUsage = FetchAll(
                 PerformanceReactionEmojiUsage.ranked
             )
+            AttendeePerformance.mark("viewer-query-reactionUsage.end", event: eventID.description)
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
+            AttendeePerformance.mark("search-state.begin", event: eventID.description)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+            AttendeePerformance.mark("search-state.end", event: eventID.description)
             self.pendingAuthoringEntry = pendingAuthoringEntry
             self.pendingScheduleLaunchAction = pendingScheduleLaunchAction
             self.installFeatureStores(features)
@@ -230,7 +246,10 @@ public struct EventDetail {
             self.destination = existingDestination
 
             withEventDependencies {
-                for feature in features {
+                for (index, feature) in features.enumerated() {
+                    let phase = "feature-setup-\(index)-\(feature.description.prefix { $0 != ":" })"
+                    AttendeePerformance.mark(phase + ".begin", event: eventID.description)
+                    defer { AttendeePerformance.mark(phase + ".end", event: eventID.description) }
                     switch feature {
                     case let .schedule(division):
                         self.scheduleViewers.append(
@@ -981,6 +1000,8 @@ public struct EventDetail {
                     }
                 }
                 .onMount { state in
+                    AttendeePerformance.mark("viewer-onMount.begin", event: state.eventID.description)
+                    defer { AttendeePerformance.mark("viewer-onMount.end", event: state.eventID.description) }
                     if let session = state.validatedWorkspaceSession {
                         installCanonicalWorkspace(session, state: &state)
                     } else {

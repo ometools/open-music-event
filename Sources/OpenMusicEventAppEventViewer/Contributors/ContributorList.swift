@@ -27,14 +27,20 @@ public struct ContributorList {
         ) {
             self.eventID = eventID
             self.destination = destination
+            AttendeePerformance.mark("contributors-query-contributorRows.begin", event: eventID.description)
             _contributorRows = FetchAll(
                 ContributorList.contributorRowsQuery(
                     eventID: eventID,
                     hydration: .bskyActorProfile
                 )
             )
+            AttendeePerformance.mark("contributors-query-contributorRows.end", event: eventID.description)
+            AttendeePerformance.mark("contributors-query-performanceRows.begin", event: eventID.description)
             _performanceRows = FetchAll(PerformanceRow.all(eventID: eventID))
+            AttendeePerformance.mark("contributors-query-performanceRows.end", event: eventID.description)
+            AttendeePerformance.mark("contributors-query-eventPlaces.begin", event: eventID.description)
             _eventPlaces = FetchAll(EventPlace.where { $0.event.eq(eventID) })
+            AttendeePerformance.mark("contributors-query-eventPlaces.end", event: eventID.description)
         }
 
         public let eventID: Event.ID

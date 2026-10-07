@@ -1,3 +1,4 @@
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Dependencies
@@ -18,9 +19,11 @@ public struct ScheduleSingleStageAtOnce {
             scheduleDivision: ScheduleList.ScheduleDivision
         ) {
             self.eventID = eventID
+            AttendeePerformance.mark("single-stage-query-timeZone.begin", event: eventID.description)
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("single-stage-query-timeZone.end", event: eventID.description)
             self.scheduleDivision = scheduleDivision
             let scheduleViewerState = ScheduleListState(
                 eventID: eventID,
@@ -28,21 +31,33 @@ public struct ScheduleSingleStageAtOnce {
             )
             self.scheduleViewerState = scheduleViewerState
             self.scheduleViewerStateBaseline = scheduleViewerState
+            AttendeePerformance.mark("single-stage-query-persistedScheduleViewerState.begin", event: eventID.description)
             self._persistedScheduleViewerState = FetchOne(
                 wrappedValue: nil,
                 ScheduleListState.none
             )
+            AttendeePerformance.mark("single-stage-query-persistedScheduleViewerState.end", event: eventID.description)
+            AttendeePerformance.mark("single-stage-query-performanceRows.begin", event: eventID.description)
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
+            AttendeePerformance.mark("single-stage-query-performanceRows.end", event: eventID.description)
+            AttendeePerformance.mark("single-stage-query-schedules.begin", event: eventID.description)
             _schedules = FetchAll(
                 ScheduleList.schedulesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("single-stage-query-schedules.end", event: eventID.description)
+            AttendeePerformance.mark("single-stage-query-stages.begin", event: eventID.description)
             _stages = FetchAll(
                 ScheduleList.stagesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("single-stage-query-stages.end", event: eventID.description)
+            AttendeePerformance.mark("single-stage-query-event.begin", event: eventID.description)
             _event = FetchOne(Event.where { $0.id.eq(eventID) })
+            AttendeePerformance.mark("single-stage-query-event.end", event: eventID.description)
+            AttendeePerformance.mark("single-stage-query-programs.begin", event: eventID.description)
             _programs = FetchAll(Program.where { $0.event.eq(eventID) })
+            AttendeePerformance.mark("single-stage-query-programs.end", event: eventID.description)
         }
 
         public let eventID: Event.ID

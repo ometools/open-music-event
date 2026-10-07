@@ -177,17 +177,23 @@ public struct OpenMusicEventAppRoot {
                         store.addTask {
                             do {
                                 let installedEventID = try await eventRecords.install(eventID)
+                                AttendeePerformance.mark("route-check.begin", event: eventID.description)
                                 var routeIsActive = false
                                 let activeRouteCheck = try store.modify {
                                     routeIsActive = $0.activeRouteRequestID == routeRequestID
                                 }
                                 await activeRouteCheck?.value
+                                AttendeePerformance.mark("route-check.end", event: eventID.description)
                                 guard routeIsActive else { return }
 
+                                AttendeePerformance.mark("viewer-state.begin", event: eventID.description)
                                 let eventViewer = Self.makeEventViewerState(
                                     eventID: installedEventID,
                                     target: target
                                 )
+                                AttendeePerformance.mark("viewer-state.end", event: eventID.description)
+                                AttendeePerformance.mark("viewer-mount.begin", event: eventID.description)
+                                AttendeePerformance.mark("viewer-mount-submit.begin", event: eventID.description)
                                 let mount = try store.modify { state in
                                     guard state.eventEntry?.id == routeRequestID else { return }
                                     state.destination = .eventViewer(eventViewer)
@@ -196,7 +202,9 @@ public struct OpenMusicEventAppRoot {
                                         persistSelectedEvent(installedEventID, state)
                                     }
                                 }
+                                AttendeePerformance.mark("viewer-mount-submit.end", event: eventID.description)
                                 await mount?.value
+                                AttendeePerformance.mark("viewer-mount.end", event: eventID.description)
                             } catch {
                                 var routeIsActive = false
                                 let activeRouteCheck = try store.modify {

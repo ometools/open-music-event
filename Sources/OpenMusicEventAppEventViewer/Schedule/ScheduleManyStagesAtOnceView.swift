@@ -1,3 +1,4 @@
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import ComposableArchitecture2
 import Foundation
@@ -15,21 +16,33 @@ public struct ScheduleManyStagesAtOnce {
             scheduleDivision: ScheduleList.ScheduleDivision
         ) {
             self.eventID = eventID
+            AttendeePerformance.mark("many-stages-query-timeZone.begin", event: eventID.description)
             self._timeZone = FetchOne(
                 Event.timeZoneQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("many-stages-query-timeZone.end", event: eventID.description)
             self.scheduleDivision = scheduleDivision
+            AttendeePerformance.mark("many-stages-query-performanceRows.begin", event: eventID.description)
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
+            AttendeePerformance.mark("many-stages-query-performanceRows.end", event: eventID.description)
+            AttendeePerformance.mark("many-stages-query-schedules.begin", event: eventID.description)
             _schedules = FetchAll(
                 ScheduleList.schedulesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("many-stages-query-schedules.end", event: eventID.description)
+            AttendeePerformance.mark("many-stages-query-stages.begin", event: eventID.description)
             _stages = FetchAll(
                 ScheduleList.stagesQuery(eventID: eventID)
             )
+            AttendeePerformance.mark("many-stages-query-stages.end", event: eventID.description)
+            AttendeePerformance.mark("many-stages-query-event.begin", event: eventID.description)
             _event = FetchOne(Event.where { $0.id.eq(eventID) })
+            AttendeePerformance.mark("many-stages-query-event.end", event: eventID.description)
+            AttendeePerformance.mark("many-stages-query-programs.begin", event: eventID.description)
             _programs = FetchAll(Program.where { $0.event.eq(eventID) })
+            AttendeePerformance.mark("many-stages-query-programs.end", event: eventID.description)
         }
 
         public let eventID: Event.ID
