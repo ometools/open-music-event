@@ -86,3 +86,4 @@ Carthage/Build/
 
 # Local Python harness bytecode
 Scripts/auth-e2e/__pycache__/
+Scripts/__pycache__/

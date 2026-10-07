@@ -1,0 +1,29 @@
+appId: ${APP_ID}
+---
+# Start in the installed event viewer. No reset, reinstall, or fixture seeding.
+# Supply EVENT_URI and EVENT_RKEY for the installed event being measured.
+- repeat:
+    times: 3
+    commands:
+      - tapOn: More
+      - tapOn: Exit
+      # A restored viewer exits to Browse; an entered viewer retains its detail.
+      - runFlow:
+          when:
+            notVisible:
+              id: button.enter-event.${EVENT_RKEY}
+          commands:
+            - scrollUntilVisible:
+                element:
+                  id: button.browse-event.${EVENT_RKEY}
+                direction: DOWN
+                timeout: 30000
+            - tapOn:
+                id: button.browse-event.${EVENT_RKEY}
+      - tapOn:
+          id: button.enter-event.${EVENT_RKEY}
+      - extendedWaitUntil:
+          visible:
+            id: view.schedule.${EVENT_URI}
+          timeout: 60000
+      - assertNotVisible: "Unable to load all event details."

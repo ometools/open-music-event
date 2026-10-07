@@ -1,3 +1,4 @@
+import OpenMusicEventDatabase
 import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventComponents
@@ -286,6 +287,7 @@ public struct ScheduleListView: View {
                 )
             )
             .onAppear {
+                AttendeePerformance.mark("schedule.appear", event: store.eventID.description)
                 consumePendingScheduleLaunchAction()
             }
     }

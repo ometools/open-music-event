@@ -197,9 +197,11 @@ public struct EventSearch {
             let eventID = state.eventID
             let currentDate = now
             store.addTask(id: searchTask) {
+                AttendeePerformance.mark("search-load.begin", event: eventID.description)
                 let content = try database.read { db in
                     try State.content(eventID: eventID, query: query, now: currentDate, db: db)
                 }
+                AttendeePerformance.mark("search-load.end", event: eventID.description)
                 try store.modify {
                     guard $0.eventID == eventID,
                           $0.query == query,

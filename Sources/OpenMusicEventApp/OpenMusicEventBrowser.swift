@@ -1317,6 +1317,7 @@ public struct EventBrowseDetail {
 
             case .enterEventButtonTapped:
                 let eventURI = state.event.uri
+                AttendeePerformance.mark("enter.begin", event: eventURI.description)
                 state.errorMessage = nil
                 state.isEnteringEvent = true
                 store.addTask {
@@ -1328,6 +1329,7 @@ public struct EventBrowseDetail {
                         try store.modify {
                             $0.isEnteringEvent = false
                         }
+                        AttendeePerformance.mark("navigation.begin", event: eventID.description)
                         try store.post(
                             key: NavigationRequested.self,
                             value: .event(eventID, nil)

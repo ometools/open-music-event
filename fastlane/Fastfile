@@ -411,11 +411,11 @@ def run_maestro(device:, app_id:, platform:, flow:)
   # Maestro writes `takeScreenshot` artifacts under its test output directory.
   # Give each platform its own stable directory, then promote just the PNGs to
   # the paths consumed by the visual comparator.
+  performance_directory = File.join(output_directory, "performance-#{Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)}")
   sh(
-    "maestro", "--device", device, "test",
-    "--test-output-dir", output_directory,
-    "-e", "APP_ID=#{app_id}",
-    flow
+    "python3", File.join(repo_root, "Scripts", "ui-performance.py"),
+    "--device", device, "--app-id", app_id, "--platform", platform.to_s,
+    "--output", performance_directory, flow
   )
 
   # Maestro 2.9 may add timestamp and flow-name directories beneath the

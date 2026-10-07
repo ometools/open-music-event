@@ -1,3 +1,4 @@
+import OpenMusicEventDatabase
 import OpenMusicEventOAuthClient
 import SkipFuse
 import ATProto
@@ -73,6 +74,10 @@ enum OpenMusicEventAuthenticationAutomation {
         let liveTransport = dependencies.dataForURL
         dependencies.dataForURL = { request, body in
             guard permits(request) else { throw PrivateNetworkError.outsideSandbox }
+            // Only the route, never query parameters, bodies, credentials, or headers.
+            let route = request.path?.split(separator: "?", maxSplits: 1).first.map(String.init) ?? ""
+            AttendeePerformance.mark("http.begin", event: route)
+            defer { AttendeePerformance.mark("http.end", event: route) }
             let (data, response) = try await liveTransport(request, body)
             if let event = event(request: request, body: body, status: response.status.code) {
                 // Never emit request/response bodies, auth headers, codes, or token values.

@@ -17,11 +17,16 @@ public struct EventRecordClient: Sendable {
     }
 
     public func install(_ eventID: Event.ID) async throws -> Event.ID {
+        AttendeePerformance.mark("install.begin", event: eventID.description)
+        defer { AttendeePerformance.mark("install.end", event: eventID.description) }
         try LexiconCoding.validateRecordURI(eventID, type: Event.self)
         @Dependency(\.defaultDatabase) var database
+        AttendeePerformance.mark("cache-read.begin", event: eventID.description)
         let cached = try await database.read { db in
             try Event.find(eventID).fetchOne(db) != nil
         }
+        AttendeePerformance.mark("cache-read.end", event: eventID.description)
+        AttendeePerformance.mark(cached ? "cache.hit" : "cache.miss", event: eventID.description)
         let downloaded: EventRecordGraph?
         if cached {
             downloaded = nil
@@ -34,9 +39,15 @@ public struct EventRecordClient: Sendable {
         }
 
         try Task.checkCancellation()
+        AttendeePerformance.mark("install-write.begin", event: eventID.description)
         try await database.write { db in
-            if let local = try EventRecordGraph.fetch(eventID: eventID, from: db) {
+            AttendeePerformance.mark("graph-read.begin", event: eventID.description)
+            let local = try EventRecordGraph.fetch(eventID: eventID, from: db)
+            AttendeePerformance.mark("graph-read.end", event: eventID.description)
+            if let local {
+                AttendeePerformance.mark("relationships.begin", event: eventID.description)
                 try local.validateRelationships()
+                AttendeePerformance.mark("relationships.end", event: eventID.description)
             } else if let downloaded {
                 try downloaded.upsert(in: db)
             } else {
@@ -44,6 +55,7 @@ public struct EventRecordClient: Sendable {
             }
             try InstalledEvent.upsert { InstalledEvent(id: eventID) }.execute(db)
         }
+        AttendeePerformance.mark("install-write.end", event: eventID.description)
         return eventID
     }
 }
@@ -57,14 +69,18 @@ extension EventRecordClient: DependencyKey {
         Self { eventID in
             try LexiconCoding.validateRecordURI(eventID, type: Event.self)
             @Dependency(XRPC.Client.self) var xrpc
+            AttendeePerformance.mark("bundle-request.begin", event: eventID.description)
             let bundle = try await withDependencies {
                 $0.pdsHost = host
             } operation: {
                 try await xrpc.run(Event.GetEventBundle(uri: eventID))
             }
+            AttendeePerformance.mark("bundle-request.end", event: eventID.description)
             guard bundle.uri == eventID else {
                 throw ValidationError("The AppView returned a different event bundle")
             }
+            AttendeePerformance.mark("bundle-decode.begin", event: eventID.description)
+            defer { AttendeePerformance.mark("bundle-decode.end", event: eventID.description) }
             return try EventRecordGraph(bundle: bundle)
         }
     }
