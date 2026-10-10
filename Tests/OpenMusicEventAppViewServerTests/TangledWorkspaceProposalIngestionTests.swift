@@ -87,7 +87,7 @@ struct TangledWorkspaceProposalIngestionTests {
     } operation: {
       try [
         AppViewIndexDatabase.checkpoint(id: Self.discoverySubscriptionID)?.sequence,
-        AppViewIndexDatabase.checkpoint(id: Self.configuration.subscriptionID)?.sequence,
+        AppViewIndexDatabase.checkpoint(id: Self.eventGraphSubscriptionID)?.sequence,
       ]
     }
     let proposalCount = try await database.read { database in
@@ -140,7 +140,7 @@ struct TangledWorkspaceProposalIngestionTests {
     } operation: {
       try [
         AppViewIndexDatabase.checkpoint(id: Self.discoverySubscriptionID)?.sequence,
-        AppViewIndexDatabase.checkpoint(id: Self.configuration.subscriptionID)?.sequence,
+        AppViewIndexDatabase.checkpoint(id: Self.eventGraphSubscriptionID)?.sequence,
       ]
     }
     let interruptedReadiness = await store.readiness.snapshot()
@@ -240,6 +240,7 @@ extension TangledWorkspaceProposalIngestionTests {
     subscriptionID: "hydrant|ome-appview-v3"
   )
   static let discoverySubscriptionID = "hydrant|ome-appview-v3|workspace-pulls"
+  static let eventGraphSubscriptionID = "hydrant|ome-appview-v3|event-graph-v3"
   static let repositoryDID = DID("did:plc:workspace-repository")!
   static let pullAuthorDID = DID("did:plc:proposal-author")!
   static let statusAuthorDID = DID("did:plc:status-author")!

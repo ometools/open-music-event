@@ -2,6 +2,7 @@ import ATProto
 import ArgumentParser
 import CustomDump
 import Foundation
+import OpenMusicEventDatabase
 import OpenMusicEventSource
 import Testing
 
@@ -60,8 +61,62 @@ import Testing
         typealias Command = OpenMusicEventCommand.ProtocolRecords.PublishEvents
         _ = try Command.parse(arguments)
         for extra in [["--pds", "pds.example"], ["--session-file", "/session.json"],
-                      ["--pds", "https://pds.example", "--session-file", "/session.json"]] {
+                      ["--proxy", "http://127.0.0.1:18083"],
+                      ["--pds", "https://pds.example", "--session-file", "/session.json"],
+                      ["--pds", "pds.example", "--session-file", "/session.json",
+                       "--proxy", "https://127.0.0.1:18083"]] {
             #expect(throws: (any Error).self) { try Command.parse(arguments + extra) }
+        }
+        _ = try Command.parse(arguments + [
+            "--pds", "pds.example", "--session-file", "/session.json",
+            "--proxy", "http://127.0.0.1:18083",
+        ])
+        let proxy = try EventPublicationNetworking.proxyDictionary("http://127.0.0.1:18083")
+        expectNoDifference(proxy["HTTPSProxy"] as? String, "127.0.0.1")
+        expectNoDifference(proxy["HTTPSPort"] as? Int, 18083)
+    }
+
+    @Test func `event discovery allocates stable identities and requires full graph publication`() throws {
+        let created = try #require(
+            ISO8601DateFormatter().date(from: "2026-10-10T12:00:00Z")
+        )
+        var identities = SourcePublicationIdentities()
+        let first = try identities.eventURI(
+            sourceDirectory: "2025",
+            account: owner,
+            createdAt: created
+        )
+        let second = try identities.eventURI(
+            sourceDirectory: "2026",
+            account: owner,
+            createdAt: created
+        )
+        #expect(first != second)
+        expectNoDifference(
+            first,
+            try identities.eventURI(
+                sourceDirectory: "2025",
+                account: owner,
+                createdAt: created
+            )
+        )
+
+        typealias Command = OpenMusicEventCommand.ProtocolRecords.PublishEvents
+        let base = [
+            "/source", "--created-at", "2026-10-10T12:00:00Z",
+            "--discover-events", "--account", owner.description,
+        ]
+        #expect(throws: (any Error).self) { try Command.parse(base) }
+        _ = try Command.parse(
+            base + ["--all-records", "--identity-map", "/identities.json", "--dry-run"]
+        )
+        #expect(throws: (any Error).self) {
+            try Command.parse(
+                base + [
+                    "--all-records", "--identity-map", "/identities.json",
+                    "--event", mapping, "--dry-run",
+                ]
+            )
         }
     }
 }

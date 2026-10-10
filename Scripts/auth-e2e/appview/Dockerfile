@@ -7,11 +7,20 @@ FROM base AS build
 WORKDIR /src
 ENV OME_APPVIEW=1
 ARG SWIFT_BUILD_JOBS=2
+COPY --from=ome-atmosphere . /Users/woody/Developer/swift-packages/swift-composable-atmosphere-reorg-auth
+COPY --from=ome-userinput . /Users/woody/Developer/ometools/worktrees/composable-atmosphere-userinput-reorg
+COPY --from=ome-workspace . /Users/woody/Developer/ometools/worktrees/swift-composable-workspace-atmosphere-reorg
+COPY --from=ome-constellation . /Users/woody/Developer/ometools/worktrees/composable-atmosphere-constellation-reorg
+COPY --from=ome-tangled . /Users/woody/Developer/ometools/worktrees/composable-atmosphere-tangled-reorg
+COPY --from=ome-calendar . /Users/woody/Developer/ometools/worktrees/composable-calendar-events-reorg
+COPY --from=ome-notifications . /Users/woody/Developer/ometools/worktrees/swift-composable-notifications-atmosphere-reorg
+COPY --from=ome-forms . /Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg
+COPY --from=ome-hero-images . /Users/woody/Developer/ometools/swift-hero-image-list
 COPY Package.swift Package.resolved ./
 COPY Sources ./Sources
 COPY Tests ./Tests
 RUN --mount=type=secret,id=github_netrc,target=/root/.netrc,required=true \
-    --mount=type=cache,target=/src/.build swift build --jobs "$SWIFT_BUILD_JOBS" -c release --product OpenMusicEventAppView && \
+    --mount=type=cache,id=ome-appview-v3,target=/src/.build swift build --jobs "$SWIFT_BUILD_JOBS" -c release --product OpenMusicEventAppView && \
     mkdir /output && cp .build/release/OpenMusicEventAppView /output/ && \
     find .build/release/ -maxdepth 1 -name '*.resources' -exec cp -R {} /output/ \;
 

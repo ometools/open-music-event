@@ -18,6 +18,8 @@ extension OpenMusicEventAppViewStore {
             programitemRecordIndex()
             socialcategoryRecordIndex()
             socialpostRecordIndex()
+            communityCalendarEventRecordIndex()
+            venueActorProfileRecordIndex()
 
             tangledWorkspaceProposalRecordIndex(
                 repositoryDIDs: tangledWebhookConfiguration?.repositoryDIDs ?? []
@@ -99,9 +101,17 @@ extension OpenMusicEventAppViewStore {
                 )
                 try event.validateReferences()
                 try Event.upsert { event }.execute(database)
+                try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                    id: event.id,
+                    in: database
+                )
             case let .delete(_, current):
                 try LexiconCoding.validateRecordURI(current.uri, type: Event.self)
                 try Event.find(current.uri).delete().execute(database)
+                try CalendarEventBrowseProjection.delete(
+                    uri: current.uri.description,
+                    in: database
+                )
             }
         }
     }
@@ -153,9 +163,21 @@ extension OpenMusicEventAppViewStore {
                         configuration: RecordMetadata(uri: current.uri, cid: current.cid))
                     try record.validateReferences()
                     try EventPlace.upsert { record }.execute(database)
+                    try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                        id: record.event,
+                        in: database
+                    )
                 case let .delete(_, current):
-                    try LexiconCoding.validateRecordURI(current.uri, type: EventPlace.self)
+                    let eventID = try EventPlace.find(current.uri)
+                        .select(\.event)
+                        .fetchOne(database)
                     try EventPlace.find(current.uri).delete().execute(database)
+                    if let eventID {
+                        try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                            id: eventID,
+                            in: database
+                        )
+                    }
                 }
             }
     }
@@ -171,9 +193,21 @@ extension OpenMusicEventAppViewStore {
                         configuration: RecordMetadata(uri: current.uri, cid: current.cid))
                     try record.validateReferences()
                     try Contributor.upsert { record }.execute(database)
+                    try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                        id: record.event,
+                        in: database
+                    )
                 case let .delete(_, current):
-                    try LexiconCoding.validateRecordURI(current.uri, type: Contributor.self)
+                    let eventID = try Contributor.find(current.uri)
+                        .select(\.event)
+                        .fetchOne(database)
                     try Contributor.find(current.uri).delete().execute(database)
+                    if let eventID {
+                        try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                            id: eventID,
+                            in: database
+                        )
+                    }
                 }
             }
     }
@@ -189,9 +223,21 @@ extension OpenMusicEventAppViewStore {
                         configuration: RecordMetadata(uri: current.uri, cid: current.cid))
                     try record.validateReferences()
                     try ProgramItem.upsert { record }.execute(database)
+                    try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                        id: record.event,
+                        in: database
+                    )
                 case let .delete(_, current):
-                    try LexiconCoding.validateRecordURI(current.uri, type: ProgramItem.self)
+                    let eventID = try ProgramItem.find(current.uri)
+                        .select(\.event)
+                        .fetchOne(database)
                     try ProgramItem.find(current.uri).delete().execute(database)
+                    if let eventID {
+                        try CalendarEventBrowseProjection.upsertCanonicalEvent(
+                            id: eventID,
+                            in: database
+                        )
+                    }
                 }
             }
     }

@@ -1,0 +1,1327 @@
+const DEFAULT_CONFIG = {
+  xrpcURL: "/xrpc/app.openmusicevent.calendar.browseEvents",
+  mapItemsURL: "/xrpc/app.openmusicevent.calendar.getMapItems",
+  eventURL: "/xrpc/app.openmusicevent.calendar.getEvent",
+  catalogs: ["events.openmusic.event", "community.lexicon.calendar.event"],
+  mapStyle: "https://tiles.openfreemap.org/styles/liberty",
+  initialCenter: [-104.5, 39.5],
+  initialZoom: 2.05,
+};
+
+const config = { ...DEFAULT_CONFIG, ...(window.OME_CALENDAR_CONFIG || {}) };
+const params = new URLSearchParams(window.location.search);
+if (params.has("xrpc")) config.xrpcURL = params.get("xrpc");
+if (params.has("style")) config.mapStyle = params.get("style");
+
+const palette = ["#a05cff", "#42d8ff", "#f354ca", "#6279ff", "#21d7b5", "#df61ff"];
+const state = {
+  listEvents: [],
+  mapPoints: [],
+  mapClusters: [],
+  clusterBrowseBounds: null,
+  selectedID: null,
+  selectedDetails: null,
+  detailCache: new Map(),
+  detailController: null,
+  query: "",
+  bounds: null,
+  cursor: null,
+  map: null,
+  mapReady: false,
+  imageMarkers: new Map(),
+  pendingMapReadyAt: null,
+  mapItemMetrics: null,
+  skipNextMoveReload: false,
+  userLocation: null,
+  selectedCatalogs: new Set(config.catalogs),
+  requestController: null,
+  clusterRequestController: null,
+  mapRequestController: null,
+  requestID: 0,
+  mapRequestID: 0,
+  reloadTimer: null,
+  hasMore: false,
+};
+
+const ids = [
+  "dataStatus", "listHeading", "jumpToNow", "loadMore",
+  "eventList", "resultCount", "emptyState", "resetFilters", "mapCard", "mapFallback",
+  "searchForm", "searchInput", "locateButton", "resetMapButton", "zoomInButton",
+  "zoomOutButton", "eventCardTemplate", "selectionConnector", "connectorPath",
+];
+const els = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (const char of value) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function normalizeEvent(raw) {
+  if (typeof raw.uri !== "string" || raw.uri.length === 0) return null;
+  const collection = raw.catalog || raw.source?.collection
+    || (raw.uri.includes("/events.openmusic.event/")
+      ? "events.openmusic.event"
+      : "community.lexicon.calendar.event");
+  const source = collection === "events.openmusic.event"
+    ? "openMusicEvent"
+    : "communityCalendar";
+  const dateOnly = source === "openMusicEvent"
+    && /^\d{4}-\d{2}-\d{2}$/.test(raw.event?.startDate || "");
+  const start = raw.startsAt
+    ? new Date(raw.startsAt)
+    : null;
+  const end = raw.endsAt ? new Date(raw.endsAt) : null;
+  const locations = Array.isArray(raw.locations) ? raw.locations : [];
+  const mappedLocation = locations.find(location => (
+    Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))
+  ));
+  const location = mappedLocation || locations[0] || {};
+  const latitude = Number(raw.latitude ?? location.latitude);
+  const longitude = Number(raw.longitude ?? location.longitude);
+  const coordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? [longitude, latitude]
+    : null;
+  const media = preferredMedia(raw.media);
+  const markerMedia = raw.markerMedia || preferredMarkerMedia(raw.media)
+    || (typeof raw.organizer?.avatarURL === "string"
+      ? { url: raw.organizer.avatarURL, role: "avatar", renderKind: "fullImage" }
+      : null);
+  const seed = hashString(raw.uri);
+  return {
+    ...raw,
+    name: raw.name || "Untitled event",
+    source,
+    dateOnly,
+    date: start && !Number.isNaN(start.valueOf()) ? start : null,
+    endDate: end && !Number.isNaN(end.valueOf()) ? end : null,
+    timezone: raw.timeZoneIdentifier || null,
+    locationSummary: raw.locationSummary || location.name
+      || [location.street, location.locality, location.region, location.postalCode, location.country]
+        .filter(Boolean).join(", ")
+      || (coordinates ? "Open for location details" : "Location to be announced"),
+    locality: location.locality || null,
+    region: location.region || null,
+    country: location.country || null,
+    coordinates,
+    color: palette[seed % palette.length],
+    image: media?.url || null,
+    imageRole: media?.role || null,
+    imageRenderKind: media?.renderKind || null,
+    markerImage: markerMedia?.url || null,
+    markerImageRole: markerMedia?.role || null,
+    markerImageRenderKind: markerMedia?.renderKind || null,
+    quality: coordinates ? [] : ["missingCoordinates"],
+  };
+}
+
+function normalizeCluster(raw) {
+  const values = [
+    raw.latitude,
+    raw.longitude,
+    raw.north,
+    raw.south,
+    raw.east,
+    raw.west,
+    raw.expansionZoom,
+  ].map(Number);
+  if (
+    typeof raw.id !== "string"
+    || !Number.isInteger(raw.count)
+    || raw.count < 2
+    || values.some(value => !Number.isFinite(value))
+  ) return null;
+  return {
+    ...raw,
+    coordinates: [values[1], values[0]],
+    bounds: {
+      north: values[2],
+      south: values[3],
+      east: values[4],
+      west: values[5],
+    },
+    expansionZoom: values[6],
+  };
+}
+
+function preferredMedia(media) {
+  if (!Array.isArray(media)) return null;
+  const rolePriority = ["icon", "poster", "hero", "photo", "logo", "avatar"];
+  return [...media].sort((a, b) => {
+    const aPriority = rolePriority.indexOf(a.role);
+    const bPriority = rolePriority.indexOf(b.role);
+    return (aPriority < 0 ? rolePriority.length : aPriority)
+      - (bPriority < 0 ? rolePriority.length : bPriority);
+  }).find(item => typeof item.url === "string" && item.url.length > 0) || null;
+}
+
+function preferredMarkerMedia(media) {
+  if (!Array.isArray(media)) return null;
+  const rolePriority = ["icon", "logo", "poster", "hero", "photo", "avatar"];
+  return [...media].sort((a, b) => {
+    const aPriority = rolePriority.indexOf(a.role);
+    const bPriority = rolePriority.indexOf(b.role);
+    return (aPriority < 0 ? rolePriority.length : aPriority)
+      - (bPriority < 0 ? rolePriority.length : bPriority);
+  }).find(item => (
+    typeof item.url === "string"
+      && item.url.length > 0
+  )) || null;
+}
+
+function filteredURL(
+  baseURL,
+  { cursor = null, limit = null, bounds = state.bounds, zoom = null } = {},
+) {
+  const url = new URL(baseURL, window.location.href);
+  url.search = "";
+  for (const catalog of state.selectedCatalogs) url.searchParams.append("catalogs", catalog);
+  const query = state.query.trim();
+  if (query) url.searchParams.set("query", query);
+  if (bounds) {
+    for (const [name, value] of Object.entries(bounds)) {
+      url.searchParams.set(name, String(value));
+    }
+  }
+  if (Number.isFinite(zoom)) url.searchParams.set("zoom", String(zoom));
+  if (cursor) url.searchParams.set("cursor", cursor);
+  if (limit) url.searchParams.set("limit", String(limit));
+  return url;
+}
+
+async function fetchJSON(url, signal) {
+  const startedAt = performance.now();
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) throw new Error(`${url.pathname} returned ${response.status}`);
+  const value = await response.json();
+  const resource = performance.getEntriesByName(response.url, "resource").at(-1);
+  return {
+    value,
+    transferDurationMilliseconds: performance.now() - startedAt,
+    compressedBytes: resource?.encodedBodySize || Number(response.headers.get("content-length")) || null,
+  };
+}
+
+async function loadData({
+  bounds = state.bounds || globalMapBounds(),
+  zoom = state.map?.getZoom() ?? config.initialZoom,
+  focusNow = false,
+} = {}) {
+  const requestID = ++state.requestID;
+  state.requestController?.abort();
+  state.clusterRequestController?.abort();
+  state.mapRequestController?.abort();
+  state.mapRequestID += 1;
+  state.requestController = new AbortController();
+  state.bounds = bounds;
+  state.clusterBrowseBounds = null;
+
+  if (state.selectedCatalogs.size === 0) {
+    state.hasMore = false;
+    state.mapItemMetrics = { candidateCount: 0, itemCount: 0 };
+    replaceData([], [], [], { source: "No catalogs selected", focusNow: false });
+    return;
+  }
+
+  els.dataStatus.textContent = "Loading events from the OME AppView…";
+  try {
+    const [browse, map] = await Promise.all([
+      fetchJSON(
+        filteredURL(config.xrpcURL, { limit: 100, bounds }),
+        state.requestController.signal,
+      ),
+      fetchJSON(
+        filteredURL(config.mapItemsURL, { bounds, zoom }),
+        state.requestController.signal,
+      ),
+    ]);
+    if (!Array.isArray(browse.value.events)) throw new Error("Browse response is missing events");
+    if (!Array.isArray(map.value.events) || !Array.isArray(map.value.clusters)) {
+      throw new Error("Map response is missing server-computed items");
+    }
+    if (requestID !== state.requestID) return;
+    state.cursor = typeof browse.value.cursor === "string" ? browse.value.cursor : null;
+    state.mapItemMetrics = {
+      ...map.value.metrics,
+      compressedBytes: map.compressedBytes,
+      transferDurationMilliseconds: map.transferDurationMilliseconds,
+    };
+    replaceData(
+      browse.value.events,
+      map.value.events,
+      map.value.clusters,
+      { source: "OME AppView", focusNow },
+    );
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.error("OME AppView browse failed.", error);
+    els.dataStatus.textContent = "The OME AppView could not be reached";
+    throw error;
+  }
+}
+
+async function loadMapItems({ bounds, zoom }) {
+  if (state.selectedCatalogs.size === 0) {
+    state.mapPoints = [];
+    state.mapClusters = [];
+    state.mapItemMetrics = { candidateCount: 0, itemCount: 0 };
+    updateMapData();
+    return;
+  }
+  const requestID = ++state.mapRequestID;
+  state.mapRequestController?.abort();
+  state.mapRequestController = new AbortController();
+  state.bounds = bounds;
+  try {
+    const response = await fetchJSON(
+      filteredURL(config.mapItemsURL, { bounds, zoom }),
+      state.mapRequestController.signal,
+    );
+    if (!Array.isArray(response.value.events) || !Array.isArray(response.value.clusters)) {
+      throw new Error("Map response is missing server-computed items");
+    }
+    if (requestID !== state.mapRequestID) return;
+    state.mapPoints = response.value.events.map(normalizeEvent).filter(event => event?.coordinates);
+    state.mapClusters = response.value.clusters.map(normalizeCluster).filter(Boolean);
+    state.mapItemMetrics = {
+      ...response.value.metrics,
+      compressedBytes: response.compressedBytes,
+      transferDurationMilliseconds: response.transferDurationMilliseconds,
+    };
+    const candidateCount = state.mapItemMetrics?.candidateCount ?? state.mapPoints.length;
+    const itemCount = state.mapPoints.length + state.mapClusters.length;
+    els.dataStatus.textContent = `${candidateCount} events · ${itemCount} map items · OME AppView`;
+    updateMapData();
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.error("OME AppView map query failed.", error);
+    els.dataStatus.textContent = "The OME AppView map query could not be reached";
+    throw error;
+  }
+}
+
+function replaceData(events, points, clusters, { source, focusNow }) {
+  state.listEvents = events.map(normalizeEvent).filter(Boolean);
+  state.mapPoints = points.map(normalizeEvent).filter(event => event?.coordinates);
+  state.mapClusters = clusters.map(normalizeCluster).filter(Boolean);
+  state.hasMore = Boolean(state.cursor);
+  els.loadMore.hidden = !state.hasMore;
+  const candidateCount = state.mapItemMetrics?.candidateCount ?? state.mapPoints.length;
+  const itemCount = state.mapPoints.length + state.mapClusters.length;
+  els.dataStatus.textContent = `${candidateCount} events · ${itemCount} map items · ${source}`;
+  renderEventList();
+  updateMapData();
+  if (focusNow) focusFirstCurrentEvent();
+  else if (state.selectedID && !eventForID(state.selectedID)) selectEvent(null, false);
+  if (!state.map) initializeMap();
+}
+
+async function loadMoreEvents() {
+  if (!state.cursor) return;
+  els.loadMore.disabled = true;
+  try {
+    const response = await fetchJSON(
+      filteredURL(config.xrpcURL, {
+        cursor: state.cursor,
+        limit: 100,
+        bounds: state.clusterBrowseBounds || state.bounds,
+      }),
+      state.requestController?.signal,
+    );
+    state.cursor = typeof response.value.cursor === "string" ? response.value.cursor : null;
+    state.hasMore = Boolean(state.cursor);
+    state.listEvents.push(...response.value.events.map(normalizeEvent).filter(Boolean));
+    els.loadMore.hidden = !state.hasMore;
+    renderEventList();
+  } finally {
+    els.loadMore.disabled = false;
+  }
+}
+
+function eventForID(id) {
+  return state.listEvents.find(event => event.uri === id)
+    || state.mapPoints.find(event => event.uri === id)
+    || null;
+}
+
+function visibleEvents() {
+  return state.listEvents;
+}
+
+function focusFirstCurrentEvent() {
+  const event = visibleEvents()[0];
+  if (!event) return selectEvent(null, false);
+  selectEvent(event.uri, false);
+  document.querySelector(`.event-card[data-id="${CSS.escape(event.uri)}"] button`)?.focus();
+}
+
+function dateParts(event) {
+  if (!event.date) return { month: "TBA", day: "—", weekday: "" };
+  return {
+    month: formatterFor(event, { month: "short" }).format(event.date),
+    day: formatterFor(event, { day: "2-digit" }).format(event.date),
+    weekday: formatterFor(event, { weekday: "short" }).format(event.date),
+  };
+}
+
+function offsetMinutesFromToken(value) {
+  const match = /([+-])(\d{2}):?(\d{2})$/.exec(value || "");
+  if (!match) return /^(?:GMT|UTC)$/i.test(value || "") ? 0 : null;
+  const sign = match[1] === "+" ? 1 : -1;
+  return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+function offsetMinutesFromTimestamp(value) {
+  if (/Z$/i.test(value || "")) return 0;
+  return offsetMinutesFromToken(value);
+}
+
+function offsetMinutesInZone(date, timeZone) {
+  const timeZoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+  }).formatToParts(date).find(part => part.type === "timeZoneName")?.value;
+  return offsetMinutesFromToken(timeZoneName);
+}
+
+function formatterFor(event, options, timestamp = event.startsAt) {
+  if (event.timezone) {
+    try {
+      return new Intl.DateTimeFormat(undefined, { ...options, timeZone: event.timezone });
+    } catch {
+      // An invalid zone still gets the event's explicit timestamp offset below.
+    }
+  }
+
+  const offset = offsetMinutesFromTimestamp(timestamp) ?? 0;
+  const utcFormatter = new Intl.DateTimeFormat(undefined, { ...options, timeZone: "UTC" });
+  return { format: date => utcFormatter.format(new Date(date.valueOf() + offset * 60_000)) };
+}
+
+function eventOffsetMinutes(event, date, timestamp) {
+  if (event.timezone) {
+    try {
+      return offsetMinutesInZone(date, event.timezone);
+    } catch {
+      // Fall back to the offset carried by this event timestamp.
+    }
+  }
+  return offsetMinutesFromTimestamp(timestamp) ?? 0;
+}
+
+function eventZoneAbbreviation(event, date, timestamp) {
+  if (event.timezone) {
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        timeZone: event.timezone,
+        timeZoneName: "short",
+      }).formatToParts(date).find(part => part.type === "timeZoneName")?.value;
+    } catch {
+      // Use the explicit timestamp offset when the event's zone is unavailable.
+    }
+  }
+
+  const offset = offsetMinutesFromTimestamp(timestamp) ?? 0;
+  if (offset === 0) return "UTC";
+  const sign = offset > 0 ? "+" : "−";
+  const hours = String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0");
+  const minutes = String(Math.abs(offset) % 60).padStart(2, "0");
+  return `UTC${sign}${hours}:${minutes}`;
+}
+
+function viewerOffsetMinutes(date) {
+  const timeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return timeZone ? offsetMinutesInZone(date, timeZone) : -date.getTimezoneOffset();
+}
+
+function canonicalTimeZone(timeZone) {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+function viewerNeedsEventTimeZone(event, date, timestamp) {
+  const viewerTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const eventTimeZone = event.timezone && canonicalTimeZone(event.timezone);
+  if (viewerTimeZone && eventTimeZone) {
+    return canonicalTimeZone(viewerTimeZone) !== eventTimeZone;
+  }
+  return eventOffsetMinutes(event, date, timestamp) !== viewerOffsetMinutes(date);
+}
+
+function formatEventTime(event) {
+  if (event.dateOnly) return "Time not specified";
+  if (!event.date) return "Time to be announced";
+  const start = formatterFor(event, { hour: "numeric", minute: "2-digit" }).format(event.date);
+  const startNeedsZone = viewerNeedsEventTimeZone(event, event.date, event.startsAt);
+  const startZone = startNeedsZone ? eventZoneAbbreviation(event, event.date, event.startsAt) : null;
+  if (!event.endDate) return startZone ? `${start} ${startZone}` : start;
+
+  const end = formatterFor(event, { hour: "numeric", minute: "2-digit" }, event.endsAt).format(event.endDate);
+  const endNeedsZone = viewerNeedsEventTimeZone(event, event.endDate, event.endsAt);
+  const endZone = endNeedsZone ? eventZoneAbbreviation(event, event.endDate, event.endsAt) : null;
+  if (startZone && startZone === endZone) return `${start} – ${end} ${startZone}`;
+  return `${start}${startZone ? ` ${startZone}` : ""} – ${end}${endZone ? ` ${endZone}` : ""}`;
+}
+
+function formatCalloutDate(event) {
+  if (!event.date) return "Date to be announced";
+  const date = formatterFor(event, { month: "short", day: "numeric" }).format(event.date);
+  return `${date} · ${formatEventTime(event)}`;
+}
+
+function initials(name) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase() || "OME";
+}
+
+function renderEventList() {
+  const events = visibleEvents();
+  els.eventList.replaceChildren();
+  els.emptyState.hidden = events.length > 0;
+  els.listHeading.textContent = state.clusterBrowseBounds ? "Events in this map cluster" : "Closest to now";
+  els.resultCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
+
+  events.forEach(event => {
+    const card = els.eventCardTemplate.content.firstElementChild.cloneNode(true);
+    const parts = dateParts(event);
+    card.dataset.id = event.uri;
+    card.classList.toggle("selected", event.uri === state.selectedID);
+    const button = card.querySelector("button");
+    button.setAttribute("aria-label", `${event.name}, ${formatCalloutDate(event)}, ${event.locationSummary}`);
+    button.setAttribute("aria-expanded", String(event.uri === state.selectedID));
+    card.querySelector(".event-month").textContent = parts.month;
+    card.querySelector(".event-day").textContent = parts.day;
+    card.querySelector(".event-weekday").textContent = parts.weekday;
+
+    const art = card.querySelector(".event-art");
+    art.style.setProperty("--card-color", event.color);
+    card.querySelector(".event-monogram").textContent = initials(event.name);
+    if (event.image) {
+      art.classList.add("has-image");
+      if (event.imageRenderKind === "transparent") {
+        art.classList.add("transparent-image");
+        const image = document.createElement("img");
+        image.src = event.image;
+        image.alt = "";
+        art.append(image);
+      } else {
+        art.style.backgroundImage = `url("${escapeCSSURL(event.image)}")`;
+      }
+    }
+
+    card.querySelector(".event-name").textContent = event.name;
+    card.querySelector(".event-location span").textContent = event.locationSummary;
+    card.querySelector(".event-time").textContent = formatEventTime(event);
+    card.querySelector(".event-distance").textContent = distanceLabel(event);
+    button.addEventListener("click", () => selectEvent(event.uri, true));
+    if (event.uri === state.selectedID) {
+      const detail = card.querySelector(".event-detail");
+      detail.hidden = false;
+      renderEventDetail(detail, event);
+    }
+    els.eventList.append(card);
+  });
+  requestAnimationFrame(updateConnector);
+}
+
+function renderEventDetail(container, summary) {
+  const event = state.selectedDetails?.uri === summary.uri
+    ? normalizeEvent(state.selectedDetails)
+    : null;
+  if (!event) {
+    container.innerHTML = `<p class="event-detail-status">Loading event details…</p>`;
+    return;
+  }
+  const locations = (event.locations || []).map(location => {
+    const value = [location.name, location.street, location.locality, location.region, location.postalCode, location.country]
+      .filter(Boolean).join(", ");
+    return value ? `<li>${escapeHTML(value)}</li>` : "";
+  }).join("");
+  const links = (event.links || []).map(link => (
+    `<li><a href="${escapeAttribute(link.uri)}" rel="external">${escapeHTML(link.name || link.uri)}</a></li>`
+  )).join("");
+  const sourceLink = fullEventLink(event);
+  container.innerHTML = `
+    <div class="event-detail-grid">
+      <div>
+        <strong>${escapeHTML(formatCalloutDate(event))}</strong>
+        <span>${escapeHTML(event.timezone || "Event time zone not supplied")}</span>
+      </div>
+      <div>
+        <strong>${escapeHTML(event.organizer?.displayName || event.organizer?.handle || event.organizer?.id || "Organizer")}</strong>
+        <span>Organizer</span>
+      </div>
+    </div>
+    ${locations ? `<ul class="event-detail-locations">${locations}</ul>` : ""}
+    ${event.description ? `<p class="event-detail-description">${escapeHTML(event.description)}</p>` : ""}
+    ${(links || sourceLink) ? `<ul class="event-detail-links">${links}${sourceLink}</ul>` : ""}
+  `;
+}
+
+function fullEventLink(event) {
+  const match = /^at:\/\/([^/]+)\/events\.openmusic\.event\/([^/]+)$/.exec(event.uri);
+  if (match) {
+    return `<li><a href="/record/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}">Open full event</a></li>`;
+  }
+  return `<li><a href="${escapeAttribute(event.uri)}">Open source record</a></li>`;
+}
+
+function eventGeoJSON() {
+  return {
+    type: "FeatureCollection",
+    features: [
+      ...state.mapPoints.map(event => ({
+        type: "Feature",
+        id: event.uri,
+        geometry: { type: "Point", coordinates: event.coordinates },
+        properties: {
+          kind: "event",
+          uri: event.uri,
+          name: event.name,
+          color: event.color,
+          markerImage: event.markerImage || "",
+          markerImageRenderKind: event.markerImageRenderKind || "",
+        },
+      })),
+      ...state.mapClusters.map(cluster => ({
+        type: "Feature",
+        id: cluster.id,
+        geometry: { type: "Point", coordinates: cluster.coordinates },
+        properties: {
+          kind: "cluster",
+          clusterID: cluster.id,
+          count: cluster.count,
+          expansionZoom: cluster.expansionZoom,
+          north: cluster.bounds.north,
+          south: cluster.bounds.south,
+          east: cluster.bounds.east,
+          west: cluster.bounds.west,
+        },
+      })),
+    ],
+  };
+}
+
+function installEventLayers() {
+  state.map.addSource("calendar-events", {
+    type: "geojson",
+    data: eventGeoJSON(),
+  });
+  state.map.addLayer({
+    id: "event-clusters",
+    type: "circle",
+    source: "calendar-events",
+    filter: ["==", ["get", "kind"], "cluster"],
+    paint: {
+      "circle-color": "#9a4eff",
+      "circle-radius": ["step", ["get", "count"], 20, 10, 25, 100, 31],
+      "circle-stroke-width": 4,
+      "circle-stroke-color": "rgba(5, 6, 14, .86)",
+      "circle-opacity": .88,
+    },
+  });
+  state.map.addLayer({
+    id: "event-cluster-count",
+    type: "symbol",
+    source: "calendar-events",
+    filter: ["==", ["get", "kind"], "cluster"],
+    layout: { "text-field": ["get", "count"], "text-size": 12 },
+    paint: { "text-color": "#ffffff" },
+  });
+  state.map.addLayer({
+    id: "event-points",
+    type: "circle",
+    source: "calendar-events",
+    filter: ["all", ["==", ["get", "kind"], "event"], ["==", ["get", "markerImage"], ""]],
+    paint: {
+      "circle-color": ["get", "color"],
+      "circle-radius": 10,
+      "circle-stroke-width": 4,
+      "circle-stroke-color": "rgba(5, 6, 14, .9)",
+    },
+  });
+  state.map.addLayer({
+    id: "event-hit-targets",
+    type: "circle",
+    source: "calendar-events",
+    filter: ["==", ["get", "kind"], "event"],
+    paint: { "circle-radius": 24, "circle-opacity": 0 },
+  });
+
+  state.map.on("click", "event-clusters", event => {
+    openCluster(event.features?.[0]).catch(error => console.error(error));
+  });
+  state.map.on("click", "event-hit-targets", event => {
+    const uri = event.features?.[0]?.properties?.uri;
+    if (uri) selectEvent(uri, false);
+  });
+  for (const layer of ["event-clusters", "event-hit-targets"]) {
+    state.map.on("mouseenter", layer, () => { state.map.getCanvas().style.cursor = "pointer"; });
+    state.map.on("mouseleave", layer, () => { state.map.getCanvas().style.cursor = ""; });
+  }
+}
+
+function initializeMap() {
+  if (!window.maplibregl) {
+    els.mapFallback.removeAttribute("hidden");
+    return;
+  }
+
+  try {
+    state.map = new maplibregl.Map({
+      container: "map",
+      style: config.mapStyle,
+      center: config.initialCenter,
+      zoom: config.initialZoom,
+      minZoom: .45,
+      maxZoom: 18,
+      renderWorldCopies: false,
+      attributionControl: true,
+    });
+    state.map.on("load", () => {
+      state.mapReady = true;
+      els.mapFallback.hidden = true;
+      if (typeof state.map.setProjection === "function") {
+        state.map.setProjection({ type: "globe" });
+      }
+      if (typeof state.map.setSky === "function") {
+        state.map.setSky({
+          "sky-color": "#070913",
+          "horizon-color": "#b64dff",
+          "sky-horizon-blend": 0.8,
+          "atmosphere-blend": [
+            "interpolate", ["linear"], ["zoom"],
+            0, 1,
+            5, 1,
+            7, 0,
+          ],
+        });
+      }
+      styleGlobeMap();
+      const firstSymbolLayer = state.map.getStyle().layers.find(layer => layer.type === "symbol");
+      state.map.addLayer(createGlobeRimLayer(), firstSymbolLayer?.id);
+      installEventLayers();
+      updateMapData();
+      requestAnimationFrame(updateConnector);
+    });
+    state.map.on("move", () => {
+      updateConnector();
+    });
+    state.map.on("moveend", () => {
+      syncVisibleImageMarkers();
+      const viewport = currentMapViewport();
+      if (state.skipNextMoveReload) {
+        state.skipNextMoveReload = false;
+        scheduleMapReload(viewport);
+        return;
+      }
+      scheduleReload(viewport);
+    });
+    state.map.on("resize", updateConnector);
+    state.map.on("error", event => {
+      console.info("Map style or tiles unavailable.", event.error);
+      if (!state.mapReady) els.mapFallback.removeAttribute("hidden");
+    });
+  } catch (error) {
+    console.info("MapLibre could not start.", error);
+    els.mapFallback.removeAttribute("hidden");
+  }
+}
+
+async function openCluster(feature) {
+  if (!feature) return;
+  const bounds = {
+    north: Number(feature.properties.north),
+    south: Number(feature.properties.south),
+    east: Number(feature.properties.east),
+    west: Number(feature.properties.west),
+  };
+  const zoom = Number(feature.properties.expansionZoom);
+  state.clusterRequestController?.abort();
+  state.clusterRequestController = new AbortController();
+  const response = await fetchJSON(
+    filteredURL(config.xrpcURL, { bounds, limit: 100 }),
+    state.clusterRequestController.signal,
+  );
+  state.clusterBrowseBounds = bounds;
+  state.listEvents = response.value.events.map(normalizeEvent).filter(Boolean);
+  state.cursor = typeof response.value.cursor === "string" ? response.value.cursor : null;
+  state.hasMore = Boolean(state.cursor);
+  els.loadMore.hidden = !state.hasMore;
+  state.selectedID = null;
+  state.selectedDetails = null;
+  renderEventList();
+  state.skipNextMoveReload = true;
+  state.map.easeTo({ center: feature.geometry.coordinates, zoom, essential: true });
+  els.eventList.querySelector("button")?.focus();
+}
+
+function syncVisibleImageMarkers() {
+  if (!state.mapReady || !state.map.getLayer("event-hit-targets")) return;
+  const features = state.map.queryRenderedFeatures({ layers: ["event-hit-targets"] });
+  const visible = new Map();
+  for (const feature of features) {
+    const uri = feature.properties?.uri;
+    const event = eventForID(uri);
+    if (event?.markerImage) visible.set(uri, event);
+  }
+  for (const [uri, event] of visible) {
+    let marker = state.imageMarkers.get(uri);
+    if (!marker) {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "event-marker";
+      element.style.setProperty("--marker-color", event.color);
+      element.setAttribute("aria-label", `${event.name} map marker`);
+      const image = document.createElement("img");
+      image.src = event.markerImage;
+      image.alt = "";
+      image.className = event.markerImageRenderKind === "transparent" ? "transparent-image" : "full-image";
+      element.append(image);
+      element.addEventListener("click", click => {
+        click.stopPropagation();
+        selectEvent(uri, false);
+      });
+      marker = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat(event.coordinates)
+        .addTo(state.map);
+      state.imageMarkers.set(uri, marker);
+    }
+    marker.getElement().classList.toggle("selected", uri === state.selectedID);
+  }
+  for (const [uri, marker] of state.imageMarkers) {
+    if (visible.has(uri)) continue;
+    marker.remove();
+    state.imageMarkers.delete(uri);
+  }
+}
+
+function globalMapBounds() {
+  return { north: 90, south: -90, east: 180, west: -180 };
+}
+
+function currentMapBounds() {
+  if (!state.mapReady) return globalMapBounds();
+  const bounds = state.map.getBounds();
+  const westUnwrapped = bounds.getWest();
+  const eastUnwrapped = bounds.getEast();
+  if (eastUnwrapped - westUnwrapped >= 355) return globalMapBounds();
+  return {
+    north: Math.min(90, bounds.getNorth()),
+    south: Math.max(-90, bounds.getSouth()),
+    east: normalizeLongitude(eastUnwrapped),
+    west: normalizeLongitude(westUnwrapped),
+  };
+}
+
+function currentMapViewport() {
+  return {
+    bounds: currentMapBounds(),
+    zoom: state.map?.getZoom() ?? config.initialZoom,
+  };
+}
+
+function normalizeLongitude(value) {
+  return ((value + 180) % 360 + 360) % 360 - 180;
+}
+
+function scheduleReload(options = {}) {
+  window.clearTimeout(state.reloadTimer);
+  state.reloadTimer = window.setTimeout(() => {
+    loadData(options).catch(error => console.error(error));
+  }, 250);
+}
+
+function scheduleMapReload(options) {
+  window.clearTimeout(state.reloadTimer);
+  state.reloadTimer = window.setTimeout(() => {
+    loadMapItems(options).catch(error => console.error(error));
+  }, 250);
+}
+
+function createGlobeRimLayer() {
+  const longitudeSteps = 128;
+  const latitudeSteps = 64;
+  const vertices = [];
+  const indices = [];
+
+  for (let latitude = 0; latitude <= latitudeSteps; latitude += 1) {
+    const geographicLatitude = 89.5 - (179 * latitude / latitudeSteps);
+    const latitudeRadians = geographicLatitude * Math.PI / 180;
+    const mercatorY = .5 - Math.log(Math.tan(Math.PI / 4 + latitudeRadians / 2)) / (2 * Math.PI);
+    for (let longitude = 0; longitude <= longitudeSteps; longitude += 1) {
+      vertices.push(longitude / longitudeSteps, mercatorY);
+    }
+  }
+
+  for (let latitude = 0; latitude < latitudeSteps; latitude += 1) {
+    for (let longitude = 0; longitude < longitudeSteps; longitude += 1) {
+      const southwest = latitude * (longitudeSteps + 1) + longitude;
+      const southeast = southwest + 1;
+      const northwest = southwest + longitudeSteps + 1;
+      const northeast = northwest + 1;
+      indices.push(southwest, southeast, northwest, southeast, northeast, northwest);
+    }
+  }
+
+  const layer = {
+    id: "ome-globe-rim",
+    type: "custom",
+    renderingMode: "2d",
+    shaderPrograms: new Map(),
+    vertices: new Float32Array(vertices),
+    indices: new Uint16Array(indices),
+
+    getProgram(gl, shaderData) {
+      const cached = this.shaderPrograms.get(shaderData.variantName);
+      if (cached) return cached;
+
+      const vertexSource = `#version 300 es
+${shaderData.vertexShaderPrelude}
+${shaderData.define}
+in vec2 a_pos;
+out float v_horizon_distance;
+void main() {
+  vec3 sphere_position = projectToSphere(a_pos);
+  v_horizon_distance = 1.0 - (dot(sphere_position, u_projection_clipping_plane.xyz)
+    + u_projection_clipping_plane.w);
+  gl_Position = projectTile(a_pos);
+}`;
+      const fragmentSource = `#version 300 es
+precision highp float;
+in float v_horizon_distance;
+uniform vec4 u_color;
+uniform float u_band_width;
+uniform float u_rim_opacity;
+out vec4 fragColor;
+void main() {
+  float edge = 1.0 - smoothstep(u_band_width * 0.5, u_band_width, abs(v_horizon_distance));
+  if (edge <= 0.001) discard;
+  fragColor = vec4(u_color.rgb, u_color.a * edge * u_rim_opacity);
+}`;
+      const vertexShader = compileGlobeShader(gl, gl.VERTEX_SHADER, vertexSource);
+      const fragmentShader = compileGlobeShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+      const program = gl.createProgram();
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const message = gl.getProgramInfoLog(program) || "Unknown globe-rim shader link error";
+        gl.deleteProgram(program);
+        throw new Error(message);
+      }
+
+      const compiled = {
+        program,
+        position: gl.getAttribLocation(program, "a_pos"),
+        projection: gl.getUniformLocation(program, "u_projection_matrix"),
+        fallback: gl.getUniformLocation(program, "u_projection_fallback_matrix"),
+        tile: gl.getUniformLocation(program, "u_projection_tile_mercator_coords"),
+        clipping: gl.getUniformLocation(program, "u_projection_clipping_plane"),
+        transition: gl.getUniformLocation(program, "u_projection_transition"),
+        color: gl.getUniformLocation(program, "u_color"),
+        bandWidth: gl.getUniformLocation(program, "u_band_width"),
+        opacity: gl.getUniformLocation(program, "u_rim_opacity"),
+      };
+      this.shaderPrograms.set(shaderData.variantName, compiled);
+      return compiled;
+    },
+
+    onAdd(_map, gl) {
+      this.vertexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, this.vertices, gl.STATIC_DRAW);
+      this.indexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices, gl.STATIC_DRAW);
+    },
+
+    render(gl, args) {
+      const shader = this.getProgram(gl, args.shaderData);
+      const projection = args.defaultProjectionData;
+      if (projection.projectionTransition < 0.01) return;
+      const previous = {
+        program: gl.getParameter(gl.CURRENT_PROGRAM),
+        vertexArray: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
+        arrayBuffer: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+        elementBuffer: gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING),
+        blendEnabled: gl.isEnabled(gl.BLEND),
+        blendSourceRGB: gl.getParameter(gl.BLEND_SRC_RGB),
+        blendDestinationRGB: gl.getParameter(gl.BLEND_DST_RGB),
+        blendSourceAlpha: gl.getParameter(gl.BLEND_SRC_ALPHA),
+        blendDestinationAlpha: gl.getParameter(gl.BLEND_DST_ALPHA),
+        blendEquationRGB: gl.getParameter(gl.BLEND_EQUATION_RGB),
+        blendEquationAlpha: gl.getParameter(gl.BLEND_EQUATION_ALPHA),
+        cullEnabled: gl.isEnabled(gl.CULL_FACE),
+        depthEnabled: gl.isEnabled(gl.DEPTH_TEST),
+        depthWrite: gl.getParameter(gl.DEPTH_WRITEMASK),
+      };
+      gl.useProgram(shader.program);
+      gl.uniformMatrix4fv(shader.projection, false, projection.mainMatrix);
+      gl.uniformMatrix4fv(shader.fallback, false, projection.fallbackMatrix);
+      gl.uniform4fv(shader.tile, projection.tileMercatorCoords);
+      gl.uniform4fv(shader.clipping, projection.clippingPlane);
+      gl.uniform1f(shader.transition, projection.projectionTransition);
+      gl.uniform1f(shader.opacity, projection.projectionTransition);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+      gl.enableVertexAttribArray(shader.position);
+      gl.vertexAttribPointer(shader.position, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.disable(gl.CULL_FACE);
+
+      gl.uniform1f(shader.bandWidth, 0.032);
+      gl.uniform4f(shader.color, 0.64, 0.20, 1, 0.2);
+      gl.drawElements(gl.TRIANGLES, this.indices.length, gl.UNSIGNED_SHORT, 0);
+
+      gl.uniform1f(shader.bandWidth, 0.009);
+      gl.uniform4f(shader.color, 0.77, 0.45, 1, 0.78);
+      gl.drawElements(gl.TRIANGLES, this.indices.length, gl.UNSIGNED_SHORT, 0);
+
+      gl.bindVertexArray(previous.vertexArray);
+      gl.bindBuffer(gl.ARRAY_BUFFER, previous.arrayBuffer);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, previous.elementBuffer);
+      gl.useProgram(previous.program);
+      gl.blendFuncSeparate(
+        previous.blendSourceRGB,
+        previous.blendDestinationRGB,
+        previous.blendSourceAlpha,
+        previous.blendDestinationAlpha,
+      );
+      gl.blendEquationSeparate(previous.blendEquationRGB, previous.blendEquationAlpha);
+      gl.depthMask(previous.depthWrite);
+      setGlCapability(gl, gl.BLEND, previous.blendEnabled);
+      setGlCapability(gl, gl.CULL_FACE, previous.cullEnabled);
+      setGlCapability(gl, gl.DEPTH_TEST, previous.depthEnabled);
+    },
+
+    onRemove(_map, gl) {
+      gl.deleteBuffer(this.vertexBuffer);
+      gl.deleteBuffer(this.indexBuffer);
+      for (const shader of this.shaderPrograms.values()) gl.deleteProgram(shader.program);
+      this.shaderPrograms.clear();
+    },
+  };
+
+  return layer;
+}
+
+function setGlCapability(gl, capability, enabled) {
+  if (enabled) gl.enable(capability);
+  else gl.disable(capability);
+}
+
+function compileGlobeShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const message = gl.getShaderInfoLog(shader) || "Unknown globe-rim shader compile error";
+    gl.deleteShader(shader);
+    throw new Error(message);
+  }
+  return shader;
+}
+
+function styleGlobeMap() {
+  if (!state.mapReady) return;
+  for (const layer of state.map.getStyle().layers || []) {
+    const name = `${layer.id} ${layer["source-layer"] || ""}`.toLowerCase();
+    if (layer.type === "background") {
+      state.map.setPaintProperty(layer.id, "background-color", "#030711");
+      continue;
+    }
+    if (layer.type === "fill") {
+      const color = /water|ocean|lake|river/.test(name)
+        ? "#07172a"
+        : /wood|forest|park|grass|landcover|landuse/.test(name)
+          ? "#102033"
+          : "#152136";
+      state.map.setPaintProperty(layer.id, "fill-color", color);
+      if (layer.paint?.["fill-outline-color"] !== undefined) {
+        state.map.setPaintProperty(layer.id, "fill-outline-color", "#1c314a");
+      }
+      continue;
+    }
+    if (layer.type === "line") {
+      const color = /boundary|admin/.test(name) ? "#324a68" : "#1c3048";
+      state.map.setPaintProperty(layer.id, "line-color", color);
+      if (layer.paint?.["line-opacity"] !== undefined) {
+        state.map.setPaintProperty(layer.id, "line-opacity", .52);
+      }
+      continue;
+    }
+    if (layer.type === "symbol") {
+      if (layer.layout?.["text-field"] !== undefined) {
+        state.map.setPaintProperty(layer.id, "text-color", "#879ab7");
+        state.map.setPaintProperty(layer.id, "text-halo-color", "#030711");
+        state.map.setPaintProperty(layer.id, "text-halo-width", 1.1);
+      }
+      if (layer.layout?.["icon-image"] !== undefined) {
+        state.map.setPaintProperty(layer.id, "icon-opacity", .45);
+      }
+    }
+  }
+}
+
+function updateMapData() {
+  if (!state.mapReady) return;
+  const source = state.map.getSource("calendar-events");
+  if (!source) return;
+  state.pendingMapReadyAt = performance.now();
+  source.setData(eventGeoJSON());
+  state.map.once("idle", () => {
+    syncVisibleImageMarkers();
+    if (state.pendingMapReadyAt == null) return;
+    const mapLibreReadyDurationMilliseconds = performance.now() - state.pendingMapReadyAt;
+    state.pendingMapReadyAt = null;
+    const metrics = {
+      candidateCount: state.mapItemMetrics?.candidateCount ?? state.mapPoints.length,
+      itemCount: state.mapItemMetrics?.itemCount ?? state.mapPoints.length + state.mapClusters.length,
+      compressedResponseBytes: state.mapItemMetrics?.compressedBytes ?? "unavailable",
+      databaseDurationMilliseconds: state.mapItemMetrics?.databaseDurationMilliseconds ?? "unavailable",
+      clusteringDurationMilliseconds: state.mapItemMetrics?.clusteringDurationMilliseconds ?? "unavailable",
+      transferDurationMilliseconds: state.mapItemMetrics?.transferDurationMilliseconds ?? "unavailable",
+      mapLibreReadyDurationMilliseconds,
+    };
+    window.OME_GLOBE_METRICS = metrics;
+    console.table(metrics);
+  });
+  requestAnimationFrame(updateConnector);
+}
+
+async function selectEvent(id, fly) {
+  state.selectedID = id || null;
+  state.detailController?.abort();
+  state.selectedDetails = id ? state.detailCache.get(id) || null : null;
+  renderEventList();
+  syncVisibleImageMarkers();
+
+  const event = eventForID(state.selectedID);
+  if (!event) {
+    els.mapCard.hidden = true;
+    els.connectorPath.setAttribute("d", "");
+    return;
+  }
+
+  renderMapCard(event);
+  if (fly && state.mapReady && event.coordinates) {
+    state.map.flyTo({
+      center: event.coordinates,
+      zoom: Math.max(state.map.getZoom(), 2.35),
+      speed: .75,
+      curve: 1.25,
+      essential: true,
+    });
+  }
+  requestAnimationFrame(updateConnector);
+
+  if (state.selectedDetails) return;
+  state.detailController = new AbortController();
+  try {
+    const url = new URL(config.eventURL, window.location.href);
+    url.searchParams.set("uri", event.uri);
+    const response = await fetchJSON(url, state.detailController.signal);
+    if (state.selectedID !== event.uri) return;
+    state.detailCache.set(event.uri, response.value);
+    state.selectedDetails = response.value;
+    renderEventList();
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.error("Could not load event details.", error);
+    const detail = document.querySelector(`.event-card[data-id="${CSS.escape(event.uri)}"] .event-detail`);
+    if (detail) detail.innerHTML = `<p class="event-detail-status">Event details could not be loaded.</p>`;
+  }
+}
+
+function renderMapCard(event) {
+  els.mapCard.style.setProperty("--card-color", event.color);
+  const artStyle = event.image && event.imageRenderKind !== "transparent"
+    ? ` style="background-image:linear-gradient(rgba(5,7,13,.15),rgba(5,7,13,.2)),url(&quot;${escapeAttribute(event.image)}&quot;)"`
+    : "";
+  const artContents = event.image
+    ? event.imageRenderKind === "transparent"
+      ? `<img src="${escapeAttribute(event.image)}" alt="">`
+      : ""
+    : escapeHTML(initials(event.name));
+  els.mapCard.innerHTML = `
+    <div class="map-card-art${event.imageRenderKind === "transparent" ? " transparent-image" : ""}"${artStyle}>${artContents}</div>
+    <div class="map-card-copy">
+      <h2>${escapeHTML(event.name)}</h2>
+      <p><span aria-hidden="true">⌖</span> ${escapeHTML(event.locationSummary)}</p>
+      <time>${escapeHTML(formatCalloutDate(event))}</time>
+    </div>
+    <button class="map-card-close" type="button" aria-label="Close event details">→</button>
+  `;
+  els.mapCard.hidden = false;
+  els.mapCard.querySelector(".map-card-close").addEventListener("click", () => selectEvent(null, false));
+}
+
+function updateConnector() {
+  if (!state.selectedID || !state.mapReady) {
+    els.connectorPath.setAttribute("d", "");
+    return;
+  }
+  const card = document.querySelector(`.event-card[data-id="${CSS.escape(state.selectedID)}"]`);
+  const shell = document.querySelector(".discover-shell");
+  const event = eventForID(state.selectedID);
+  if (!card || !event?.coordinates || !shell) {
+    els.connectorPath.setAttribute("d", "");
+    return;
+  }
+
+  const point = state.map.project(event.coordinates);
+  if (!state.mapPoints.some(point => point.uri === state.selectedID)) {
+    els.connectorPath.setAttribute("d", "");
+    return;
+  }
+
+  const shellRect = shell.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  const mapRect = document.getElementById("map").getBoundingClientRect();
+  const startX = cardRect.right - shellRect.left;
+  const startY = cardRect.top + cardRect.height / 2 - shellRect.top;
+  const endX = mapRect.left + point.x - shellRect.left;
+  const endY = mapRect.top + point.y - shellRect.top;
+  const bend = Math.max(70, Math.min(170, (endX - startX) * .38));
+  els.connectorPath.setAttribute(
+    "d",
+    `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`,
+  );
+}
+
+function distanceLabel(event) {
+  const miles = eventDistance(event);
+  if (!Number.isFinite(miles)) return "";
+  return miles < 10 ? `${miles.toFixed(1)} mi` : `${Math.round(miles)} mi`;
+}
+
+function eventDistance(event) {
+  if (!state.userLocation || !event.coordinates) return Number.POSITIVE_INFINITY;
+  const [longitude1, latitude1] = state.userLocation;
+  const [longitude2, latitude2] = event.coordinates;
+  const toRadians = degrees => degrees * Math.PI / 180;
+  const deltaLatitude = toRadians(latitude2 - latitude1);
+  const deltaLongitude = toRadians(longitude2 - longitude1);
+  const a = Math.sin(deltaLatitude / 2) ** 2
+    + Math.cos(toRadians(latitude1)) * Math.cos(toRadians(latitude2))
+    * Math.sin(deltaLongitude / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function escapeHTML(value = "") {
+  return String(value).replace(/[&<>'"]/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;",
+  })[character]);
+}
+
+function escapeAttribute(value = "") {
+  return escapeHTML(value);
+}
+
+function escapeCSSURL(value = "") {
+  return String(value).replace(/[\\"\n\r]/g, character => `\\${character}`);
+}
+
+els.searchForm.addEventListener("submit", event => {
+  event.preventDefault();
+  state.query = els.searchInput.value;
+  window.clearTimeout(state.reloadTimer);
+  loadData({ bounds: state.bounds }).catch(error => console.error(error));
+});
+els.searchInput.addEventListener("input", () => {
+  state.query = els.searchInput.value;
+  scheduleReload({ bounds: state.bounds });
+});
+document.querySelectorAll('input[name="catalog"]').forEach(input => {
+  input.checked = state.selectedCatalogs.has(input.value);
+  input.addEventListener("change", () => {
+    if (input.checked) state.selectedCatalogs.add(input.value);
+    else state.selectedCatalogs.delete(input.value);
+    loadData({ bounds: state.bounds }).catch(error => console.error(error));
+  });
+});
+els.jumpToNow.addEventListener("click", () => {
+  state.cursor = null;
+  state.clusterBrowseBounds = null;
+  selectEvent(null, false);
+  loadData({ bounds: state.bounds, focusNow: true }).catch(error => console.error(error));
+});
+els.loadMore.addEventListener("click", () => loadMoreEvents().catch(error => console.error(error)));
+els.resetFilters.addEventListener("click", () => {
+  state.query = "";
+  els.searchInput.value = "";
+  state.selectedCatalogs = new Set(config.catalogs);
+  document.querySelectorAll('input[name="catalog"]').forEach(input => {
+    input.checked = state.selectedCatalogs.has(input.value);
+  });
+  loadData({ bounds: state.bounds }).catch(error => console.error(error));
+});
+els.resetMapButton.addEventListener("click", () => {
+  state.map?.flyTo({ center: config.initialCenter, zoom: config.initialZoom, bearing: 0, pitch: 0 });
+});
+els.zoomInButton.addEventListener("click", () => state.map?.zoomIn());
+els.zoomOutButton.addEventListener("click", () => state.map?.zoomOut());
+
+els.locateButton.addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    els.dataStatus.textContent = "Location is not available in this browser";
+    return;
+  }
+  els.dataStatus.textContent = "Finding events near you…";
+  navigator.geolocation.getCurrentPosition(position => {
+    state.userLocation = [position.coords.longitude, position.coords.latitude];
+    els.locateButton.querySelector("span:nth-child(2)").textContent = "Near me";
+    els.dataStatus.textContent = "Showing the map around your location";
+    state.map?.flyTo({ center: state.userLocation, zoom: 4.2, essential: true });
+  }, () => {
+    els.dataStatus.textContent = "Location permission was not granted";
+  });
+});
+
+window.addEventListener("resize", () => {
+  state.map?.resize();
+  updateConnector();
+});
+
+els.eventList.addEventListener("keydown", event => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const buttons = [...els.eventList.querySelectorAll(".event-card-button")];
+  if (buttons.length === 0) return;
+  const current = buttons.indexOf(document.activeElement);
+  const index = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? buttons.length - 1
+      : Math.max(0, Math.min(buttons.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+  buttons[index].focus();
+  event.preventDefault();
+});
+
+loadData({ focusNow: false }).then(() => {
+  const selectedFromURL = params.get("event");
+  const event = eventForID(selectedFromURL);
+  if (event) {
+    selectEvent(event.uri, true);
+  }
+}).catch(error => {
+  console.error(error);
+  els.dataStatus.textContent = "The calendar could not be loaded";
+  els.emptyState.hidden = false;
+});

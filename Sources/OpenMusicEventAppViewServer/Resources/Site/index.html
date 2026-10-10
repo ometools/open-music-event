@@ -1,58 +1,136 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <title>OpenMusicEvent</title>
-    <meta
-      name="description"
-      content="OpenMusicEvent is a native app and open event data system for music festivals, venues, and community organizers."
-    >
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body>
-    <main>
-      <section class="hero" aria-label="OpenMusicEvent launch home">
-        <img class="hero-mark" src="/assets/ome-mark.jpg" alt="">
-        <div class="hero-copy">
-          <p class="eyebrow">OpenMusicEvent</p>
-          <h1>OpenMusicEvent</h1>
-          <p class="lede">
-            A native app and open event data system for music festivals, venues,
-            artists, and community-run lineups.
-          </p>
-          <div class="actions" aria-label="Primary links">
-            <a href="mailto:hello@openmusicevent.app">Contact</a>
-            <a href="/.well-known/atproto-did">ATProto identity</a>
-          </div>
-        </div>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#05060a">
+  <meta name="description" content="Explore public community calendar events around the world with Open Music Event.">
+  <title>Discover · Open Music Event</title>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css?globe-marker-alignment=1">
+</head>
+<body>
+  <a class="skip-link" href="#event-list">Skip to events</a>
+
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Open Music Event home">
+      <img class="brand-mark" src="assets/ome-mark-sphere-cage-2026-07-13.png" alt="">
+      <span class="brand-name">Open Music Event</span>
+    </a>
+
+    <nav class="primary-nav" aria-label="Primary navigation">
+      <a class="active" href="#event-list">Discover</a>
+      <a href="#event-list">Calendar</a>
+      <a href="/about">About</a>
+    </nav>
+
+    <div class="header-tools">
+      <form class="header-search" id="searchForm" role="search">
+        <span class="search-icon" aria-hidden="true"></span>
+        <label class="sr-only" for="searchInput">Search events, artists, or places</label>
+        <input id="searchInput" name="query" type="search" autocomplete="off" placeholder="Search events, artists, or places…">
+      </form>
+      <button class="location-button" id="locateButton" type="button">
+        <span class="pin-icon" aria-hidden="true"></span>
+        <span>Near you</span>
+        <span class="chevron" aria-hidden="true">⌄</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="discover-shell" id="event-explorer">
+    <section class="browse-panel" aria-labelledby="page-title">
+      <div class="browse-heading">
+        <p class="eyebrow">Music brings us closer</p>
+        <h1 id="page-title">The <em>open</em> guide to what’s happening.</h1>
+        <fieldset class="catalog-filters" aria-label="Event catalogs">
+          <label>
+            <input type="checkbox" name="catalog" value="events.openmusic.event" checked>
+            <span>Open Music Event</span>
+          </label>
+          <label>
+            <input type="checkbox" name="catalog" value="community.lexicon.calendar.event" checked>
+            <span>Community Calendar</span>
+          </label>
+        </fieldset>
+      </div>
+
+      <section class="temporal-controls" aria-label="Browse controls">
+        <button id="jumpToNow" type="button">Jump to now</button>
+        <button id="loadMore" type="button" hidden>Load more events</button>
       </section>
 
-      <section class="launch-grid" aria-label="Launch focus">
-        <article>
-          <h2>Schedules</h2>
-          <p>
-            Publish set times, stages, contributors, and event details from
-            source-backed records.
-          </p>
-        </article>
-        <article>
-          <h2>AppView</h2>
-          <p>
-            Serve hydrated event data, official identity files, deep links, and
-            launch pages from one Swift backend.
-          </p>
-        </article>
-        <article>
-          <h2>Portable</h2>
-          <p>
-            Keep event data readable across native apps, source repositories,
-            and ATProto records.
-          </p>
-        </article>
-      </section>
-    </main>
-  </body>
+      <div class="list-meta">
+        <span id="listHeading">Closest to now</span>
+        <span id="resultCount">0 events</span>
+      </div>
+
+      <div class="event-list" id="eventList" aria-live="polite"></div>
+      <div class="empty-state" id="emptyState" hidden>
+        <strong>No events in this orbit</strong>
+        <span>Try a different search, catalog, or map area.</span>
+        <button id="resetFilters" type="button">Reset browse</button>
+      </div>
+
+      <footer class="browse-footer">
+        <button id="resetMapButton" type="button"><span class="globe-icon" aria-hidden="true">◎</span> See events everywhere <span aria-hidden="true">→</span></button>
+        <span id="dataStatus" role="status" aria-live="polite">Loading the community calendar…</span>
+      </footer>
+    </section>
+
+    <section class="globe-panel" aria-label="Interactive globe showing calendar events">
+      <div id="map" class="map"></div>
+      <div class="map-fallback" id="mapFallback" aria-hidden="true">
+        <div class="fallback-globe"><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="map-controls" aria-label="Map controls">
+        <button id="zoomInButton" type="button" aria-label="Zoom in">＋</button>
+        <button id="zoomOutButton" type="button" aria-label="Zoom out">−</button>
+      </div>
+
+      <article class="map-card" id="mapCard" hidden aria-live="polite"></article>
+      <p class="globe-caption" aria-hidden="true">People<br>Places<br>Music<br><span>A brighter tomorrow</span></p>
+    </section>
+
+    <svg class="selection-connector" id="selectionConnector" aria-hidden="true">
+      <defs>
+        <linearGradient id="connectorGradient" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#8a54ff" stop-opacity=".2"/>
+          <stop offset=".5" stop-color="#c052ff" stop-opacity=".95"/>
+          <stop offset="1" stop-color="#ff5edc" stop-opacity=".45"/>
+        </linearGradient>
+      </defs>
+      <path id="connectorPath" d=""/>
+    </svg>
+  </main>
+
+  <template id="eventCardTemplate">
+    <article class="event-card">
+      <button class="event-card-button" type="button">
+        <span class="event-calendar" aria-hidden="true">
+          <span class="event-month"></span>
+          <strong class="event-day"></strong>
+          <span class="event-weekday"></span>
+        </span>
+        <span class="event-art" aria-hidden="true">
+          <span class="event-monogram"></span>
+          <span class="event-art-lines"></span>
+        </span>
+        <span class="event-content">
+          <strong class="event-name"></strong>
+          <span class="event-location"><i class="mini-pin"></i><span></span></span>
+          <span class="event-time"></span>
+        </span>
+        <span class="event-distance"></span>
+        <span class="event-arrow" aria-hidden="true">→</span>
+      </button>
+      <div class="event-detail" hidden></div>
+    </article>
+  </template>
+
+  <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="assets/app.js?version=ome-server-clusters-1"></script>
+</body>
 </html>

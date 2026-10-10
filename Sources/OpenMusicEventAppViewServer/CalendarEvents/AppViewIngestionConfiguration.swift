@@ -1,4 +1,4 @@
-public struct AppViewIngestionConfiguration: Equatable, Sendable {
+public struct AppViewIngestionConfiguration: Codable, Equatable, Sendable {
     public init(
         endpoint: String,
         subscriptionID: String = "hydrant|community.lexicon.calendar.event"

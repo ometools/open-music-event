@@ -11,6 +11,38 @@ public struct SourcePublicationIdentities: Codable, Equatable, Sendable {
     public var records: [String: ATProto.URI] = [:]
     public init() {}
 
+    public mutating func eventURI(
+        sourceDirectory: String,
+        account: DID,
+        createdAt: Date
+    ) throws -> ATProto.URI {
+        let identity = String(
+            decoding: try JSONEncoder().encode(["event", sourceDirectory]),
+            as: UTF8.self
+        )
+        if let uri = records[identity] {
+            guard uri.authority == .did(account),
+                  uri.collection?.rawValue == Event.lexiconID.rawValue,
+                  uri.rkey != nil
+            else {
+                throw ValidationError("The identity map contains an incompatible Event: \(identity)")
+            }
+            return uri
+        }
+        let previous = records.values.compactMap(\.rkey).max {
+            $0.rawValue < $1.rawValue
+        }
+        let uri = try CanonicalRecordID.next(
+            collection: Event.lexiconID,
+            in: .did(account),
+            at: createdAt,
+            after: previous,
+            clockID: 0
+        )
+        records[identity] = uri
+        return uri
+    }
+
     mutating func uri(collection: Lexicon.ID, event: Event, key: String) throws -> ATProto.URI {
         let identity = String(decoding: try JSONEncoder().encode([event.id.description, collection.rawValue, key]), as: UTF8.self)
         if let uri = records[identity] {
@@ -111,6 +143,7 @@ extension SourceRecordPublication {
             let performanceDetails = try normalized.scheduleItemPerformanceDetails.map { try materialize(OME.ScheduleItem.PerformanceDetails.self, $0) }
             let channels = try normalized.channels.map { try materialize(OME.Channel.self, $0) }
                 .sorted { ($0.sortIndex ?? 0, $0.id.channelID.rawValue.rawValue) < ($1.sortIndex ?? 0, $1.id.channelID.rawValue.rawValue) }
+            event.media = try await media(normalized.events.first?.images)
             var graph = EventRecordGraph(event: event)
             var contributors: [OME.ID<OME.Contributor>: Contributor] = [:]
             for value in sourceContributors.sorted(by: { $0.id.contributorID.rawValue.rawValue < $1.id.contributorID.rawValue.rawValue }) {

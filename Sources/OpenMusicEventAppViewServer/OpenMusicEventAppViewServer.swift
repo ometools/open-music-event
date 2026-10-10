@@ -11,6 +11,7 @@ public enum OpenMusicEventAppViewServer {
         configuration: AppViewConfiguration = .init(),
         store providedStore: OpenMusicEventAppViewStore? = nil,
         hydrantClient: HydrantClient? = nil,
+        geocodingClient providedGeocodingClient: CalendarEventGeocodingClient? = nil,
         notificationRegistration: NotificationRegistrationServer? = nil,
         notificationProvider: NotificationProviderClient? = nil,
         sourceArtifactPublisher providedSourceArtifactPublisher: SourceArtifactPublisher? = nil,
@@ -24,7 +25,8 @@ public enum OpenMusicEventAppViewServer {
             store = try OpenMusicEventAppViewStore(
                 databaseURL: databaseURL,
                 webhookSecretProtection: configuration.webhookSecretProtection,
-                initiallyReady: configuration.ingestion == nil
+                geocodingOverrides: configuration.geocodingOverrides,
+                initiallyReady: configuration.ingestions.isEmpty
             )
         } else {
             store = nil
@@ -34,16 +36,34 @@ public enum OpenMusicEventAppViewServer {
         }
 
         var services: [any Service] = []
-        if let ingestion = configuration.ingestion {
+        if !configuration.ingestions.isEmpty {
             guard let store else {
                 throw OpenMusicEventAppViewServerError.ingestionRequiresDatabase
             }
             services.append(
                 OpenMusicEventAppViewIngestion(
                     store: store,
-                    configuration: ingestion,
+                    configurations: configuration.ingestions,
                     tangledWebhookConfiguration: configuration.tangledWebhook,
                     client: hydrantClient ?? .hummingbird()
+                )
+            )
+        }
+        let liveGeocodingClient = configuration.geoapifyAPIKey.map {
+            CalendarEventGeocodingClient.geoapify(apiKey: $0)
+        }
+        let configuredGeocodingClient = liveGeocodingClient.map {
+            CalendarEventGeocodingClient.overrides(
+                configuration.geocodingOverrides,
+                fallback: $0
+            )
+        }
+        if let store,
+           let geocodingClient = providedGeocodingClient ?? configuredGeocodingClient {
+            services.append(
+                CalendarEventGeocodingService(
+                    store: store,
+                    client: geocodingClient
                 )
             )
         }
@@ -146,7 +166,8 @@ public enum OpenMusicEventAppViewServer {
         let router = Router(context: context, options: [.autoGenerateHeadEndpoints])
         installCalendarEventRoutes(
             on: router,
-            store: store
+            store: store,
+            appViewHost: configuration.publicAppViewHost
         )
         installWorkspaceProposalRoutes(
             on: router,

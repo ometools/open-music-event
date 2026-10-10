@@ -13,6 +13,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     public init(
         database: any DatabaseWriter,
         webhookSecretProtection: WebhookSecretProtection? = nil,
+        geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates] = [:],
         initiallyReady: Bool = true
     ) throws {
         self.database = database
@@ -21,11 +22,16 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
         )
         try Self.migrate(database)
+        let geocodingOverridesChanged = try cacheGeocodingOverrides(geocodingOverrides)
+        try rebuildCalendarEventBrowseProjectionIfNeeded(
+            force: geocodingOverridesChanged
+        )
     }
 
     public init(
         databaseURL: URL,
         webhookSecretProtection: WebhookSecretProtection? = nil,
+        geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates] = [:],
         initiallyReady: Bool = true
     ) throws {
         try FileManager.default.createDirectory(
@@ -41,6 +47,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
                 configuration: configuration
             ),
             webhookSecretProtection: webhookSecretProtection,
+            geocodingOverrides: geocodingOverrides,
             initiallyReady: initiallyReady
         )
     }
@@ -49,7 +56,12 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
         EventRecordMigrations.register(into: &migrator)
-        LegacyCommunityCalendarEventMigration.registerMigration(into: &migrator)
+        CommunityCalendarEventProjection.registerMigration(into: &migrator)
+        CalendarEventBrowseProjection.registerMigration(into: &migrator)
+        VenueProfileProjection.registerMigration(into: &migrator)
+        CalendarGeocode.registerMigration(into: &migrator)
+        CommunityCalendarEventProjection.registerBackfillMigration(into: &migrator)
+        CalendarEventBrowseProjection.registerBackfillMigration(into: &migrator)
         NotificationDatabase.registerMigrations(into: &migrator)
         TangledSourceProjectionSchema.registerMigration(into: &migrator)
         WebhookInboxSchema.registerMigration(into: &migrator)
@@ -70,6 +82,14 @@ public actor OpenMusicEventAppViewReadiness {
     }
 
     private var state: State
+    private var expectedSubscriptionIDs: Set<String> = []
+    private var readySubscriptionIDs: Set<String> = []
+
+    public func configure(subscriptionIDs: Set<String>) {
+        expectedSubscriptionIDs = subscriptionIDs
+        readySubscriptionIDs = []
+        state = subscriptionIDs.isEmpty ? .ready(cursor: nil) : .catchingUp
+    }
 
     public func markCatchingUp() {
         state = .catchingUp
@@ -77,6 +97,17 @@ public actor OpenMusicEventAppViewReadiness {
 
     public func markReady(cursor: UInt64?) {
         state = .ready(cursor: cursor)
+    }
+
+    public func markReady(subscriptionID: String, cursor: UInt64?) {
+        readySubscriptionIDs.insert(subscriptionID)
+        guard expectedSubscriptionIDs.isSubset(of: readySubscriptionIDs) else {
+            state = .catchingUp
+            return
+        }
+        state = .ready(
+            cursor: expectedSubscriptionIDs.count == 1 ? cursor : nil
+        )
     }
 
     public func snapshot() -> State {

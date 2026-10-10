@@ -50,8 +50,8 @@ import Testing
             try await client.execute(uri: "/", method: .get) { response in
                 #expect(response.status == .ok)
                 let html = String(buffer: response.body)
-                #expect(html.contains("Browse"))
-                #expect(html.contains("Unannounced &lt;Forest&gt;"))
+                #expect(html.contains("The <em>open</em> guide to what’s happening."))
+                #expect(html.contains("assets/app.js"))
                 #expect(html.contains("ome-mark-sphere-cage"))
             }
             // A record without a configured branded claim still has a working event page and section links.
@@ -60,19 +60,10 @@ import Testing
                 #expect(response.status == .ok)
                 #expect(String(buffer: response.body).contains("Live Forest"))
             }
-            // Browser GET forms encode spaces as plus signs; literal plus signs remain percent encoded.
-            try await client.execute(uri: "/?q=Live+Forest", method: .get) { response in
-                let html = String(buffer: response.body)
-                #expect(html.contains("Live Forest"))
-                #expect(!html.contains("Upcoming Forest"))
-                #expect(!html.contains("No events match"))
-            }
             expectNoDifference(try EventBrowseSelection(query: "q=A%2BB+C").query, "A+B C")
-            try await client.execute(uri: "/?q=not-present", method: .get) { response in
-                #expect(String(buffer: response.body).contains("No events match"))
-            }
-            try await client.execute(uri: "/?day=2026-02-30", method: .get) { response in
-                #expect(response.status == .badRequest)
+            try await client.execute(uri: "/about", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(String(buffer: response.body).contains("OpenMusicEvent"))
             }
             await store.readiness.markCatchingUp()
             try await client.execute(uri: "/", method: .get) { response in

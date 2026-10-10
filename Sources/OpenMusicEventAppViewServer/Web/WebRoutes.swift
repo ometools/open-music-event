@@ -77,6 +77,23 @@ extension OpenMusicEventAppViewServer {
             let url = "https://\(host.rawValue)/xrpc/com.atproto.sync.getBlob" + webQuery(["did": record.authority.description, "cid": cid])
             return Response(status: .temporaryRedirect, headers: [.location: url])
         }
+        router.get("/profile-media") { request, _ async throws -> Response in
+            let selection = try EventViewerSelection(query: request.uri.query)
+            guard let didText = selection.values["did"], let did = DID(didText),
+                  let cid = selection.values["cid"],
+                  try store?.containsVenueProfileBlob(did: didText, cid: cid) == true,
+                  let record = ATProto.URI(
+                    "at://\(did.description)/app.bsky.actor.profile/self"
+                  )
+            else { throw HTTPError(.notFound) }
+            @Dependency(ATProto.Repository.PDSHostResolver.self) var hosts
+            let host: ATProto.PDSHost
+            if let configured = webPDSHosts[did.description] { host = configured }
+            else { host = try await hosts.pdsHost(forRecordURI: record) }
+            let url = "https://\(host.rawValue)/xrpc/com.atproto.sync.getBlob"
+                + webQuery(["did": did.description, "cid": cid])
+            return Response(status: .temporaryRedirect, headers: [.location: url])
+        }
 
         router.get("/record/{repo}/{rkey}") { request, context async throws -> Response in
             guard let repo = context.parameters.get("repo"), let rkey = context.parameters.get("rkey"),
@@ -120,7 +137,6 @@ extension OpenMusicEventAppViewServer {
         router.get("/") { request, _ async throws -> Response in
             if let store {
                 if case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
-                return try browseResponse(query: request.uri.query, host: request.authority, routeResolver: routeResolver, store: store)
             }
             if oauthClient == .privateAuthentication {
                 guard request.authority == oauthClient.homepageURL.host else { throw HTTPError(.notFound) }
@@ -145,6 +161,20 @@ extension OpenMusicEventAppViewServer {
                 wellKnownFiles: wellKnownFiles,
                 store: store
             )
+        }
+
+        router.get("/about") { request, _ async throws -> Response in
+            guard let file = try staticSiteFiles.file(requestPath: "/about") else {
+                throw HTTPError(.notFound)
+            }
+            return file.response
+        }
+
+        router.get("/about.html") { request, _ async throws -> Response in
+            guard let file = try staticSiteFiles.file(requestPath: "/about.html") else {
+                throw HTTPError(.notFound)
+            }
+            return file.response
         }
 
         router.get("/styles.css") { request, _ async throws -> Response in

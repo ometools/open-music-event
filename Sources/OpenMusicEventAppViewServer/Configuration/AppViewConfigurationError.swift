@@ -2,6 +2,8 @@ import ComposableNotifications
 
 public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case invalidOAuthClient(String)
+    case invalidIngestionConfigurations(String)
+    case invalidGeocodingOverrides(String)
     case brandedEventRouteConfigurationInvalid(String)
     case brandedEventRouteConfigurationUnreadable(String)
     case duplicateBrandedEventRoute(host: String, eventClaim: String)

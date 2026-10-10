@@ -81,6 +81,115 @@ struct EventRecordIngestionTests {
         }
     }
 
+    @Test
+    func communityCalendarEventWithATURILinkIsStillProjected() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let id = try #require(ATProto.URI(
+            "at://did:plc:calendar/community.lexicon.calendar.event/3mrdbziccpcah"
+        ))
+        let value: [String: Any] = [
+            "$type": "community.lexicon.calendar.event",
+            "createdAt": "2026-09-29T10:05:09.087Z",
+            "name": "Fred Rubino",
+            "startsAt": "2026-10-10T20:00:00-04:00",
+            "uris": [
+                [
+                    "name": "Venue",
+                    "uri": "at://did:plc:calendar/town.laugh.db.venue/3mpeyybtl5csr",
+                ],
+                [
+                    "name": "Tickets",
+                    "uri": "https://example.com/tickets",
+                ],
+            ],
+        ]
+        let version = try AppView.RecordVersion<Data>(
+            collection: ATProto.NSID("community.lexicon.calendar.event"),
+            uri: id,
+            cid: ATProto.CID(rawValue: "bafy-community-event"),
+            value: JSONSerialization.data(withJSONObject: value),
+            sequence: 1
+        )
+
+        try withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
+                .apply(.put(version), checkpointID: "community-events")
+        }
+
+        let event = try #require(try store.communityCalendarEvent(uri: id))
+        expectNoDifference(event.name, "Fred Rubino")
+        expectNoDifference(event.links.map(\.name), ["Tickets"])
+        expectNoDifference(event.links.map(\.uri.absoluteString), ["https://example.com/tickets"])
+        expectNoDifference(
+            try store.browseCalendarEvents(
+                parameters: .init(
+                    catalogs: [ATProto.NSID("community.lexicon.calendar.event")],
+                    limit: 100
+                ),
+                appViewHost: "localhost"
+            ).events.map(\.uri),
+            [id]
+        )
+    }
+
+    @Test
+    func communityCalendarProjectionBackfillsPresentRawRecords() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let id = try #require(ATProto.URI(
+            "at://did:plc:calendar/community.lexicon.calendar.event/3mrdbziccpcai"
+        ))
+        let value: [String: Any] = [
+            "$type": "community.lexicon.calendar.event",
+            "createdAt": "2026-09-29T10:05:09.087Z",
+            "name": "Backfilled Event",
+            "uris": [[
+                "name": "Venue",
+                "uri": "at://did:plc:calendar/town.laugh.db.venue/3mpeyybtl5csr",
+            ]],
+        ]
+        let version = try AppView.RecordVersion<Data>(
+            collection: ATProto.NSID("community.lexicon.calendar.event"),
+            uri: id,
+            cid: ATProto.CID(rawValue: "bafy-backfilled-community-event"),
+            value: JSONSerialization.data(withJSONObject: value),
+            sequence: 1
+        )
+        let rawIndex = AppViewRecordIndexer {
+            AppViewRecordIndex<Data>(
+                collection: ATProto.NSID("community.lexicon.calendar.event"),
+                decode: { $0 }
+            )
+        }
+
+        try withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            _ = try rawIndex.apply(.put(version), checkpointID: "raw-community-events")
+        }
+        #expect(try store.communityCalendarEvent(uri: id) == nil)
+
+        try database.write { database in
+            try CommunityCalendarEventProjection.backfillPresentRecords(in: database)
+        }
+        try store.rebuildCalendarEventBrowseProjection()
+
+        expectNoDifference(try store.communityCalendarEvent(uri: id)?.name, "Backfilled Event")
+        expectNoDifference(
+            try store.browseCalendarEvents(
+                parameters: .init(
+                    catalogs: [ATProto.NSID("community.lexicon.calendar.event")],
+                    limit: 100
+                ),
+                appViewHost: "localhost"
+            ).events.map(\.uri),
+            [id]
+        )
+    }
+
     private func version(
         id: Event.ID,
         name: String,

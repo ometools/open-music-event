@@ -43,7 +43,16 @@ import Testing
     func fixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let files = [
-            "events/2026/event.yml": "name: Wicked Woods 2026\ntimeZone: America/Denver\nstartDate: '2026-09-04'\n",
+            "events/2026/event.yml": """
+            name: Wicked Woods 2026
+            timeZone: America/Denver
+            startDate: '2026-09-04'
+            images:
+              - source: {file: 'images/hero.png'}
+                role: hero
+                renderKind: fullImage
+                materializationPolicy: lazy
+            """,
             "events/2026/contributors/artist.md": "---\nname: Artist\ndid: did:plc:artist\n---\nArtist biography.\n",
             "events/2026/stages/main.yml": "name: Main Stage\ncolor: 1122867\nsortIndex: 1\nlineup: [artist]\n",
             "events/2026/stages/workshops.yml": "name: Workshop Grove\ncolor: 2236962\ncategory: Workshops\nsortIndex: 2\n",
@@ -81,6 +90,11 @@ import Testing
             try text.write(to: url, atomically: true, encoding: .utf8)
         }
         try bytes.write(to: root.appendingPathComponent("events/2026/maps/public.png"))
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("events/2026/images"),
+            withIntermediateDirectories: true
+        )
+        try bytes.write(to: root.appendingPathComponent("events/2026/images/hero.png"))
         return root
     }
     func prepare(_ root: URL, identities: inout SourcePublicationIdentities, preserveLinkText: Bool = false) async throws -> SourceRecordPublication {
@@ -107,6 +121,12 @@ import Testing
         expectNoDifference(contributor.subject, DID("did:plc:artist"))
         expectNoDifference(contributor.description, "Artist biography.\n")
         expectNoDifference(event.id, publication.records.last?.id)
+        #expect(event.media?.contains { medium in
+            guard case let .known(.image(image)) = medium,
+                  case .known(.blob(_)) = image.source
+            else { return false }
+            return image.role == .known(.hero)
+        } == true)
         expectNoDifference(event.programs?.count, 2)
         expectNoDifference(event.schedules?.count, 1)
         expectNoDifference(event.siteMap?.defaultStyleID, "public")

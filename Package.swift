@@ -353,13 +353,18 @@ let customDumpDependency: Package.Dependency = {
 
 var applicationDependencies: [Package.Dependency] = [
     .package(
-        path: workspacePackagePath("swift-hero-image-list"),
+        path: environment["OME_HERO_IMAGE_LIST_PATH"].map(packagePath)
+            ?? workspacePackagePath("swift-hero-image-list"),
         traits: isAndroidAppBuild || isSkipBridgeHostBuild ? ["Skip"] : []
     ),
     composableAtmosphereUserInputDependency,
     appViewComposableCalendarEventsDependency,
     composableNotificationsDependency,
-    .package(name: "swift-composable-forms", path: "/Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg"),
+    .package(
+        name: "swift-composable-forms",
+        path: environment["OME_COMPOSABLE_FORMS_PATH"].map(packagePath)
+            ?? "/Users/woody/Developer/ometools/worktrees/swift-composable-forms-atmosphere-reorg"
+    ),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     fileTreeDependency,
     composableWorkspaceDependency,
@@ -1261,7 +1266,6 @@ let appViewTargets: [Target] = [
             .product(name: "ATProto", package: "swift-atproto"),
         ],
         resources: [
-            .copy("Resources/TemporaryOMEBrowseCatalog.json"),
             .copy("Resources/Site"),
             .copy("Resources/WellKnown"),
         ]

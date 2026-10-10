@@ -93,7 +93,7 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func legacyCalendarCatalogIsNotServed() async throws {
+    func unknownCalendarCatalogIsNotServed() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         let store = try OpenMusicEventAppViewStore(database: SQLiteData.defaultDatabase())
@@ -104,7 +104,7 @@ struct AppViewRouteTests {
 
         try await app.test(.router) { client in
             try await client.execute(
-                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=community.lexicon.calendar.event",
+                uri: "/xrpc/app.openmusicevent.calendar.getEvents?catalog=example.invalid.event",
                 method: .get
             ) { response in
                 #expect(response.status == .notFound)
@@ -236,6 +236,37 @@ struct AppViewRouteTests {
             configuration.publicAppViewHost,
             ATProto.PDSHost("stg.openmusicevent.app")
         )
+    }
+
+    @Test
+    func `treats an empty Geoapify environment value as disabled`() throws {
+        #expect(
+            try AppViewConfiguration.fromEnvironment(
+                environment: ["GEOAPIFY_API_KEY": "   "]
+            ).geoapifyAPIKey == nil
+        )
+        #expect(
+            try AppViewConfiguration.fromEnvironment(
+                environment: ["GEOAPIFY_API_KEY": "key"]
+            ).geoapifyAPIKey == "key"
+        )
+    }
+
+    @Test
+    func `loads local geocoding overrides from deployment configuration`() throws {
+        let configuration = try AppViewConfiguration.fromEnvironment(environment: [
+            "OME_APPVIEW_GEOCODING_OVERRIDES": #"{"422 East Mendenhall Street":{"latitude":45.6802,"longitude":-111.03126}}"#
+        ])
+
+        expectNoDifference(
+            configuration.geocodingOverrides["422 East Mendenhall Street"],
+            .init(latitude: 45.6802, longitude: -111.03126)
+        )
+        #expect(throws: AppViewConfigurationError.self) {
+            try AppViewConfiguration.fromEnvironment(environment: [
+                "OME_APPVIEW_GEOCODING_OVERRIDES": "not-json"
+            ])
+        }
     }
 
     @Test

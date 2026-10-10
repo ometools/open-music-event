@@ -15,6 +15,9 @@ public struct AppViewConfiguration: Sendable {
         brandedEventRouteClaims: [BrandedEventRouteClaim] = [],
         databaseURL: URL? = nil,
         ingestion: AppViewIngestionConfiguration? = nil,
+        ingestions: [AppViewIngestionConfiguration] = [],
+        geoapifyAPIKey: String? = nil,
+        geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates] = [:],
         notificationProviders: AppViewNotificationProviderConfiguration? = nil,
         notificationDestinationProtection: NotificationDestinationProtection? = nil,
         notificationRegistration: AppViewNotificationRegistrationConfiguration? = nil,
@@ -30,7 +33,9 @@ public struct AppViewConfiguration: Sendable {
         self.wellKnownRoot = wellKnownRoot ?? Bundle.module.resourceURL!.appendingPathComponent("WellKnown")
         self.brandedEventRouteClaims = brandedEventRouteClaims
         self.databaseURL = databaseURL
-        self.ingestion = ingestion
+        self.ingestions = ingestions.isEmpty ? ingestion.map { [$0] } ?? [] : ingestions
+        self.geoapifyAPIKey = geoapifyAPIKey
+        self.geocodingOverrides = geocodingOverrides
         self.notificationProviders = notificationProviders
         self.notificationDestinationProtection = notificationDestinationProtection
         self.notificationRegistration = notificationRegistration
@@ -50,7 +55,13 @@ public struct AppViewConfiguration: Sendable {
     public var wellKnownRoot: URL
     public var brandedEventRouteClaims: [BrandedEventRouteClaim]
     public var databaseURL: URL?
-    public var ingestion: AppViewIngestionConfiguration?
+    public var ingestion: AppViewIngestionConfiguration? {
+        get { ingestions.first }
+        set { ingestions = newValue.map { [$0] } ?? [] }
+    }
+    public var ingestions: [AppViewIngestionConfiguration]
+    public var geoapifyAPIKey: String?
+    public var geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates]
     public var notificationProviders: AppViewNotificationProviderConfiguration?
     public var notificationDestinationProtection: NotificationDestinationProtection?
     public var notificationRegistration: AppViewNotificationRegistrationConfiguration?

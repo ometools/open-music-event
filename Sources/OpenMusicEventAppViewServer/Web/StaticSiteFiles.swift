@@ -21,6 +21,8 @@ public struct StaticSiteFiles: Sendable {
         switch requestPath {
         case "/", "/index.html":
             return "index.html"
+        case "/about", "/about.html":
+            return "about.html"
         case "/.well-known/oauth-client-metadata.json":
             return ".well-known/oauth-client-metadata.json"
         case "/favicon.png":
@@ -64,6 +66,8 @@ public struct StaticSiteFile: Sendable, Equatable {
             "text/html; charset=utf-8"
         case "json":
             "application/json"
+        case "js":
+            "text/javascript; charset=utf-8"
         case "jpg", "jpeg":
             "image/jpeg"
         case "png":

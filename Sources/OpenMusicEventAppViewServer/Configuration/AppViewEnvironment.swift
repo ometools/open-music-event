@@ -16,11 +16,28 @@ public extension AppViewConfiguration {
             fileURLWithPath: environment["OME_APPVIEW_DATABASE_PATH"]
                 ?? FileManager.default.currentDirectoryPath + "/open-music-event-appview.sqlite"
         )
-        let ingestion = environment["OME_APPVIEW_HYDRANT_ENDPOINT"].map {
-            AppViewIngestionConfiguration(
-                endpoint: $0,
-                subscriptionID: environment["OME_APPVIEW_HYDRANT_SUBSCRIPTION_ID"]
-                    ?? "hydrant|community.lexicon.calendar.event"
+        let ingestions: [AppViewIngestionConfiguration]
+        if let value = environment["OME_APPVIEW_HYDRANT_CONFIGURATIONS"] {
+            do {
+                ingestions = try JSONDecoder().decode(
+                    [AppViewIngestionConfiguration].self,
+                    from: Data(value.utf8)
+                )
+            } catch {
+                throw AppViewConfigurationError.invalidIngestionConfigurations(value)
+            }
+        } else {
+            ingestions = environment["OME_APPVIEW_HYDRANT_ENDPOINT"].map {
+                [AppViewIngestionConfiguration(
+                    endpoint: $0,
+                    subscriptionID: environment["OME_APPVIEW_HYDRANT_SUBSCRIPTION_ID"]
+                        ?? "hydrant|community.lexicon.calendar.event"
+                )]
+            } ?? []
+        }
+        guard Set(ingestions.map(\.subscriptionID)).count == ingestions.count else {
+            throw AppViewConfigurationError.invalidIngestionConfigurations(
+                "Subscription IDs must be unique."
             )
         }
 
@@ -100,6 +117,27 @@ public extension AppViewConfiguration {
         guard tangledWebhook == nil || sourceArtifacts != nil else {
             throw AppViewConfigurationError.sourceArtifactConfigurationMissing
         }
+        let geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates]
+        if let value = environment["OME_APPVIEW_GEOCODING_OVERRIDES"] {
+            do {
+                geocodingOverrides = try JSONDecoder().decode(
+                    [String: CalendarEventGeocodingClient.Coordinates].self,
+                    from: Data(value.utf8)
+                )
+            } catch {
+                throw AppViewConfigurationError.invalidGeocodingOverrides(value)
+            }
+            guard geocodingOverrides.values.allSatisfy({ coordinates in
+                coordinates.latitude.isFinite
+                    && coordinates.longitude.isFinite
+                    && (-90...90).contains(coordinates.latitude)
+                    && (-180...180).contains(coordinates.longitude)
+            }) else {
+                throw AppViewConfigurationError.invalidGeocodingOverrides(value)
+            }
+        } else {
+            geocodingOverrides = [:]
+        }
 
         var configuration = Self(
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
@@ -112,7 +150,12 @@ public extension AppViewConfiguration {
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
             brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment),
             databaseURL: databaseURL,
-            ingestion: ingestion,
+            ingestions: ingestions,
+            geoapifyAPIKey: environment["GEOAPIFY_API_KEY"].flatMap {
+                let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            },
+            geocodingOverrides: geocodingOverrides,
             notificationProviders: notificationProviders,
             notificationDestinationProtection: notificationDestinationProtection,
             notificationRegistration: notificationRegistration,

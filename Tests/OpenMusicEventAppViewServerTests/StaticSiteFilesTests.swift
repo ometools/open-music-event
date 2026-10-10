@@ -7,6 +7,8 @@ struct StaticSiteFilesTests {
     func mapsSupportedStaticSitePaths() {
         #expect(StaticSiteFiles.relativePath(for: "/") == "index.html")
         #expect(StaticSiteFiles.relativePath(for: "/index.html") == "index.html")
+        #expect(StaticSiteFiles.relativePath(for: "/about") == "about.html")
+        #expect(StaticSiteFiles.relativePath(for: "/about.html") == "about.html")
         #expect(StaticSiteFiles.relativePath(for: "/styles.css") == "styles.css")
         #expect(StaticSiteFiles.relativePath(for: "/favicon.png") == "favicon.png")
         #expect(StaticSiteFiles.relativePath(for: "/apple-touch-icon.png") == "apple-touch-icon.png")
@@ -30,5 +32,18 @@ struct StaticSiteFilesTests {
         #expect(file.path == "index.html")
         #expect(file.contentType == "text/html; charset=utf-8")
         #expect(String(decoding: file.data, as: UTF8.self).contains("OpenMusicEvent"))
+    }
+
+    @Test
+    func globeRequestsServerClusteredViewportItems() throws {
+        let files = StaticSiteFiles(rootDirectory: AppViewConfiguration().siteRoot)
+        let file = try #require(try files.file(requestPath: "/assets/app.js"))
+        let javaScript = String(decoding: file.data, as: UTF8.self)
+
+        #expect(javaScript.contains("app.openmusicevent.calendar.getMapItems"))
+        #expect(javaScript.contains("url.searchParams.set(\"zoom\""))
+        #expect(!javaScript.contains("cluster: true"))
+        #expect(!javaScript.contains("getClusterLeaves"))
+        #expect(!javaScript.contains("getClusterExpansionZoom"))
     }
 }

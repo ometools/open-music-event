@@ -17,7 +17,7 @@ extension OpenMusicEventCommand {
         static let configuration = CommandConfiguration(
             commandName: "protocol",
             abstract: "Publish OpenMusicEvent records to AT Protocol repositories.",
-            subcommands: [PublishEvents.self]
+            subcommands: [PublishEvents.self, PublishProfile.self]
         )
     }
 }
@@ -33,7 +33,10 @@ extension OpenMusicEventCommand.ProtocolRecords {
         var source: String
 
         @Option(name: .long, help: "DIRECTORY=at://DID/events.openmusic.event/TID. Repeat for each Event.")
-        var event: [String]
+        var event: [String] = []
+
+        @Flag(help: "Discover every Event directory and allocate stable Event URIs in --identity-map.")
+        var discoverEvents = false
 
         @Option(help: "Stable ISO-8601 creation timestamp. Reuse it when retrying.")
         var createdAt: String
@@ -56,6 +59,9 @@ extension OpenMusicEventCommand.ProtocolRecords {
         @Option(help: "CA certificate for the explicit PDS; scoped to this invocation.")
         var caCertificate: String?
 
+        @Option(help: "HTTP CONNECT proxy for the explicit PDS; scoped to this invocation.")
+        var proxy: String?
+
         @Flag(help: "Publish the complete source graphs, including contributors, places, programs, schedules, posts and maps.")
         var allRecords = false
 
@@ -72,7 +78,14 @@ extension OpenMusicEventCommand.ProtocolRecords {
             guard allRecords == (identityMap != nil) else {
                 throw ValidationError("--all-records and --identity-map must be supplied together.")
             }
-            guard !event.isEmpty else { throw ValidationError("Pass at least one --event mapping.") }
+            guard event.isEmpty == discoverEvents else {
+                throw ValidationError("Pass explicit --event mappings or --discover-events, but not both.")
+            }
+            if discoverEvents {
+                guard allRecords, account != nil else {
+                    throw ValidationError("--discover-events requires --all-records, --identity-map, and --account.")
+                }
+            }
             guard ISO8601DateFormatter().date(from: createdAt) != nil else {
                 throw ValidationError("--created-at must be an ISO-8601 timestamp.")
             }
@@ -81,6 +94,12 @@ extension OpenMusicEventCommand.ProtocolRecords {
             }
             if caCertificate != nil && pds == nil {
                 throw ValidationError("--ca-certificate requires --pds and --session-file.")
+            }
+            if proxy != nil && pds == nil {
+                throw ValidationError("--proxy requires --pds and --session-file.")
+            }
+            if let proxy {
+                _ = try EventPublicationNetworking.proxyDictionary(proxy)
             }
             if let pds {
                 guard let url = URL(string: "https://\(pds)"), url.host == pds,
@@ -95,32 +114,75 @@ extension OpenMusicEventCommand.ProtocolRecords {
         }
 
         func run() async throws {
-            let inputs = try event.map(EventPublicationInput.init(argument:))
+            let createdAt = ISO8601DateFormatter().date(from: createdAt)!
+            let sourceURL = URL(filePath: source)
+            let identityMapURL: URL?
+            if let identityMap {
+                identityMapURL = URL(filePath: identityMap)
+            } else {
+                identityMapURL = nil
+            }
+            var identities: SourcePublicationIdentities
+            let repository: OpenMusicEventSourceRepository?
+            if let identityMapURL {
+                identities = try Self.loadIdentities(from: identityMapURL)
+                repository = try OpenMusicEventSourceRepositoryFileTree()
+                    .read(from: sourceURL)
+                    .output
+                    .requiredValue
+            } else {
+                identities = SourcePublicationIdentities()
+                repository = nil
+            }
+            let inputs: [EventPublicationInput]
+            if discoverEvents {
+                guard let account = account.flatMap(DID.init) else {
+                    throw ValidationError("--account must be a DID.")
+                }
+                inputs = try repository!.events
+                    .map { $0.directoryName }
+                    .sorted()
+                    .map { directory in
+                        EventPublicationInput(
+                            eventDirectory: directory,
+                            uri: try identities.eventURI(
+                                sourceDirectory: directory,
+                                account: account,
+                                createdAt: createdAt
+                            )
+                        )
+                    }
+                guard !inputs.isEmpty else {
+                    throw ValidationError("The source repository contains no Event directories.")
+                }
+                try Self.save(identities, to: identityMapURL!)
+            } else {
+                inputs = try event.map(EventPublicationInput.init(argument:))
+            }
             let owner = try EventPublicationInput.owner(of: inputs)
             if let account, account != owner.description {
                 throw ValidationError("--account must own every mapped Event URI.")
             }
             let records = try EventPublicationLoader.load(
-                sourceURL: URL(filePath: source), inputs: inputs,
-                account: owner, createdAt: ISO8601DateFormatter().date(from: createdAt)!
+                sourceURL: sourceURL,
+                inputs: inputs,
+                account: owner,
+                createdAt: createdAt,
+                deferSourceImages: identityMapURL != nil
             )
-            let publication = try EventRecordPublication.prepare(events: records, account: owner) { blob in
-                throw EventRecordPublication.PublicationError.missingImage(blob.ref)
-            }
+            let eventOnlyPublication = try identityMapURL == nil
+                ? EventRecordPublication.prepare(events: records, account: owner) { blob in
+                    throw EventRecordPublication.PublicationError.missingImage(blob.ref)
+                }
+                : nil
             let related: SourceRecordPublication?
-            if let identityMap {
-                let path = URL(filePath: identityMap)
-                var identities = FileManager.default.fileExists(atPath: path.path)
-                    ? try JSONDecoder().decode(SourcePublicationIdentities.self, from: Data(contentsOf: path))
-                    : SourcePublicationIdentities()
-                let sourceURL = URL(filePath: source)
-                let repository = try OpenMusicEventSourceRepositoryFileTree().read(from: sourceURL).output.requiredValue
+            if let identityMapURL {
                 let events = Dictionary(uniqueKeysWithValues: try inputs.map { input in
                     guard let record = records.first(where: { $0.id == input.uri }) else { throw ValidationError("Missing selected Event") }
                     return (input.eventDirectory, record)
                 })
                 let cacheDirectory = imageCache.map { URL(filePath: $0) }
-                related = try await SourceRecordPublication.prepare(source: repository, sourceRoot: sourceURL,
+                related = try await SourceRecordPublication.prepare(source: repository!, sourceRoot: sourceURL,
                     events: events, identities: &identities, preserveLinkText: preserveLinkText) { url in
                         if url.isFileURL { return try Data(contentsOf: url) }
                         return try await loadPublicationImage(from: url, cacheDirectory: cacheDirectory) { url in
@@ -136,9 +198,7 @@ extension OpenMusicEventCommand.ProtocolRecords {
                 for diagnostic in related?.diagnostics ?? [] {
                     FileHandle.standardError.write(Data((diagnostic + "\n").utf8))
                 }
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                try encoder.encode(identities).write(to: path, options: .atomic)
+                try Self.save(identities, to: identityMapURL)
             } else {
                 related = nil
             }
@@ -146,7 +206,8 @@ extension OpenMusicEventCommand.ProtocolRecords {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 let payloads = related?.records.map { ($0.id, $0.payload) }
-                    ?? publication.records.map { ($0.id, $0.payload) }
+                    ?? eventOnlyPublication?.records.map { ($0.id, $0.payload) }
+                    ?? []
                 for (id, payload) in payloads {
                     print(id.description)
                     print(String(decoding: try encoder.encode(payload), as: UTF8.self))
@@ -160,7 +221,10 @@ extension OpenMusicEventCommand.ProtocolRecords {
                     return await publisher.publish(related)
                 }
                 @Dependency(EventRecordPublisher.self) var publisher
-                let published = try await publisher.publish(publication)
+                guard let eventOnlyPublication else {
+                    throw ValidationError("Missing prepared Event publication")
+                }
+                let published = try await publisher.publish(eventOnlyPublication)
                 var result = SourceRecordPublication.Result()
                 result.failures = published.failures
                 result.receipts = try published.receipts.map { receipt in
@@ -176,7 +240,10 @@ extension OpenMusicEventCommand.ProtocolRecords {
                 )
                 try session.validate(owner: owner)
                 let tls = try caCertificate.map { try EventPublicationTLS(certificateURL: URL(filePath: $0), host: pds) }
-                let urlSession = tls.map { URLSession(configuration: .ephemeral, delegate: $0, delegateQueue: nil) }
+                let configuration = try EventPublicationNetworking.configuration(proxy: proxy)
+                let urlSession = tls != nil || proxy != nil
+                    ? URLSession(configuration: configuration, delegate: tls, delegateQueue: nil)
+                    : nil
                 defer { urlSession?.invalidateAndCancel() }
                 result = try await withDependencies {
                     if let urlSession {
@@ -222,12 +289,39 @@ extension OpenMusicEventCommand.ProtocolRecords {
                     .map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
             }
         }
+
+        private static func loadIdentities(from path: URL) throws -> SourcePublicationIdentities {
+            FileManager.default.fileExists(atPath: path.path)
+                ? try JSONDecoder().decode(
+                    SourcePublicationIdentities.self,
+                    from: Data(contentsOf: path)
+                )
+                : SourcePublicationIdentities()
+        }
+
+        private static func save(
+            _ identities: SourcePublicationIdentities,
+            to path: URL
+        ) throws {
+            try FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            try encoder.encode(identities).write(to: path, options: .atomic)
+        }
     }
 }
 
 struct EventPublicationInput: Equatable, Sendable {
     var eventDirectory: String
     var uri: ATProto.URI
+
+    init(eventDirectory: String, uri: ATProto.URI) {
+        self.eventDirectory = eventDirectory
+        self.uri = uri
+    }
 
     init(argument: String) throws {
         let parts = argument.split(separator: "=", maxSplits: 1).map(String.init)
@@ -250,10 +344,21 @@ struct EventPublicationInput: Equatable, Sendable {
 }
 
 enum EventPublicationLoader {
-    static func load(sourceURL: URL, inputs: [EventPublicationInput], account: DID, createdAt: Date) throws -> [Event] {
+    static func load(
+        sourceURL: URL,
+        inputs: [EventPublicationInput],
+        account: DID,
+        createdAt: Date,
+        deferSourceImages: Bool = false
+    ) throws -> [Event] {
         var repository = try OpenMusicEventSourceRepositoryFileTree().read(from: sourceURL).output.requiredValue
         let directories = Set(inputs.map(\.eventDirectory))
         repository.events.removeAll { !directories.contains($0.directoryName) }
+        if deferSourceImages {
+            for index in repository.events.indices {
+                repository.events[index].components.event.images = nil
+            }
+        }
         return try OpenMusicEventSourcePublicationCompiler.compileEvents(
             repository: repository, account: account,
             identities: inputs.map { .init(sourceDirectory: $0.eventDirectory, uri: $0.uri, createdAt: createdAt) }

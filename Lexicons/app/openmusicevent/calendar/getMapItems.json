@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.calendar.getMapItems",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Return the event points and server-computed clusters to render for one map viewport.",
+      "parameters": {
+        "type": "params",
+        "required": ["catalogs", "north", "south", "east", "west", "zoom"],
+        "properties": {
+          "catalogs": {
+            "type": "array",
+            "items": { "type": "string", "format": "nsid" },
+            "minLength": 1,
+            "maxLength": 2
+          },
+          "query": { "type": "string", "maxLength": 256 },
+          "north": { "type": "float", "minimum": -90, "maximum": 90 },
+          "south": { "type": "float", "minimum": -90, "maximum": 90 },
+          "east": { "type": "float", "minimum": -180, "maximum": 180 },
+          "west": { "type": "float", "minimum": -180, "maximum": 180 },
+          "zoom": { "type": "float", "minimum": 0, "maximum": 18 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "app.openmusicevent.calendar.defs#mapItemPage"
+        }
+      },
+      "errors": [
+        { "name": "InvalidBounds" },
+        { "name": "InvalidZoom" },
+        { "name": "UnknownCatalog" }
+      ]
+    }
+  }
+}
