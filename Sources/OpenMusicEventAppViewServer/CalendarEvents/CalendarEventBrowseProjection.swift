@@ -171,8 +171,35 @@ extension OpenMusicEventAppViewStore {
             else { return nil }
             var event = try JSONDecoder().decode(OME.CalendarEvent.self, from: data)
             event.source.appViewHost = appViewHost
+            if let canonical = try Event.find(uri).fetchOne(database),
+               canonical.hasDetailsBeyondBrowse,
+               let recordKey = uri.rkey?.rawValue,
+               let viewerURL = URL(
+                   string: "https://\(appViewHost.rawValue)/record/"
+                       + uri.authority.description
+                       + "/"
+                       + recordKey
+               )
+            {
+                event.links.append(
+                    .init(
+                        name: "Enter Event",
+                        uri: viewerURL,
+                        source: "app.openmusicevent.eventViewer"
+                    )
+                )
+            }
             return event
         }
+    }
+}
+
+extension Event {
+    var hasDetailsBeyondBrowse: Bool {
+        programs?.isEmpty == false
+            || schedules?.isEmpty == false
+            || categories?.isEmpty == false
+            || siteMap != nil
     }
 }
 

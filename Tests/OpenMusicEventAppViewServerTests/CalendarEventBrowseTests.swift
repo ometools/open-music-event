@@ -430,17 +430,21 @@ import Testing
     }
 
     @Test
-    func `opening the store rebuilds browse rows from preserved source projections`() throws {
+    func `opening the store rebuilds browse rows from preserved source projections`() async throws {
         let database = try DatabaseQueue()
         _ = try OpenMusicEventAppViewStore(database: database)
         let canonicalID = ATProto.URI(
             "at://did:plc:venue/events.openmusic.event/3mrdbziccpcaz"
         )!
+        let programID = ATProto.URI(
+            "at://did:plc:venue/events.openmusic.program/3mrdbziccpcaz"
+        )!
         let canonical = try Event(
             id: canonicalID,
             name: "Preserved Canonical Event",
             createdAt: "2026-10-10T12:00:00Z",
-            timeZone: .gmt
+            timeZone: .gmt,
+            programs: [programID]
         )
         let community = try event(
             uri: "at://did:plc:community/community.lexicon.calendar.event/3mrdbziccpcyy",
@@ -452,7 +456,7 @@ import Testing
             startsAt: "2026-10-12T01:00:00Z"
         )
         let encodedCommunity = try JSONEncoder().encode(community)
-        try database.write { db in
+        try await database.write { db in
             try Event.insert { canonical }.execute(db)
             try CommunityCalendarEventProjection.insert {
                 CommunityCalendarEventProjection(
@@ -480,6 +484,77 @@ import Testing
             Set(page.events.map(\.name)),
             Set(["Preserved Canonical Event", "Preserved Community Event"])
         )
+        #expect(
+            page.events.first { $0.uri == canonicalID }?.links.contains {
+                $0.source == "app.openmusicevent.eventViewer"
+            } == false
+        )
+
+        let detail = try #require(
+            try rebuiltStore.calendarEvent(uri: canonicalID, appViewHost: "localhost")
+        )
+        expectNoDifference(
+            detail.links.filter {
+                $0.source == "app.openmusicevent.eventViewer"
+            }.map { "\($0.name ?? "")|\($0.uri.absoluteString)" },
+            ["Enter Event|https://localhost/record/did:plc:venue/3mrdbziccpcaz"]
+        )
+        let communityDetail = try #require(
+            try rebuiltStore.calendarEvent(uri: community.uri, appViewHost: "localhost")
+        )
+        #expect(!communityDetail.links.contains {
+            $0.source == "app.openmusicevent.eventViewer"
+        })
+
+        let app = try OpenMusicEventAppViewServer.application(
+            configuration: .init(
+                host: "127.0.0.1",
+                port: 0,
+                publicAppViewHost: "localhost"
+            ),
+            store: rebuiltStore
+        )
+        var eventURL = URLComponents()
+        eventURL.path = "/xrpc/app.openmusicevent.calendar.getEvent"
+        eventURL.queryItems = [URLQueryItem(name: "uri", value: canonicalID.description)]
+        let eventPath = try #require(eventURL.string)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: eventPath,
+                method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                let event = try xrpcDecoder().decode(
+                    OME.CalendarEvent.self,
+                    from: Data(response.body.readableBytesView)
+                )
+                expectNoDifference(
+                    event.links.filter {
+                        $0.source == "app.openmusicevent.eventViewer"
+                    }.map(\.name),
+                    ["Enter Event"]
+                )
+            }
+        }
+    }
+
+    @Test
+    func `event viewer entry requires detail beyond the browse surface`() throws {
+        let id = ATProto.URI(
+            "at://did:plc:venue/events.openmusic.event/3mrdbziccpcaz"
+        )!
+        var event = try Event(
+            id: id,
+            name: "Browse-only Event",
+            createdAt: "2026-10-10T12:00:00Z",
+            timeZone: .gmt
+        )
+
+        #expect(!event.hasDetailsBeyondBrowse)
+        event.programs = [
+            ATProto.URI("at://did:plc:venue/events.openmusic.program/3mrdbziccpcaz")!
+        ]
+        #expect(event.hasDetailsBeyondBrowse)
     }
 
     @Test

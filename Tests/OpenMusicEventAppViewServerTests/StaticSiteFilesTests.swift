@@ -46,4 +46,15 @@ struct StaticSiteFilesTests {
         #expect(!javaScript.contains("getClusterLeaves"))
         #expect(!javaScript.contains("getClusterExpansionZoom"))
     }
+
+    @Test
+    func globeOffersEntryOnlyForRicherOMEEventDetails() throws {
+        let files = StaticSiteFiles(rootDirectory: AppViewConfiguration().siteRoot)
+        let file = try #require(try files.file(requestPath: "/assets/app.js"))
+        let javaScript = String(decoding: file.data, as: UTF8.self)
+
+        #expect(javaScript.contains("app.openmusicevent.eventViewer"))
+        #expect(javaScript.contains(">Enter Event</a>"))
+        #expect(!javaScript.contains("Open full event"))
+    }
 }

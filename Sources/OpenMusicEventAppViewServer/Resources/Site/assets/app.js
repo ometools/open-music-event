@@ -545,10 +545,13 @@ function renderEventDetail(container, summary) {
       .filter(Boolean).join(", ");
     return value ? `<li>${escapeHTML(value)}</li>` : "";
   }).join("");
-  const links = (event.links || []).map(link => (
+  const links = (event.links || []).filter(link => (
+    link.source !== "app.openmusicevent.eventViewer"
+  )).map(link => (
     `<li><a href="${escapeAttribute(link.uri)}" rel="external">${escapeHTML(link.name || link.uri)}</a></li>`
   )).join("");
-  const sourceLink = fullEventLink(event);
+  const sourceLink = sourceRecordLink(event);
+  const enterEventLink = eventViewerLink(event);
   container.innerHTML = `
     <div class="event-detail-grid">
       <div>
@@ -563,14 +566,21 @@ function renderEventDetail(container, summary) {
     ${locations ? `<ul class="event-detail-locations">${locations}</ul>` : ""}
     ${event.description ? `<p class="event-detail-description">${escapeHTML(event.description)}</p>` : ""}
     ${(links || sourceLink) ? `<ul class="event-detail-links">${links}${sourceLink}</ul>` : ""}
+    ${enterEventLink}
   `;
 }
 
-function fullEventLink(event) {
+function eventViewerLink(event) {
   const match = /^at:\/\/([^/]+)\/events\.openmusic\.event\/([^/]+)$/.exec(event.uri);
-  if (match) {
-    return `<li><a href="/record/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}">Open full event</a></li>`;
-  }
+  const hasViewer = (event.links || []).some(link => (
+    link.source === "app.openmusicevent.eventViewer"
+  ));
+  if (!match || !hasViewer) return "";
+  return `<a class="event-enter-button" href="/record/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}">Enter Event</a>`;
+}
+
+function sourceRecordLink(event) {
+  if (/^at:\/\/[^/]+\/events\.openmusic\.event\/[^/]+$/.test(event.uri)) return "";
   return `<li><a href="${escapeAttribute(event.uri)}">Open source record</a></li>`;
 }
 
