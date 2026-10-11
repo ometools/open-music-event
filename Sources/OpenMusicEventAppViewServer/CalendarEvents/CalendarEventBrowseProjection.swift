@@ -215,6 +215,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
     var latitude: Double?
     var longitude: Double?
     var markerMedia: Data?
+    var hasEventViewer: Bool
     var event: Data
 
     static func registerMigration(into migrator: inout DatabaseMigrator) {
@@ -235,6 +236,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                   "latitude" REAL,
                   "longitude" REAL,
                   "markerMedia" BLOB,
+                  "hasEventViewer" INTEGER NOT NULL DEFAULT 0,
                   "event" BLOB NOT NULL
                 ) STRICT
                 """
@@ -320,6 +322,22 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
             .execute(database)
             try Self.createSpatialTriggers(in: database)
         }
+
+        migrator.registerMigration("Add calendar event viewer browse priority") { database in
+            let columns = try database.columns(in: Self.tableName).map(\.name)
+            if !columns.contains("hasEventViewer") {
+                try #sql(
+                    "ALTER TABLE \(quote: Self.tableName) ADD COLUMN \"hasEventViewer\" INTEGER NOT NULL DEFAULT 0"
+                )
+                .execute(database)
+            }
+            for event in try Event.all.fetchAll(database) where event.hasDetailsBeyondBrowse {
+                try #sql(
+                    "UPDATE \(quote: Self.tableName) SET \"hasEventViewer\" = 1 WHERE \"uri\" = \(bind: event.id.description)"
+                )
+                .execute(database)
+            }
+        }
     }
 
     static func registerBackfillMigration(into migrator: inout DatabaseMigrator) {
@@ -373,6 +391,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
 
     static func upsert(
         _ event: OME.CalendarEvent,
+        hasEventViewer: Bool = false,
         searchText additionalSearchText: String = "",
         sourceID: String? = nil,
         deleteExistingSearchDocument: Bool = true,
@@ -423,6 +442,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                 latitude: coordinates?.0,
                 longitude: coordinates?.1,
                 markerMedia: markerMediaData,
+                hasEventViewer: hasEventViewer,
                 event: encodedEvent
             )
         }
@@ -489,11 +509,13 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                 \(Self.startsAt) AS "startsAt",
                 \(Self.event) AS "event",
                 CASE
-                  WHEN \(Self.startsAt) IS NULL THEN 3
+                  WHEN \(Self.startsAt) IS NULL THEN 4
                   WHEN \(Self.startsAt) <= \(evaluationDate)
-                    AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate) THEN 0
+                    AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate)
+                    AND \(Self.hasEventViewer) THEN 0
                   WHEN \(Self.startsAt) > \(evaluationDate) THEN 1
-                  ELSE 2
+                  WHEN COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate) THEN 2
+                  ELSE 3
                 END AS "temporalRank",
                 CASE
                   WHEN \(Self.startsAt) IS NULL THEN NULL
@@ -513,8 +535,8 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
             WHERE \(cursorPredicate)
             ORDER BY
               "temporalRank" ASC,
-              CASE WHEN "temporalRank" IN (0, 1) THEN "orderDate" END ASC,
-              CASE WHEN "temporalRank" = 2 THEN "orderDate" END DESC,
+              CASE WHEN "temporalRank" IN (0, 1, 2) THEN "orderDate" END ASC,
+              CASE WHEN "temporalRank" = 3 THEN "orderDate" END DESC,
               "uri" ASC
             LIMIT \(limit)
             """,
@@ -556,11 +578,13 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
               AND \(spatialPredicate)
             ORDER BY
               CASE
-                WHEN \(Self.startsAt) IS NULL THEN 3
+                WHEN \(Self.startsAt) IS NULL THEN 4
                 WHEN \(Self.startsAt) <= \(evaluationDate)
-                  AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate) THEN 0
+                  AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate)
+                  AND \(Self.hasEventViewer) THEN 0
                 WHEN \(Self.startsAt) > \(evaluationDate) THEN 1
-                ELSE 2
+                WHEN COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate) THEN 2
+                ELSE 3
               END ASC,
               CASE
                 WHEN \(Self.startsAt) IS NOT NULL
@@ -629,16 +653,16 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
 
     static func cursorPredicate(_ cursor: CalendarEventBrowseCursor?) throws -> QueryFragment {
         guard let cursor else { return "1" }
-        guard (0...3).contains(cursor.temporalRank) else {
+        guard (0...4).contains(cursor.temporalRank) else {
             throw OpenMusicEventAppViewStoreError.invalidCursor(cursor.uri)
         }
-        if cursor.temporalRank == 3 {
-            return "\(quote: "temporalRank") > 3 OR (\(quote: "temporalRank") = 3 AND \(quote: "uri") > \(bind: cursor.uri))"
+        if cursor.temporalRank == 4 {
+            return "\(quote: "temporalRank") > 4 OR (\(quote: "temporalRank") = 4 AND \(quote: "uri") > \(bind: cursor.uri))"
         }
         guard let orderDate = cursor.orderDate else {
             throw OpenMusicEventAppViewStoreError.invalidCursor(cursor.uri)
         }
-        let comparison = cursor.temporalRank == 2 ? "<" : ">"
+        let comparison = cursor.temporalRank == 3 ? "<" : ">"
         return """
             \(quote: "temporalRank") > \(cursor.temporalRank)
             OR (
@@ -820,8 +844,8 @@ struct CalendarEventBrowseCursor: Codable, Equatable, Sendable {
         encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
         guard let data = Data(base64Encoded: encoded),
               let cursor = try? JSONDecoder().decode(Self.self, from: data),
-              (0...3).contains(cursor.temporalRank),
-              cursor.temporalRank == 3 || cursor.orderDate != nil
+              (0...4).contains(cursor.temporalRank),
+              cursor.temporalRank == 4 || cursor.orderDate != nil
         else { throw OpenMusicEventAppViewStoreError.invalidCursor(value) }
         return cursor
     }
@@ -832,6 +856,7 @@ struct CalendarEventBrowseCursor: Codable, Equatable, Sendable {
         bounds: OME.CalendarEvent.BrowseEvents.Bounds?
     ) -> String {
         [
+            "viewer-priority-v1",
             catalogs.map(\.rawValue).sorted().joined(separator: ","),
             query ?? "",
             bounds.map { "\($0.north),\($0.south),\($0.east),\($0.west)" } ?? "",

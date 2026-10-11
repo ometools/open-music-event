@@ -108,7 +108,7 @@ import Testing
     }
 
     @Test
-    func `temporal browse is ongoing then future then past then undated with stable cursors`() throws {
+    func `temporal browse prioritizes ongoing viewers then future and fills from remaining events`() throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
         let now = date("2026-10-11T12:00:00Z")
@@ -116,12 +116,22 @@ import Testing
             try event(
                 uri: "at://did:plc:venue/events.openmusic.event/ongoing",
                 catalog: canonicalCatalog,
-                name: "Ongoing",
+                name: "Ongoing Viewer",
                 city: "Bozeman",
                 latitude: 45.68,
                 longitude: -111.04,
                 startsAt: "2026-10-11T11:00:00Z",
                 endsAt: "2026-10-11T13:00:00Z"
+            ),
+            try event(
+                uri: "at://did:plc:venue/events.openmusic.event/ongoing-basic",
+                catalog: canonicalCatalog,
+                name: "Ongoing Browse Only",
+                city: "Bozeman",
+                latitude: 45.68,
+                longitude: -111.04,
+                startsAt: "2026-10-11T11:30:00Z",
+                endsAt: "2026-10-11T13:30:00Z"
             ),
             try event(
                 uri: "at://did:plc:venue/events.openmusic.event/future-near",
@@ -172,9 +182,23 @@ import Testing
         ]
         try database.write { db in
             for event in events {
-                try CalendarEventBrowseProjection.upsert(event, in: db)
+                try CalendarEventBrowseProjection.upsert(
+                    event,
+                    hasEventViewer: event.name == "Ongoing Viewer",
+                    in: db
+                )
             }
         }
+
+        let prioritized = try store.browseCalendarEvents(
+            parameters: .init(catalogs: [canonicalCatalog], limit: 3),
+            appViewHost: "localhost",
+            now: now
+        )
+        expectNoDifference(
+            prioritized.events.map(\.name),
+            ["Ongoing Viewer", "Future Near", "Future Far"]
+        )
 
         var names: [String] = []
         var cursor: String?
@@ -194,7 +218,15 @@ import Testing
 
         expectNoDifference(
             names,
-            ["Ongoing", "Future Near", "Future Far", "Past Recent", "Past Old", "Undated"]
+            [
+                "Ongoing Viewer",
+                "Future Near",
+                "Future Far",
+                "Ongoing Browse Only",
+                "Past Recent",
+                "Past Old",
+                "Undated",
+            ]
         )
     }
 
@@ -484,6 +516,18 @@ import Testing
             Set(page.events.map(\.name)),
             Set(["Preserved Canonical Event", "Preserved Community Event"])
         )
+        let canonicalHasEventViewer = try await database.read { db in
+            try CalendarEventBrowseProjection.find(canonicalID.description)
+                .select(\.hasEventViewer)
+                .fetchOne(db)
+        }
+        #expect(canonicalHasEventViewer == true)
+        let communityHasEventViewer = try await database.read { db in
+            try CalendarEventBrowseProjection.find(community.uri.description)
+                .select(\.hasEventViewer)
+                .fetchOne(db)
+        }
+        #expect(communityHasEventViewer == false)
         #expect(
             page.events.first { $0.uri == canonicalID }?.links.contains {
                 $0.source == "app.openmusicevent.eventViewer"

@@ -35,6 +35,7 @@ extension CalendarEventBrowseProjection {
             }
         try upsert(
             calendarEvent,
+            hasEventViewer: event.hasDetailsBeyondBrowse,
             searchText: searchText.joined(separator: " "),
             sourceID: "venue:\(id.authority.description)",
             deleteExistingSearchDocument: deleteExistingSearchDocument,
