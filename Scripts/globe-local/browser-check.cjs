@@ -96,6 +96,17 @@ const output = process.env.OME_GLOBE_REPORT_DIR || '.build/globe-map-validation'
       await page.waitForTimeout(1200); // Browser animation/debounce observation, not a Swift scheduling assertion.
       assert.equal(requests.filter(url => url.includes('browseEventSummaries')).length, listRequests);
       assert.deepEqual(await page.locator('.event-name').allTextContents(), names);
+      // Search results stay put while the map crosses from globe to flat and back.
+      const originalCamera = await page.evaluate(() => ({ center: window.__omeTestMap.getCenter().toArray(), zoom: window.__omeTestMap.getZoom() }));
+      for (const zoom of [12, 1.5]) {
+        await page.evaluate(zoom => new Promise(resolve => {
+          const map = window.__omeTestMap;
+          map.once('render', resolve);
+          map.jumpTo({ zoom });
+        }), zoom);
+        assert.deepEqual(errors, [], `Projection at zoom ${zoom} must render without shader errors`);
+      }
+      await page.evaluate(camera => window.__omeTestMap.jumpTo(camera), originalCamera);
       await Promise.all([
         page.waitForResponse(response => response.url().includes('calendar.getEvent?') && response.status() === 200),
         page.locator('.event-card-button').first().click(),

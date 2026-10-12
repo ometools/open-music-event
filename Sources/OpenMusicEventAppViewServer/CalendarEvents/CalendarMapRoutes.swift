@@ -7,6 +7,11 @@ import OpenMusicEventLexicon
 
 extension OpenMusicEventAppViewServer {
     static func installCalendarMapRoutes<Context: RequestContext>(on router: Router<Context>, store: OpenMusicEventAppViewStore?) {
+        router.register(CalendarPublishersQuery.self) { parameters, _ in
+            guard let store else { throw XRPC.ResponseError(.serviceUnavailable, error: "EventIndexUnavailable") }
+            do { return try store.calendarPublishers(parameters) }
+            catch is CalendarBrowseError { throw XRPC.ResponseError(.badRequest, error: "InvalidParameters") }
+        }
         router.register(CalendarBrowseQuery.self) { parameters, _ in
             guard let store else { throw XRPC.ResponseError(.serviceUnavailable, error: "EventIndexUnavailable") }
             do { return try store.browseEventSummaries(parameters) }
@@ -31,10 +36,14 @@ extension OpenMusicEventAppViewServer {
             let catalogValues = items.filter { $0.name == "catalogs" }
             let catalogs = catalogValues.compactMap { $0.value.flatMap { ATProto.NSID($0) } }
             guard catalogValues.count == catalogs.count else { throw HTTPError(.badRequest) }
+            let publisherValues = items.filter { $0.name == "publishers" }
+            let publishers = publisherValues.compactMap { $0.value.flatMap(Int.init) }
+            guard publisherValues.count == publishers.count else { throw HTTPError(.badRequest) }
             let tileRequest: CalendarMapTileRequest
             do {
                 tileRequest = try .init(z: z, x: x, y: y, catalogs: catalogs,
-                    dates: items.first { $0.name == "dates" }?.value ?? "current")
+                    dates: items.first { $0.name == "dates" }?.value ?? "current",
+                    publisherMode: items.first { $0.name == "publisherMode" }?.value, publishers: publishers)
             } catch { throw HTTPError(.badRequest) }
             let tile: CalendarMapTile
             do { tile = try await store.mapTiles.tile(tileRequest, store: store) }

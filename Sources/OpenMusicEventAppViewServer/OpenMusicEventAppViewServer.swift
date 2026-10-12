@@ -26,6 +26,7 @@ public enum OpenMusicEventAppViewServer {
                 databaseURL: databaseURL,
                 webhookSecretProtection: configuration.webhookSecretProtection,
                 geocodingOverrides: configuration.geocodingOverrides,
+                communityCalendarExcludedPublishers: configuration.communityCalendarExcludedPublishers,
                 initiallyReady: configuration.ingestions.isEmpty
             )
         } else {

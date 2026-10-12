@@ -53,6 +53,25 @@
             <span>Community Calendar</span>
           </label>
         </fieldset>
+        <details id="publisherPicker" class="publisher-picker">
+          <summary>Sources · <span id="publisherSummary">Loading defaults…</span></summary>
+          <p>Choose who publishes the Community Calendar events you see. This does not change Open Music Event.</p>
+          <label for="publisherMode">Include</label>
+          <select id="publisherMode">
+            <option value="allExcept">All except excluded sources</option>
+            <option value="only">Only selected sources</option>
+          </select>
+          <div class="publisher-actions">
+            <button id="allPublishers" type="button">All sources</button>
+            <button id="resetPublishers" type="button">Reset to OME defaults</button>
+          </div>
+          <label for="publisherSearch">Find a publisher</label>
+          <input id="publisherSearch" type="search" placeholder="Publisher name or DID" autocomplete="off">
+          <div id="publisherChoices" role="group" aria-label="Community Calendar publishers"></div>
+          <button id="morePublishers" type="button" hidden>More sources</button>
+          <p id="publisherStatus" role="status"></p>
+          <button id="retryPublishers" type="button" hidden>Retry loading sources</button>
+        </details>
       </div>
 
       <section class="temporal-controls" aria-label="Browse controls">
@@ -77,7 +96,7 @@
       <div class="event-list" id="eventList" aria-live="polite" aria-label="Event results" tabindex="-1"></div>
       <div class="empty-state" id="emptyState" hidden>
         <strong>No events in this orbit</strong>
-        <span>Try a different search, catalog, or map area.</span>
+        <span>Try different sources, dates, search, or map area.</span>
         <button id="resetFilters" type="button">Reset browse</button>
       </div>
 

@@ -208,3 +208,66 @@ compiler-lane command above, passed 122 tests in 18 suites. The opt-in million-e
 test passed separately; it is disabled in the normal suite. Final smoke checks confirmed
 both catalogs, inline details, cluster member lists, paging, Jump to now, stale-request
 handling, invalid-request HTTP 400 responses, and tile ETag HTTP 304 responses.
+
+## Community Calendar publisher lens
+
+The Sources picker scopes Community Calendar by the publishing repository, not by
+event category or organizer. Both catalogs remain enabled; the initial Community
+Calendar selection excludes `did:plc:k6owgpe2rkkchoiivxhzp2t4` (Laugh Town). The
+`OME_CALENDAR_EXCLUDED_PUBLISHERS` environment setting accepts a JSON array of DIDs;
+`[]` makes the default include all publishers. This is display policy, not an
+ingestion restriction. Existing explicit visitor selections override the default.
+
+`getPublishers` returns paginated publisher identities and the default lens.
+`browseEventSummaries` and map tile URLs accept `publisherMode=allExcept|only` and
+repeated positive-integer `publishers` parameters (up to 1024). Publisher IDs are
+local to this AppView database, persist through rebuilds, and are never reused.
+The homepage stores the lens locally and shares it in its URL; incoming links do
+not overwrite saved preferences. The `getEvents` compatibility route is unchanged.
+
+The migration preserves source records and stages a new map generation. Existing
+catalog summaries are retained; publisher summaries are incrementally maintained
+in the same SQLite transactions. Exclusion subtracts publisher summaries, while
+only-selected sums those summaries. Tile cache keys and list cursor fingerprints
+include the normalized lens. No per-visitor cluster index is created.
+
+Focused checks:
+
+```sh
+OME_APPVIEW=1 OME_COMPOSABLE_ATMOSPHERE_PATH=/path/to/compatible/atmosphere \
+  ~/.codex/skills/woodys-swift-workflow/scripts/swift-compiler-lane.sh \
+  --wait --priority normal swift-test --filter OpenMusicEventAppViewServerTests
+PLAYWRIGHT_MODULE=/path/to/playwright node Scripts/globe-local/publisher-browser-check.cjs
+```
+
+The browser source-picker stories use intercepted fixture responses, not a live
+AppView. Set `OME_PUBLISHER_SNAPSHOT` to an existing database snapshot to enable
+the migration/performance test. It uses SQLite backup into a new temporary
+database, leaves the input untouched, prints filtered tile measurements, and
+retains the isolated database for further smoke testing.
+
+Publisher-lens validation on 2026-10-11: 127 AppView tests in 19 suites passed;
+Linux release image compilation and fixture-backed browser source-selection stories
+passed. The isolated migration retained 87,728 browse rows and passed SQLite
+`quick_check`; initial backfill/retirement took 284.59 seconds. Ten uncached debug
+global-tile samples measured median/max 20.06/26.58 ms for the default exclusion,
+4.15/7.02 ms for Laugh Town only, and 25.41/27.16 ms for 212 selected publishers.
+Corresponding gzip payloads were 639, 193, and 492 bytes. These are database
+measurements, not end-to-end browser latency.
+
+The existing globe-rim failure at zoom 12 was fixed by checking the projection
+transition before compiling the globe-only shader. The browser check now crosses
+to zoom 12 and back to the globe and asserts no shader errors.
+
+The local sandbox at `http://127.0.0.1:18081/` was updated after a consistent SQLite
+backup to `.build/globe-map-validation/pre-publisher-live-P0xkUW/appview.sqlite`.
+The live migration preserved all 87,620 Community Calendar and 108 OME browse
+records; `quick_check` passed and generation 2 completed with no pending rebuild
+or retirement. Only the AppView container was recreated; no remote deployment.
+
+Live desktop and Pixel 7 Chrome-emulated browser stories passed with no page
+errors or failed event tiles. First visible markers measured 912.7 ms and 717.3 ms
+respectively; this is local-loopback evidence, not physical-mobile or production
+latency proof. Markers also rendered with basemap requests deliberately blocked.
+Real source-checkbox inclusion/reset and Laugh Town-only API filtering passed.
+Reports and screenshots are in `.build/globe-map-validation/publisher-live/`.

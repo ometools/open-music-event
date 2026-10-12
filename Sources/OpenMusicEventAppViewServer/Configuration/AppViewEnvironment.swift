@@ -163,6 +163,16 @@ public extension AppViewConfiguration {
             tangledWebhook: tangledWebhook,
             sourceArtifacts: sourceArtifacts
         )
+        if let value = environment["OME_CALENDAR_EXCLUDED_PUBLISHERS"] {
+            do {
+                let values = try JSONDecoder().decode([String].self, from: Data(value.utf8))
+                let dids = values.compactMap(DID.init)
+                guard values.count == dids.count, values.count <= 1024 else {
+                    throw AppViewConfigurationError.invalidCommunityCalendarPublishers
+                }
+                configuration.communityCalendarExcludedPublishers = dids
+            } catch { throw AppViewConfigurationError.invalidCommunityCalendarPublishers }
+        }
         if let bindings = environment["OME_WEB_PDS_HOSTS"] {
             let hosts = try JSONDecoder().decode([String: String].self, from: Data(bindings.utf8))
             for (did, host) in hosts {

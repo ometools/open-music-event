@@ -21,6 +21,8 @@ struct CalendarBrowseQuery: XRPC.Query, Sendable {
         var limit: Int? = nil
         var dates: String? = nil
         var cell: String? = nil
+        var publisherMode: String? = nil
+        var publishers: [Int]? = nil
     }
 }
 
@@ -101,6 +103,7 @@ enum CalendarBrowseError: Error {
 extension OpenMusicEventAppViewStore {
     func browseEventSummaries(_ parameters: CalendarBrowseQuery.Parameters, now: Date = .now) throws -> CalendarSummaryPage {
         let catalogs = try CalendarEventBrowseProjection.catalogs(parameters.catalogs)
+        let lens = try CalendarPublisherLens(mode: parameters.publisherMode, publishers: parameters.publishers)
         let limit = parameters.limit ?? 50
         let dates = parameters.dates ?? "current"
         guard (1...50).contains(limit), ["current", "all"].contains(dates),
@@ -112,7 +115,7 @@ extension OpenMusicEventAppViewStore {
         let cell = try parameters.cell.map(Self.decodeMapCell)
         let fingerprintData = [catalogs.map(\.rawValue).sorted().joined(separator: ","), query ?? "",
                                bounds.map { "\($0.north),\($0.south),\($0.east),\($0.west)" } ?? "",
-                               dates, cell ?? ""]
+                               dates, cell ?? "", lens.fingerprint]
         let fingerprint = try JSONEncoder().encode(fingerprintData).base64EncodedString()
         let cursor = try parameters.cursor.map(CalendarEventBrowseCursor.decode)
         guard cursor == nil || cursor?.fingerprint == fingerprint else {
@@ -125,16 +128,17 @@ extension OpenMusicEventAppViewStore {
                 "\(P.uri) IN (SELECT \(CalendarEventBrowseSearch.uri) FROM \(CalendarEventBrowseSearch.self) WHERE \(CalendarEventBrowseSearch.searchText) MATCH \(bind: $0))"
             } ?? "1"
             let spatial = P.browseSpatialPredicate(bounds: bounds)
-            var membership: QueryFragment = "1"
+            var membership = lens.predicate(uri: "\(P.uri)", catalog: "\(P.catalog)")
             if let cell {
                 let generation = try CalendarMapBuild.find(0).select(\.active).fetchOne(db) ?? 0
                 let selectedCatalogs = CalendarMapEvent.catalog.in(catalogs.map(\.rawValue))
-                membership = """
+                let clusterMembership: QueryFragment = """
                     \(P.uri) IN (SELECT \(CalendarMapEvent.uri) FROM \(CalendarMapEvent.self)
                       WHERE \(CalendarMapEvent.generation) = \(generation)
                       AND \(selectedCatalogs)
                       AND \(CalendarMapEvent.cell) >= \(cell) AND \(CalendarMapEvent.cell) < \(cell + "4"))
                     """
+                membership = "(\(membership)) AND (\(clusterMembership))"
             }
             let keys = try Self.summaryPageKeys(catalogs: catalogs.map(\.rawValue), search: search,
                 spatial: spatial, membership: membership, now: clock, allDates: dates == "all",

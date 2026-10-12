@@ -1,3 +1,4 @@
+import ATProto
 import ATProtoAppView
 import ComposableNotificationsServer
 import Foundation
@@ -9,20 +10,29 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     let eventBundles = EventBundleCache()
     let mapTiles = CalendarMapTileCache()
     let database: any DatabaseWriter
+    let communityCalendarExcludedPublishers: [DID]
     let webhookSecretProtection: WebhookSecretProtection?
 
     public init(
         database: any DatabaseWriter,
         webhookSecretProtection: WebhookSecretProtection? = nil,
         geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates] = [:],
+        communityCalendarExcludedPublishers: [DID] = [DID("did:plc:k6owgpe2rkkchoiivxhzp2t4")!],
         initiallyReady: Bool = true
     ) throws {
         self.database = database
+        self.communityCalendarExcludedPublishers = communityCalendarExcludedPublishers
         self.webhookSecretProtection = webhookSecretProtection
         self.readiness = OpenMusicEventAppViewReadiness(
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
         )
         try Self.migrate(database)
+        try database.write { db in
+            for publisher in communityCalendarExcludedPublishers {
+                try db.execute(sql: "INSERT OR IGNORE INTO \"\(CalendarPublisher.tableName)\" (did) VALUES (?)",
+                               arguments: [publisher.description])
+            }
+        }
         let geocodingOverridesChanged = try cacheGeocodingOverrides(geocodingOverrides)
         try rebuildCalendarEventBrowseProjectionIfNeeded(
             force: geocodingOverridesChanged
@@ -35,6 +45,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         databaseURL: URL,
         webhookSecretProtection: WebhookSecretProtection? = nil,
         geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates] = [:],
+        communityCalendarExcludedPublishers: [DID] = [DID("did:plc:k6owgpe2rkkchoiivxhzp2t4")!],
         initiallyReady: Bool = true
     ) throws {
         try FileManager.default.createDirectory(
@@ -51,6 +62,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             ),
             webhookSecretProtection: webhookSecretProtection,
             geocodingOverrides: geocodingOverrides,
+            communityCalendarExcludedPublishers: communityCalendarExcludedPublishers,
             initiallyReady: initiallyReady
         )
     }
@@ -62,6 +74,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
         CalendarEventBrowseProjection.registerMigration(into: &migrator)
         CalendarMapBuild.registerMigration(into: &migrator)
+        CalendarPublisher.registerMigration(into: &migrator)
         VenueProfileProjection.registerMigration(into: &migrator)
         CalendarGeocode.registerMigration(into: &migrator)
         CommunityCalendarEventProjection.registerBackfillMigration(into: &migrator)

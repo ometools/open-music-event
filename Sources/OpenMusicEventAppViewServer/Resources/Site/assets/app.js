@@ -55,6 +55,13 @@ const state = {
   displayedRequestID: 0,
   tileTimings: [],
   firstVisibleMarkersMilliseconds: null,
+  publisherLens: null,
+  publisherDefaults: null,
+  publishers: new Map(),
+  publisherResults: [],
+  publisherCursor: null,
+  publisherController: null,
+  publisherTimer: null,
 };
 
 const ids = [
@@ -62,6 +69,8 @@ const ids = [
   "eventList", "resultCount", "emptyState", "resetFilters", "mapCard", "mapFallback",
   "searchForm", "searchInput", "locateButton", "resetMapButton", "zoomInButton",
   "zoomOutButton", "eventCardTemplate", "selectionConnector", "connectorPath",
+  "publisherPicker", "publisherSummary", "publisherMode", "allPublishers", "resetPublishers",
+  "publisherSearch", "publisherChoices", "morePublishers", "publisherStatus", "retryPublishers",
 ];
 const els = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
@@ -193,6 +202,7 @@ function filteredURL(
   const url = new URL(baseURL, window.location.href);
   url.search = "";
   for (const catalog of state.selectedCatalogs) url.searchParams.append("catalogs", catalog);
+  appendPublisherFilter(url.searchParams);
   const query = state.query.trim();
   if (query) url.searchParams.set("query", query);
   url.searchParams.set("dates", state.dates);
@@ -237,6 +247,7 @@ async function searchMapFor(events, signal) {
 }
 
 async function loadData({ bounds = currentMapBounds(), focusNow = false, cursor = null, pageCursors = [] } = {}) {
+  if (!state.publisherLens) return;
   const requestID = ++state.requestID;
   state.displayStartedAt = performance.now();
   state.requestController?.abort();
@@ -345,6 +356,7 @@ async function loadMoreEvents() {
 
 function browseTileURL() {
   const query = new URLSearchParams();
+  appendPublisherFilter(query);
   for (const catalog of [...state.selectedCatalogs].sort()) query.append("catalogs", catalog);
   query.set("dates", state.dates);
   return `${window.location.origin}/map/events/{z}/{x}/{y}.mvt?${query}`;
@@ -538,6 +550,14 @@ function renderEventList() {
     }
 
     card.querySelector(".event-name").textContent = event.name;
+    if (event.source === "communityCalendar") {
+      const did = event.uri.slice(5).split("/")[0];
+      const publisher = [...state.publishers.values()].find(source => source.did === did);
+      const attribution = document.createElement("small");
+      attribution.className = "publisher-attribution";
+      attribution.textContent = `Published by ${publisher?.label || did}`;
+      card.querySelector(".event-name").after(attribution);
+    }
     card.querySelector(".event-location span").textContent = event.locationSummary;
     card.querySelector(".event-time").textContent = formatEventTime(event);
     card.querySelector(".event-distance").textContent = distanceLabel(event);
@@ -580,7 +600,7 @@ function renderEventDetail(container, summary) {
       </div>
       <div>
         <strong>${escapeHTML(event.organizer?.displayName || event.organizer?.handle || event.organizer?.id || "Organizer")}</strong>
-        <span>Organizer</span>
+        <span>${event.source === "communityCalendar" ? "Published by" : "Organizer"}</span>
       </div>
     </div>
     ${locations ? `<ul class="event-detail-locations">${locations}</ul>` : ""}
@@ -1013,9 +1033,9 @@ void main() {
     },
 
     render(gl, args) {
-      const shader = this.getProgram(gl, args.shaderData);
       const projection = args.defaultProjectionData;
       if (projection.projectionTransition < 0.01) return;
+      const shader = this.getProgram(gl, args.shaderData);
       const previous = {
         program: gl.getParameter(gl.CURRENT_PROGRAM),
         vertexArray: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
@@ -1391,7 +1411,7 @@ els.resetFilters.addEventListener("click", () => {
   document.querySelectorAll('input[name="catalog"]').forEach(input => {
     input.checked = state.selectedCatalogs.has(input.value);
   });
-  loadData({ bounds: state.bounds }).catch(error => console.error(error));
+  applyPublisherLens(state.publisherDefaults);
 });
 els.resetMapButton.addEventListener("click", () => {
   state.map?.flyTo({ center: config.initialCenter, zoom: config.initialZoom, bearing: 0, pitch: 0 });
@@ -1464,8 +1484,12 @@ window.setInterval(() => {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) updateBrowseTiles(true);
 });
-initializeMap();
-loadData({ focusNow: false }).then(() => {
+function startBrowse() {
+els.retryPublishers.hidden = true;
+return initializePublishers().then(() => {
+  initializeMap();
+  return loadData({ focusNow: false });
+}).then(() => {
   const selectedFromURL = params.get("event");
   const event = eventForID(selectedFromURL);
   if (event) {
@@ -1475,4 +1499,162 @@ loadData({ focusNow: false }).then(() => {
   console.error(error);
   els.dataStatus.textContent = "The calendar could not be loaded";
   els.emptyState.hidden = false;
+  els.publisherPicker.open = true;
+  els.retryPublishers.hidden = false;
+});
+}
+startBrowse();
+
+function normalizedPublisherLens(value) {
+  if (!value || !["allExcept", "only"].includes(value.mode) || !Array.isArray(value.publishers)
+    || value.publishers.length > 1024 || !value.publishers.every(id => Number.isSafeInteger(id) && id > 0)) {
+    throw new Error("Invalid source selection");
+  }
+  return { mode: value.mode, publishers: [...new Set(value.publishers)].sort((a, b) => a - b) };
+}
+
+function publisherLensFromURL() {
+  const query = new URLSearchParams(window.location.search);
+  if (!query.has("publisherMode") && !query.has("publishers")) return null;
+  return normalizedPublisherLens({ mode: query.get("publisherMode"),
+    publishers: (query.get("publishers") || "").split(",").filter(Boolean).map(Number) });
+}
+
+function savedPublisherLens() {
+  try {
+    const value = JSON.parse(localStorage.getItem("ome.publisherLens.v1"));
+    return value ? normalizedPublisherLens(value) : null;
+  } catch { return null; }
+}
+
+function appendPublisherFilter(query) {
+  const lens = state.publisherLens || { mode: "only", publishers: [] };
+  query.set("publisherMode", lens.mode);
+  for (const id of lens.publishers) query.append("publishers", String(id));
+}
+
+function writePublisherURL(push) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("publisherMode", state.publisherLens.mode);
+  url.searchParams.set("publishers", state.publisherLens.publishers.join(","));
+  url.searchParams.delete("event");
+  history[push ? "pushState" : "replaceState"]({}, "", url);
+}
+
+function renderPublisherChoices() {
+  if (!state.publisherLens) return;
+  const focusedPublisher = document.activeElement?.dataset.publisherId;
+  const lens = state.publisherLens;
+  els.publisherMode.value = lens.mode;
+  els.publisherSummary.textContent = lens.mode === "only"
+    ? `${lens.publishers.length} selected` : (lens.publishers.length ? `${lens.publishers.length} excluded` : "All publishers");
+  const ids = [...new Set([...state.publisherDefaults.publishers, ...lens.publishers, ...state.publisherResults])];
+  els.publisherChoices.replaceChildren();
+  for (const id of ids) {
+    const publisher = state.publishers.get(id);
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.publisherId = String(id);
+    checkbox.checked = lens.mode === "only" ? lens.publishers.includes(id) : !lens.publishers.includes(id);
+    const text = document.createElement("span");
+    text.textContent = publisher?.label || publisher?.did || `Publisher ${id}`;
+    checkbox.setAttribute("aria-label", `Include ${text.textContent}`);
+    checkbox.addEventListener("change", () => {
+      const next = new Set(state.publisherLens.publishers);
+      const listed = state.publisherLens.mode === "only" ? checkbox.checked : !checkbox.checked;
+      if (listed) next.add(id); else next.delete(id);
+      applyPublisherLens({ mode: state.publisherLens.mode, publishers: [...next] });
+    });
+    label.append(checkbox, text);
+    els.publisherChoices.append(label);
+  }
+  els.morePublishers.hidden = state.publisherCursor === null;
+  if (focusedPublisher) els.publisherChoices.querySelector(`[data-publisher-id="${focusedPublisher}"]`)?.focus();
+}
+
+async function fetchPublisherPage(append = false) {
+  state.publisherController?.abort();
+  const controller = state.publisherController = new AbortController();
+  const url = new URL("/xrpc/app.openmusicevent.calendar.getPublishers", window.location.href);
+  url.searchParams.set("query", els.publisherSearch.value);
+  if (append && state.publisherCursor !== null) url.searchParams.set("cursor", String(state.publisherCursor));
+  els.publisherStatus.textContent = "Loading sources…";
+  try {
+    const { value } = await fetchJSON(url, controller.signal);
+    if (controller !== state.publisherController) return;
+    for (const publisher of value.publishers) state.publishers.set(publisher.id, publisher);
+    state.publisherDefaults = normalizedPublisherLens(value.defaults);
+    state.publisherResults = append ? [...state.publisherResults, ...value.publishers.map(p => p.id)] : value.publishers.map(p => p.id);
+    state.publisherCursor = value.cursor ?? null;
+    els.publisherStatus.textContent = value.publishers.length ? "" : "No matching publishers. Your selected sources remain available above.";
+    renderPublisherChoices();
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    els.publisherStatus.textContent = "Sources could not be loaded. Search again to retry.";
+    throw error;
+  }
+}
+
+function applyPublisherLens(value, { remember = true, push = true } = {}) {
+  if (!state.publisherDefaults) return;
+  state.publisherLens = normalizedPublisherLens(value);
+  if (remember) {
+    try { localStorage.setItem("ome.publisherLens.v1", JSON.stringify(state.publisherLens)); }
+    catch { els.publisherStatus.textContent = "This browser cannot save your preferences; the link still contains them."; }
+  }
+  if (push) writePublisherURL(true);
+  state.clusterCell = null;
+  state.clusterBrowseBounds = null;
+  state.highlightedMembers = null;
+  state.cursor = null;
+  state.currentCursor = null;
+  state.pageCursors = [];
+  state.detailController?.abort();
+  state.selectedID = null;
+  state.selectedDetails = null;
+  state.listEvents = [];
+  state.mapPoints = [];
+  state.mapClusters = [];
+  for (const marker of state.imageMarkers.values()) marker.remove();
+  state.imageMarkers.clear();
+  renderPublisherChoices();
+  renderEventList();
+  updateMapData();
+  loadData({ bounds: state.bounds }).catch(console.error);
+}
+
+async function initializePublishers() {
+  await fetchPublisherPage();
+  state.publisherLens = publisherLensFromURL() || savedPublisherLens() || state.publisherDefaults;
+  let cursor = null;
+  const missing = state.publisherLens.publishers.filter(id => !state.publishers.has(id));
+  if (missing.length) {
+    do {
+      const url = new URL("/xrpc/app.openmusicevent.calendar.getPublishers", window.location.href);
+      for (const id of missing) url.searchParams.append("publishers", String(id));
+      if (cursor !== null) url.searchParams.set("cursor", String(cursor));
+      const { value } = await fetchJSON(url);
+      for (const publisher of value.publishers) state.publishers.set(publisher.id, publisher);
+      cursor = value.cursor ?? null;
+    } while (cursor !== null);
+  }
+  writePublisherURL(false);
+  renderPublisherChoices();
+}
+
+els.publisherSearch.addEventListener("input", () => {
+  clearTimeout(state.publisherTimer);
+  state.publisherController?.abort();
+  state.publisherTimer = setTimeout(() => fetchPublisherPage().catch(console.error), 250);
+});
+els.morePublishers.addEventListener("click", () => fetchPublisherPage(true).catch(console.error));
+els.retryPublishers.addEventListener("click", () => startBrowse());
+els.allPublishers.addEventListener("click", () => applyPublisherLens({ mode: "allExcept", publishers: [] }));
+els.resetPublishers.addEventListener("click", () => applyPublisherLens(state.publisherDefaults));
+els.publisherMode.addEventListener("change", () => applyPublisherLens({ mode: els.publisherMode.value, publishers: [] }));
+window.addEventListener("popstate", () => {
+  if (!state.publisherDefaults) return;
+  try { applyPublisherLens(publisherLensFromURL() || savedPublisherLens() || state.publisherDefaults, { remember: false, push: false }); }
+  catch { els.publisherStatus.textContent = "This link has an invalid source selection."; }
 });

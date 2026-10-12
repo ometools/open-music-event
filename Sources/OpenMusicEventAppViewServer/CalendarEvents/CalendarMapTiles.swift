@@ -14,13 +14,16 @@ struct CalendarMapTileRequest: Hashable, Sendable {
     let y: Int
     let catalogs: [String]
     let allDates: Bool
+    let lens: CalendarPublisherLens
 
-    init(z: Int, x: Int, y: Int, catalogs: [ATProto.NSID], dates: String) throws {
+    init(z: Int, x: Int, y: Int, catalogs: [ATProto.NSID], dates: String,
+         publisherMode: String? = nil, publishers: [Int]? = nil) throws {
         guard (0...18).contains(z), (0..<(1 << z)).contains(x), (0..<(1 << z)).contains(y),
               ["current", "all"].contains(dates) else { throw CalendarBrowseError.invalidParameters }
         self.z = z; self.x = x; self.y = y
         self.catalogs = try CalendarEventBrowseProjection.catalogs(catalogs).map(\.rawValue).sorted()
         self.allDates = dates == "all"
+        self.lens = try CalendarPublisherLens(mode: publisherMode, publishers: publishers)
     }
 
     var neighbors: [String] {
@@ -119,14 +122,34 @@ extension OpenMusicEventAppViewStore {
             let count: QueryFragment = request.allDates ? "\(C.columns.count)" : "\(C.activeCount)"
             let xSum: QueryFragment = request.allDates ? "\(C.x)" : "\(C.activeX)"
             let ySum: QueryFragment = request.allDates ? "\(C.y)" : "\(C.activeY)"
-            let catalogs = C.catalog.in(request.catalogs)
+            let totalCatalogs = request.lens.mode == .only
+                ? request.catalogs.filter { $0 != CalendarPublisher.communityCatalog } : request.catalogs
+            let catalogs = C.catalog.in(totalCatalogs)
+            typealias P = CalendarPublisherMapCell
+            let publisherCount: QueryFragment = request.allDates ? "\(P.columns.count)" : "\(P.activeCount)"
+            let publisherX: QueryFragment = request.allDates ? "\(P.x)" : "\(P.activeX)"
+            let publisherY: QueryFragment = request.allDates ? "\(P.y)" : "\(P.activeY)"
+            let selectedPublishers = P.publisherID.in(request.lens.publishers)
+            let sign = request.lens.mode == .only ? 1 : -1
             var cells: [CalendarTileCell] = []
             for prefix in request.neighbors {
-                cells += try #sql("""
-                    SELECT \(C.cell),sum(\(count)) AS count,sum(\(xSum)) AS x,sum(\(ySum)) AS y
+                var parts: [QueryFragment] = ["""
+                    SELECT \(C.cell) AS cell,\(count) AS count,\(xSum) AS x,\(ySum) AS y
                     FROM \(C.self) WHERE \(C.generation)=\(generation) AND \(C.depth)=\(request.z + 3)
                       AND \(catalogs) AND \(C.cell)>=\(prefix) AND \(C.cell)<\(prefix + "4")
-                    GROUP BY \(C.cell) HAVING sum(\(count))>0 ORDER BY \(C.cell)
+                    """]
+                if request.catalogs.contains(CalendarPublisher.communityCatalog), !request.lens.publishers.isEmpty {
+                    parts.append("""
+                        SELECT \(P.cell) AS cell,\(sign)*\(publisherCount) AS count,
+                          \(sign)*\(publisherX) AS x,\(sign)*\(publisherY) AS y
+                        FROM \(P.self) WHERE \(P.generation)=\(generation) AND \(P.depth)=\(request.z + 3)
+                          AND \(selectedPublishers) AND \(P.cell)>=\(prefix) AND \(P.cell)<\(prefix + "4")
+                        """)
+                }
+                cells += try #sql("""
+                    SELECT cell,sum(count) AS count,sum(x) AS x,sum(y) AS y
+                    FROM (\(parts.joined(separator: " UNION ALL ")))
+                    GROUP BY cell HAVING sum(count)>0 ORDER BY cell
                     """, as: CalendarTileCell.self).fetchAll(db)
             }
             let scale = Double(1 << request.z)
@@ -138,10 +161,11 @@ extension OpenMusicEventAppViewStore {
                 if tileX > 1.125 { tileX -= scale }
                 let tileY = worldY * scale - Double(request.y)
                 guard (-0.125...1.125).contains(tileX), (-0.125...1.125).contains(tileY) else { continue }
+                let publisherMembership = request.lens.predicate(uri: "\(CalendarMapEvent.uri)", catalog: "\(CalendarMapEvent.catalog)")
                 let members = CalendarMapEvent.where {
                     $0.generation.eq(generation) && $0.catalog.in(request.catalogs)
                       && $0.cell >= cell.cell && $0.cell < cell.cell + "4"
-                }.where { request.allDates || $0.active }
+                }.where { request.allDates || $0.active }.where { _ in #sql("\(publisherMembership)", as: Bool.self) }
                 var properties: [String: String] = ["kind": "cluster", "clusterID": "q1:\(cell.cell)", "count": String(cell.count)]
                 if cell.count == 1,
                    let uri = try members.select(\.uri).limit(1).fetchOne(db),

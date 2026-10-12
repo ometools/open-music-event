@@ -62,6 +62,7 @@ public struct AppViewConfiguration: Sendable {
     public var ingestions: [AppViewIngestionConfiguration]
     public var geoapifyAPIKey: String?
     public var geocodingOverrides: [String: CalendarEventGeocodingClient.Coordinates]
+    public var communityCalendarExcludedPublishers: [DID] = [DID("did:plc:k6owgpe2rkkchoiivxhzp2t4")!]
     public var notificationProviders: AppViewNotificationProviderConfiguration?
     public var notificationDestinationProtection: NotificationDestinationProtection?
     public var notificationRegistration: AppViewNotificationRegistrationConfiguration?

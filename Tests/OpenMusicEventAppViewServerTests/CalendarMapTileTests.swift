@@ -240,6 +240,97 @@ import Testing
         #expect(!refreshed.cacheHit && refreshed.etag != populated.etag)
     }
 
+    @Test func `publisher choices agree across list tile cluster and empty selections`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let comedy = fixture("comedy", publisher: CalendarPublisher.laughTown)
+        let concert = fixture("concert")
+        let native = fixture("native", catalog: otherCatalog)
+        try database.write { db in
+            for event in [comedy, concert, native] {
+                try CalendarEventBrowseProjection.upsert(event, now: now, in: db)
+            }
+        }
+        // OME defaults hide the publisher, not events guessed to be comedy.
+        let directory = try store.calendarPublishers(.init())
+        let defaults = directory.defaults
+        var query = CalendarBrowseQuery.Parameters(catalogs: [catalog, otherCatalog],
+            publisherMode: defaults.mode.rawValue, publishers: defaults.publishers)
+        expectNoDifference(try store.browseEventSummaries(query, now: now).events.map(\.name).sorted(), ["concert", "native"])
+        let filtered = try CalendarMapTileRequest(z: 0,x: 0,y: 0,catalogs: [catalog,otherCatalog], dates: "current",
+            publisherMode: defaults.mode.rawValue,publishers: defaults.publishers)
+        let tile = try store.mapTile(filtered,generation: 1)
+        expectNoDifference(try representedEvents(tile), 2)
+        let layer = try #require(try OmeVectorTile_Tile(serializedBytes: tile.data).layers.first)
+        query.cell = try #require(properties(layer.features[0], layer: layer)["clusterID"])
+        expectNoDifference(try store.browseEventSummaries(query, now: now).events.map(\.name).sorted(), ["concert", "native"])
+
+        // Only selected affects Community Calendar, leaving the OME toggle independent.
+        query.publisherMode = "only"
+        expectNoDifference(try store.browseEventSummaries(query, now: now).events.map(\.name).sorted(), ["comedy", "native"])
+        query.publishers = []
+        expectNoDifference(try store.browseEventSummaries(query, now: now).events.map(\.name), ["native"])
+        let empty = try CalendarMapTileRequest(z: 0,x: 0,y: 0,catalogs: [catalog],dates: "current",publisherMode: "only")
+        expectNoDifference(try store.mapTile(empty,generation: 1).featureCount, 0)
+        query.catalogs = [catalog]
+        expectNoDifference(try store.browseEventSummaries(query, now: now).events.count, 0)
+    }
+
+    @Test func `publisher summaries survive moves expiration deletion rollback and rebuild`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        var event = fixture("concert")
+        try database.write { try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
+        let publisher = try #require(try store.calendarPublishers(.init(query: "did:plc:venue")).publishers.first)
+        let request = try CalendarMapTileRequest(z: 0,x: 0,y: 0,catalogs: [catalog],dates: "current",publisherMode: "only",publishers: [publisher.id])
+        let original = try store.mapTile(request,generation: 1)
+        event = fixture("concert",latitude: -35,longitude: 150)
+        try database.write { try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
+        #expect(try store.mapTile(request,generation: 1).etag != original.etag)
+        enum Rollback: Error { case requested }
+        #expect(throws: Rollback.self) {
+            try database.write { db in
+                try CalendarEventBrowseProjection.delete(uri: event.uri.description, in: db)
+                throw Rollback.requested
+            }
+        }
+        expectNoDifference(try representedEvents(store.mapTile(request,generation: 1)),1)
+        _ = try store.expireMapEvents(now: now.addingTimeInterval(200))
+        expectNoDifference(try store.mapTile(request,generation: 1).featureCount,0)
+        try store.beginMapRebuild()
+        while try !store.rebuildMapBatch(limit: 1, now: now) {}
+        expectNoDifference(try representedEvents(store.mapTile(request,generation: 2)),1)
+        expectNoDifference(try store.calendarPublishers(.init(query: publisher.did)).publishers.first?.id,publisher.id)
+        try database.write { try CalendarEventBrowseProjection.delete(uri: event.uri.description,in: $0) }
+        expectNoDifference(try store.mapTile(request,generation: 2).featureCount,0)
+        expectNoDifference(try database.read { try CalendarPublisherMapCell.all.fetchCount($0) },0)
+    }
+
+    @Test func `publisher cursor fingerprint and cache isolate equivalent and different lenses`() async throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        try await database.write { db in
+            for id in ["one", "two"] { try CalendarEventBrowseProjection.upsert(fixture(id),now: now,in: db) }
+            try CalendarEventBrowseProjection.upsert(fixture("comedy",publisher: CalendarPublisher.laughTown),now: now,in: db)
+        }
+        let defaults = try store.calendarPublishers(.init()).defaults
+        var query = CalendarBrowseQuery.Parameters(catalogs: [catalog],limit: 1,publisherMode: "allExcept",publishers: defaults.publishers)
+        query.cursor = try #require(store.browseEventSummaries(query,now: now).cursor)
+        query.publishers = defaults.publishers + defaults.publishers
+        expectNoDifference(try store.browseEventSummaries(query,now: now).events.count,1)
+        query.publisherMode = "only"
+        #expect(throws: (any Error).self) { try store.browseEventSummaries(query,now: now) }
+        let excluded = try CalendarMapTileRequest(z: 0,x: 0,y: 0,catalogs: [catalog],dates: "current",publishers: defaults.publishers)
+        let only = try CalendarMapTileRequest(z: 0,x: 0,y: 0,catalogs: [catalog],dates: "current",publisherMode: "only",publishers: defaults.publishers)
+        let excludedTile = try await store.mapTiles.tile(excluded,store: store)
+        let onlyTile = try await store.mapTiles.tile(only,store: store)
+        expectNoDifference(try representedEvents(excludedTile),2)
+        expectNoDifference(try representedEvents(onlyTile),1)
+        #expect(try await store.mapTiles.tile(excluded,store: store).cacheHit)
+        #expect(throws: CalendarBrowseError.self) { try CalendarPublisherLens(mode: "unexpected") }
+        #expect(throws: CalendarBrowseError.self) { try CalendarPublisherLens(publishers: [-1]) }
+    }
+
     private func rootTile(_ store: OpenMusicEventAppViewStore, dates: String = "current") throws -> CalendarMapTile {
         try store.mapTile(.init(z: 0, x: 0, y: 0, catalogs: [catalog], dates: dates), generation: 1)
     }
@@ -260,9 +351,9 @@ import Testing
         return result
     }
 
-    private func fixture(_ id: String, catalog: ATProto.NSID? = nil, latitude: Double? = 45, longitude: Double? = -110, start: TimeInterval = 100) -> OME.CalendarEvent {
+    private func fixture(_ id: String, catalog: ATProto.NSID? = nil, latitude: Double? = 45, longitude: Double? = -110, start: TimeInterval = 100, publisher: String = "did:plc:venue") -> OME.CalendarEvent {
         let catalog = catalog ?? self.catalog
-        return .init(uri: ATProto.URI("at://did:plc:venue/\(catalog.rawValue)/\(id)")!, name: id,
+        return .init(uri: ATProto.URI("at://\(publisher)/\(catalog.rawValue)/\(id)")!, name: id,
             startsAt: now.addingTimeInterval(start), createdAt: now,
             locations: [.init(name: "Venue", locality: "Bozeman", latitude: latitude.map(String.init(describing:)), longitude: longitude.map(String.init(describing:)))],
             organizer: .init(id: DID("did:plc:venue")!), source: .init(collection: catalog))
