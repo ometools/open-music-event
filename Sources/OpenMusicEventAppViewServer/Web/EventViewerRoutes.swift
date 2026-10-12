@@ -42,6 +42,13 @@ extension OpenMusicEventAppViewStore {
         try database.read { db in
             let value: Lexicon.JSONValue?
             switch record.collection?.rawValue {
+            case "community.lexicon.calendar.event":
+                guard let data = try CommunityCalendarEventProjection.find(record.description)
+                    .select(\.event).fetchOne(db) else { return false }
+                let event = try JSONDecoder().decode(OME.CalendarEvent.self, from: data)
+                return event.media.contains {
+                    $0.url == CommunityCalendarEventProjection.blobURL(uri: record, cid: cid)
+                }
             case Event.lexiconID.rawValue: value = try Event.find(record).fetchOne(db)?.encodeLexicon()
             case EventPlace.lexiconID.rawValue: value = try EventPlace.find(record).fetchOne(db)?.encodeLexicon()
             case Contributor.lexiconID.rawValue: value = try Contributor.find(record).fetchOne(db)?.encodeLexicon()

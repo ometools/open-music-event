@@ -15,6 +15,9 @@ const events = [
   { name: 'Date only', startsAt: '2026-10-12T00:00:00Z', dateOnly: true },
   { name: 'Clock change', startsAt: '2026-11-01T07:30:00Z', endsAt: '2026-11-01T08:30:00Z', timeZoneIdentifier: 'America/Denver' },
   { name: 'Freeform address', locationSummary: 'Elmore Court, Gloucester, UK', country: 'United Kingdom' },
+  { name: 'Poster show', publisherAvatarURL: avatar,
+    markerMedia: { url: 'https://images.example/concert.webp', role: 'poster', renderKind: 'fullImage' } },
+  { name: 'Blob show', markerMedia: { url: '/event-media?record=concert&cid=photo', role: 'photo', renderKind: 'fullImage' } },
 ].map((event, index) => ({ uri: `at://did:plc:venue/${catalog}/${index}`, catalog, ...event }));
 
 (async () => {
@@ -46,6 +49,12 @@ const events = [
       assert.equal(await row('Freeform address').locator('.event-location').innerText(), 'Elmore Court, Gloucester, UK');
       assert.equal(await row('London show').locator('.publisher-avatar').getAttribute('src'), avatar);
       assert((await row('London show').locator('.event-art').evaluate(element => element.style.backgroundImage)).includes(avatar));
+      for (const [name, image] of [['Poster show', 'https://images.example/concert.webp'], ['Blob show', '/event-media?record=concert&cid=photo']]) {
+        const art = row(name).locator('.event-art');
+        assert((await art.evaluate(element => element.style.backgroundImage)).includes(image));
+        assert.equal(await art.evaluate(element => element.classList.contains('transparent-image')), false);
+        assert.equal(await row(name).locator('.event-monogram').isVisible(), false);
+      }
       for (const name of ['Missing fields', 'Unknown zone']) {
         assert.equal(await row(name).locator('.event-location').isVisible(), false);
         assert.equal(await row(name).locator('.event-time').isVisible(), false);

@@ -146,6 +146,82 @@ struct CommunityCalendarEventProjection: Codable, Equatable, Sendable {
         }
     }
 
+    static func registerArtworkMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Preserve community calendar event artwork") { database in
+            var changed = false
+            for record in try AppViewIndexDatabase.presentRecords(
+                collection: Community.CalendarEvent.nsid, in: database
+            ) {
+                let images = try artwork(record.value, uri: record.uri)
+                guard !images.isEmpty,
+                      let existing = try Self.find(record.uri.description).select(\.event).fetchOne(database)
+                else { continue }
+                let media = try JSONSerialization.jsonObject(with: JSONEncoder().encode(images))
+                let event = try replacingArtwork(in: existing, with: media)
+                try Self.find(record.uri.description).update { $0.event = #bind(event) }.execute(database)
+                if let browse = try CalendarEventBrowseProjection.find(record.uri.description)
+                    .select(\.event).fetchOne(database) {
+                    let updated = try replacingArtwork(in: browse, with: media)
+                    let marker = try images.first.map { try JSONEncoder().encode($0) }
+                    try CalendarEventBrowseProjection.find(record.uri.description).update {
+                        $0.event = #bind(updated)
+                        $0.markerMedia = #bind(marker)
+                    }.execute(database)
+                }
+                changed = true
+            }
+            if changed {
+                try database.execute(
+                    sql: "UPDATE \"\(CalendarMapRevision.tableName)\" SET revision = revision + 1 WHERE id LIKE ?",
+                    arguments: ["%|\(Community.CalendarEvent.nsid.rawValue)"]
+                )
+            }
+        }
+    }
+
+    static func replacingArtwork(in data: Data, with media: Any) throws -> Data {
+        var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        object["media"] = media
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    static func artwork(_ data: Data, uri: ATProto.URI) throws -> [OME.CalendarEvent.Media] {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        var images: [OME.CalendarEvent.Media] = []
+        if let poster = object["poster"] as? [String: Any],
+           let text = poster["url"] as? String, let url = webImageURL(text) {
+            images.append(.init(url: url, role: "poster", renderKind: .fullImage))
+        }
+        for item in object["media"] as? [[String: Any]] ?? [] {
+            guard let content = item["content"] as? [String: Any],
+                  content["$type"] as? String == "blob",
+                  let mime = content["mimeType"] as? String,
+                  ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].contains(mime),
+                  let ref = content["ref"] as? [String: Any],
+                  let cid = ref["$link"] as? String, !cid.isEmpty
+            else { continue }
+            let url = blobURL(uri: uri, cid: cid)
+            guard !images.contains(where: { $0.url == url }) else { continue }
+            let role = item["role"] as? String
+            images.append(.init(url: url, alt: item["alt"] as? String,
+                role: role == "poster" ? "poster" : "photo", renderKind: .fullImage))
+        }
+        return images
+    }
+
+    static func blobURL(uri: ATProto.URI, cid: String) -> URL {
+        var url = URLComponents()
+        url.path = "/event-media"
+        url.queryItems = [.init(name: "record", value: uri.description), .init(name: "cid", value: cid)]
+        return url.url!
+    }
+
+    static func webImageURL(_ text: String) -> URL? {
+        guard let url = URL(string: text), url.scheme == "https", url.host != nil,
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+
     static func apply(
         _ mutation: AppView.RecordMutation<Data>,
         in database: Database
@@ -170,7 +246,7 @@ struct CommunityCalendarEventProjection: Codable, Equatable, Sendable {
         updateBrowseProjection: Bool,
         in database: Database
     ) throws {
-        let event: OME.CalendarEvent
+        var event: OME.CalendarEvent
         let createdAt: Date
         do {
             let record = try decode(current.value)
@@ -179,6 +255,7 @@ struct CommunityCalendarEventProjection: Codable, Equatable, Sendable {
                 uri: current.uri,
                 cid: current.cid
             )
+            event.media = try artwork(current.value, uri: current.uri)
             guard let eventCreatedAt = event.createdAt else {
                 throw CommunityCalendarEventHydrationError.invalidTimestamp(
                     record.createdAt
