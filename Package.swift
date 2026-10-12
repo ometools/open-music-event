@@ -437,6 +437,7 @@ if isAndroidAppBuild {
 }
 
 let appViewDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/patrick-zippenfenig/SwiftTimeZoneLookup.git", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-protobuf", from: "1.31.0"),
     .package(url: "https://github.com/elementary-swift/elementary", exact: "0.7.0"),
     .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
@@ -1239,6 +1240,7 @@ let appViewTargets: [Target] = [
             "SourceEditing",
             .product(name: "ATProtoAppView", package: "swift-atproto-server"),
             .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            .product(name: "SwiftTimeZoneLookup", package: "SwiftTimeZoneLookup"),
             .product(name: "ComposableCalendarEvents", package: "composable-calendar-events"),
             .product(name: "ComposableNotifications", package: "swift-composable-notifications"),
             .product(

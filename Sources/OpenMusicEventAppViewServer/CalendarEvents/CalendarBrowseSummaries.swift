@@ -63,6 +63,11 @@ struct CalendarEventSummary: Codable, Equatable, Sendable {
     var markerMedia: OME.CalendarEvent.Media?
     var timeZoneIdentifier: String?
     var locationSummary: String?
+    var locality: String?
+    var region: String?
+    var country: String?
+    var publisherName: String?
+    var publisherAvatarURL: String?
     var dateOnly: Bool
     var hasEventViewer: Bool
 }
@@ -79,6 +84,11 @@ struct CalendarSummaryRow: Sendable {
     let markerMedia: Data?
     let timeZoneIdentifier: String?
     let locationSummary: String?
+    let locality: String?
+    let region: String?
+    let country: String?
+    let publisherName: String?
+    let publisherAvatarURL: String?
     let dateOnly: Bool
     let hasEventViewer: Bool
     let temporalRank: Int
@@ -89,6 +99,8 @@ struct CalendarSummaryRow: Sendable {
                   latitude: latitude, longitude: longitude,
                   markerMedia: markerMedia.map { try JSONDecoder().decode(OME.CalendarEvent.Media.self, from: $0) },
                   timeZoneIdentifier: timeZoneIdentifier, locationSummary: locationSummary,
+                  locality: locality, region: region, country: country,
+                  publisherName: publisherName, publisherAvatarURL: publisherAvatarURL,
                   dateOnly: dateOnly, hasEventViewer: hasEventViewer)
     }
 }
@@ -146,11 +158,23 @@ extension OpenMusicEventAppViewStore {
             return try #sql("""
                 WITH page AS MATERIALIZED (\(keys))
                 SELECT \(P.uri),\(P.catalog),\(P.name),\(P.startsAt),\(P.endsAt),\(P.latitude),\(P.longitude),\(P.markerMedia),
-                  json_extract(\(P.event),'$.timeZoneIdentifier') AS timeZoneIdentifier,
-                  COALESCE(json_extract(\(P.event),'$.locations[0].name'),json_extract(\(P.event),'$.locations[0].locality')) AS locationSummary,
+                  COALESCE(NULLIF(json_extract(\(P.event),'$.timeZoneIdentifier'),''),\(CalendarLocationContext.timeZoneIdentifier)) AS timeZoneIdentifier,
+                  json_extract(location.value,'$.name') AS locationSummary,
+                  json_extract(location.value,'$.locality') AS locality,
+                  json_extract(location.value,'$.region') AS region,
+                  COALESCE(NULLIF(json_extract(location.value,'$.country'),''),\(CalendarLocationContext.country)) AS country,
+                  COALESCE(\(CalendarPublisher.displayName),\(CalendarPublisher.label),\(CalendarPublisher.handle)) AS publisherName,
+                  \(CalendarPublisher.avatarURL) AS publisherAvatarURL,
                   COALESCE(length(json_extract(\(P.event),'$.event.startDate'))=10,0) AS dateOnly,
                   \(P.hasEventViewer),page.temporalRank,page.orderDate
                 FROM page JOIN \(P.self) ON \(P.uri)=page.uri
+                LEFT JOIN json_each(\(P.event),'$.locations') AS location ON location.key=COALESCE(
+                  (SELECT key FROM json_each(\(P.event),'$.locations')
+                   WHERE CAST(json_extract(value,'$.latitude') AS REAL)=\(P.latitude)
+                     AND CAST(json_extract(value,'$.longitude') AS REAL)=\(P.longitude) LIMIT 1),0)
+                LEFT JOIN \(CalendarLocationContext.self) ON \(CalendarLocationContext.latitude)=\(P.latitude)
+                  AND \(CalendarLocationContext.longitude)=\(P.longitude)
+                LEFT JOIN \(CalendarPublisher.self) ON \(CalendarPublisher.did)=substr(\(P.uri),6,instr(substr(\(P.uri),6),'/')-1)
                 ORDER BY page.temporalRank, CASE WHEN page.temporalRank<3 THEN page.orderDate END,
                   CASE WHEN page.temporalRank=3 THEN page.orderDate END DESC,page.uri
                 """, as: CalendarSummaryRow.self).fetchAll(db)

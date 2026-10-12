@@ -120,6 +120,7 @@ extension OpenMusicEventAppViewStore {
                 .fetchOne(database)
             else { return nil }
             var event = try JSONDecoder().decode(OME.CalendarEvent.self, from: data)
+            try CalendarLocationContext.enrich(&event, in: database)
             event.source.appViewHost = appViewHost
             if let canonical = try Event.find(uri).fetchOne(database),
                canonical.hasDetailsBeyondBrowse,
@@ -377,6 +378,9 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
             return (latitude, longitude)
         }
         .first
+        if let coordinates {
+            try CalendarLocationContext.ensure(latitude: coordinates.0, longitude: coordinates.1, in: database)
+        }
         let markerMedia = storedEvent.preferredMarkerMedia
         let markerMediaData = try markerMedia.map { try JSONEncoder().encode($0) }
         let encodedEvent = try JSONEncoder().encode(storedEvent)

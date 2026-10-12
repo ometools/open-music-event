@@ -109,6 +109,8 @@ function normalizeEvent(raw) {
     ? [Number(longitude), Number(latitude)]
     : null;
   const media = preferredMedia(raw.media);
+  const publisher = [...state.publishers.values()].find(source => source.did === raw.uri.slice(5).split("/")[0]);
+  const publisherAvatar = raw.publisherAvatarURL || publisher?.avatarURL || null;
   const markerMedia = raw.markerMedia || preferredMarkerMedia(raw.media)
     || (typeof raw.organizer?.avatarURL === "string"
       ? { url: raw.organizer.avatarURL, role: "avatar", renderKind: "fullImage" }
@@ -124,23 +126,40 @@ function normalizeEvent(raw) {
     date: start && !Number.isNaN(start.valueOf()) ? start : null,
     endDate: end && !Number.isNaN(end.valueOf()) ? end : null,
     timezone: raw.timeZoneIdentifier || null,
-    locationSummary: raw.locationSummary || location.name
-      || [location.street, location.locality, location.region, location.postalCode, location.country]
-        .filter(Boolean).join(", ")
-      || (coordinates ? "Open for location details" : "Location to be announced"),
+    locationSummary: locationLabel([raw.locationSummary || location.name,
+      raw.locality || location.locality, raw.region || location.region, raw.country || location.country]),
+    publisherName: raw.publisherName || publisher?.label || publisher?.handle || null,
+    publisherAvatarURL: publisherAvatar,
     locality: location.locality || null,
     region: location.region || null,
     country: location.country || null,
     coordinates,
     color: palette[seed % palette.length],
-    image: media?.url || markerMedia?.url || null,
-    imageRole: media?.role || null,
-    imageRenderKind: media?.renderKind || markerMedia?.renderKind || null,
+    image: media?.url || markerMedia?.url || publisherAvatar,
+    imageRole: media?.role || markerMedia?.role || (publisherAvatar ? "avatar" : null),
+    imageRenderKind: media?.renderKind || markerMedia?.renderKind || (publisherAvatar ? "fullImage" : null),
     markerImage: markerMedia?.url || null,
     markerImageRole: markerMedia?.role || null,
     markerImageRenderKind: markerMedia?.renderKind || null,
     quality: coordinates ? [] : ["missingCoordinates"],
   };
+}
+
+function locationLabel(values) {
+  const parts = [];
+  for (let [index, value] of values.entries()) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    value = value.trim();
+    if (index === 3 && /^[A-Z]{2}$/.test(value)) {
+      value = new Intl.DisplayNames(undefined, { type: "region" }).of(value) || value;
+    }
+    const aliases = [value.toLocaleLowerCase()];
+    if (index === 3 && value === "United Kingdom") aliases.push("uk", "gb");
+    if (index === 3 && value === "United States") aliases.push("us", "usa", "united states of america");
+    const alreadyShown = parts.some(part => part.split(/[,·]/).some(token => aliases.includes(token.trim().toLocaleLowerCase())));
+    if (!alreadyShown) parts.push(value);
+  }
+  return parts.join(" · ");
 }
 
 function normalizeCluster(raw) {
@@ -397,7 +416,7 @@ function focusFirstCurrentEvent() {
 }
 
 function dateParts(event) {
-  if (!event.date) return { month: "TBA", day: "—", weekday: "" };
+  if (!event.date || (!event.dateOnly && !canonicalTimeZone(event.timezone))) return { month: "", day: "", weekday: "" };
   return {
     month: formatterFor(event, { month: "short" }).format(event.date),
     day: formatterFor(event, { day: "2-digit" }).format(event.date),
@@ -493,24 +512,23 @@ function viewerNeedsEventTimeZone(event, date, timestamp) {
 }
 
 function formatEventTime(event) {
-  if (event.dateOnly) return "Time not specified";
-  if (!event.date) return "Time to be announced";
+  if (event.dateOnly || !event.date || !canonicalTimeZone(event.timezone)) return "";
   const start = formatterFor(event, { hour: "numeric", minute: "2-digit" }).format(event.date);
   const startNeedsZone = viewerNeedsEventTimeZone(event, event.date, event.startsAt);
   const startZone = startNeedsZone ? eventZoneAbbreviation(event, event.date, event.startsAt) : null;
-  if (!event.endDate) return startZone ? `${start} ${startZone}` : start;
+  if (!event.endDate) return startZone ? `${start} (${startZone})` : start;
 
   const end = formatterFor(event, { hour: "numeric", minute: "2-digit" }, event.endsAt).format(event.endDate);
   const endNeedsZone = viewerNeedsEventTimeZone(event, event.endDate, event.endsAt);
   const endZone = endNeedsZone ? eventZoneAbbreviation(event, event.endDate, event.endsAt) : null;
-  if (startZone && startZone === endZone) return `${start} – ${end} ${startZone}`;
-  return `${start}${startZone ? ` ${startZone}` : ""} – ${end}${endZone ? ` ${endZone}` : ""}`;
+  if (startZone && startZone === endZone) return `${start} – ${end} (${startZone})`;
+  return `${start}${startZone ? ` (${startZone})` : ""} – ${end}${endZone ? ` (${endZone})` : ""}`;
 }
 
 function formatCalloutDate(event) {
-  if (!event.date) return "Date to be announced";
+  if (!event.date || (!event.dateOnly && !canonicalTimeZone(event.timezone))) return "";
   const date = formatterFor(event, { month: "short", day: "numeric" }).format(event.date);
-  return `${date} · ${formatEventTime(event)}`;
+  return [date, formatEventTime(event)].filter(Boolean).join(" · ");
 }
 
 function initials(name) {
@@ -529,11 +547,12 @@ function renderEventList() {
     card.dataset.id = event.uri;
     card.classList.toggle("selected", event.uri === state.selectedID);
     const button = card.querySelector("button");
-    button.setAttribute("aria-label", `${event.name}, ${formatCalloutDate(event)}, ${event.locationSummary}`);
+    button.setAttribute("aria-label", [event.name, formatCalloutDate(event), event.locationSummary].filter(Boolean).join(", "));
     button.setAttribute("aria-expanded", String(event.uri === state.selectedID));
     card.querySelector(".event-month").textContent = parts.month;
     card.querySelector(".event-day").textContent = parts.day;
     card.querySelector(".event-weekday").textContent = parts.weekday;
+    card.querySelector(".event-calendar").hidden = !parts.day;
 
     const art = card.querySelector(".event-art");
     art.style.setProperty("--card-color", event.color);
@@ -552,16 +571,26 @@ function renderEventList() {
     }
 
     card.querySelector(".event-name").textContent = event.name;
-    if (event.source === "communityCalendar") {
-      const did = event.uri.slice(5).split("/")[0];
-      const publisher = [...state.publishers.values()].find(source => source.did === did);
+    if (event.publisherName || event.publisherAvatarURL) {
       const attribution = document.createElement("small");
       attribution.className = "publisher-attribution";
-      attribution.textContent = `Published by ${publisher?.label || publisher?.handle || did}`;
+      if (event.publisherAvatarURL) {
+        const avatar = document.createElement("img");
+        avatar.src = event.publisherAvatarURL;
+        avatar.alt = "";
+        avatar.className = "publisher-avatar";
+        avatar.loading = "lazy";
+        avatar.referrerPolicy = "no-referrer";
+        avatar.addEventListener("error", () => avatar.remove(), { once: true });
+        attribution.append(avatar);
+      }
+      if (event.publisherName) attribution.append(document.createTextNode(`Published by ${event.publisherName}`));
       card.querySelector(".event-name").after(attribution);
     }
     card.querySelector(".event-location span").textContent = event.locationSummary;
+    card.querySelector(".event-location").hidden = !event.locationSummary;
     card.querySelector(".event-time").textContent = formatEventTime(event);
+    card.querySelector(".event-time").hidden = !formatEventTime(event);
     card.querySelector(".event-distance").textContent = distanceLabel(event);
     button.addEventListener("click", () => selectEvent(event.uri, true));
     if (event.uri === state.selectedID) {
@@ -594,16 +623,17 @@ function renderEventDetail(container, summary) {
   )).join("");
   const sourceLink = sourceRecordLink(event);
   const enterEventLink = eventViewerLink(event);
+  const organizer = event.organizer?.displayName || event.organizer?.handle || event.organizer?.id;
   container.innerHTML = `
     <div class="event-detail-grid">
       <div>
         <strong>${escapeHTML(formatCalloutDate(event))}</strong>
-        <span>${escapeHTML(event.timezone || "Event time zone not supplied")}</span>
+        ${event.timezone ? `<span>${escapeHTML(event.timezone)}</span>` : ""}
       </div>
-      <div>
-        <strong>${escapeHTML(event.organizer?.displayName || event.organizer?.handle || event.organizer?.id || "Organizer")}</strong>
+      ${organizer ? `<div>
+        <strong>${escapeHTML(organizer)}</strong>
         <span>${event.source === "communityCalendar" ? "Published by" : "Organizer"}</span>
-      </div>
+      </div>` : ""}
     </div>
     ${locations ? `<ul class="event-detail-locations">${locations}</ul>` : ""}
     ${event.description ? `<p class="event-detail-description">${escapeHTML(event.description)}</p>` : ""}
@@ -1286,8 +1316,8 @@ function renderMapCard(event) {
     <div class="map-card-art${event.imageRenderKind === "transparent" ? " transparent-image" : ""}"${artStyle}>${artContents}</div>
     <div class="map-card-copy">
       <h2>${escapeHTML(event.name)}</h2>
-      <p><span aria-hidden="true">⌖</span> ${escapeHTML(event.locationSummary)}</p>
-      <time>${escapeHTML(formatCalloutDate(event))}</time>
+      ${event.locationSummary ? `<p><span aria-hidden="true">⌖</span> ${escapeHTML(event.locationSummary)}</p>` : ""}
+      ${formatCalloutDate(event) ? `<time>${escapeHTML(formatCalloutDate(event))}</time>` : ""}
     </div>
     <button class="map-card-close" type="button" aria-label="Close event details">→</button>
   `;
