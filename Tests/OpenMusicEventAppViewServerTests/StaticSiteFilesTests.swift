@@ -1,4 +1,5 @@
 import Foundation
+import Gzip
 import OpenMusicEventAppViewServer
 import Testing
 
@@ -40,11 +41,26 @@ struct StaticSiteFilesTests {
         let file = try #require(try files.file(requestPath: "/assets/app.js"))
         let javaScript = String(decoding: file.data, as: UTF8.self)
 
-        #expect(javaScript.contains("app.openmusicevent.calendar.getMapItems"))
+        #expect(javaScript.contains("/map/events/{z}/{x}/{y}.mvt"))
+        #expect(javaScript.contains("app.openmusicevent.calendar.getSearchMapItems"))
+        #expect(javaScript.contains("app.openmusicevent.calendar.browseEventSummaries"))
         #expect(javaScript.contains("url.searchParams.set(\"zoom\""))
         #expect(!javaScript.contains("cluster: true"))
         #expect(!javaScript.contains("getClusterLeaves"))
         #expect(!javaScript.contains("getClusterExpansionZoom"))
+    }
+
+    @Test
+    func pinnedMapAssetsHavePrecompressedRepresentations() throws {
+        let files = StaticSiteFiles(rootDirectory: AppViewConfiguration().siteRoot)
+        let path = "/assets/maplibre-gl-5.7.1.js"
+        let plain = try #require(try files.file(requestPath: path))
+        let compressed = try #require(try files.file(requestPath: path, acceptsGzip: true))
+        #expect(compressed.isGzipped)
+        #expect(try compressed.data.gunzipped() == plain.data)
+        #expect(compressed.response.headers[.contentEncoding] == "gzip")
+        #expect(compressed.response.headers[.vary] == "Accept-Encoding")
+        #expect(compressed.response.headers[.cacheControl]?.contains("immutable") == true)
     }
 
     @Test

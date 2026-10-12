@@ -1,6 +1,6 @@
 const DEFAULT_CONFIG = {
-  xrpcURL: "/xrpc/app.openmusicevent.calendar.browseEvents",
-  mapItemsURL: "/xrpc/app.openmusicevent.calendar.getMapItems",
+  xrpcURL: "/xrpc/app.openmusicevent.calendar.browseEventSummaries",
+  mapItemsURL: "/xrpc/app.openmusicevent.calendar.getSearchMapItems",
   eventURL: "/xrpc/app.openmusicevent.calendar.getEvent",
   catalogs: ["events.openmusic.event", "community.lexicon.calendar.event"],
   mapStyle: "https://tiles.openfreemap.org/styles/liberty",
@@ -18,12 +18,21 @@ const state = {
   listEvents: [],
   mapPoints: [],
   mapClusters: [],
+  searchClusterMembers: {},
+  highlightedMembers: null,
   clusterBrowseBounds: null,
   selectedID: null,
   selectedDetails: null,
   detailCache: new Map(),
   detailController: null,
   query: "",
+  dates: "current",
+  searchBounds: null,
+  clusterCell: null,
+  pageCursors: [],
+  currentCursor: null,
+  tileFilterKey: null,
+  fitSearch: false,
   bounds: null,
   cursor: null,
   map: null,
@@ -40,11 +49,16 @@ const state = {
   requestID: 0,
   mapRequestID: 0,
   reloadTimer: null,
+  mapReloadTimer: null,
   hasMore: false,
+  displayStartedAt: performance.now(),
+  displayedRequestID: 0,
+  tileTimings: [],
+  firstVisibleMarkersMilliseconds: null,
 };
 
 const ids = [
-  "dataStatus", "listHeading", "jumpToNow", "loadMore",
+  "dataStatus", "listHeading", "jumpToNow", "loadMore", "previousPage", "dateMode", "searchArea", "searchEverywhere", "showPageResults",
   "eventList", "resultCount", "emptyState", "resetFilters", "mapCard", "mapFallback",
   "searchForm", "searchInput", "locateButton", "resetMapButton", "zoomInButton",
   "zoomOutButton", "eventCardTemplate", "selectionConnector", "connectorPath",
@@ -69,8 +83,8 @@ function normalizeEvent(raw) {
   const source = collection === "events.openmusic.event"
     ? "openMusicEvent"
     : "communityCalendar";
-  const dateOnly = source === "openMusicEvent"
-    && /^\d{4}-\d{2}-\d{2}$/.test(raw.event?.startDate || "");
+  const dateOnly = raw.dateOnly === true || (source === "openMusicEvent"
+    && /^\d{4}-\d{2}-\d{2}$/.test(raw.event?.startDate || ""));
   const start = raw.startsAt
     ? new Date(raw.startsAt)
     : null;
@@ -80,10 +94,10 @@ function normalizeEvent(raw) {
     Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))
   ));
   const location = mappedLocation || locations[0] || {};
-  const latitude = Number(raw.latitude ?? location.latitude);
-  const longitude = Number(raw.longitude ?? location.longitude);
-  const coordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? [longitude, latitude]
+  const latitude = raw.latitude ?? location.latitude;
+  const longitude = raw.longitude ?? location.longitude;
+  const coordinates = latitude != null && longitude != null && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))
+    ? [Number(longitude), Number(latitude)]
     : null;
   const media = preferredMedia(raw.media);
   const markerMedia = raw.markerMedia || preferredMarkerMedia(raw.media)
@@ -108,9 +122,9 @@ function normalizeEvent(raw) {
     country: location.country || null,
     coordinates,
     color: palette[seed % palette.length],
-    image: media?.url || null,
+    image: media?.url || markerMedia?.url || null,
     imageRole: media?.role || null,
-    imageRenderKind: media?.renderKind || null,
+    imageRenderKind: media?.renderKind || markerMedia?.renderKind || null,
     markerImage: markerMedia?.url || null,
     markerImageRole: markerMedia?.role || null,
     markerImageRenderKind: markerMedia?.renderKind || null,
@@ -181,6 +195,8 @@ function filteredURL(
   for (const catalog of state.selectedCatalogs) url.searchParams.append("catalogs", catalog);
   const query = state.query.trim();
   if (query) url.searchParams.set("query", query);
+  url.searchParams.set("dates", state.dates);
+  if (state.clusterCell) url.searchParams.set("cell", state.clusterCell);
   if (bounds) {
     for (const [name, value] of Object.entries(bounds)) {
       url.searchParams.set(name, String(value));
@@ -208,101 +224,99 @@ async function fetchJSON(url, signal) {
   };
 }
 
-async function loadData({
-  bounds = state.bounds || globalMapBounds(),
-  zoom = state.map?.getZoom() ?? config.initialZoom,
-  focusNow = false,
-} = {}) {
-  const requestID = ++state.requestID;
-  state.requestController?.abort();
-  state.clusterRequestController?.abort();
-  state.mapRequestController?.abort();
-  state.mapRequestID += 1;
-  state.requestController = new AbortController();
-  state.bounds = bounds;
-  state.clusterBrowseBounds = null;
+async function searchMapFor(events, signal) {
+  if (!events.length) return { events: [], clusters: [] };
+  const url = new URL(config.mapItemsURL, window.location.href);
+  for (const event of events) url.searchParams.append("uris", event.uri);
+  url.searchParams.set("zoom", String(Math.min(18, state.map?.getZoom() ?? config.initialZoom)));
+  const response = await fetchJSON(url, signal);
+  return { ...response.value, metrics: { ...response.value.metrics,
+    compressedBytes: response.compressedBytes,
+    transferDurationMilliseconds: response.transferDurationMilliseconds,
+  } };
+}
 
-  if (state.selectedCatalogs.size === 0) {
-    state.hasMore = false;
-    state.mapItemMetrics = { candidateCount: 0, itemCount: 0 };
+async function loadData({ bounds = currentMapBounds(), focusNow = false, cursor = null, pageCursors = [] } = {}) {
+  const requestID = ++state.requestID;
+  state.displayStartedAt = performance.now();
+  state.requestController?.abort();
+  state.mapRequestController?.abort();
+  state.mapRequestID++;
+  const controller = state.requestController = new AbortController();
+  const search = Boolean(state.query.trim());
+  state.bounds = bounds;
+  updateBrowseTiles();
+  els.searchArea.hidden = !search;
+  els.searchEverywhere.hidden = !search || !state.searchBounds;
+  els.listHeading.textContent = search ? (state.searchBounds ? "Search results in selected area" : "Search results everywhere") : (state.clusterCell ? "Events in this cluster" : "Events in view");
+  if (!state.selectedCatalogs.size) {
+    state.cursor = null;
+    state.currentCursor = null;
+    state.pageCursors = [];
+    state.highlightedMembers = null;
+    els.showPageResults.hidden = true;
+    els.eventList.setAttribute("aria-busy", "false");
     replaceData([], [], [], { source: "No catalogs selected", focusNow: false });
     return;
   }
-
-  els.dataStatus.textContent = "Loading events from the OME AppView…";
+  els.dataStatus.textContent = search ? "Searching events, artists, and places…" : "Loading events in view…";
+  els.eventList.setAttribute("aria-busy", "true");
+  els.loadMore.disabled = true;
+  els.previousPage.disabled = true;
   try {
-    const [browse, map] = await Promise.all([
-      fetchJSON(
-        filteredURL(config.xrpcURL, { limit: 100, bounds }),
-        state.requestController.signal,
-      ),
-      fetchJSON(
-        filteredURL(config.mapItemsURL, { bounds, zoom }),
-        state.requestController.signal,
-      ),
-    ]);
-    if (!Array.isArray(browse.value.events)) throw new Error("Browse response is missing events");
-    if (!Array.isArray(map.value.events) || !Array.isArray(map.value.clusters)) {
-      throw new Error("Map response is missing server-computed items");
-    }
+    const response = await fetchJSON(filteredURL(config.xrpcURL, {
+      limit: 50, cursor, bounds: search ? state.searchBounds : (state.clusterCell ? null : bounds),
+    }), controller.signal);
+    if (!Array.isArray(response.value.events)) throw new Error("Missing event summaries");
+    const map = search ? await searchMapFor(response.value.events, controller.signal) : { events: [], clusters: [] };
     if (requestID !== state.requestID) return;
-    state.cursor = typeof browse.value.cursor === "string" ? browse.value.cursor : null;
-    state.mapItemMetrics = {
-      ...map.value.metrics,
-      compressedBytes: map.compressedBytes,
-      transferDurationMilliseconds: map.transferDurationMilliseconds,
-    };
-    replaceData(
-      browse.value.events,
-      map.value.events,
-      map.value.clusters,
-      { source: "OME AppView", focusNow },
-    );
+    state.displayedRequestID = requestID;
+    state.currentCursor = cursor;
+    state.pageCursors = pageCursors;
+    state.searchClusterMembers = map.clusterMembers || {};
+    state.highlightedMembers = null;
+    els.showPageResults.hidden = true;
+    state.cursor = response.value.cursor || null;
+    state.mapItemMetrics = { ...map.metrics, listTransferMilliseconds: response.transferDurationMilliseconds, listCompressedBytes: response.compressedBytes };
+    replaceData(response.value.events, map.events, map.clusters, { source: search ? "Search" : "OME AppView", focusNow });
+    if (search && state.fitSearch) {
+      state.fitSearch = false;
+      const located = state.listEvents.filter(event => event.coordinates && Math.abs(event.coordinates[1]) <= 85.051129);
+      if (located.length && state.mapReady) {
+        const bounds = new maplibregl.LngLatBounds(located[0].coordinates, located[0].coordinates);
+        for (const event of located) bounds.extend(event.coordinates);
+        state.map.fitBounds(bounds, { padding: 75, maxZoom: 12, duration: 500 });
+      }
+    }
   } catch (error) {
-    if (error.name === "AbortError") return;
-    console.error("OME AppView browse failed.", error);
-    els.dataStatus.textContent = "The OME AppView could not be reached";
-    throw error;
+    if (error.name === "AbortError" || requestID !== state.requestID) return;
+    els.dataStatus.textContent = "Could not update results. Previous results are still shown.";
+    console.error(error);
+  } finally {
+    if (requestID === state.requestID) {
+      els.eventList.setAttribute("aria-busy", "false");
+      els.loadMore.disabled = false;
+      els.previousPage.disabled = false;
+    }
   }
 }
 
-async function loadMapItems({ bounds, zoom }) {
-  if (state.selectedCatalogs.size === 0) {
-    state.mapPoints = [];
-    state.mapClusters = [];
-    state.mapItemMetrics = { candidateCount: 0, itemCount: 0 };
-    updateMapData();
-    return;
-  }
+async function loadMapItems() {
+  if (!state.query.trim() || state.displayedRequestID !== state.requestID) return;
   const requestID = ++state.mapRequestID;
   state.mapRequestController?.abort();
-  state.mapRequestController = new AbortController();
-  state.bounds = bounds;
+  const controller = state.mapRequestController = new AbortController();
+  const page = state.listEvents;
   try {
-    const response = await fetchJSON(
-      filteredURL(config.mapItemsURL, { bounds, zoom }),
-      state.mapRequestController.signal,
-    );
-    if (!Array.isArray(response.value.events) || !Array.isArray(response.value.clusters)) {
-      throw new Error("Map response is missing server-computed items");
-    }
-    if (requestID !== state.mapRequestID) return;
-    state.mapPoints = response.value.events.map(normalizeEvent).filter(event => event?.coordinates);
-    state.mapClusters = response.value.clusters.map(normalizeCluster).filter(Boolean);
-    state.mapItemMetrics = {
-      ...response.value.metrics,
-      compressedBytes: response.compressedBytes,
-      transferDurationMilliseconds: response.transferDurationMilliseconds,
-    };
-    const candidateCount = state.mapItemMetrics?.candidateCount ?? state.mapPoints.length;
-    const itemCount = state.mapPoints.length + state.mapClusters.length;
-    els.dataStatus.textContent = `${candidateCount} events · ${itemCount} map items · OME AppView`;
+    const map = await searchMapFor(page, controller.signal);
+    if (requestID !== state.mapRequestID || page !== state.listEvents) return;
+    state.searchClusterMembers = map.clusterMembers || {};
+    state.mapItemMetrics = { ...state.mapItemMetrics, ...map.metrics };
+    state.mapPoints = map.events.map(normalizeEvent).filter(event => event?.coordinates);
+    state.mapClusters = map.clusters.map(normalizeCluster).filter(Boolean);
     updateMapData();
   } catch (error) {
-    if (error.name === "AbortError") return;
-    console.error("OME AppView map query failed.", error);
-    els.dataStatus.textContent = "The OME AppView map query could not be reached";
-    throw error;
+    if (error.name !== "AbortError") els.dataStatus.textContent = "Search results loaded; their map could not be updated.";
   }
 }
 
@@ -312,36 +326,43 @@ function replaceData(events, points, clusters, { source, focusNow }) {
   state.mapClusters = clusters.map(normalizeCluster).filter(Boolean);
   state.hasMore = Boolean(state.cursor);
   els.loadMore.hidden = !state.hasMore;
-  const candidateCount = state.mapItemMetrics?.candidateCount ?? state.mapPoints.length;
-  const itemCount = state.mapPoints.length + state.mapClusters.length;
-  els.dataStatus.textContent = `${candidateCount} events · ${itemCount} map items · ${source}`;
+  els.previousPage.hidden = !state.pageCursors.length;
+  const located = state.listEvents.filter(event => event.coordinates && Math.abs(event.coordinates[1]) <= 85.051129).length;
+  els.dataStatus.textContent = state.query.trim()
+    ? `${events.length} results on this page · ${located} located · ${source}`
+    : `${events.length} events on this page · ${state.dates === "current" ? "Current and upcoming" : "All dates"}`;
   renderEventList();
   updateMapData();
   if (focusNow) focusFirstCurrentEvent();
   else if (state.selectedID && !eventForID(state.selectedID)) selectEvent(null, false);
-  if (!state.map) initializeMap();
 }
 
 async function loadMoreEvents() {
   if (!state.cursor) return;
-  els.loadMore.disabled = true;
-  try {
-    const response = await fetchJSON(
-      filteredURL(config.xrpcURL, {
-        cursor: state.cursor,
-        limit: 100,
-        bounds: state.clusterBrowseBounds || state.bounds,
-      }),
-      state.requestController?.signal,
-    );
-    state.cursor = typeof response.value.cursor === "string" ? response.value.cursor : null;
-    state.hasMore = Boolean(state.cursor);
-    state.listEvents.push(...response.value.events.map(normalizeEvent).filter(Boolean));
-    els.loadMore.hidden = !state.hasMore;
-    renderEventList();
-  } finally {
-    els.loadMore.disabled = false;
+  state.fitSearch = Boolean(state.query.trim());
+  await loadData({ cursor: state.cursor, pageCursors: [...state.pageCursors, state.currentCursor] });
+}
+
+function browseTileURL() {
+  const query = new URLSearchParams();
+  for (const catalog of [...state.selectedCatalogs].sort()) query.append("catalogs", catalog);
+  query.set("dates", state.dates);
+  return `${window.location.origin}/map/events/{z}/{x}/{y}.mvt?${query}`;
+}
+
+function updateBrowseTiles(force = false) {
+  if (!state.mapReady || !state.map.getSource("calendar-browse")) return;
+  const searching = Boolean(state.query.trim());
+  for (const suffix of ["clusters", "cluster-count", "points", "hit-targets"]) {
+    state.map.setLayoutProperty("browse-" + suffix, "visibility", !searching && state.selectedCatalogs.size ? "visible" : "none");
+    state.map.setLayoutProperty("event-" + suffix, "visibility", searching ? "visible" : "none");
   }
+  const url = browseTileURL();
+  if (!searching && state.selectedCatalogs.size && (force || url !== state.tileFilterKey)) {
+    state.tileFilterKey = url;
+    state.map.getSource("calendar-browse").setTiles([url]);
+  }
+  syncVisibleImageMarkers();
 }
 
 function eventForID(id) {
@@ -351,7 +372,7 @@ function eventForID(id) {
 }
 
 function visibleEvents() {
-  return state.listEvents;
+  return state.highlightedMembers ? state.listEvents.filter(event => state.highlightedMembers.has(event.uri)) : state.listEvents;
 }
 
 function focusFirstCurrentEvent() {
@@ -486,7 +507,6 @@ function renderEventList() {
   const events = visibleEvents();
   els.eventList.replaceChildren();
   els.emptyState.hidden = events.length > 0;
-  els.listHeading.textContent = state.clusterBrowseBounds ? "Events in this map cluster" : "Closest to now";
   els.resultCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
 
   events.forEach(event => {
@@ -621,14 +641,15 @@ function eventGeoJSON() {
 }
 
 function installEventLayers() {
-  state.map.addSource("calendar-events", {
-    type: "geojson",
-    data: eventGeoJSON(),
-  });
+  state.map.addSource("calendar-events", { type: "geojson", data: eventGeoJSON() });
+  state.tileFilterKey = browseTileURL();
+  state.map.addSource("calendar-browse", { type: "vector", tiles: [state.tileFilterKey], minzoom: 0, maxzoom: 18 });
+  for (const prefix of ["event", "browse"]) {
+    const source = prefix === "event" ? { source: "calendar-events" } : { source: "calendar-browse", "source-layer": "events" };
   state.map.addLayer({
-    id: "event-clusters",
+    id: prefix + "-clusters",
     type: "circle",
-    source: "calendar-events",
+    ...source,
     filter: ["==", ["get", "kind"], "cluster"],
     paint: {
       "circle-color": "#9a4eff",
@@ -639,18 +660,18 @@ function installEventLayers() {
     },
   });
   state.map.addLayer({
-    id: "event-cluster-count",
+    id: prefix + "-cluster-count",
     type: "symbol",
-    source: "calendar-events",
+    ...source,
     filter: ["==", ["get", "kind"], "cluster"],
-    layout: { "text-field": ["get", "count"], "text-size": 12 },
+    layout: { "text-field": ["to-string", ["get", "count"]], "text-size": 12, "text-font": ["Noto Sans Regular"] },
     paint: { "text-color": "#ffffff" },
   });
   state.map.addLayer({
-    id: "event-points",
+    id: prefix + "-points",
     type: "circle",
-    source: "calendar-events",
-    filter: ["all", ["==", ["get", "kind"], "event"], ["==", ["get", "markerImage"], ""]],
+    ...source,
+    filter: ["==", ["get", "kind"], "event"],
     paint: {
       "circle-color": ["get", "color"],
       "circle-radius": 10,
@@ -659,23 +680,27 @@ function installEventLayers() {
     },
   });
   state.map.addLayer({
-    id: "event-hit-targets",
+    id: prefix + "-hit-targets",
     type: "circle",
-    source: "calendar-events",
+    ...source,
     filter: ["==", ["get", "kind"], "event"],
     paint: { "circle-radius": 24, "circle-opacity": 0 },
   });
 
-  state.map.on("click", "event-clusters", event => {
+  state.map.on("click", prefix + "-clusters", event => {
     openCluster(event.features?.[0]).catch(error => console.error(error));
   });
-  state.map.on("click", "event-hit-targets", event => {
+  state.map.on("click", prefix + "-hit-targets", event => {
     const uri = event.features?.[0]?.properties?.uri;
-    if (uri) selectEvent(uri, false);
+    if (uri) {
+      rememberTileEvent(event.features[0]);
+      selectEvent(uri, false);
+    }
   });
-  for (const layer of ["event-clusters", "event-hit-targets"]) {
+  for (const layer of [prefix + "-clusters", prefix + "-hit-targets"]) {
     state.map.on("mouseenter", layer, () => { state.map.getCanvas().style.cursor = "pointer"; });
     state.map.on("mouseleave", layer, () => { state.map.getCanvas().style.cursor = ""; });
+  }
   }
 }
 
@@ -695,8 +720,20 @@ function initializeMap() {
       maxZoom: 18,
       renderWorldCopies: false,
       attributionControl: true,
+      collectResourceTiming: true,
     });
-    state.map.on("load", () => {
+    state.map.on("data", event => {
+      const timings = event.resourceTiming || event.tile?.resourceTiming;
+      if (event.sourceId === "calendar-browse" && Array.isArray(timings)) {
+        const distinct = new Map([...state.tileTimings, ...timings].map(timing => [`${timing.name}:${timing.startTime}`, timing]));
+        state.tileTimings = [...distinct.values()].slice(-100);
+      }
+    });
+    state.map.on("render", () => {
+      if (state.mapReady && state.firstVisibleMarkersMilliseconds == null) recordBrowseMetrics();
+    });
+    // Style readiness is sufficient for adding layers; do not wait for every basemap tile.
+    state.map.once("style.load", () => {
       state.mapReady = true;
       els.mapFallback.hidden = true;
       if (typeof state.map.setProjection === "function") {
@@ -719,7 +756,11 @@ function initializeMap() {
       const firstSymbolLayer = state.map.getStyle().layers.find(layer => layer.type === "symbol");
       state.map.addLayer(createGlobeRimLayer(), firstSymbolLayer?.id);
       installEventLayers();
+      updateBrowseTiles();
       updateMapData();
+      if (!state.query.trim()) loadData({ bounds: currentMapBounds() }).catch(console.error);
+      state.map.on("idle", syncVisibleImageMarkers);
+      state.map.on("idle", recordBrowseMetrics);
       requestAnimationFrame(updateConnector);
     });
     state.map.on("move", () => {
@@ -733,7 +774,8 @@ function initializeMap() {
         scheduleMapReload(viewport);
         return;
       }
-      scheduleReload(viewport);
+      if (state.query.trim()) scheduleMapReload(viewport);
+      else { state.clusterCell = null; scheduleReload(viewport); }
     });
     state.map.on("resize", updateConnector);
     state.map.on("error", event => {
@@ -748,37 +790,42 @@ function initializeMap() {
 
 async function openCluster(feature) {
   if (!feature) return;
-  const bounds = {
-    north: Number(feature.properties.north),
-    south: Number(feature.properties.south),
-    east: Number(feature.properties.east),
-    west: Number(feature.properties.west),
-  };
   const zoom = Number(feature.properties.expansionZoom);
-  state.clusterRequestController?.abort();
-  state.clusterRequestController = new AbortController();
-  const response = await fetchJSON(
-    filteredURL(config.xrpcURL, { bounds, limit: 100 }),
-    state.clusterRequestController.signal,
-  );
-  state.clusterBrowseBounds = bounds;
-  state.listEvents = response.value.events.map(normalizeEvent).filter(Boolean);
-  state.cursor = typeof response.value.cursor === "string" ? response.value.cursor : null;
-  state.hasMore = Boolean(state.cursor);
-  els.loadMore.hidden = !state.hasMore;
-  state.selectedID = null;
-  state.selectedDetails = null;
-  renderEventList();
-  state.skipNextMoveReload = true;
+  if (!state.query.trim()) {
+    state.clusterCell = feature.properties.clusterID;
+    state.selectedID = null;
+    state.selectedDetails = null;
+    await loadData({ bounds: currentMapBounds() });
+    state.skipNextMoveReload = true;
+  } else {
+    const members = state.searchClusterMembers[feature.properties.clusterID];
+    if (members) {
+      state.highlightedMembers = new Set(members);
+      els.showPageResults.hidden = false;
+      renderEventList();
+    }
+  }
   state.map.easeTo({ center: feature.geometry.coordinates, zoom, essential: true });
   els.eventList.querySelector("button")?.focus();
 }
 
+function rememberTileEvent(feature) {
+  const uri = feature.properties?.uri;
+  if (!uri || eventForID(uri)) return;
+  const event = normalizeEvent({ ...feature.properties, uri,
+    latitude: feature.geometry.coordinates[1], longitude: feature.geometry.coordinates[0],
+    markerMedia: { url: feature.properties.markerImage, renderKind: feature.properties.markerImageRenderKind },
+  });
+  if (event) state.mapPoints.push(event);
+}
+
 function syncVisibleImageMarkers() {
   if (!state.mapReady || !state.map.getLayer("event-hit-targets")) return;
-  const features = state.map.queryRenderedFeatures({ layers: ["event-hit-targets"] });
+  const features = state.map.queryRenderedFeatures({ layers: ["event-hit-targets", "browse-hit-targets"] });
   const visible = new Map();
+  if (!state.query.trim()) state.mapPoints = [];
   for (const feature of features) {
+    rememberTileEvent(feature);
     const uri = feature.properties?.uri;
     const event = eventForID(uri);
     if (event?.markerImage) visible.set(uri, event);
@@ -792,7 +839,10 @@ function syncVisibleImageMarkers() {
       element.style.setProperty("--marker-color", event.color);
       element.setAttribute("aria-label", `${event.name} map marker`);
       const image = document.createElement("img");
+      image.loading = "lazy";
+      image.decoding = "async";
       image.src = event.markerImage;
+      image.addEventListener("error", () => { element.hidden = true; });
       image.alt = "";
       image.className = event.markerImageRenderKind === "transparent" ? "transparent-image" : "full-image";
       element.append(image);
@@ -851,8 +901,8 @@ function scheduleReload(options = {}) {
 }
 
 function scheduleMapReload(options) {
-  window.clearTimeout(state.reloadTimer);
-  state.reloadTimer = window.setTimeout(() => {
+  window.clearTimeout(state.mapReloadTimer);
+  state.mapReloadTimer = window.setTimeout(() => {
     loadMapItems(options).catch(error => console.error(error));
   }, 250);
 }
@@ -948,12 +998,18 @@ void main() {
     },
 
     onAdd(_map, gl) {
+      const previousVAO = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+      const previousBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+      this.vertexArray = gl.createVertexArray();
+      gl.bindVertexArray(this.vertexArray);
       this.vertexBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, this.vertices, gl.STATIC_DRAW);
       this.indexBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices, gl.STATIC_DRAW);
+      gl.bindVertexArray(previousVAO);
+      gl.bindBuffer(gl.ARRAY_BUFFER, previousBuffer);
     },
 
     render(gl, args) {
@@ -976,6 +1032,7 @@ void main() {
         depthEnabled: gl.isEnabled(gl.DEPTH_TEST),
         depthWrite: gl.getParameter(gl.DEPTH_WRITEMASK),
       };
+      gl.bindVertexArray(this.vertexArray);
       gl.useProgram(shader.program);
       gl.uniformMatrix4fv(shader.projection, false, projection.mainMatrix);
       gl.uniformMatrix4fv(shader.fallback, false, projection.fallbackMatrix);
@@ -1018,6 +1075,7 @@ void main() {
     },
 
     onRemove(_map, gl) {
+      gl.deleteVertexArray(this.vertexArray);
       gl.deleteBuffer(this.vertexBuffer);
       gl.deleteBuffer(this.indexBuffer);
       for (const shader of this.shaderPrograms.values()) gl.deleteProgram(shader.program);
@@ -1097,6 +1155,7 @@ function updateMapData() {
     if (state.pendingMapReadyAt == null) return;
     const mapLibreReadyDurationMilliseconds = performance.now() - state.pendingMapReadyAt;
     state.pendingMapReadyAt = null;
+    if (!state.query.trim()) { recordBrowseMetrics(); return; }
     const metrics = {
       candidateCount: state.mapItemMetrics?.candidateCount ?? state.mapPoints.length,
       itemCount: state.mapItemMetrics?.itemCount ?? state.mapPoints.length + state.mapClusters.length,
@@ -1112,10 +1171,42 @@ function updateMapData() {
   requestAnimationFrame(updateConnector);
 }
 
+function recordBrowseMetrics() {
+  if (state.query.trim()) return;
+  const requests = state.tileTimings;
+  const center = state.map.getCenter();
+  const radians = Math.PI / 180;
+  const features = state.map.queryRenderedFeatures({ layers: ["browse-clusters", "browse-hit-targets"] }).filter(feature => {
+    if (state.map.getZoom() >= 6) return true;
+    const [longitude, latitude] = feature.geometry.coordinates;
+    return Math.sin(latitude * radians) * Math.sin(center.lat * radians)
+      + Math.cos(latitude * radians) * Math.cos(center.lat * radians) * Math.cos((longitude - center.lng) * radians) > 0;
+  });
+  if (features.length && state.firstVisibleMarkersMilliseconds == null) {
+    state.firstVisibleMarkersMilliseconds = performance.now();
+  }
+  const metrics = {
+    mode: "browse", tileRequests: requests.length,
+    compressedResponseBytes: requests.length ? requests.reduce((sum, entry) => sum + entry.encodedBodySize, 0) : null,
+    databaseDurationMilliseconds: requests.length ? requests.reduce((sum, entry) => sum + (entry.serverTiming || []).filter(timing => timing.name === "db").reduce((total, timing) => total + timing.duration, 0), 0) : null,
+    tileTransferMilliseconds: requests.reduce((sum, entry) => sum + entry.duration, 0),
+    displayedItems: new Set(features.map(feature => feature.properties.uri || feature.properties.clusterID)).size,
+    mapLibreReadyDurationMilliseconds: performance.now() - state.displayStartedAt,
+    firstVisibleMarkersMilliseconds: state.firstVisibleMarkersMilliseconds,
+    ...state.mapItemMetrics,
+  };
+  window.OME_GLOBE_METRICS = metrics;
+}
+
 async function selectEvent(id, fly) {
   state.selectedID = id || null;
+  const selected = eventForID(id);
+  if (selected && !state.query.trim() && !state.listEvents.some(event => event.uri === id)) {
+    state.listEvents = [selected, ...state.listEvents.slice(0, 49)];
+  }
   state.detailController?.abort();
-  state.selectedDetails = id ? state.detailCache.get(id) || null : null;
+  const cached = id ? state.detailCache.get(id) : null;
+  state.selectedDetails = cached && cached.expiresAt > Date.now() ? cached.value : null;
   renderEventList();
   syncVisibleImageMarkers();
 
@@ -1128,6 +1219,7 @@ async function selectEvent(id, fly) {
 
   renderMapCard(event);
   if (fly && state.mapReady && event.coordinates) {
+    state.skipNextMoveReload = true;
     state.map.flyTo({
       center: event.coordinates,
       zoom: Math.max(state.map.getZoom(), 2.35),
@@ -1145,7 +1237,9 @@ async function selectEvent(id, fly) {
     url.searchParams.set("uri", event.uri);
     const response = await fetchJSON(url, state.detailController.signal);
     if (state.selectedID !== event.uri) return;
-    state.detailCache.set(event.uri, response.value);
+    state.detailCache.delete(event.uri);
+    state.detailCache.set(event.uri, { value: response.value, expiresAt: Date.now() + 30000 });
+    while (state.detailCache.size > 20) state.detailCache.delete(state.detailCache.keys().next().value);
     state.selectedDetails = response.value;
     renderEventList();
   } catch (error) {
@@ -1252,11 +1346,20 @@ function escapeCSSURL(value = "") {
 els.searchForm.addEventListener("submit", event => {
   event.preventDefault();
   state.query = els.searchInput.value;
+  state.clusterCell = null;
+  state.searchBounds = null;
+  state.fitSearch = true;
   window.clearTimeout(state.reloadTimer);
   loadData({ bounds: state.bounds }).catch(error => console.error(error));
 });
 els.searchInput.addEventListener("input", () => {
   state.query = els.searchInput.value;
+  state.clusterCell = null;
+  state.searchBounds = null;
+  state.fitSearch = true;
+  state.requestController?.abort();
+  state.mapRequestController?.abort();
+  state.requestID++;
   scheduleReload({ bounds: state.bounds });
 });
 document.querySelectorAll('input[name="catalog"]').forEach(input => {
@@ -1270,12 +1373,19 @@ document.querySelectorAll('input[name="catalog"]').forEach(input => {
 els.jumpToNow.addEventListener("click", () => {
   state.cursor = null;
   state.clusterBrowseBounds = null;
+  state.clusterCell = null;
+  state.dates = "current";
+  els.dateMode.value = "current";
   selectEvent(null, false);
   loadData({ bounds: state.bounds, focusNow: true }).catch(error => console.error(error));
 });
 els.loadMore.addEventListener("click", () => loadMoreEvents().catch(error => console.error(error)));
 els.resetFilters.addEventListener("click", () => {
   state.query = "";
+  state.clusterCell = null;
+  state.searchBounds = null;
+  state.dates = "current";
+  els.dateMode.value = "current";
   els.searchInput.value = "";
   state.selectedCatalogs = new Set(config.catalogs);
   document.querySelectorAll('input[name="catalog"]').forEach(input => {
@@ -1324,6 +1434,37 @@ els.eventList.addEventListener("keydown", event => {
   event.preventDefault();
 });
 
+els.dateMode.addEventListener("change", () => {
+  state.dates = els.dateMode.value;
+  loadData().catch(console.error);
+});
+els.searchArea.addEventListener("click", () => {
+  state.searchBounds = currentMapBounds();
+  state.clusterCell = null;
+  loadData().catch(console.error);
+});
+els.searchEverywhere.addEventListener("click", () => {
+  state.searchBounds = null;
+  state.fitSearch = true;
+  loadData().catch(console.error);
+});
+els.previousPage.addEventListener("click", () => {
+  if (!state.pageCursors.length) return;
+  state.fitSearch = Boolean(state.query.trim());
+  loadData({ cursor: state.pageCursors.at(-1), pageCursors: state.pageCursors.slice(0, -1) }).catch(console.error);
+});
+els.showPageResults.addEventListener("click", () => {
+  state.highlightedMembers = null;
+  els.showPageResults.hidden = true;
+  renderEventList();
+});
+window.setInterval(() => {
+  if (!document.hidden) updateBrowseTiles(true);
+}, 10000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) updateBrowseTiles(true);
+});
+initializeMap();
 loadData({ focusNow: false }).then(() => {
   const selectedFromURL = params.get("event");
   const event = eventForID(selectedFromURL);

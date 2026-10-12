@@ -8,11 +8,15 @@ public struct StaticSiteFiles: Sendable {
 
     public var rootDirectory: URL
 
-    public func file(requestPath: String) throws -> StaticSiteFile? {
+    public func file(requestPath: String, acceptsGzip: Bool = false) throws -> StaticSiteFile? {
         guard let relativePath = Self.relativePath(for: requestPath) else { return nil }
         let url = rootDirectory.appendingPathComponent(relativePath, isDirectory: false)
 
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let compressed = url.appendingPathExtension("gz")
+        if acceptsGzip && FileManager.default.fileExists(atPath: compressed.path) {
+            return StaticSiteFile(path: relativePath, data: try Data(contentsOf: compressed), isGzipped: true)
+        }
         let data = try Data(contentsOf: url)
         return StaticSiteFile(path: relativePath, data: data)
     }
@@ -57,6 +61,7 @@ public struct StaticSiteFiles: Sendable {
 public struct StaticSiteFile: Sendable, Equatable {
     public var path: String
     public var data: Data
+    public var isGzipped = false
 
     public var contentType: String {
         switch path.split(separator: ".").last {
@@ -80,9 +85,14 @@ public struct StaticSiteFile: Sendable, Equatable {
     }
 
     public var response: Response {
-        Response(
+        var headers: HTTPFields = [.contentType: contentType, .vary: "Accept-Encoding"]
+        if isGzipped { headers[.contentEncoding] = "gzip" }
+        if path.hasPrefix("assets/maplibre-gl-5.7.1.") {
+            headers[.cacheControl] = "public, max-age=31536000, immutable"
+        }
+        return Response(
             status: .ok,
-            headers: [.contentType: contentType],
+            headers: headers,
             body: .init(byteBuffer: .init(data: data))
         )
     }

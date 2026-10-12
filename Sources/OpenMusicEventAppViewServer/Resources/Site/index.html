@@ -6,9 +6,8 @@
   <meta name="theme-color" content="#05060a">
   <meta name="description" content="Explore public community calendar events around the world with Open Music Event.">
   <title>Discover · Open Music Event</title>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="styles.css?globe-marker-alignment=1">
+  <link rel="stylesheet" href="assets/maplibre-gl-5.7.1.css">
+  <link rel="stylesheet" href="styles.css?version=globe-tiles-1">
 </head>
 <body>
   <a class="skip-link" href="#event-list">Skip to events</a>
@@ -57,8 +56,17 @@
       </div>
 
       <section class="temporal-controls" aria-label="Browse controls">
+        <label for="dateMode">Dates</label>
+        <select id="dateMode">
+          <option value="current">Current and upcoming</option>
+          <option value="all">All dates</option>
+        </select>
         <button id="jumpToNow" type="button">Jump to now</button>
-        <button id="loadMore" type="button" hidden>Load more events</button>
+        <button id="searchArea" type="button" hidden>Search this area</button>
+        <button id="searchEverywhere" type="button" hidden>Search everywhere</button>
+        <button id="showPageResults" type="button" hidden>Show all page results</button>
+        <button id="previousPage" type="button" hidden>Previous page</button>
+        <button id="loadMore" type="button" hidden>Next page</button>
       </section>
 
       <div class="list-meta">
@@ -66,7 +74,7 @@
         <span id="resultCount">0 events</span>
       </div>
 
-      <div class="event-list" id="eventList" aria-live="polite"></div>
+      <div class="event-list" id="eventList" aria-live="polite" aria-label="Event results" tabindex="-1"></div>
       <div class="empty-state" id="emptyState" hidden>
         <strong>No events in this orbit</strong>
         <span>Try a different search, catalog, or map area.</span>
@@ -130,7 +138,7 @@
     </article>
   </template>
 
-  <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="assets/app.js?version=ome-server-clusters-1"></script>
+  <script src="assets/maplibre-gl-5.7.1.js"></script>
+  <script type="module" src="assets/app.js?version=globe-tiles-1"></script>
 </body>
 </html>

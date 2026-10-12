@@ -7,6 +7,7 @@ import OpenMusicEventDatabase
 public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
     public let readiness: OpenMusicEventAppViewReadiness
     let eventBundles = EventBundleCache()
+    let mapTiles = CalendarMapTileCache()
     let database: any DatabaseWriter
     let webhookSecretProtection: WebhookSecretProtection?
 
@@ -26,6 +27,8 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         try rebuildCalendarEventBrowseProjectionIfNeeded(
             force: geocodingOverridesChanged
         )
+        while try !rebuildMapBatch() {}
+        while try expireMapEvents() == 500 {}
     }
 
     public init(
@@ -58,6 +61,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         EventRecordMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
         CalendarEventBrowseProjection.registerMigration(into: &migrator)
+        CalendarMapBuild.registerMigration(into: &migrator)
         VenueProfileProjection.registerMigration(into: &migrator)
         CalendarGeocode.registerMigration(into: &migrator)
         CommunityCalendarEventProjection.registerBackfillMigration(into: &migrator)

@@ -11,6 +11,7 @@ extension OpenMusicEventAppViewServer {
         appViewHost: ATProto.PDSHost
     ) {
         installEventBundleRoute(on: router, store: store)
+        installCalendarMapRoutes(on: router, store: store)
         router.register(Event.GetEvent.self) { parameters, _ in
             guard let store else {
                 throw XRPC.ResponseError(
@@ -120,25 +121,6 @@ extension OpenMusicEventAppViewServer {
                     .badRequest,
                     error: "InvalidCursor",
                     message: "The XRPC cursor is invalid."
-                )
-            }
-        }
-
-        router.register(OME.CalendarEvent.GetMapItems.self) { parameters, _ in
-            guard let store else {
-                throw XRPC.ResponseError(
-                    .serviceUnavailable,
-                    error: "EventIndexUnavailable",
-                    message: "Calendar event storage is not configured."
-                )
-            }
-            do {
-                return try store.calendarEventMapItems(parameters: parameters)
-            } catch CalendarEventBrowseProjectionError.unknownCatalog {
-                throw XRPC.ResponseError(
-                    .notFound,
-                    error: "UnknownCatalog",
-                    message: "The requested calendar event catalog is not available."
                 )
             }
         }

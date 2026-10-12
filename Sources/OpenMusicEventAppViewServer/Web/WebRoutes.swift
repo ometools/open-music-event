@@ -211,14 +211,12 @@ extension OpenMusicEventAppViewServer {
         }
 
         router.get("/assets/{file}") { request, context async throws -> Response in
-            try response(
-                host: request.authority,
-                path: "/assets/\(context.parameters.get("file") ?? "")",
-                routeResolver: routeResolver,
-                staticSiteFiles: staticSiteFiles,
-                wellKnownFiles: wellKnownFiles,
-                store: store
-            )
+            _ = try routeResolver.route(host: request.authority, path: "/assets/\(context.parameters.get("file") ?? "")")
+            guard let file = try staticSiteFiles.file(
+                requestPath: "/assets/\(context.parameters.get("file") ?? "")",
+                acceptsGzip: acceptsBundleGzip(request.headers[.acceptEncoding])
+            ) else { throw HTTPError(.notFound) }
+            return file.response
         }
     }
 

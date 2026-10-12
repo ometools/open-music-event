@@ -110,56 +110,6 @@ extension OpenMusicEventAppViewStore {
         return OME.CalendarEvent.Page(events: events, cursor: nextCursor)
     }
 
-    func calendarEventMapItems(
-        parameters: OME.CalendarEvent.GetMapItems.Parameters,
-        now: Date = .now
-    ) throws -> OME.CalendarEvent.MapItemPage {
-        let catalogs = try CalendarEventBrowseProjection.catalogs(parameters.catalogs)
-        let bounds = try parameters.bounds()
-        let query = CalendarEventBrowseProjection.searchQuery(parameters.query)
-        let databaseStarted = ContinuousClock.now
-        let rows = try database.read { database in
-            try CalendarEventBrowseProjection.fetchMapCandidateRows(
-                catalogs: catalogs,
-                query: query,
-                bounds: bounds,
-                evaluationDate: now,
-                in: database
-            )
-        }
-        let databaseDuration = databaseStarted.duration(to: .now).milliseconds
-        let points = try rows.map { row in
-            guard let uri = ATProto.URI(row.uri),
-                  let catalog = ATProto.NSID(row.catalog)
-            else { throw CalendarEventBrowseProjectionError.invalidProjectedIdentifier }
-            return OME.CalendarEvent.MapPoint(
-                uri: uri,
-                catalog: catalog,
-                name: row.name,
-                startsAt: row.startsAt,
-                endsAt: row.endsAt,
-                latitude: row.latitude,
-                longitude: row.longitude,
-                markerMedia: try row.markerMedia.map {
-                    try JSONDecoder().decode(OME.CalendarEvent.Media.self, from: $0)
-                }
-            )
-        }
-        let clusteringStarted = ContinuousClock.now
-        let clustered = CalendarEventMapClusterer.cluster(points, zoom: parameters.zoom)
-        let clusteringDuration = clusteringStarted.duration(to: .now).milliseconds
-        return OME.CalendarEvent.MapItemPage(
-            events: clustered.events,
-            clusters: clustered.clusters,
-            metrics: .init(
-                candidateCount: points.count,
-                itemCount: clustered.events.count + clustered.clusters.count,
-                databaseDurationMilliseconds: databaseDuration,
-                clusteringDurationMilliseconds: clusteringDuration
-            )
-        )
-    }
-
     func calendarEvent(
         uri: ATProto.URI,
         appViewHost: ATProto.PDSHost
@@ -395,6 +345,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
         searchText additionalSearchText: String = "",
         sourceID: String? = nil,
         deleteExistingSearchDocument: Bool = true,
+        now: Date = .now,
         in database: Database
     ) throws {
         var storedEvent = event
@@ -430,8 +381,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
         let markerMediaData = try markerMedia.map { try JSONEncoder().encode($0) }
         let encodedEvent = try JSONEncoder().encode(storedEvent)
 
-        try Self.upsert {
-            Self(
+        let browseRow = Self(
                 uri: event.uri.description,
                 catalog: event.source.collection.rawValue,
                 sourceID: sourceID,
@@ -445,8 +395,8 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                 hasEventViewer: hasEventViewer,
                 event: encodedEvent
             )
-        }
-        .execute(database)
+        try Self.upsert { browseRow }.execute(database)
+        try CalendarMapEvent.synchronize(browseRow, now: now, in: database)
 
         if deleteExistingSearchDocument {
             try CalendarEventBrowseSearch
@@ -497,17 +447,16 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
     ) throws -> [CalendarEventBrowseRow] {
         let catalogPredicate = Self.catalog.in(catalogs.map(\.rawValue))
         let searchPredicate: QueryFragment = query.map {
-            "\(CalendarEventBrowseSearch.searchText) MATCH \(bind: $0)"
+            "\(Self.uri) IN (SELECT \(CalendarEventBrowseSearch.uri) FROM \(CalendarEventBrowseSearch.self) WHERE \(CalendarEventBrowseSearch.searchText) MATCH \(bind: $0))"
         } ?? "1"
         let spatialPredicate = browseSpatialPredicate(bounds: bounds)
         let cursorPredicate = try cursorPredicate(cursor)
         return try #sql(
             """
-            WITH ranked AS MATERIALIZED (
+            WITH ranked AS (
               SELECT
                 \(Self.uri) AS "uri",
                 \(Self.startsAt) AS "startsAt",
-                \(Self.event) AS "event",
                 CASE
                   WHEN \(Self.startsAt) IS NULL THEN 4
                   WHEN \(Self.startsAt) <= \(evaluationDate)
@@ -524,14 +473,11 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                   ELSE \(Self.startsAt)
                 END AS "orderDate"
               FROM \(Self.self)
-              JOIN \(CalendarEventBrowseSearch.self)
-                ON \(CalendarEventBrowseSearch.uri) = \(Self.uri)
               WHERE \(catalogPredicate)
                 AND \(searchPredicate)
                 AND \(spatialPredicate)
-            )
-            SELECT "uri", "startsAt", "event", "temporalRank", "orderDate"
-            FROM ranked
+            ), page AS MATERIALIZED (
+            SELECT * FROM ranked
             WHERE \(cursorPredicate)
             ORDER BY
               "temporalRank" ASC,
@@ -539,65 +485,14 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
               CASE WHEN "temporalRank" = 3 THEN "orderDate" END DESC,
               "uri" ASC
             LIMIT \(limit)
+            )
+            SELECT page.uri,page.startsAt,\(Self.event),page.temporalRank,page.orderDate
+            FROM page JOIN \(Self.self) ON \(Self.uri)=page.uri
+            ORDER BY page.temporalRank,
+              CASE WHEN page.temporalRank<3 THEN page.orderDate END,
+              CASE WHEN page.temporalRank=3 THEN page.orderDate END DESC,page.uri
             """,
             as: CalendarEventBrowseRow.self
-        )
-        .fetchAll(database)
-    }
-
-    static func fetchMapCandidateRows(
-        catalogs: Set<ATProto.NSID>,
-        query: String?,
-        bounds: OME.CalendarEvent.BrowseEvents.Bounds,
-        evaluationDate: Date,
-        in database: Database
-    ) throws -> [CalendarEventMapPointRow] {
-        let catalogPredicate = Self.catalog.in(catalogs.map(\.rawValue))
-        let searchPredicate: QueryFragment = query.map {
-            "\(CalendarEventBrowseSearch.searchText) MATCH \(bind: $0)"
-        } ?? "1"
-        let spatialPredicate = spatialPredicate(bounds: bounds)
-        return try #sql(
-            """
-            SELECT
-              \(Self.uri),
-              \(Self.catalog),
-              \(Self.name),
-              \(Self.startsAt),
-              \(Self.endsAt),
-              \(Self.latitude),
-              \(Self.longitude),
-              \(Self.markerMedia)
-            FROM \(Self.self)
-            JOIN \(CalendarEventBrowseSearch.self)
-              ON \(CalendarEventBrowseSearch.uri) = \(Self.uri)
-            JOIN \(quote: CalendarEventBrowseSpatialIndex.tableName) AS spatial
-              ON spatial."id" = \(quote: Self.tableName).rowid
-            WHERE \(catalogPredicate)
-              AND \(searchPredicate)
-              AND \(spatialPredicate)
-            ORDER BY
-              CASE
-                WHEN \(Self.startsAt) IS NULL THEN 4
-                WHEN \(Self.startsAt) <= \(evaluationDate)
-                  AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate)
-                  AND \(Self.hasEventViewer) THEN 0
-                WHEN \(Self.startsAt) > \(evaluationDate) THEN 1
-                WHEN COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate) THEN 2
-                ELSE 3
-              END ASC,
-              CASE
-                WHEN \(Self.startsAt) IS NOT NULL
-                  AND COALESCE(\(Self.endsAt), \(Self.startsAt)) >= \(evaluationDate)
-                  THEN \(Self.startsAt)
-              END ASC,
-              CASE
-                WHEN COALESCE(\(Self.endsAt), \(Self.startsAt)) < \(evaluationDate)
-                  THEN COALESCE(\(Self.endsAt), \(Self.startsAt))
-              END DESC,
-              \(Self.uri) ASC
-            """,
-            as: CalendarEventMapPointRow.self
         )
         .fetchAll(database)
     }
@@ -640,14 +535,29 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
     static func browseSpatialPredicate(
         bounds: OME.CalendarEvent.BrowseEvents.Bounds?
     ) -> QueryFragment {
-        guard bounds != nil else { return "1" }
+        guard let bounds else { return "1" }
+        let latitude: QueryFragment = "\(Self.latitude) >= \(bounds.south) AND \(Self.latitude) <= \(bounds.north)"
+        let longitude: QueryFragment = bounds.crossesAntimeridian
+            ? "(\(Self.longitude) >= \(bounds.west) OR \(Self.longitude) <= \(bounds.east))"
+            : "\(Self.longitude) >= \(bounds.west) AND \(Self.longitude) <= \(bounds.east)"
+        let ranges: QueryFragment
+        if bounds.crossesAntimeridian {
+            ranges = """
+              SELECT id FROM \(quote: CalendarEventBrowseSpatialIndex.tableName)
+              WHERE minLatitude<=\(bounds.north) AND maxLatitude>=\(bounds.south) AND maxLongitude>=\(bounds.west)
+              UNION
+              SELECT id FROM \(quote: CalendarEventBrowseSpatialIndex.tableName)
+              WHERE minLatitude<=\(bounds.north) AND maxLatitude>=\(bounds.south) AND minLongitude<=\(bounds.east)
+              """
+        } else {
+            ranges = """
+              SELECT id FROM \(quote: CalendarEventBrowseSpatialIndex.tableName)
+              WHERE minLatitude<=\(bounds.north) AND maxLatitude>=\(bounds.south)
+                AND minLongitude<=\(bounds.east) AND maxLongitude>=\(bounds.west)
+              """
+        }
         return """
-            EXISTS (
-              SELECT 1
-              FROM \(quote: CalendarEventBrowseSpatialIndex.tableName) AS spatial
-              WHERE spatial.\(quote: "id") = \(quote: tableName).rowid
-                AND \(spatialPredicate(bounds: bounds))
-            )
+            \(quote: tableName).rowid IN (\(ranges)) AND \(latitude) AND \(longitude)
             """
     }
 

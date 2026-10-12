@@ -283,19 +283,17 @@ import Testing
             }
         }
 
-        let global = try store.calendarEventMapItems(
+        let global = try store.browseCalendarEvents(
             parameters: .init(
                 catalogs: [canonicalCatalog],
-                bounds: try .init(north: 90, south: -90, east: 180, west: -180),
-                zoom: 18
+                north: 90, south: -90, east: 180, west: -180
             ),
+            appViewHost: "localhost",
             now: date("2026-10-11T00:00:00Z")
         )
         expectNoDifference(Set(global.events.map(\.name)), Set(["East", "West", "Moving"]))
-        #expect(global.metrics.candidateCount == 3)
-        #expect(global.metrics.itemCount == 3)
         expectNoDifference(
-            global.events.first(where: { $0.name == "East" })?.markerMedia,
+            global.events.first(where: { $0.name == "East" })?.media.first,
             .init(
                 url: URL(string: "https://example.com/east-logo.png")!,
                 role: "logo",
@@ -309,12 +307,13 @@ import Testing
             east: -170,
             west: 170
         )
-        var bounded = try store.calendarEventMapItems(
+        var bounded = try store.browseCalendarEvents(
             parameters: .init(
                 catalogs: [canonicalCatalog],
-                bounds: antimeridian,
-                zoom: 18
+                north: antimeridian.north, south: antimeridian.south,
+                east: antimeridian.east, west: antimeridian.west
             ),
+            appViewHost: "localhost",
             now: date("2026-10-11T00:00:00Z")
         )
         expectNoDifference(Set(bounded.events.map(\.name)), Set(["East", "West"]))
@@ -325,12 +324,13 @@ import Testing
             try CalendarEventBrowseProjection.upsert(moving, in: db)
             try CalendarEventBrowseProjection.delete(uri: east.uri.description, in: db)
         }
-        bounded = try store.calendarEventMapItems(
+        bounded = try store.browseCalendarEvents(
             parameters: .init(
                 catalogs: [canonicalCatalog],
-                bounds: antimeridian,
-                zoom: 18
+                north: antimeridian.north, south: antimeridian.south,
+                east: antimeridian.east, west: antimeridian.west
             ),
+            appViewHost: "localhost",
             now: date("2026-10-11T00:00:00Z")
         )
         expectNoDifference(Set(bounded.events.map(\.name)), Set(["West", "Moving"]))
@@ -347,118 +347,6 @@ import Testing
             now: date("2026-10-11T00:00:00Z")
         )
         expectNoDifference(searchableMissing.events.map(\.name), ["Missing"])
-    }
-
-    @Test
-    func `map query returns server clustered display items instead of every matching point`() throws {
-        let database = try DatabaseQueue()
-        let store = try OpenMusicEventAppViewStore(database: database)
-        try database.write { db in
-            for index in 0..<125 {
-                try CalendarEventBrowseProjection.upsert(
-                    event(
-                        uri: "at://did:plc:venue/events.openmusic.event/point-\(index)",
-                        catalog: canonicalCatalog,
-                        name: "Point \(index)",
-                        city: "Bozeman",
-                        latitude: 45.68 + Double(index) / 10_000,
-                        longitude: -111.04,
-                        startsAt: "2026-10-20T00:00:00Z"
-                    ),
-                    in: db
-                )
-            }
-        }
-
-        let items = try store.calendarEventMapItems(
-            parameters: .init(
-                catalogs: [canonicalCatalog],
-                query: "Point",
-                bounds: try .init(north: 46, south: 45, east: -110, west: -112),
-                zoom: 2
-            ),
-            now: date("2026-10-11T00:00:00Z")
-        )
-        #expect(items.events.isEmpty)
-        #expect(items.clusters.count == 1)
-        #expect(items.clusters[0].count == 125)
-        #expect(items.metrics.candidateCount == 125)
-        #expect(items.metrics.itemCount == 1)
-        #expect(items.metrics.itemCount < items.metrics.candidateCount)
-    }
-
-    @Test
-    func `server clusters by zoom and identical coordinates remain browsable at maximum zoom`() throws {
-        let database = try DatabaseQueue()
-        let store = try OpenMusicEventAppViewStore(database: database)
-        let events = [
-            try event(
-                uri: "at://did:plc:venue/events.openmusic.event/identical-a",
-                catalog: canonicalCatalog,
-                name: "Identical A",
-                city: "Bozeman",
-                latitude: 45.68,
-                longitude: -111.04,
-                startsAt: "2026-10-20T00:00:00Z"
-            ),
-            try event(
-                uri: "at://did:plc:venue/events.openmusic.event/identical-b",
-                catalog: canonicalCatalog,
-                name: "Identical B",
-                city: "Bozeman",
-                latitude: 45.68,
-                longitude: -111.04,
-                startsAt: "2026-10-21T00:00:00Z"
-            ),
-            try event(
-                uri: "at://did:plc:venue/events.openmusic.event/separate",
-                catalog: canonicalCatalog,
-                name: "Separate",
-                city: "Bozeman",
-                latitude: 45.72,
-                longitude: -111.12,
-                startsAt: "2026-10-22T00:00:00Z"
-            ),
-        ]
-        try database.write { db in
-            for event in events {
-                try CalendarEventBrowseProjection.upsert(event, in: db)
-            }
-        }
-        let viewport = try OME.CalendarEvent.BrowseEvents.Bounds(
-            north: 46,
-            south: 45,
-            east: -110,
-            west: -112
-        )
-
-        let overview = try store.calendarEventMapItems(
-            parameters: .init(catalogs: [canonicalCatalog], bounds: viewport, zoom: 2)
-        )
-        expectNoDifference(overview.clusters.map(\.count), [3])
-        #expect(overview.events.isEmpty)
-
-        let local = try store.calendarEventMapItems(
-            parameters: .init(catalogs: [canonicalCatalog], bounds: viewport, zoom: 18)
-        )
-        expectNoDifference(local.events.map(\.name), ["Separate"])
-        let identical = try #require(local.clusters.first)
-        #expect(identical.count == 2)
-        #expect(identical.expansionZoom == 18)
-
-        let clusterEvents = try store.browseCalendarEvents(
-            parameters: .init(
-                catalogs: [canonicalCatalog],
-                north: identical.north,
-                south: identical.south,
-                east: identical.east,
-                west: identical.west,
-                limit: 100
-            ),
-            appViewHost: "localhost",
-            now: date("2026-10-11T00:00:00Z")
-        )
-        expectNoDifference(clusterEvents.events.map(\.name), ["Identical A", "Identical B"])
     }
 
     @Test
@@ -703,23 +591,8 @@ import Testing
                 )
                 expectNoDifference(page.events.map(\.name), ["Community"])
             }
-            try await client.execute(
-                uri: "/xrpc/app.openmusicevent.calendar.getMapItems"
-                    + "?catalogs=events.openmusic.event"
-                    + "&catalogs=community.lexicon.calendar.event"
-                    + "&query=Bozeman"
-                    + "&north=46&south=45&east=-110&west=-112&zoom=12",
-                method: .get
-            ) { response in
-                #expect(response.status == .ok)
-                let page = try xrpcDecoder().decode(
-                    OME.CalendarEvent.MapItemPage.self,
-                    from: Data(response.body.readableBytesView)
-                )
-                expectNoDifference(page.events.map(\.name), ["Community"])
-                #expect(page.clusters.isEmpty)
-                #expect(page.metrics.candidateCount == 1)
-                #expect(page.metrics.itemCount == 1)
+            try await client.execute(uri: "/xrpc/app.openmusicevent.calendar.getMapItems", method: .get) { response in
+                #expect(response.status == .notFound)
             }
             try await client.execute(
                 uri: "/xrpc/app.openmusicevent.calendar.getEvents"
