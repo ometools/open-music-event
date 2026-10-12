@@ -38,6 +38,7 @@ public enum OpenMusicEventAppViewServer {
 
         var services: [any Service] = []
         if let store { services.append(CalendarMapMaintenanceService(store: store)) }
+        if let store { services.append(CalendarPublisherProfileService(store: store)) }
         if !configuration.ingestions.isEmpty {
             guard let store else {
                 throw OpenMusicEventAppViewServerError.ingestionRequiresDatabase

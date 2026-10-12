@@ -17,7 +17,7 @@ import Testing
 
 @testable import OpenMusicEventAppViewServer
 
-@Suite(.serialized)
+@Suite(AppViewTestTime(), .serialized)
 struct TangledWorkspaceProposalTests {
   @Test
   func `a pull-created webhook becomes one URI-keyed Workspace proposal`() async throws {

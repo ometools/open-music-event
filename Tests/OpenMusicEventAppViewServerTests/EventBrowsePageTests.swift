@@ -10,7 +10,7 @@ import SQLiteData
 import Testing
 @testable import OpenMusicEventAppViewServer
 
-@Suite struct EventBrowsePageTests {
+@Suite(AppViewTestTime()) struct EventBrowsePageTests {
     @Test func browseGroupsAndFiltersIndexedEventsAndOpensTheirViewer() async throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)

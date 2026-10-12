@@ -14,7 +14,7 @@ import Testing
 
 @testable import OpenMusicEventAppViewServer
 
-@Suite("Workspace proposal XRPC routes", .serialized)
+@Suite("Workspace proposal XRPC routes", AppViewTestTime(), .serialized)
 struct WorkspaceProposalRouteTests {
   @Test
   func `lists and opens the unified server projection`() async throws {

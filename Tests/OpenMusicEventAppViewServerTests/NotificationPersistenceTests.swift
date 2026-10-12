@@ -47,7 +47,7 @@ private actor NotificationProviderStartProbe {
     }
 }
 
-@Suite(.serialized)
+@Suite(AppViewTestTime(), .serialized)
 struct NotificationPersistenceTests {
     @Test
     func `legacy APNS ciphertext opens with the configured development fallback`() async throws {

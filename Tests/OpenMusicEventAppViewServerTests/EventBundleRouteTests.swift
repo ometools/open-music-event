@@ -10,7 +10,7 @@ import SQLiteData
 import Testing
 @testable import OpenMusicEventAppViewServer
 
-@Suite struct EventBundleRouteTests {
+@Suite(AppViewTestTime()) struct EventBundleRouteTests {
     @Test func downloadRevalidateAndObserveChildChangesAndDeletion() async throws {
         let story = EventViewerIntegrationTests()
         let database = try DatabaseQueue()

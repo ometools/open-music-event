@@ -17,6 +17,7 @@ private let wickedWoodsCanonicalEventID = Event.ID(
     "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
 )!
 
+@Suite(AppViewTestTime())
 struct AppViewRouteTests {
     @Test
     func canonicalEventRoutesServeIndexedRecordsWithPaging() async throws {

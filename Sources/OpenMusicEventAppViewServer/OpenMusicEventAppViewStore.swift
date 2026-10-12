@@ -75,6 +75,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         CalendarEventBrowseProjection.registerMigration(into: &migrator)
         CalendarMapBuild.registerMigration(into: &migrator)
         CalendarPublisher.registerMigration(into: &migrator)
+        CalendarPublisher.registerProfileMigration(into: &migrator)
         VenueProfileProjection.registerMigration(into: &migrator)
         CalendarGeocode.registerMigration(into: &migrator)
         CommunityCalendarEventProjection.registerBackfillMigration(into: &migrator)

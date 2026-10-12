@@ -4,8 +4,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const site = path.resolve(__dirname, '../../Sources/OpenMusicEventAppViewServer/Resources/Site');
 const publishers = [
-  { id: 1, did: 'did:plc:comedy', label: 'laugh.town' },
-  { id: 2, did: 'did:plc:music', label: 'Music Calendar' },
+  { id: 1, did: 'did:plc:comedy', label: 'laugh.town', handle: 'laugh.town', avatarURL: 'https://cdn.bsky.app/img/avatar/plain/test' },
+  { id: 2, did: 'did:plc:music', label: 'Music Calendar', handle: 'music.example' },
 ];
 
 (async () => {
@@ -19,7 +19,7 @@ const publishers = [
         const query = (url.searchParams.get('query') || '').toLowerCase();
         const ids = url.searchParams.getAll('publishers').map(Number);
         return route.fulfill({ json: { publishers: publishers.filter(p =>
-          (!ids.length || ids.includes(p.id)) && `${p.label} ${p.did}`.toLowerCase().includes(query)),
+          (!ids.length || ids.includes(p.id)) && `${p.label} ${p.did} ${p.handle}`.toLowerCase().includes(query)),
           defaults: { mode: 'allExcept', publishers: [1] } } });
       }
       if (url.pathname.endsWith('browseEventSummaries')) {
@@ -46,6 +46,12 @@ const publishers = [
     await page.getByRole('button', { name: /Concert,/ }).waitFor();
     assert.equal(await page.getByRole('button', { name: /Comedy Show,/ }).count(), 0);
     await page.locator('#publisherPicker summary').click();
+    await page.getByText('@music.example', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Bluesky profile for Music Calendar' }).getAttribute('href'), 'https://bsky.app/profile/did%3Aplc%3Amusic');
+    await page.locator('#publisherSearch').fill('music.example');
+    await page.waitForResponse(response => response.url().includes('getPublishers') && response.url().includes('music.example'));
+    assert.equal(await page.getByRole('checkbox', { name: 'Include Music Calendar' }).count(), 1);
+    await page.locator('#publisherSearch').fill('');
     await page.getByRole('checkbox', { name: 'Include laugh.town' }).check();
     await page.getByRole('button', { name: /Comedy Show,/ }).waitFor();
     const saved = await page.evaluate(() => localStorage.getItem('ome.publisherLens.v1'));

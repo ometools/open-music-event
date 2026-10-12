@@ -11,7 +11,7 @@ import Testing
 
 @testable import OpenMusicEventAppViewServer
 
-@Suite struct CalendarEventBrowseTests {
+@Suite(AppViewTestTime()) struct CalendarEventBrowseTests {
     private let canonicalCatalog = ATProto.NSID(Event.lexiconID.rawValue)!
     private let communityCatalog = ATProto.NSID("community.lexicon.calendar.event")
 

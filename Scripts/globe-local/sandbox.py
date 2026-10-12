@@ -161,6 +161,17 @@ def configure_appview():
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [atmosinabox, ome-globe-egress]
+  publisher-https-proxy:
+    image: python:3.13-alpine
+    command: [python3, /proxy.py]
+    environment:
+      ALLOWED_HOSTS: public.api.bsky.app
+    read_only: true
+    tmpfs: [/tmp]
+    volumes: [./ome-globe-public-https-proxy.py:/proxy.py:ro]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [atmosinabox, ome-globe-egress]
 networks:
   ome-globe-egress: {}
 ''')
@@ -214,6 +225,10 @@ networks:
     environment:
       OME_APPVIEW_PUBLIC_HOST: metadata.{DOMAIN}
       OME_APPVIEW_DATABASE_PATH: /data/appview.sqlite
+      HTTPS_PROXY: http://publisher-https-proxy:8081
+      https_proxy: http://publisher-https-proxy:8081
+      NO_PROXY: localhost,127.0.0.1,.ome-globe.test
+      no_proxy: localhost,127.0.0.1,.ome-globe.test
       OME_APPVIEW_HYDRANT_CONFIGURATIONS: '{ingestions}'
       OME_WEB_PDS_HOSTS: '{bindings}'
       GEOAPIFY_API_KEY: '${{GEOAPIFY_API_KEY:-}}'
@@ -229,6 +244,7 @@ networks:
       timeout: 3s
       retries: 30
     depends_on:
+      publisher-https-proxy: {{condition: service_started}}
       hydrant-private: {{condition: service_started}}
       hydrant-public: {{condition: service_started}}
   hydrant-private:

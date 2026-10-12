@@ -10,7 +10,7 @@ import SQLiteData
 import Testing
 @testable import OpenMusicEventAppViewServer
 
-@Suite struct EventViewerIntegrationTests {
+@Suite(AppViewTestTime()) struct EventViewerIntegrationTests {
     let owner = "did:plc:organizer"
     func uri(_ collection: String) -> String { "at://\(owner)/\(collection)/3mrdbziccpcah" }
     var eventID: Event.ID { Event.ID(uri("events.openmusic.event"))! }

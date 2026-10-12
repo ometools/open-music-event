@@ -2,6 +2,7 @@
 """Minimal CONNECT proxy limited to public HTTPS destinations."""
 import asyncio
 import ipaddress
+import os
 import socket
 
 
@@ -37,6 +38,11 @@ async def handle(reader, writer):
             await writer.drain()
             return
         host, port_text = authority.rsplit(':', 1)
+        allowed = os.environ.get('ALLOWED_HOSTS')
+        if allowed is not None and host.lower() not in allowed.split(','):
+            writer.write(b'HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+            await writer.drain()
+            return
         port = int(port_text)
         if port != 443:
             raise ValueError('only public HTTPS destinations are allowed')

@@ -555,7 +555,7 @@ function renderEventList() {
       const publisher = [...state.publishers.values()].find(source => source.did === did);
       const attribution = document.createElement("small");
       attribution.className = "publisher-attribution";
-      attribution.textContent = `Published by ${publisher?.label || did}`;
+      attribution.textContent = `Published by ${publisher?.label || publisher?.handle || did}`;
       card.querySelector(".event-name").after(attribution);
     }
     card.querySelector(".event-location span").textContent = event.locationSummary;
@@ -1558,16 +1558,51 @@ function renderPublisherChoices() {
     checkbox.dataset.publisherId = String(id);
     checkbox.checked = lens.mode === "only" ? lens.publishers.includes(id) : !lens.publishers.includes(id);
     const text = document.createElement("span");
-    text.textContent = publisher?.label || publisher?.did || `Publisher ${id}`;
-    checkbox.setAttribute("aria-label", `Include ${text.textContent}`);
+    text.className = "publisher-identity";
+    const name = document.createElement("span");
+    name.textContent = publisher?.label || publisher?.handle || publisher?.did || `Publisher ${id}`;
+    text.append(name);
+    if (publisher?.handle) {
+      const handle = document.createElement("small");
+      handle.textContent = `@${publisher.handle}`;
+      text.append(handle);
+    }
+    checkbox.setAttribute("aria-label", `Include ${name.textContent}`);
     checkbox.addEventListener("change", () => {
       const next = new Set(state.publisherLens.publishers);
       const listed = state.publisherLens.mode === "only" ? checkbox.checked : !checkbox.checked;
       if (listed) next.add(id); else next.delete(id);
       applyPublisherLens({ mode: state.publisherLens.mode, publishers: [...next] });
     });
-    label.append(checkbox, text);
-    els.publisherChoices.append(label);
+    label.append(checkbox);
+    if (publisher?.avatarURL) {
+      const avatarURL = new URL(publisher.avatarURL, window.location.href);
+      if (avatarURL.protocol === "https:" && avatarURL.hostname === "cdn.bsky.app") {
+        const avatar = document.createElement("img");
+        avatar.className = "publisher-avatar";
+        avatar.alt = "";
+        avatar.width = avatar.height = 32;
+        avatar.loading = "lazy";
+        avatar.referrerPolicy = "no-referrer";
+        avatar.src = avatarURL.href;
+        avatar.addEventListener("error", () => avatar.remove(), { once: true });
+        label.append(avatar);
+      }
+    }
+    label.append(text);
+    const row = document.createElement("div");
+    row.className = "publisher-row";
+    row.append(label);
+    if (publisher?.handle) {
+      const profile = document.createElement("a");
+      profile.href = `https://bsky.app/profile/${encodeURIComponent(publisher.did)}`;
+      profile.textContent = "Profile";
+      profile.setAttribute("aria-label", `Bluesky profile for ${name.textContent}`);
+      profile.target = "_blank";
+      profile.rel = "noopener noreferrer";
+      row.append(profile);
+    }
+    els.publisherChoices.append(row);
   }
   els.morePublishers.hidden = state.publisherCursor === null;
   if (focusedPublisher) els.publisherChoices.querySelector(`[data-publisher-id="${focusedPublisher}"]`)?.focus();
@@ -1649,6 +1684,9 @@ els.publisherSearch.addEventListener("input", () => {
   state.publisherTimer = setTimeout(() => fetchPublisherPage().catch(console.error), 250);
 });
 els.morePublishers.addEventListener("click", () => fetchPublisherPage(true).catch(console.error));
+els.publisherPicker.addEventListener("toggle", () => {
+  if (els.publisherPicker.open && state.publisherLens) fetchPublisherPage().catch(console.error);
+});
 els.retryPublishers.addEventListener("click", () => startBrowse());
 els.allPublishers.addEventListener("click", () => applyPublisherLens({ mode: "allExcept", publishers: [] }));
 els.resetPublishers.addEventListener("click", () => applyPublisherLens(state.publisherDefaults));

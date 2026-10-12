@@ -15,7 +15,7 @@ import OpenMusicEventSourceClone
 @testable import OpenMusicEventAppViewServer
 import Testing
 
-@Suite(.serialized)
+@Suite(AppViewTestTime(), .serialized)
 struct TangledWebhookInboxTests {
     @Test
     func `legacy artifact configuration cannot override the watched Tangled repository`() throws {

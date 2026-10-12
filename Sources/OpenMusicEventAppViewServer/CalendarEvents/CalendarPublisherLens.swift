@@ -36,6 +36,11 @@ struct CalendarPublisher: Codable, Sendable {
     @Column(primaryKey: true) var id: Int
     var did: String
     var label: String?
+    var displayName: String? = nil
+    var handle: String? = nil
+    var avatarURL: String? = nil
+    var profileSearch: String = ""
+    var profileNextAttempt: Double = 0
     static let communityCatalog = "community.lexicon.calendar.event"
     static let laughTown = "did:plc:k6owgpe2rkkchoiivxhzp2t4"
 
@@ -133,9 +138,16 @@ struct CalendarPublishersQuery: XRPC.Query, Sendable {
         var publishers: [Int]? = nil
     }
     struct Page: Codable, Sendable {
-        var publishers: [CalendarPublisher]
+        var publishers: [Publisher]
         var cursor: Int?
         var defaults: CalendarPublisherLens
+    }
+    struct Publisher: Codable, Sendable {
+        var id: Int
+        var did: String
+        var label: String?
+        var handle: String?
+        var avatarURL: String?
     }
 }
 
@@ -148,14 +160,18 @@ extension OpenMusicEventAppViewStore {
         return try database.read { db in
             let defaults = try CalendarPublisher.where { $0.did.in(communityCalendarExcludedPublishers.map(\.description)) }.select(\.id).fetchAll(db)
             let query = (parameters.query ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let search: QueryFragment = query.isEmpty ? "1" : "(instr(lower(\(CalendarPublisher.did)),lower(\(query)))>0 OR instr(lower(COALESCE(\(CalendarPublisher.label),'')),lower(\(query)))>0)"
+            let folded = CalendarPublisher.foldProfileSearch(query.hasPrefix("@") ? String(query.dropFirst()) : query)
+            let search: QueryFragment = query.isEmpty ? "1" : "(instr(lower(\(CalendarPublisher.did)),lower(\(query)))>0 OR instr(lower(COALESCE(\(CalendarPublisher.label),'')),lower(\(query)))>0 OR instr(\(CalendarPublisher.profileSearch),\(folded))>0)"
             let specified: QueryFragment = parameters.publishers == nil ? "1" : "\(CalendarPublisher.id.in(selection.publishers))"
             let rows = try #sql("""
                 SELECT \(CalendarPublisher.columns) FROM \(CalendarPublisher.self)
                 WHERE \(CalendarPublisher.id)>\(parameters.cursor ?? 0) AND \(search) AND \(specified)
                 ORDER BY \(CalendarPublisher.id) LIMIT 51
                 """, as: CalendarPublisher.self).fetchAll(db)
-            return try .init(publishers: Array(rows.prefix(50)),cursor: rows.count>50 ? rows[49].id : nil,
+            return try .init(publishers: rows.prefix(50).map {
+                .init(id: $0.id, did: $0.did, label: $0.displayName ?? $0.label,
+                      handle: $0.handle, avatarURL: $0.avatarURL)
+            },cursor: rows.count>50 ? rows[49].id : nil,
                              defaults: .init(mode: "allExcept", publishers: defaults))
         }
     }

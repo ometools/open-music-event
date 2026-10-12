@@ -14,7 +14,7 @@ import OpenMusicEventSourceClone
 @testable import OpenMusicEventAppViewServer
 import Testing
 
-@Suite(.serialized)
+@Suite(AppViewTestTime(), .serialized)
 struct TangledChannelNotificationTests {
     @Test
     func `a staging fork keeps canonical identities for every event in the source`() async throws {

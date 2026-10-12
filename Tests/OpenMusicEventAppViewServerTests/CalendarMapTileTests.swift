@@ -10,7 +10,7 @@ import Testing
 
 @testable import OpenMusicEventAppViewServer
 
-@Suite struct CalendarMapTileTests {
+@Suite(AppViewTestTime()) struct CalendarMapTileTests {
     let catalog = ATProto.NSID("community.lexicon.calendar.event")
     let otherCatalog = ATProto.NSID("events.openmusic.event")
     let now = Date(timeIntervalSince1970: 1_800_000_000)
