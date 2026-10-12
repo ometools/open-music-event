@@ -240,6 +240,41 @@ import Testing
         #expect(!refreshed.cacheHit && refreshed.etag != populated.etag)
     }
 
+    @Test func `publishers sort by total count across pages search and record changes`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        try database.write { db in
+            for index in 0..<52 {
+                try CalendarEventBrowseProjection.upsert(fixture("first", latitude: nil, longitude: nil,
+                    publisher: "did:plc:publisher\(index)"), now: now, in: db)
+            }
+            for (publisher, id) in [(50, "second"), (51, "second"), (51, "third")] {
+                try CalendarEventBrowseProjection.upsert(fixture(id, start: -100,
+                    publisher: "did:plc:publisher\(publisher)"), now: now, in: db)
+            }
+            try CalendarEventBrowseProjection.upsert(fixture("native", catalog: otherCatalog,
+                publisher: "did:plc:publisher50"), now: now, in: db)
+        }
+        let first = try store.calendarPublishers(.init())
+        expectNoDifference(first.publishers.prefix(2).map(\.did), ["did:plc:publisher51", "did:plc:publisher50"])
+        expectNoDifference(first.publishers.prefix(2).map(\.eventCount), [3, 2])
+        let second = try store.calendarPublishers(.init(cursor: #require(first.cursor)))
+        let all = first.publishers + second.publishers
+        expectNoDifference(all.count, 53)
+        expectNoDifference(Set(all.map(\.id)).count, 53)
+        expectNoDifference(all.map(\.eventCount), all.map(\.eventCount).sorted(by: >))
+        #expect(second.cursor == nil)
+        expectNoDifference(all.last?.eventCount, 0)
+        let search = try store.calendarPublishers(.init(query: "publisher5"))
+        expectNoDifference(search.publishers.map(\.eventCount), [3, 2, 1])
+        try database.write { db in
+            try CalendarEventBrowseProjection.find("at://did:plc:publisher51/\(catalog.rawValue)/third").delete().execute(db)
+        }
+        let changed = try store.calendarPublishers(.init())
+        expectNoDifference(changed.publishers.prefix(2).map(\.did), ["did:plc:publisher50", "did:plc:publisher51"])
+        expectNoDifference(changed.publishers.prefix(2).map(\.eventCount), [2, 2])
+    }
+
     @Test func `publisher choices agree across list tile cluster and empty selections`() throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)

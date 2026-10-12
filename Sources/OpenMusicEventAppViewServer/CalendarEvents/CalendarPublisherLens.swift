@@ -142,12 +142,13 @@ struct CalendarPublishersQuery: XRPC.Query, Sendable {
         var cursor: Int?
         var defaults: CalendarPublisherLens
     }
-    struct Publisher: Codable, Sendable {
+    @Selection struct Publisher: Codable, Sendable {
         var id: Int
         var did: String
         var label: String?
         var handle: String?
         var avatarURL: String?
+        var eventCount: Int
     }
 }
 
@@ -164,14 +165,23 @@ extension OpenMusicEventAppViewStore {
             let search: QueryFragment = query.isEmpty ? "1" : "(instr(lower(\(CalendarPublisher.did)),lower(\(query)))>0 OR instr(lower(COALESCE(\(CalendarPublisher.label),'')),lower(\(query)))>0 OR instr(\(CalendarPublisher.profileSearch),\(folded))>0)"
             let specified: QueryFragment = parameters.publishers == nil ? "1" : "\(CalendarPublisher.id.in(selection.publishers))"
             let rows = try #sql("""
-                SELECT \(CalendarPublisher.columns) FROM \(CalendarPublisher.self)
-                WHERE \(CalendarPublisher.id)>\(parameters.cursor ?? 0) AND \(search) AND \(specified)
-                ORDER BY \(CalendarPublisher.id) LIMIT 51
-                """, as: CalendarPublisher.self).fetchAll(db)
-            return try .init(publishers: rows.prefix(50).map {
-                .init(id: $0.id, did: $0.did, label: $0.displayName ?? $0.label,
-                      handle: $0.handle, avatarURL: $0.avatarURL)
-            },cursor: rows.count>50 ? rows[49].id : nil,
+                WITH ranked AS MATERIALIZED (
+                  SELECT \(CalendarPublisher.id) AS id, \(CalendarPublisher.did) AS did,
+                    COALESCE(\(CalendarPublisher.displayName),\(CalendarPublisher.label)) AS label,
+                    \(CalendarPublisher.handle) AS handle, \(CalendarPublisher.avatarURL) AS avatarURL,
+                    (SELECT COUNT(*) FROM \(CalendarPublisherEvent.self)
+                     WHERE \(CalendarPublisherEvent.publisherID)=\(CalendarPublisher.id)) AS eventCount,
+                    (\(search)) AND (\(specified)) AS matches
+                  FROM \(CalendarPublisher.self)
+                )
+                SELECT id,did,label,handle,avatarURL,eventCount FROM ranked
+                WHERE matches AND (\(parameters.cursor ?? 0)=0
+                  OR eventCount<(SELECT eventCount FROM ranked WHERE id=\(parameters.cursor ?? 0))
+                  OR (eventCount=(SELECT eventCount FROM ranked WHERE id=\(parameters.cursor ?? 0))
+                      AND id>\(parameters.cursor ?? 0)))
+                ORDER BY eventCount DESC,id ASC LIMIT 51
+                """, as: CalendarPublishersQuery.Publisher.self).fetchAll(db)
+            return try .init(publishers: Array(rows.prefix(50)),cursor: rows.count>50 ? rows[49].id : nil,
                              defaults: .init(mode: "allExcept", publishers: defaults))
         }
     }

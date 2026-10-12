@@ -1548,7 +1548,8 @@ function renderPublisherChoices() {
   els.publisherMode.value = lens.mode;
   els.publisherSummary.textContent = lens.mode === "only"
     ? `${lens.publishers.length} selected` : (lens.publishers.length ? `${lens.publishers.length} excluded` : "All publishers");
-  const ids = [...new Set([...state.publisherDefaults.publishers, ...lens.publishers, ...state.publisherResults])];
+  const ids = [...new Set([...state.publisherDefaults.publishers, ...lens.publishers, ...state.publisherResults])]
+    .sort((a, b) => (state.publishers.get(b)?.eventCount ?? 0) - (state.publishers.get(a)?.eventCount ?? 0) || a - b);
   els.publisherChoices.replaceChildren();
   for (const id of ids) {
     const publisher = state.publishers.get(id);
@@ -1593,6 +1594,12 @@ function renderPublisherChoices() {
     const row = document.createElement("div");
     row.className = "publisher-row";
     row.append(label);
+    if (Number.isSafeInteger(publisher?.eventCount)) {
+      const count = document.createElement("small");
+      count.textContent = `${publisher.eventCount.toLocaleString()} events`;
+      count.title = "Total indexed Community Calendar events, across all dates and locations";
+      row.append(count);
+    }
     if (publisher?.handle) {
       const profile = document.createElement("a");
       profile.href = `https://bsky.app/profile/${encodeURIComponent(publisher.did)}`;
