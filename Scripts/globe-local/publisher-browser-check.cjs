@@ -25,11 +25,11 @@ const publishers = [
       if (url.pathname.endsWith('browseEventSummaries')) {
         const ids = url.searchParams.getAll('publishers').map(Number);
         const included = publishers.filter(p => url.searchParams.get('publisherMode') === 'only' ? ids.includes(p.id) : !ids.includes(p.id));
-        return route.fulfill({ json: { events: included.map(p => ({
-          uri: `at://${p.did}/community.lexicon.calendar.event/event`, catalog: 'community.lexicon.calendar.event',
-          name: p.id === 1 ? 'Comedy Show' : 'Concert', startsAt: '2030-05-01T20:00:00Z',
+        return route.fulfill({ json: { events: included.flatMap(p => ['community.lexicon.calendar.event', 'events.openmusic.event'].map((catalog, index) => ({
+          uri: `at://${p.did}/${catalog}/event-${index}`, catalog,
+          name: (p.id === 1 ? 'Comedy Show' : 'Concert') + (index ? ' Encore' : ''), startsAt: '2030-05-01T20:00:00Z',
           locationSummary: 'Local venue', hasEventViewer: false,
-        })), hasMore: false, evaluatedAt: '2026-10-11T00:00:00Z' } });
+        }))), hasMore: false, evaluatedAt: '2026-10-11T00:00:00Z' } });
       }
       if (url.pathname.includes('/xrpc/')) return route.fulfill({ json: { events: [], clusters: [] } });
       if (url.pathname.includes('maplibre-gl') && url.pathname.endsWith('.js')) return route.fulfill({ body: '' });
@@ -44,6 +44,13 @@ const publishers = [
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('http://ome.test');
     await page.getByRole('button', { name: /Concert,/ }).waitFor();
+    // Different event keys and catalogs from one DID keep the same palette color.
+    // This golden value matches CalendarMapTileTests, including after a reload.
+    const colors = () => page.locator('.event-art').evaluateAll(elements => elements.map(element => element.style.getPropertyValue('--card-color')));
+    assert.deepEqual(await colors(), ['#a05cff', '#a05cff']);
+    await page.reload();
+    await page.getByRole('button', { name: /Concert,/ }).waitFor();
+    assert.deepEqual(await colors(), ['#a05cff', '#a05cff']);
     assert.equal(await page.getByRole('button', { name: /Comedy Show,/ }).count(), 0);
     await page.locator('#publisherPicker summary').click();
     await page.getByText('@music.example', { exact: true }).waitFor();
@@ -79,6 +86,13 @@ const publishers = [
     await page.locator('#publisherSearch').fill('not a publisher');
     await page.getByText('No matching publishers.', { exact: false }).waitFor();
     assert.equal(await page.getByRole('checkbox', { name: 'Include laugh.town' }).count(), 1);
+    // A publisher's DID, not its unchanged profile label, chooses the color.
+    for (const [did, color] of [['did:plc:venue', '#f354ca'], ['did:web:venue.example%3A8443', '#df61ff']]) {
+      publishers[1].did = did;
+      await page.goto('http://ome.test');
+      await page.getByRole('button', { name: /Concert,/ }).waitFor();
+      assert.deepEqual(await colors(), [color, color]);
+    }
     assert.deepEqual(errors, []);
     console.log('Publisher browser stories passed (fixture-backed; map rendering not exercised).');
   } finally { await browser.close(); }

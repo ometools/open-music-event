@@ -49,6 +49,15 @@ struct CalendarTileCell: Sendable {
 }
 
 struct CalendarMapTile: Sendable {
+    // Match app.js: FNV-1a over the publishing repository's UTF-8 bytes.
+    // Never use Swift.Hasher here: its seed changes between processes.
+    static func publisherColor(eventURI: String) -> String {
+        let palette = ["#a05cff", "#42d8ff", "#f354ca", "#6279ff", "#21d7b5", "#df61ff"]
+        let publisher = eventURI.dropFirst(5).prefix { $0 != "/" }
+        let hash = publisher.utf8.reduce(UInt32(2_166_136_261)) { ($0 ^ UInt32($1)) &* 16_777_619 }
+        return palette[Int(hash % UInt32(palette.count))]
+    }
+
     var data: Data
     var gzip: Data
     var etag: String
@@ -172,7 +181,7 @@ extension OpenMusicEventAppViewStore {
                    let row = try Self.mapPointRows(uris: [uri], in: db).first {
                     let media = try row.markerMedia.map { try JSONDecoder().decode(OME.CalendarEvent.Media.self, from: $0) }
                     properties = ["kind": "event", "uri": uri, "name": row.name,
-                        "catalog": row.catalog, "color": "#a05cff",
+                        "catalog": row.catalog, "color": CalendarMapTile.publisherColor(eventURI: uri),
                         "markerImage": media?.url.absoluteString ?? "",
                         "markerImageRenderKind": media?.renderKind?.rawValue ?? ""]
                 } else {

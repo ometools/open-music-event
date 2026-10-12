@@ -140,6 +140,31 @@ import Testing
         #expect(Set((first.events + second.events).map(\.uri)).count == 70)
     }
 
+    @Test func `publisher marker colors are stable across events catalogs and tiles`() throws {
+        // These golden colors are also checked by the browser story.
+        for (publisher, color) in [("did:plc:music", "#a05cff"), ("did:plc:venue", "#f354ca"),
+                                   ("did:web:venue.example%3A8443", "#df61ff")] {
+            expectNoDifference(CalendarMapTile.publisherColor(eventURI: "at://\(publisher)/\(catalog)/first"), color)
+            expectNoDifference(CalendarMapTile.publisherColor(eventURI: "at://\(publisher)/\(otherCatalog)/second"), color)
+        }
+
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        // Separate locations expose individual markers rather than a mixed cluster.
+        try database.write { db in
+            try CalendarEventBrowseProjection.upsert(fixture("first", latitude: 45, longitude: -110), now: now, in: db)
+            try CalendarEventBrowseProjection.upsert(fixture("second", catalog: otherCatalog, latitude: -45, longitude: 110), now: now, in: db)
+            try CalendarEventBrowseProjection.upsert(fixture("third", latitude: 45, longitude: 110, publisher: "did:plc:music"), now: now, in: db)
+        }
+        let tile = try store.mapTile(.init(z: 0, x: 0, y: 0, catalogs: [catalog, otherCatalog], dates: "current"), generation: 1)
+        let layer = try #require(OmeVectorTile_Tile(serializedBytes: tile.data).layers.first)
+        let colors = try Dictionary(uniqueKeysWithValues: layer.features.map { feature in
+            let attributes = properties(feature, layer: layer)
+            return (try #require(attributes["name"]), try #require(attributes["color"]))
+        })
+        expectNoDifference(colors, ["first": "#f354ca", "second": "#f354ca", "third": "#a05cff"])
+    }
+
     @Test func `compact search is global stable scoped and includes unlocated events`() throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)

@@ -76,8 +76,8 @@ const els = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]))
 
 function hashString(value) {
   let hash = 2166136261;
-  for (const char of value) {
-    hash ^= char.charCodeAt(0);
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= byte;
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
@@ -113,7 +113,9 @@ function normalizeEvent(raw) {
     || (typeof raw.organizer?.avatarURL === "string"
       ? { url: raw.organizer.avatarURL, role: "avatar", renderKind: "fullImage" }
       : null);
-  const seed = hashString(raw.uri);
+  // Hash the publishing repository, not the event, organizer, or mutable profile name.
+  // Keep FNV-1a/UTF-8 and palette order in sync with CalendarMapTile.publisherColor.
+  const seed = hashString(raw.uri.slice(5).split("/")[0]);
   return {
     ...raw,
     name: raw.name || "Untitled event",
