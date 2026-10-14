@@ -18,6 +18,15 @@ extension CalendarEventBrowseProjection {
             try delete(uri: id.description, in: database)
             return
         }
+        try upsertCanonicalEvent(event, deleteExistingSearchDocument: deleteExistingSearchDocument, in: database)
+    }
+
+    static func upsertCanonicalEvent(
+        _ event: CanonicalEvent,
+        deleteExistingSearchDocument: Bool = true,
+        in database: Database
+    ) throws {
+        let id = event.id
         let places = try EventPlace.where { $0.event.eq(id) }.fetchAll(database)
         let contributors = try Contributor.where { $0.event.eq(id) }.fetchAll(database)
         let items = try ProgramItem.where { $0.event.eq(id) }.fetchAll(database)

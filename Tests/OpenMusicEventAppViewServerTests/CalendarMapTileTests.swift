@@ -15,6 +15,40 @@ import Testing
     let otherCatalog = ATProto.NSID("events.openmusic.event")
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test func `unchanged projections preserve tile revisions in active and building generations`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let event = fixture("unchanged")
+        try database.write { db in
+            try CalendarEventBrowseProjection.upsert(event, now: now, in: db)
+        }
+        try store.beginMapRebuild()
+        #expect(try !store.rebuildMapBatch(limit: 1, now: now))
+        let cells = try database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        let revisions = try database.read { try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll($0) }
+
+        // A replay must not invalidate either the visible tiles or their replacement generation.
+        try database.write { db in
+            try CalendarEventBrowseProjection.upsert(event, now: now, in: db)
+        }
+        try database.read { db throws -> Void in
+            expectNoDifference(try CalendarMapCell.order(by: \.id).fetchAll(db), cells)
+            expectNoDifference(try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll(db), revisions)
+            #expect(try CalendarMapEvent.all.fetchCount(db) == 2)
+        }
+
+        // An actual move still updates both generations and reclaims the old cells.
+        try database.write { db in
+            try CalendarEventBrowseProjection.upsert(
+                fixture("unchanged", latitude: -35, longitude: 150), now: now, in: db)
+        }
+        try database.read { db throws -> Void in
+            #expect(try CalendarMapCell.all.fetchCount(db) == 38)
+            #expect(try CalendarMapEvent.all.fetchAll(db).allSatisfy { $0.x > 0.9 })
+            #expect(try CalendarMapCell.order(by: \.id).fetchAll(db) != cells)
+        }
+    }
+
     @Test func `cells track moves missing coordinates deletion rollback and expiration`() throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
@@ -255,6 +289,7 @@ import Testing
             try CalendarEventBrowseProjection.upsert(fixture("far", latitude: -35, longitude: 150), now: now, in: db)
         }
         #expect(try await store.mapTiles.tile(request, store: store).cacheHit)
+        let cellsBeforeEdit = try await database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
         var changed = nearby
         changed.name = "New marker title"
         let edited = changed
@@ -263,6 +298,50 @@ import Testing
         }
         let refreshed = try await store.mapTiles.tile(request, store: store)
         #expect(!refreshed.cacheHit && refreshed.etag != populated.etag)
+        let cellsAfterTitle = try await database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        expectNoDifference(cellsAfterTitle, cellsBeforeEdit)
+
+        // Adding and removing artwork refreshes marker content without touching spatial aggregates.
+        var illustrated = edited
+        illustrated.media = [.init(url: URL(string: "https://example.com/marker.png")!, role: "logo", renderKind: .transparent)]
+        let withArtwork = illustrated
+        try await database.write { db in
+            try CalendarEventBrowseProjection.upsert(withArtwork, now: now, in: db)
+        }
+        let artwork = try await store.mapTiles.tile(request, store: store)
+        #expect(!artwork.cacheHit && artwork.etag != refreshed.etag)
+        let cellsWithArtwork = try await database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        expectNoDifference(cellsWithArtwork, cellsBeforeEdit)
+        // JSON layout, escaping, and non-rendered metadata are not marker changes.
+        try await database.write { db in
+            let equivalent = Data(#"{ "renderKind":"transparent", "role":"poster", "url":"https://example.com/marker.png", "alt":"Updated description" }"#.utf8)
+            try CalendarEventBrowseProjection.find(edited.uri.description).update {
+                $0.markerMedia = #bind(equivalent)
+            }.execute(db)
+        }
+        #expect(try await store.mapTiles.tile(request, store: store).cacheHit)
+        // The same image with a different rendering mode does change the tile.
+        try await database.write { db in
+            let changedRendering = Data(#"{"url":"https://example.com/marker.png","renderKind":"fullImage"}"#.utf8)
+            try CalendarEventBrowseProjection.find(edited.uri.description).update {
+                $0.markerMedia = #bind(changedRendering)
+            }.execute(db)
+        }
+        let rerendered = try await store.mapTiles.tile(request, store: store)
+        #expect(!rerendered.cacheHit && rerendered.etag != artwork.etag)
+        try await database.write { db in
+            try CalendarEventBrowseProjection.upsert(edited, now: now, in: db)
+        }
+        let removed = try await store.mapTiles.tile(request, store: store)
+        #expect(!removed.cacheHit && removed.etag != artwork.etag)
+        let cellsWithoutArtwork = try await database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        expectNoDifference(cellsWithoutArtwork, cellsBeforeEdit)
+
+        // Replaying identical content leaves the refreshed tile cached.
+        try await database.write { db in
+            try CalendarEventBrowseProjection.upsert(edited, now: now, in: db)
+        }
+        #expect(try await store.mapTiles.tile(request, store: store).cacheHit)
     }
 
     @Test func `publishers sort by total count across pages search and record changes`() throws {

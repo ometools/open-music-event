@@ -11,6 +11,94 @@ import Testing
 
 @Suite(AppViewTestTime())
 struct CommunityCalendarDomainPersistenceTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_SOURCE"] != nil))
+    func `bounded real record backfill benchmark`() throws {
+        let path = try #require(ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_SOURCE"])
+        let sampleLimit = Int(ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_LIMIT"] ?? "1000") ?? 1000
+        try #require((1...10_000).contains(sampleLimit))
+        var configuration = Configuration()
+        configuration.readonly = true
+        // This opt-in source must be a completed backup, never an actively written database.
+        let source = try DatabaseQueue(path: "file:\(path)?mode=ro&immutable=1", configuration: configuration)
+        // Spread the sample across the URI range, then include large payloads and tombstones.
+        // Selection is outside the timed ingestion path and never writes to the source database.
+        let records = try source.read { db in
+            try Row.fetchAll(db, sql: """
+                WITH numbered AS (
+                  SELECT uri, ROW_NUMBER() OVER (ORDER BY uri) AS ordinal,
+                    COUNT(*) OVER () AS total
+                  FROM appViewIndexedRecords WHERE collection = 'community.lexicon.calendar.event'
+                ), sampled AS (
+                  SELECT uri FROM numbered WHERE (ordinal-1) % MAX(1, (total+?-1)/?) = 0
+                ), largest AS (
+                  SELECT uri FROM appViewIndexedRecords
+                  WHERE collection = 'community.lexicon.calendar.event' AND isDeleted = 0
+                  ORDER BY length(value) DESC, uri LIMIT 25
+                ), deleted AS (
+                  SELECT uri FROM appViewIndexedRecords
+                  WHERE collection = 'community.lexicon.calendar.event' AND isDeleted = 1
+                  ORDER BY uri LIMIT 25
+                )
+                SELECT uri, collection, cid, value, sequence, isDeleted FROM appViewIndexedRecords
+                WHERE uri IN (SELECT uri FROM sampled UNION SELECT uri FROM largest UNION SELECT uri FROM deleted)
+                ORDER BY uri
+                """, arguments: [sampleLimit, sampleLimit])
+        }
+        #expect(!records.isEmpty && records.count <= sampleLimit + 50)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ome-canonical-sample-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let database = try DatabaseQueue(path: directory.appendingPathComponent("sample.sqlite").path)
+        let store = try OpenMusicEventAppViewStore(database: database)
+        try database.write { db in
+            try CommunityCalendarDomainBackfill.delete().execute(db)
+            for record in records {
+                try db.execute(sql: """
+                    INSERT INTO appViewIndexedRecords (uri, collection, cid, value, sequence, isDeleted)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: StatementArguments(record.databaseValues))
+            }
+        }
+        let clock = ContinuousClock()
+        let initial = try clock.measure {
+            while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
+        }
+        let events = try database.read { try Event.all.fetchCount($0) }
+        let revisions = try database.read { try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll($0) }
+        try database.write { db in
+            try CommunityCalendarDomainBackfill.delete().execute(db)
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER reject_sample_replay BEFORE INSERT ON "\(Event.tableName)"
+                BEGIN SELECT RAISE(ABORT, 'unchanged sample rewrote domain content'); END;
+                """)
+        }
+        let replay = try clock.measure {
+            while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
+        }
+        let cells = try database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        // An adapter upgrade must reproject real content against populated indexes, not skip it.
+        try database.write { db in
+            try db.execute(sql: "DROP TRIGGER reject_sample_replay")
+            try CommunityCalendarDomainBackfill.delete().execute(db)
+            try CommunityCalendarDomainOutcome.update { $0.adapterVersion = -1 }.execute(db)
+        }
+        let rebuild = try clock.measure {
+            while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
+        }
+        try database.read { db throws -> Void in
+            #expect(try CommunityCalendarDomainOutcome.all.fetchCount(db) == records.count)
+            expectNoDifference(try Event.all.fetchCount(db), events)
+            expectNoDifference(try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll(db), revisions)
+            expectNoDifference(try CalendarMapCell.order(by: \.id).fetchAll(db), cells)
+            #expect(try CommunityCalendarDomainOutcome.where { $0.adapterVersion.eq(-1) }.fetchCount(db) == 0)
+            let preserved = try Row.fetchAll(db, sql: "SELECT uri, collection, cid, value, sequence, isDeleted FROM appViewIndexedRecords ORDER BY uri")
+            #expect(preserved == records)
+            #expect(try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok")
+            let outcomes = try Row.fetchAll(db, sql: "SELECT state, COUNT(*) AS count FROM communityCalendarDomainOutcomes GROUP BY state")
+            let plotted = try CalendarMapEvent.all.fetchCount(db)
+            print("Real canonical sample: records=\(records.count), events=\(events), plotted=\(plotted), outcomes=\(outcomes), initial=\(initial), replay=\(replay), rebuild=\(rebuild), database=\(directory.path)")
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_CANONICAL_BACKFILL_TEST_COPY"] != nil))
     func `isolated full sandbox backfill`() throws {
         let path = try #require(ProcessInfo.processInfo.environment["OME_CANONICAL_BACKFILL_TEST_COPY"])
@@ -168,5 +256,55 @@ struct CommunityCalendarDomainPersistenceTests {
                 #expect(try CommunityCalendarDomainOutcome.find(uri.description).fetchOne(db) == nil)
             }
         }
+    }
+
+    @Test func `small mixed backfill reconciles and unchanged replay avoids domain writes`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        // A bounded prior-schema dataset includes located, unlocated, invalid, and deleted records.
+        try database.write { db in
+            try CommunityCalendarDomainBackfill.delete().execute(db)
+            for number in 0..<120 {
+                let kind = number % 4
+                let value = kind == 1
+                    ? Data(#"{"$type":"community.lexicon.calendar.event","name":"Unlocated music","createdAt":"2026-08-01T12:00:00Z"}"#.utf8)
+                    : kind == 2 ? Data(#"{"name":"Invalid creation","createdAt":{}}"#.utf8) : payload
+                try db.execute(sql: """
+                    INSERT INTO appViewIndexedRecords (uri, collection, cid, value, sequence, isDeleted)
+                    VALUES (?, 'community.lexicon.calendar.event', ?, ?, 1, ?)
+                    """, arguments: ["at://did:plc:calendar/community.lexicon.calendar.event/sample-\(number)",
+                        kind == 3 ? nil : "bafy-original", kind == 3 ? nil : value, kind == 3])
+            }
+        }
+        let clock = ContinuousClock()
+        let initial = try clock.measure {
+            while try !store.backfillCommunityCalendarDomainBatch(limit: 10) {}
+        }
+        try database.read { db throws -> Void in
+            #expect(try Event.all.fetchCount(db) == 60)
+            #expect(try CommunityCalendarDomainOutcome.all.fetchCount(db) == 120)
+            #expect(try CommunityCalendarDomainOutcome.where { $0.state.eq("failed") }.fetchCount(db) == 30)
+            #expect(try CommunityCalendarDomainOutcome.where { $0.state.eq("deleted") }.fetchCount(db) == 30)
+            #expect(try CalendarMapEvent.all.fetchCount(db) == 30)
+        }
+
+        // Restart the scan, not just the completed checkpoint. No unchanged event may be written.
+        try database.write { db in
+            try CommunityCalendarDomainBackfill.delete().execute(db)
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER reject_replay_insert BEFORE INSERT ON "\(Event.tableName)"
+                BEGIN SELECT RAISE(ABORT, 'unchanged replay wrote canonical event'); END;
+                CREATE TEMP TRIGGER reject_replay_update BEFORE UPDATE ON "\(Event.tableName)"
+                BEGIN SELECT RAISE(ABORT, 'unchanged replay updated canonical event'); END;
+                """)
+        }
+        let replay = try clock.measure {
+            while try !store.backfillCommunityCalendarDomainBatch(limit: 10) {}
+        }
+        try database.read { db throws -> Void in
+            #expect(try Event.all.fetchCount(db) == 60)
+            #expect(try CommunityCalendarDomainOutcome.all.fetchCount(db) == 120)
+        }
+        print("Bounded canonical backfill: 120 records, initial=\(initial), unchanged rescan=\(replay)")
     }
 }

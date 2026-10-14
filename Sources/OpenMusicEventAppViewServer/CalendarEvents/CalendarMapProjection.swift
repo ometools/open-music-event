@@ -36,7 +36,26 @@ struct CalendarMapEvent: Codable, Equatable, Sendable {
         for generation in generations {
             let id = "\(generation)|\(row.uri)"
             if let projected = project(row, generation: generation, now: now) {
-                try upsert { projected }.execute(db)
+                try insert { projected } onConflict: {
+                    $0.id
+                } where: { _ in
+                    true
+                } doUpdate: {
+                    $0.generation = $1.generation
+                    $0.uri = $1.uri
+                    $0.catalog = $1.catalog
+                    $0.cell = $1.cell
+                    $0.x = $1.x
+                    $0.y = $1.y
+                    $0.effectiveEnd = $1.effectiveEnd
+                    $0.active = $1.active
+                } where: {
+                    let identityChanged = $0.generation.neq($1.generation) || $0.uri.neq($1.uri)
+                    let cellChanged = $0.catalog.neq($1.catalog) || $0.cell.neq($1.cell)
+                    let coordinateChanged = $0.x.neq($1.x) || $0.y.neq($1.y)
+                    let timeChanged = !$0.effectiveEnd.is($1.effectiveEnd) || $0.active.neq($1.active)
+                    identityChanged || cellChanged || coordinateChanged || timeChanged
+                }.execute(db)
             } else {
                 try find(id).delete().execute(db)
             }
@@ -124,6 +143,63 @@ struct CalendarMapBuild: Codable, Equatable, Sendable {
                 CREATE INDEX calendar_browse_viewer ON "\(CalendarEventBrowseProjection.tableName)"
                   (catalog, hasEventViewer, startsAt, uri);
                 """)
+            try createMapTriggers(in: db)
+        }
+        migrator.registerMigration("Cover active calendar browse ordering") { db in
+            try db.execute(sql: """
+                CREATE INDEX calendar_browse_current ON "\(CalendarEventBrowseProjection.tableName)"
+                  (catalog, hasEventViewer, COALESCE(endsAt, startsAt), startsAt, uri)
+                """)
+        }
+        migrator.registerMigration("Track retired calendar map generations") { db in
+            try db.execute(sql: "ALTER TABLE \"\(tableName)\" ADD COLUMN retiring INTEGER NOT NULL DEFAULT 1")
+        }
+        migrator.registerMigration("Bound calendar map aggregate cleanup by cell identity") { db in
+            try db.execute(sql: """
+                DROP TRIGGER calendar_map_insert;
+                DROP TRIGGER calendar_map_delete;
+                DROP TRIGGER calendar_map_update;
+                """)
+            try createMapTriggers(in: db)
+        }
+        migrator.registerMigration("Invalidate map tiles when marker content changes") { db in
+            try db.execute(sql: """
+                CREATE TRIGGER calendar_map_marker_content
+                AFTER UPDATE OF name, markerMedia ON "\(CalendarEventBrowseProjection.tableName)"
+                WHEN OLD.name IS NOT NEW.name OR OLD.markerMedia IS NOT NEW.markerMedia
+                BEGIN
+                  INSERT INTO "\(CalendarMapRevision.tableName)" (id, revision)
+                  SELECT point.generation || '|' || substr(point.cell, 1, level.depth-3) || '|' || point.catalog, 1
+                  FROM "\(CalendarMapEvent.tableName)" AS point
+                  CROSS JOIN calendarMapLevels AS level
+                  WHERE point.uri = NEW.uri
+                  ON CONFLICT(id) DO UPDATE SET revision = revision + 1;
+                END;
+                """)
+        }
+        migrator.registerMigration("Compare rendered marker fields for tile invalidation") { db in
+            try db.execute(sql: """
+                DROP TRIGGER calendar_map_marker_content;
+                CREATE TRIGGER calendar_map_marker_content
+                AFTER UPDATE OF name, markerMedia ON "\(CalendarEventBrowseProjection.tableName)"
+                WHEN OLD.name IS NOT NEW.name
+                  OR COALESCE(json_extract(CAST(OLD.markerMedia AS TEXT), '$.url'), '')
+                     IS NOT COALESCE(json_extract(CAST(NEW.markerMedia AS TEXT), '$.url'), '')
+                  OR COALESCE(json_extract(CAST(OLD.markerMedia AS TEXT), '$.renderKind'), '')
+                     IS NOT COALESCE(json_extract(CAST(NEW.markerMedia AS TEXT), '$.renderKind'), '')
+                BEGIN
+                  INSERT INTO "\(CalendarMapRevision.tableName)" (id, revision)
+                  SELECT point.generation || '|' || substr(point.cell, 1, level.depth-3) || '|' || point.catalog, 1
+                  FROM "\(CalendarMapEvent.tableName)" AS point
+                  CROSS JOIN calendarMapLevels AS level
+                  WHERE point.uri = NEW.uri
+                  ON CONFLICT(id) DO UPDATE SET revision = revision + 1;
+                END;
+                """)
+        }
+    }
+
+    static func createMapTriggers(in db: Database) throws {
             let add = """
                 INSERT INTO "\(CalendarMapCell.tableName)"
                   (id,generation,depth,cell,catalog,count,activeCount,x,y,activeX,activeY)
@@ -139,8 +215,9 @@ struct CalendarMapBuild: Codable, Equatable, Sendable {
                   x=x-OLD.x,y=y-OLD.y,activeX=activeX-OLD.x*OLD.active,activeY=activeY-OLD.y*OLD.active
                 WHERE id IN (SELECT OLD.generation || '|' || substr(OLD.cell,1,depth) || '|' || OLD.catalog
                   FROM calendarMapLevels);
-                DELETE FROM "\(CalendarMapCell.tableName)" WHERE count=0 AND generation=OLD.generation
-                  AND catalog=OLD.catalog AND cell IN (SELECT substr(OLD.cell,1,depth) FROM calendarMapLevels);
+                DELETE FROM "\(CalendarMapCell.tableName)" WHERE count=0 AND id IN (
+                  SELECT OLD.generation || '|' || substr(OLD.cell,1,depth) || '|' || OLD.catalog
+                  FROM calendarMapLevels);
                 """
             func revision(_ record: String) -> String {
                 """
@@ -154,16 +231,6 @@ struct CalendarMapBuild: Codable, Equatable, Sendable {
                 CREATE TRIGGER calendar_map_delete AFTER DELETE ON "\(CalendarMapEvent.tableName)" BEGIN \(remove) \(revision("OLD")) END;
                 CREATE TRIGGER calendar_map_update AFTER UPDATE ON "\(CalendarMapEvent.tableName)" BEGIN \(remove) \(add) \(revision("OLD")) \(revision("NEW")) END;
                 """)
-        }
-        migrator.registerMigration("Cover active calendar browse ordering") { db in
-            try db.execute(sql: """
-                CREATE INDEX calendar_browse_current ON "\(CalendarEventBrowseProjection.tableName)"
-                  (catalog, hasEventViewer, COALESCE(endsAt, startsAt), startsAt, uri)
-                """)
-        }
-        migrator.registerMigration("Track retired calendar map generations") { db in
-            try db.execute(sql: "ALTER TABLE \"\(tableName)\" ADD COLUMN retiring INTEGER NOT NULL DEFAULT 1")
-        }
     }
 }
 

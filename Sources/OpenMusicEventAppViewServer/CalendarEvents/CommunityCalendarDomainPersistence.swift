@@ -78,7 +78,7 @@ extension CommunityCalendarEventProjection {
                  sequence: current.sequence, event: encoded)
         }.execute(db)
         if updateBrowseProjection {
-            try CalendarEventBrowseProjection.upsertCanonicalEvent(id: current.uri, in: db)
+            try CalendarEventBrowseProjection.upsertCanonicalEvent(projection.event, in: db)
         }
         try CommunityCalendarDomainOutcome.save(
             uri: current.uri.description, cid: current.cid.rawValue, sequence: current.sequence,
