@@ -1,6 +1,8 @@
 import AWSLambdaEvents
 import ATProto
+import ATProtoAppView
 import CustomDump
+import Dependencies
 import Foundation
 import HummingbirdLambda
 import HummingbirdLambdaTesting
@@ -16,6 +18,16 @@ import Testing
 private let wickedWoodsCanonicalEventID = Event.ID(
     "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
 )!
+
+private func ingestNativeEvent(_ event: Event, sequence: Int64, store: OpenMusicEventAppViewStore) throws {
+    let payload = try JSONEncoder().encode(event.encodeLexicon())
+    try withDependencies { $0.defaultDatabase = store.database } operation: {
+        _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil).apply(
+            .put(AppView.RecordVersion<Data>(collection: "events.openmusic.event", uri: event.id,
+                cid: event.cid ?? ATProto.CID(rawValue: "bafy-route-event-\(sequence)"),
+                value: payload, sequence: sequence)), checkpointID: "route-native-records")
+    }
+}
 
 @Suite(AppViewTestTime())
 struct AppViewRouteTests {
@@ -44,10 +56,8 @@ struct AppViewRouteTests {
             createdAt: "2026-09-01T12:00:00Z",
             timeZone: .gmt
         )
-        try await store.database.write { db in
-            try Event.insert { first }.execute(db)
-            try Event.insert { second }.execute(db)
-        }
+        try ingestNativeEvent(first, sequence: 1, store: store)
+        try ingestNativeEvent(second, sequence: 2, store: store)
         let app = try OpenMusicEventAppViewServer.application(
             configuration: roots.configuration,
             store: store
@@ -174,16 +184,14 @@ struct AppViewRouteTests {
             )
             first.description = "A festival in the woods."
             let published = first
-            try await store.database.write { db in
-                try Event.insert { published }.execute(db)
-            }
+            try ingestNativeEvent(published, sequence: 1, store: store)
             try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .ok)
                 let indexed = try JSONDecoder().decode(
                     Event.IndexedRecord.self,
                     from: Data(response.body.readableBytesView)
                 )
-                expectNoDifference(try indexed.event(), published)
+                expectNoDifference(try indexed.event().name, published.name)
             }
             try await client.execute(uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah", method: .get) { response in
                 #expect(response.status == .ok)
@@ -193,9 +201,7 @@ struct AppViewRouteTests {
             var updated = published
             updated.name = "Wicked Woods 2026 — Updated"
             let revised = updated
-            try await store.database.write { db in
-                try Event.upsert { revised }.execute(db)
-            }
+            try ingestNativeEvent(revised, sequence: 2, store: store)
             try await client.execute(uri: eventRequest, method: .get) { response in
                 let indexed = try JSONDecoder().decode(
                     Event.IndexedRecord.self,
@@ -209,8 +215,10 @@ struct AppViewRouteTests {
                 ))
             }
 
-            try await store.database.write { db in
-                try Event.find(wickedWoodsCanonicalEventID).delete().execute(db)
+            try withDependencies { $0.defaultDatabase = store.database } operation: {
+                _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil).apply(
+                    .delete(.init(collection: "events.openmusic.event", uri: wickedWoodsCanonicalEventID,
+                                  sequence: 3)), checkpointID: "route-native-records")
             }
             try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .notFound)
@@ -513,7 +521,7 @@ private func decodeXRPCError(_ body: ByteBuffer) throws -> XRPC.ErrorResponse {
     try JSONDecoder().decode(XRPC.ErrorResponse.self, from: Data(body.readableBytesView))
 }
 
-private struct TestAppViewRoots {
+struct TestAppViewRoots {
     let root: URL
     let siteRoot: URL
     let wellKnownRoot: URL

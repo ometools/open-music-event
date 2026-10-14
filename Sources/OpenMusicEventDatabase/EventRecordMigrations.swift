@@ -137,5 +137,9 @@ public enum EventRecordMigrations {
             try #sql(#"ALTER TABLE "social.ome.category" ADD COLUMN "pinnedPosts" TEXT"#)
                 .execute(db)
         }
+        migrator.registerMigration("Add Event local projection provenance") { db in
+            try #sql(#"ALTER TABLE "events.openmusic.event" ADD COLUMN "projectionVersion" INTEGER"#)
+                .execute(db)
+        }
     }
 }

@@ -15,7 +15,8 @@ struct EventViewerContent {
 
 extension OpenMusicEventAppViewStore {
     func eventViewerContent(id: Event.ID) throws -> EventViewerContent? {
-        try database.read { db in
+        guard id.collection?.rawValue == Event.lexiconID.rawValue else { return nil }
+        return try database.read { db in
             guard let graph = try EventRecordGraph.fetch(eventID: id, from: db) else { return nil }
             // Ingestion validates each record's payload. Reads check only graph relationships:
             // re-encoding and schema-validating every biography on every HTTP request is unnecessary.

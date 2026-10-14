@@ -9,6 +9,39 @@ import Testing
 
 struct EventRecordGraphTests {
     @Test
+    func `projection provenance is local and upgrades preserve native content`() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        EventRecordMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Add canonical category pinned posts")
+        // Seed the prior schema without using the new table's generated column list.
+        try database.write { db in
+            try #sql("""
+                INSERT INTO "events.openmusic.event" (id, cid, name, createdAt, timeZone, start, end)
+                VALUES ('at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah',
+                  'bafy-original', 'Festival', '2026-08-01T12:00:00Z', 'America/Denver',
+                  '{"$type":"events.openmusic.defs#day","value":"2026-09-04"}',
+                  '{"$type":"events.openmusic.defs#day","value":"2026-09-07"}')
+                """).execute(db)
+        }
+        try migrator.migrate(database)
+        var event = try #require(try database.read { try Event.all.fetchOne($0) })
+        #expect(event.projectionVersion == nil)
+        expectNoDifference(event.cid, ATProto.CID(rawValue: "bafy-original"))
+        let published = try event.encodeLexicon()
+        event.projectionVersion = 1
+        let projected = event
+        try database.write { try Event.upsert { projected }.execute($0) }
+        expectNoDifference(try database.read { try Event.all.fetchOne($0) }, projected)
+        expectNoDifference(try projected.encodeLexicon(), published)
+        let decoded = try Event.decodeLexicon(published, metadata: .init(uri: event.id, cid: event.cid))
+        #expect(decoded.projectionVersion == nil)
+        // Re-running a completed migration does not clear local metadata.
+        try migrator.migrate(database)
+        expectNoDifference(try database.read { try Event.all.fetchOne($0)?.projectionVersion }, 1)
+    }
+
+    @Test
     func relatedRecordsAreStoredAndQueriedByProtocolEventID() throws {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()

@@ -19,6 +19,7 @@ actor EventBundleCache {
     var recency: [Event.ID] = []
 
     func bundle(id: Event.ID, store: OpenMusicEventAppViewStore) throws -> Entry? {
+        guard id.collection?.rawValue == Event.lexiconID.rawValue else { return nil }
         let snapshot = try store.database.read { db -> [Row]? in
             guard try String.fetchOne(db, sql: "SELECT id FROM \"events.openmusic.event\" WHERE id = ?", arguments: [id.description]) != nil else { return nil }
             let collections = ["events.openmusic.program", "events.openmusic.schedule", "events.openmusic.eventPlace",

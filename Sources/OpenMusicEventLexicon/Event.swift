@@ -17,6 +17,11 @@ public struct Event: RecordCodable, Equatable {
     @LexiconIgnored
     public var cid: ATProto.CID? = nil
 
+    /// AppView adapter version, not a field in the published OME record.
+    /// Native records leave this nil; imported rows retain their source URI/CID.
+    @LexiconIgnored
+    public var projectionVersion: Int? = nil
+
     @LexiconField(description: "The public name of the event.", minLength: 1, maxLength: 5_000, maxGraphemes: 500)
     public var name: String
 

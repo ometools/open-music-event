@@ -29,11 +29,21 @@ extension OpenMusicEventAppViewStore {
     }
 
     public func event(id: Event.ID) throws -> Event? {
-        try database.read { try Event.find(id).fetchOne($0) }
+        guard id.collection?.rawValue == Event.lexiconID.rawValue else { return nil }
+        return try database.read { try Event.find(id).fetchOne($0) }
     }
 
     func indexedEvent(id: Event.ID) throws -> Event.IndexedRecord? {
-        try event(id: id).map(Self.indexedRecord)
+        guard id.collection?.rawValue == Event.lexiconID.rawValue else { return nil }
+        return try database.read { db in
+            try #sql("""
+                SELECT raw.uri, raw.cid, raw.value
+                FROM appViewIndexedRecords AS raw
+                JOIN \(Event.self) ON \(Event.id) = raw.uri
+                WHERE raw.uri = \(id.description)
+                  AND raw.collection = \(Event.lexiconID.rawValue) AND raw.isDeleted = 0
+                """, as: NativeEventPayload.self).fetchOne(db)?.record()
+        }
     }
 
     func eventPage(cursor: String?, limit: Int) throws -> Event.Page {
@@ -49,41 +59,31 @@ extension OpenMusicEventAppViewStore {
         } else {
             offset = 0
         }
-        let events = try database.read { try Event.all.fetchAll($0) }
-            .sorted(by: Self.eventIsSooner)
-        guard offset <= events.count else {
+        let (count, rows) = try database.read { db in
+            let count = try #sql("""
+                SELECT COUNT(*) FROM appViewIndexedRecords AS raw
+                JOIN \(Event.self) ON \(Event.id) = raw.uri
+                WHERE raw.collection = \(Event.lexiconID.rawValue) AND raw.isDeleted = 0
+                """, as: Int.self).fetchOne(db) ?? 0
+            let rows = try #sql("""
+                SELECT raw.uri, raw.cid, raw.value
+                FROM appViewIndexedRecords AS raw
+                JOIN \(Event.self) ON \(Event.id) = raw.uri
+                LEFT JOIN \(CalendarEventBrowseProjection.self)
+                  ON \(CalendarEventBrowseProjection.uri) = raw.uri
+                WHERE raw.collection = \(Event.lexiconID.rawValue) AND raw.isDeleted = 0
+                ORDER BY \(CalendarEventBrowseProjection.startsAt) IS NULL,
+                  \(CalendarEventBrowseProjection.startsAt), \(Event.name) COLLATE NOCASE, raw.uri
+                LIMIT \(limit) OFFSET \(offset)
+                """, as: NativeEventPayload.self).fetchAll(db)
+            return (count, rows)
+        }
+        guard offset <= count else {
             throw OpenMusicEventAppViewStoreError.invalidCursor(cursor ?? "")
         }
-        let records = try events.dropFirst(offset).prefix(limit).map(Self.indexedRecord)
+        let records = try rows.map { try $0.record() }
         let nextOffset = offset + records.count
-        return Event.Page(
-            events: records,
-            cursor: nextOffset < events.count ? String(nextOffset) : nil
-        )
-    }
-
-    private static func indexedRecord(_ event: Event) throws -> Event.IndexedRecord {
-        try Event.IndexedRecord(
-            uri: event.id,
-            cid: event.cid,
-            value: event.encodeLexicon()
-        )
-    }
-
-    private static func eventIsSooner(_ lhs: Event, _ rhs: Event) -> Bool {
-        switch (lhs.start?.date(in: lhs.timeZone), rhs.start?.date(in: rhs.timeZone)) {
-        case let (.some(left), .some(right)) where left != right:
-            return left < right
-        case (.some, .none):
-            return true
-        case (.none, .some):
-            return false
-        default:
-            let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-            return nameOrder == .orderedSame
-                ? lhs.id.description < rhs.id.description
-                : nameOrder == .orderedAscending
-        }
+        return Event.Page(events: records, cursor: nextOffset < count ? String(nextOffset) : nil)
     }
 
     func eventRecordIndex() -> AppViewRecordIndex<Data> {
@@ -114,6 +114,21 @@ extension OpenMusicEventAppViewStore {
                 )
             }
         }
+    }
+}
+
+@Selection
+struct NativeEventPayload {
+    let uri: String
+    let cid: String
+    let value: Data
+
+    func record() throws -> Event.IndexedRecord {
+        guard let id = Event.ID(uri), id.collection?.rawValue == Event.lexiconID.rawValue else {
+            throw ValidationError("Native event payload has a non-OME identity")
+        }
+        return try .init(uri: id, cid: ATProto.CID(rawValue: cid),
+                         value: JSONDecoder().decode(Lexicon.JSONValue.self, from: value))
     }
 }
 
