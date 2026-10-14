@@ -297,7 +297,8 @@ struct CommunityCalendarDomainPersistenceTests {
         }
     }
 
-    @Test func `deferred validation records a semantic failure without deleting source content`() throws {
+    @Test(arguments: [false, true])
+    func `deferred validation records a semantic failure without deleting source content`(nested: Bool) throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
         try withDependencies { $0.defaultDatabase = database } operation: {
@@ -306,7 +307,15 @@ struct CommunityCalendarDomainPersistenceTests {
             _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil).apply(.put(record), checkpointID: "validation")
             // Simulate a structurally decodable but semantically invalid derived row.
             try database.write { db in
-                try Event.find(uri).update { $0.name = "" }.execute(db)
+                if nested {
+                    try Event.find(uri).update {
+                        $0.locations = #bind([Event.Location(name: "", links: [
+                            OME.Link(url: URL(string: "https://example.com/venue")!, title: "")
+                        ])])
+                    }.execute(db)
+                } else {
+                    try Event.find(uri).update { $0.name = "" }.execute(db)
+                }
             }
             #expect(try store.validateCommunityCalendarDomainBatch(limit: 1) == 1)
             try database.read { db throws -> Void in

@@ -35,11 +35,11 @@ public struct Event: RecordCodable, Equatable {
     public var description: String? = nil
 
     @LexiconField(description: "The event's starting calendar day or exact instant. Omitted when it has not been announced.")
-    @Column(as: Open<Time>.JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<Open<Time>>?.self)
     public var start: Open<Time>? = nil
 
     @LexiconField(description: "The event's ending calendar day or exact instant. Omitted when it has not been announced.")
-    @Column(as: Open<Time>.JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<Open<Time>>?.self)
     public var end: Open<Time>? = nil
 
     @LexiconField(description: "The event's current planning or cancellation status.")
@@ -49,15 +49,15 @@ public struct Event: RecordCodable, Equatable {
     public var mode: Open<Mode>? = nil
 
     @LexiconField(description: "Event locations. Array order is the organizer's preferred display order.")
-    @Column(as: [Location].JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<[Location]>?.self)
     public var locations: [Location]? = nil
 
     @LexiconField(description: "Public links for the event. Array order is the organizer's preferred display order.")
-    @Column(as: [OME.Link].JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<[OME.Link]>?.self)
     public var links: [OME.Link]? = nil
 
     @LexiconField(description: "Media attached to the event. Array order is the organizer's preferred display order.")
-    @Column(as: [Open<OME.Media>].JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<[Open<OME.Media>]>?.self)
     public var media: [Open<OME.Media>]? = nil
 
     @LexiconField(description: "The event's attendee-facing programs in organizer-defined tab order.", minLength: 1)
@@ -76,7 +76,7 @@ public struct Event: RecordCodable, Equatable {
     public var categories: [ATProto.URI]? = nil
 
     @LexiconField(description: "The event's selectable site-map images and default style.")
-    @Column(as: SiteMap.JSONRepresentation?.self)
+    @Column(as: LexiconStorageRepresentation<SiteMap>?.self)
     public var siteMap: SiteMap? = nil
 
     /// Call at the authoring or verified ingestion boundary, separately from payload decoding.

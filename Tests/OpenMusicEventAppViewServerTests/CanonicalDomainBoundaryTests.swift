@@ -11,6 +11,35 @@ import Testing
 
 @Suite(AppViewTestTime())
 struct CanonicalDomainBoundaryTests {
+    @Test func `database storage preserves lexicon semantics and still rejects invalid publication`() throws {
+        let database = try DatabaseQueue()
+        _ = try OpenMusicEventAppViewStore(database: database)
+        let payload = Data(#"{"$type":"events.openmusic.event","name":"Wicked Woods 2026","createdAt":"2026-08-01T12:00:00Z","start":{"$type":"events.openmusic.defs#day","value":"2026-09-04"},"end":{"$type":"events.openmusic.defs#day","value":"2026-09-07"},"locations":[{"locators":[{"$type":"community.lexicon.location.geo","latitude":"50.1","longitude":"-115.5"},{"$type":"test.future.locator","value":"preserve"}]}],"links":[{"url":"https://example.com/tickets","role":{"$type":"events.openmusic.defs#ticketsLink"}},{"url":"https://example.com","title":"Website"}],"media":[{"$type":"test.future.media","values":[2,1]}]}"#.utf8)
+        let tree = try JSONDecoder().decode(Lexicon.JSONValue.self, from: payload)
+        let id = Event.ID("at://did:plc:venue/events.openmusic.event/3mrdbziccpcaa")!
+        let event = try Event.decodeLexicon(tree, metadata: .init(uri: id, cid: "bafy-original"))
+        try database.write { try Event.insert { event }.execute($0) }
+        var restored = try database.read { try #require(try Event.find(id).fetchOne($0)) }
+        expectNoDifference(restored, event)
+        expectNoDifference(try restored.encodeLexicon(), tree)
+
+        // Local storage is lossless even before validation, but not publication authority.
+        restored.locations?[0].name = ""
+        try database.write { db in
+            try Event.find(id).update { $0.locations = #bind(restored.locations) }.execute(db)
+        }
+        let invalid = try database.read { try #require(try Event.find(id).fetchOne($0)) }
+        expectNoDifference(invalid.locations, restored.locations)
+        #expect(throws: (any Error).self) { try invalid.encodeLexicon() }
+        #expect(throws: (any Error).self) { try invalid.validateReferences() }
+
+        // Storage must still reject malformed field types, not invent a value.
+        let malformed: Lexicon.JSONValue = ["locators": [["$type": "community.lexicon.location.geo", "latitude": 123, "longitude": "-115"]]]
+        #expect(throws: (any Error).self) {
+            try malformed.decoded(as: Lexicon.Storage<Event.Location>.self)
+        }
+    }
+
     @Test func `native reads preserve published payload and exclude imported domain rows`() async throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
