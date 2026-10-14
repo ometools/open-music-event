@@ -24,7 +24,6 @@ extension CalendarEventBrowseProjection {
         let profile = try VenueProfileProjection.find(id.authority.description).fetchOne(database)
         let calendarEvent = try OME.CalendarEvent(
             event: event,
-            places: places,
             profile: profile
         )
         let searchText = contributors.map(\.name)
@@ -35,9 +34,9 @@ extension CalendarEventBrowseProjection {
             }
         try upsert(
             calendarEvent,
-            hasEventViewer: event.hasDetailsBeyondBrowse,
+            hasEventViewer: event.projectionVersion == nil && event.id.collection?.rawValue == CanonicalEvent.lexiconID.rawValue && event.hasDetailsBeyondBrowse,
             searchText: searchText.joined(separator: " "),
-            sourceID: "venue:\(id.authority.description)",
+            sourceID: event.projectionVersion == nil ? "venue:\(id.authority.description)" : nil,
             deleteExistingSearchDocument: deleteExistingSearchDocument,
             in: database
         )
@@ -118,17 +117,15 @@ private struct VenueActorProfileRecord: Decodable {
     var avatar: ATProto.Blob?
 }
 
-private extension OME.CalendarEvent {
+extension OME.CalendarEvent {
     init(
         event: CanonicalEvent,
-        places: [EventPlace],
         profile: VenueProfileProjection?
     ) throws {
         guard case let .did(organizerID) = event.id.authority else {
             throw CanonicalCalendarEventProjectionError.invalidOrganizer(event.id.description)
         }
         let locations = (event.locations ?? []).map(OME.CalendarEvent.Location.init)
-            + places.map(OME.CalendarEvent.Location.init)
         self.init(
             uri: event.id,
             cid: event.cid,
@@ -155,7 +152,7 @@ private extension OME.CalendarEvent {
                     Self.profileMediaURL(did: organizerID.description, cid: $0)
                 }
             ),
-            source: Source(collection: ATProto.NSID(CanonicalEvent.lexiconID.rawValue)),
+            source: Source(collection: event.id.collection!),
             timeZoneIdentifier: event.timeZone?.identifier
         )
     }

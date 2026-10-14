@@ -231,13 +231,7 @@ struct CommunityCalendarEventProjection: Codable, Equatable, Sendable {
             try upsert(current, updateBrowseProjection: true, in: database)
 
         case let .delete(_, current):
-            try Self.find(current.uri.description)
-                .delete()
-                .execute(database)
-            try CalendarEventBrowseProjection.delete(
-                uri: current.uri.description,
-                in: database
-            )
+            try deleteCanonical(uri: current.uri, sequence: current.sequence, in: database)
         }
     }
 
@@ -246,44 +240,7 @@ struct CommunityCalendarEventProjection: Codable, Equatable, Sendable {
         updateBrowseProjection: Bool,
         in database: Database
     ) throws {
-        var event: OME.CalendarEvent
-        let createdAt: Date
-        do {
-            let record = try decode(current.value)
-            event = try OME.CalendarEvent(
-                communityCalendarRecord: record,
-                uri: current.uri,
-                cid: current.cid
-            )
-            event.media = try artwork(current.value, uri: current.uri)
-            guard let eventCreatedAt = event.createdAt else {
-                throw CommunityCalendarEventHydrationError.invalidTimestamp(
-                    record.createdAt
-                )
-            }
-            createdAt = eventCreatedAt
-        } catch {
-            reportIssue(
-                error,
-                "Could not project community calendar event \(current.uri.description)."
-            )
-            return
-        }
-        let encodedEvent = try JSONEncoder().encode(event)
-        try Self.upsert {
-            Self(
-                uri: current.uri.description,
-                cid: current.cid.rawValue,
-                startsAt: event.startsAt,
-                createdAt: createdAt,
-                sequence: current.sequence,
-                event: encodedEvent
-            )
-        }
-        .execute(database)
-        if updateBrowseProjection {
-            try CalendarEventBrowseProjection.upsert(event, in: database)
-        }
+        try ingestCanonical(current, updateBrowseProjection: updateBrowseProjection, in: database)
     }
 
     /// Community Calendar records in the wild use AT URIs alongside web URLs in

@@ -10,7 +10,6 @@ extension OpenMusicEventAppViewStore {
     func rebuildCalendarEventBrowseProjectionIfNeeded(force: Bool = false) throws {
         let isInconsistent = try database.read { database in
             let sourceCount = try Event.all.fetchCount(database)
-                + CommunityCalendarEventProjection.all.fetchCount(database)
             let browseCount = try CalendarEventBrowseProjection.all.fetchCount(database)
             let searchCount = try Int.fetchOne(
                 database,
@@ -37,22 +36,10 @@ extension OpenMusicEventAppViewStore {
 
     func rebuildCalendarEventBrowseProjection() throws {
         try database.write { database in
-            let communityEvents = try CommunityCalendarEventProjection.all
-                .select(\.event)
-                .fetchAll(database)
-                .compactMap { try? JSONDecoder().decode(OME.CalendarEvent.self, from: $0) }
-
             try CalendarEventBrowseProjection.deleteAll(in: database)
             for event in try Event.all.fetchAll(database) {
                 try CalendarEventBrowseProjection.upsertCanonicalEvent(
                     id: event.id,
-                    deleteExistingSearchDocument: false,
-                    in: database
-                )
-            }
-            for event in communityEvents {
-                try CalendarEventBrowseProjection.upsert(
-                    event,
                     deleteExistingSearchDocument: false,
                     in: database
                 )
@@ -398,15 +385,16 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
             )
         try Self.upsert { browseRow }.execute(database)
         try CalendarMapEvent.synchronize(browseRow, now: now, in: database)
+        guard let rowID = try Self.find(event.uri.description).select(\.rowid).fetchOne(database) else {
+            throw CanonicalBackfillError.corruptRawRecord(event.uri.description)
+        }
 
         if deleteExistingSearchDocument {
-            try CalendarEventBrowseSearch
-                .where { $0.uri.eq(event.uri.description) }
-                .delete()
-                .execute(database)
+            try CalendarEventBrowseSearch.find(rowID).delete().execute(database)
         }
         try CalendarEventBrowseSearch.insert {
             CalendarEventBrowseSearch(
+                rowid: rowID,
                 uri: event.uri.description,
                 searchText: storedEvent.searchText(additionalSearchText)
             )
@@ -415,10 +403,9 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
     }
 
     static func delete(uri: String, in database: Database) throws {
-        try CalendarEventBrowseSearch
-            .where { $0.uri.eq(uri) }
-            .delete()
-            .execute(database)
+        if let rowID = try Self.find(uri).select(\.rowid).fetchOne(database) {
+            try CalendarEventBrowseSearch.find(rowID).delete().execute(database)
+        }
         try Self.find(uri).delete().execute(database)
     }
 
@@ -690,8 +677,26 @@ enum CalendarEventMapClusterer {
 
 @Table("calendarEventBrowseSearch")
 struct CalendarEventBrowseSearch: StructuredQueriesSQLiteCore.FTS5, Equatable, Sendable {
+    @Column(primaryKey: true) var rowid: Int
     var uri: String
     var searchText: String
+
+    static func registerKeyMigration(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Key browse search documents by browse rowid") { db in
+            try #sql("""
+                CREATE TEMP TABLE browseSearchKeyMigration AS
+                SELECT b.rowid AS id, s.uri, s.searchText
+                FROM \(quote: Self.tableName) s
+                JOIN \(quote: CalendarEventBrowseProjection.tableName) b ON b.uri = s.uri
+                """).execute(db)
+            try Self.delete().execute(db)
+            try #sql("""
+                INSERT INTO \(quote: Self.tableName) (rowid, uri, searchText)
+                SELECT id, uri, searchText FROM browseSearchKeyMigration
+                """).execute(db)
+            try #sql("DROP TABLE temp.browseSearchKeyMigration").execute(db)
+        }
+    }
 }
 
 enum CalendarEventBrowseSpatialIndex {

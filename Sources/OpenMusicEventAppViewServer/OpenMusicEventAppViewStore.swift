@@ -27,6 +27,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
         )
         try Self.migrate(database)
+        while try !backfillCommunityCalendarDomainBatch() {}
         try database.write { db in
             for publisher in communityCalendarExcludedPublishers {
                 try db.execute(sql: "INSERT OR IGNORE INTO \"\(CalendarPublisher.tableName)\" (did) VALUES (?)",
@@ -72,7 +73,9 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         AppViewIndexMigrations.register(into: &migrator)
         EventRecordMigrations.register(into: &migrator)
         CommunityCalendarEventProjection.registerMigration(into: &migrator)
+        CommunityCalendarDomainOutcome.registerMigration(into: &migrator)
         CalendarEventBrowseProjection.registerMigration(into: &migrator)
+        CalendarEventBrowseSearch.registerKeyMigration(into: &migrator)
         CalendarMapBuild.registerMigration(into: &migrator)
         CalendarPublisher.registerMigration(into: &migrator)
         CalendarPublisher.registerProfileMigration(into: &migrator)
